@@ -9,6 +9,7 @@ export function LoginPage() {
 
   const [devMode, setDevMode] = useState(false)
   const [devLoading, setDevLoading] = useState(false)
+  const [googleEnabled, setGoogleEnabled] = useState(false)
 
   // Redirect to home if already authenticated
   useEffect(() => {
@@ -17,7 +18,7 @@ export function LoginPage() {
     }
   }, [isLoading, user, navigate])
 
-  // Detect dev mode
+  // Detect dev mode and available providers
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -28,6 +29,18 @@ export function LoginPage() {
         }
       } catch {
         // Not in dev mode
+      }
+    })()
+    void (async () => {
+      try {
+        const res = await fetch('/api/auth/google', { method: 'HEAD', redirect: 'manual' })
+        // A redirect (302) means Google OAuth is configured
+        // A 400 means it's not configured
+        if (!cancelled && res.type === 'opaqueredirect') {
+          setGoogleEnabled(true)
+        }
+      } catch {
+        // Google OAuth not available
       }
     })()
     return () => {
@@ -70,6 +83,18 @@ export function LoginPage() {
           <LogIn size={18} />
           Login with GitHub
         </a>
+
+        {googleEnabled ? (
+          <>
+            <div className="login-divider">
+              <span>or</span>
+            </div>
+            <a className="primary-button login-button" href="/api/auth/google">
+              <LogIn size={18} />
+              Login with Google
+            </a>
+          </>
+        ) : null}
 
         {devMode ? (
           <button

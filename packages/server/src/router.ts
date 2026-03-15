@@ -17,10 +17,13 @@ import {
   getGithubOAuthUrl,
   exchangeGithubCode,
   getGithubUser,
+  getGoogleOAuthUrl,
+  exchangeGoogleCode,
+  getGoogleUser,
 } from './auth.js'
 import type { JwtPayload } from './auth.js'
 import {
-  findUserByGithubId,
+  findUserByProvider,
   createUser,
   countUsers,
   findUserById,
@@ -37,6 +40,8 @@ interface ServerConfig {
   jwtSecret: string
   githubClientId: string
   githubClientSecret: string
+  googleClientId: string
+  googleClientSecret: string
   baseUrl: string
   devMode: boolean
 }
@@ -92,20 +97,70 @@ export function registerRoutes(
       const accessToken = await exchangeGithubCode(config.githubClientId, config.githubClientSecret, code)
       const ghUser = await getGithubUser(accessToken)
 
-      let user = findUserByGithubId(db, ghUser.id)
+      let user = findUserByProvider(db, 'github', String(ghUser.id))
       if (!user) {
         // First user becomes admin
         const isFirst = countUsers(db) === 0
         user = createUser(db, {
-          githubId: ghUser.id,
-          githubLogin: ghUser.login,
+          provider: 'github',
+          providerId: String(ghUser.id),
+          displayName: ghUser.login,
           avatarUrl: ghUser.avatar_url,
           role: isFirst ? 'admin' : 'user',
         })
       }
 
       const jwt = signJwt(
-        { userId: user.id, githubLogin: user.github_login, role: user.role },
+        { userId: user.id, displayName: user.display_name, role: user.role },
+        config.jwtSecret
+      )
+
+      return reply.redirect(`${config.baseUrl}/?token=${jwt}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      return reply.status(500).send({ error: message })
+    }
+  })
+
+  // --- Google OAuth routes ---
+
+  app.get('/api/auth/google', async (_request, reply) => {
+    if (!config.googleClientId || !config.googleClientSecret) {
+      return reply.status(400).send({ error: 'Google OAuth is not configured' })
+    }
+    const url = getGoogleOAuthUrl(config.googleClientId, config.baseUrl)
+    return reply.redirect(url)
+  })
+
+  app.get('/api/auth/google/callback', async (request, reply) => {
+    if (!config.googleClientId || !config.googleClientSecret) {
+      return reply.status(400).send({ error: 'Google OAuth is not configured' })
+    }
+
+    const { code } = request.query as { code?: string }
+    if (!code) {
+      return reply.status(400).send({ error: 'Missing code parameter' })
+    }
+
+    try {
+      const accessToken = await exchangeGoogleCode(config.googleClientId, config.googleClientSecret, code, config.baseUrl)
+      const googleUser = await getGoogleUser(accessToken)
+
+      let user = findUserByProvider(db, 'google', googleUser.id)
+      if (!user) {
+        // First user becomes admin
+        const isFirst = countUsers(db) === 0
+        user = createUser(db, {
+          provider: 'google',
+          providerId: googleUser.id,
+          displayName: googleUser.name || googleUser.email,
+          avatarUrl: googleUser.picture || null,
+          role: isFirst ? 'admin' : 'user',
+        })
+      }
+
+      const jwt = signJwt(
+        { userId: user.id, displayName: user.display_name, role: user.role },
         config.jwtSecret
       )
 
@@ -122,18 +177,19 @@ export function registerRoutes(
     }
 
     // Find or create dev user
-    let user = findUserByGithubId(db, 0)
+    let user = findUserByProvider(db, 'dev', '0')
     if (!user) {
       user = createUser(db, {
-        githubId: 0,
-        githubLogin: 'dev-admin',
+        provider: 'dev',
+        providerId: '0',
+        displayName: 'dev-admin',
         avatarUrl: null,
         role: 'admin',
       })
     }
 
     const jwt = signJwt(
-      { userId: user.id, githubLogin: user.github_login, role: user.role },
+      { userId: user.id, displayName: user.display_name, role: user.role },
       config.jwtSecret
     )
 
@@ -148,7 +204,7 @@ export function registerRoutes(
 
     return {
       id: user.id,
-      githubLogin: user.github_login,
+      displayName: user.display_name,
       avatarUrl: user.avatar_url,
       role: user.role,
     }

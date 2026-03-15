@@ -21,6 +21,8 @@ const PORT = parseInt(process.env.PORT ?? '4317', 10)
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret'
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? ''
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET ?? ''
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? ''
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? ''
 const WEBMUX_BASE_URL = process.env.WEBMUX_BASE_URL ?? `http://localhost:${PORT}`
 const DEV_MODE = process.env.WEBMUX_DEV_MODE === 'true'
 const DATABASE_PATH = process.env.DATABASE_PATH ?? './webmux.db'
@@ -55,6 +57,8 @@ registerRoutes(app, db, hub, {
   jwtSecret: JWT_SECRET,
   githubClientId: GITHUB_CLIENT_ID,
   githubClientSecret: GITHUB_CLIENT_SECRET,
+  googleClientId: GOOGLE_CLIENT_ID,
+  googleClientSecret: GOOGLE_CLIENT_SECRET,
   baseUrl: WEBMUX_BASE_URL,
   devMode: DEV_MODE,
 })

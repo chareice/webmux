@@ -885,6 +885,23 @@
   margin: 0;
 }
 
+.login-divider {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+
 /* ── Agents page ───────────────────────────────────── */
 
 .agents-page {

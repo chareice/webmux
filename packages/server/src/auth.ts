@@ -5,7 +5,7 @@ const BCRYPT_ROUNDS = 10
 
 export interface JwtPayload {
   userId: string
-  githubLogin: string
+  displayName: string
   role: string
 }
 
@@ -82,4 +82,69 @@ export async function getGithubUser(accessToken: string): Promise<GithubUser> {
 
   const data = (await response.json()) as GithubUser
   return { id: data.id, login: data.login, avatar_url: data.avatar_url }
+}
+
+// --- Google OAuth ---
+
+export interface GoogleUser {
+  id: string
+  email: string
+  name: string
+  picture: string
+}
+
+export function getGoogleOAuthUrl(clientId: string, baseUrl: string): string {
+  const redirectUri = `${baseUrl}/api/auth/google/callback`
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+  })
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
+}
+
+export async function exchangeGoogleCode(
+  clientId: string,
+  clientSecret: string,
+  code: string,
+  baseUrl: string
+): Promise<string> {
+  const redirectUri = `${baseUrl}/api/auth/google/callback`
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri,
+    }),
+  })
+
+  const data = (await response.json()) as { access_token?: string; error?: string; error_description?: string }
+
+  if (data.error || !data.access_token) {
+    throw new Error(`Google OAuth error: ${data.error_description ?? data.error ?? 'no access_token'}`)
+  }
+
+  return data.access_token
+}
+
+export async function getGoogleUser(accessToken: string): Promise<GoogleUser> {
+  const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Google API error: ${response.status} ${response.statusText}`)
+  }
+
+  const data = (await response.json()) as GoogleUser
+  return { id: data.id, email: data.email, name: data.name, picture: data.picture }
 }

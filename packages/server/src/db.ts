@@ -3,8 +3,9 @@ import crypto from 'node:crypto'
 
 export interface UserRow {
   id: string
-  github_id: number
-  github_login: string
+  provider: string
+  provider_id: string
+  display_name: string
   avatar_url: string | null
   role: string
   created_at: number
@@ -35,14 +36,24 @@ export function initDb(dbPath: string): Database.Database {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
+  // If old schema exists (github_id column), drop and recreate
+  const tableInfo = db.pragma('table_info(users)') as { name: string }[]
+  if (tableInfo.some((col) => col.name === 'github_id')) {
+    db.exec('DROP TABLE IF EXISTS registration_tokens')
+    db.exec('DROP TABLE IF EXISTS agents')
+    db.exec('DROP TABLE IF EXISTS users')
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id              TEXT PRIMARY KEY,
-      github_id       INTEGER UNIQUE NOT NULL,
-      github_login    TEXT NOT NULL,
+      provider        TEXT NOT NULL,
+      provider_id     TEXT NOT NULL,
+      display_name    TEXT NOT NULL,
       avatar_url      TEXT,
       role            TEXT NOT NULL DEFAULT 'user',
-      created_at      INTEGER NOT NULL
+      created_at      INTEGER NOT NULL,
+      UNIQUE(provider, provider_id)
     );
 
     CREATE TABLE IF NOT EXISTS agents (
@@ -70,8 +81,8 @@ export function initDb(dbPath: string): Database.Database {
 
 // --- Users ---
 
-export function findUserByGithubId(db: Database.Database, githubId: number): UserRow | undefined {
-  return db.prepare('SELECT * FROM users WHERE github_id = ?').get(githubId) as UserRow | undefined
+export function findUserByProvider(db: Database.Database, provider: string, providerId: string): UserRow | undefined {
+  return db.prepare('SELECT * FROM users WHERE provider = ? AND provider_id = ?').get(provider, providerId) as UserRow | undefined
 }
 
 export function findUserById(db: Database.Database, userId: string): UserRow | undefined {
@@ -80,17 +91,17 @@ export function findUserById(db: Database.Database, userId: string): UserRow | u
 
 export function createUser(
   db: Database.Database,
-  opts: { githubId: number; githubLogin: string; avatarUrl: string | null; role?: string }
+  opts: { provider: string; providerId: string; displayName: string; avatarUrl: string | null; role?: string }
 ): UserRow {
   const id = crypto.randomUUID()
   const now = Date.now()
   const role = opts.role ?? 'user'
 
   db.prepare(
-    'INSERT INTO users (id, github_id, github_login, avatar_url, role, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, opts.githubId, opts.githubLogin, opts.avatarUrl, role, now)
+    'INSERT INTO users (id, provider, provider_id, display_name, avatar_url, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, opts.provider, opts.providerId, opts.displayName, opts.avatarUrl, role, now)
 
-  return { id, github_id: opts.githubId, github_login: opts.githubLogin, avatar_url: opts.avatarUrl, role, created_at: now }
+  return { id, provider: opts.provider, provider_id: opts.providerId, display_name: opts.displayName, avatar_url: opts.avatarUrl, role, created_at: now }
 }
 
 export function countUsers(db: Database.Database): number {

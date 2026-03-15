@@ -12,7 +12,7 @@ const JWT_STORAGE_KEY = 'webmux:jwt'
 
 interface User {
   id: string
-  githubLogin: string
+  displayName: string
   avatarUrl: string | null
   role: string
 }

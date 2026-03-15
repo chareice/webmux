@@ -39,12 +39,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="top-bar-right">
           {user.avatarUrl ? (
             <img
-              alt={user.githubLogin}
+              alt={user.displayName}
               className="top-bar-avatar"
               src={user.avatarUrl}
             />
           ) : null}
-          <span className="top-bar-username">{user.githubLogin}</span>
+          <span className="top-bar-username">{user.displayName}</span>
           <button
             className="secondary-button top-bar-logout"
             onClick={logout}
