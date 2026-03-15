@@ -235,10 +235,41 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
       }))
     }
 
+    // Handle mobile IME composition correctly.
+    // Mobile keyboards fire onData with the FULL composed string on each update,
+    // not just the new character. We track what was already sent to only send the delta.
+    let composing = false
+    let lastCompositionText = ''
+
+    const textarea = container.querySelector('textarea')
+    if (textarea) {
+      textarea.addEventListener('compositionstart', () => {
+        composing = true
+        lastCompositionText = ''
+      })
+      textarea.addEventListener('compositionend', () => {
+        composing = false
+        lastCompositionText = ''
+      })
+    }
+
     const disposeInput = terminal.onData((data) => {
       const socket = socketRef.current
       if (!socket || socket.readyState !== WebSocket.OPEN) return
-      socket.send(JSON.stringify({ type: 'input', data }))
+
+      if (composing) {
+        // During composition, onData sends the full composed text each time.
+        // Only send the new part (delta).
+        const delta = data.startsWith(lastCompositionText)
+          ? data.slice(lastCompositionText.length)
+          : data
+        lastCompositionText = data
+        if (delta) {
+          socket.send(JSON.stringify({ type: 'input', data: delta }))
+        }
+      } else {
+        socket.send(JSON.stringify({ type: 'input', data }))
+      }
     })
 
     const connect = () => {
