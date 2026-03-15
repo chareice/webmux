@@ -1,110 +1,91 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Webmux Mobile
 
-# Getting Started
+React Native client for Webmux run management.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## App Identity
 
-## Step 1: Start Metro
+- Android application id: `site.chareice.webmux`
+- iOS bundle id: `site.chareice.webmux`
+- Display name: `Webmux`
+- Deep link callback: `webmux://auth`
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Local Development
 
-To start the Metro dev server, run the following command from the root of your React Native project:
-
-```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
-```
-
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
+Install dependencies from the mobile package:
 
 ```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+mise install
+pnpm install --frozen-lockfile --ignore-workspace
 ```
 
-### iOS
+Run Metro:
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+```sh
+pnpm start
+```
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+Run on Android:
+
+```sh
+pnpm android
+```
+
+Run on iOS:
 
 ```sh
 bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
 bundle exec pod install
+pnpm ios
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+## Android Release Artifacts
 
-```sh
-# Using npm
-npm run ios
+Android release builds expect Java 17. The repository includes a root
+`.mise.toml` so `mise install` can provision the matching JDK locally.
 
-# OR using Yarn
-yarn ios
-```
+GitHub Releases trigger `.github/workflows/mobile-release.yml`.
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+The workflow builds both:
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+- `webmux-<tag>.apk` for direct sideload installs
+- `webmux-<tag>.aab` for Google Play upload
 
-## Release APK
+Release tags must use `vX.Y.Z` or `X.Y.Z`. The workflow derives:
 
-GitHub Releases can attach an Android APK through the repository workflow in `.github/workflows/mobile-release.yml`.
+- `versionName` from the tag, for example `1.2.3`
+- `versionCode` from `major * 1000000 + minor * 1000 + patch`
 
-The workflow builds `android/app/build/outputs/apk/release/app-release.apk` and uploads it to the published GitHub Release as `webmux-<tag>.apk`.
+Manual workflow runs still work, but they produce internal-test versions like
+`0.0.<run_number>`.
 
-By default the project falls back to the checked-in debug keystore so the APK stays installable for internal testing. For a real production signing key, configure these repository secrets before publishing a Release:
+## Android Signing
+
+Without signing secrets, release builds fall back to the checked-in debug
+keystore. That is only suitable for internal testing.
+
+Configure these repository secrets before publishing a real production release:
 
 - `ANDROID_KEYSTORE_BASE64`
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
 
-## Step 3: Modify your app
+## Production Release Checklist
 
-Now that you have successfully run the app, let's make changes!
+Before shipping to users, make sure all of these are in place:
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+1. Create a real Android release keystore and store the four signing secrets in GitHub.
+2. Publish a GitHub Release with a semantic version tag such as `v1.0.0`.
+3. Download the generated APK for direct installs, or upload the generated AAB to Google Play.
+4. Replace the default app icons and screenshots with production assets.
+5. Fill in any store metadata, privacy disclosures, and support URLs before submitting to app stores.
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+## iOS Production Status
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+iOS already uses the production bundle id, but archive/TestFlight publishing is
+not automated yet. To ship iOS, you still need:
 
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+- an Apple Developer team
+- signing certificates and provisioning profiles
+- an App Store Connect app
+- an archive/export workflow or Xcode-based release process

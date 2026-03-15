@@ -44,6 +44,38 @@ jobs:
       - name: Install mobile dependencies
         run: pnpm install --frozen-lockfile --ignore-workspace
 
+      - name: Derive release version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            raw_tag="${{ github.event.release.tag_name }}"
+            version_name="${raw_tag#v}"
+
+            if ! printf '%s' "$version_name" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Release tag must look like v1.2.3 or 1.2.3, got: $raw_tag" >&2
+              exit 1
+            fi
+
+            IFS='.' read -r major minor patch <<< "$version_name"
+            version_code=$((major * 1000000 + minor * 1000 + patch))
+            asset_suffix="$raw_tag"
+          else
+            version_name="0.0.${{ github.run_number }}"
+            version_code="${{ github.run_number }}"
+            asset_suffix="manual-${{ github.run_number }}"
+          fi
+
+          {
+            echo "WEBMUX_MOBILE_VERSION_NAME=$version_name"
+            echo "WEBMUX_MOBILE_VERSION_CODE=$version_code"
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "version_name=$version_name"
+            echo "version_code=$version_code"
+            echo "asset_suffix=$asset_suffix"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Write Android SDK path
         run: |
           sdk_path="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
@@ -64,31 +96,40 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease bundleRelease
 
-      - name: Prepare APK asset
+      - name: Prepare Android assets
         id: asset
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            suffix="${{ github.event.release.tag_name }}"
-          else
-            suffix="manual-${{ github.run_number }}"
-          fi
+          suffix="${{ steps.version.outputs.asset_suffix }}"
+          apk_name="webmux-${suffix}.apk"
+          apk_path="$PWD/$apk_name"
+          aab_name="webmux-${suffix}.aab"
+          aab_path="$PWD/$aab_name"
 
-          asset_name="webmux-${suffix}.apk"
-          asset_path="$PWD/$asset_name"
-          cp android/app/build/outputs/apk/release/app-release.apk "$asset_path"
+          cp android/app/build/outputs/apk/release/app-release.apk "$apk_path"
+          cp android/app/build/outputs/bundle/release/app-release.aab "$aab_path"
 
-          echo "name=$asset_name" >> "$GITHUB_OUTPUT"
-          echo "path=$asset_path" >> "$GITHUB_OUTPUT"
+          {
+            echo "apk_name=$apk_name"
+            echo "apk_path=$apk_path"
+            echo "aab_name=$aab_name"
+            echo "aab_path=$aab_path"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.asset.outputs.name }}
-          path: ${{ steps.asset.outputs.path }}
+          name: webmux-android-${{ steps.version.outputs.asset_suffix }}
+          path: |
+            ${{ steps.asset.outputs.apk_path }}
+            ${{ steps.asset.outputs.aab_path }}
 
-      - name: Upload APK to GitHub release
+      - name: Upload Android assets to GitHub release
         if: ${{ github.event_name == 'release' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" "${{ steps.asset.outputs.path }}#${{ steps.asset.outputs.name }}" --clobber
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "${{ steps.asset.outputs.apk_path }}#${{ steps.asset.outputs.apk_name }}" \
+            "${{ steps.asset.outputs.aab_path }}#${{ steps.asset.outputs.aab_name }}" \
+            --clobber

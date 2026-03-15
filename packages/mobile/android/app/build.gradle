@@ -64,6 +64,18 @@ def releaseStorePassword = findProperty("WEBMUX_UPLOAD_STORE_PASSWORD") ?: Syste
 def releaseKeyAlias = findProperty("WEBMUX_UPLOAD_KEY_ALIAS") ?: System.getenv("WEBMUX_UPLOAD_KEY_ALIAS")
 def releaseKeyPassword = findProperty("WEBMUX_UPLOAD_KEY_PASSWORD") ?: System.getenv("WEBMUX_UPLOAD_KEY_PASSWORD")
 def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+def mobileVersionName = findProperty("WEBMUX_MOBILE_VERSION_NAME") ?: System.getenv("WEBMUX_MOBILE_VERSION_NAME") ?: "1.0.0"
+def mobileVersionCodeValue = findProperty("WEBMUX_MOBILE_VERSION_CODE") ?: System.getenv("WEBMUX_MOBILE_VERSION_CODE") ?: "1"
+
+def parseMobileVersionCode = { value ->
+    try {
+        return Integer.parseInt(value.toString())
+    } catch (NumberFormatException ignored) {
+        throw new GradleException("WEBMUX_MOBILE_VERSION_CODE must be an integer, got: ${value}")
+    }
+}
+
+def mobileVersionCode = parseMobileVersionCode(mobileVersionCodeValue)
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -88,8 +100,8 @@ android {
         applicationId "site.chareice.webmux"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode mobileVersionCode
+        versionName mobileVersionName
     }
     signingConfigs {
         debug {
