@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n web,server \"pnpm --filter @webmux/web dev\" \"pnpm --filter @webmux/server dev\"",
+    "dev": "concurrently -k -n web,server \"cd packages/web && pnpm dev\" \"cd packages/server && WEBMUX_DEV_MODE=true JWT_SECRET=dev-secret pnpm dev\"",
     "build": "pnpm -r build",
     "typecheck": "tsc -b",
     "lint": "eslint packages/",
