@@ -67,7 +67,23 @@ export function buildApp(options: BuildAppOptions) {
     })
   }
 
+  // Fetch latest agent version from npm and refresh every hour
+  void refreshLatestAgentVersion(hub)
+  setInterval(() => { void refreshLatestAgentVersion(hub) }, 60 * 60 * 1000)
+
   return { app, db, hub }
+}
+
+async function refreshLatestAgentVersion(hub: AgentHub): Promise<void> {
+  try {
+    const res = await fetch('https://registry.npmjs.org/@webmux/agent/latest')
+    if (res.ok) {
+      const data = (await res.json()) as { version: string }
+      hub.latestAgentVersion = data.version
+    }
+  } catch {
+    // Ignore — will retry in an hour
+  }
 }
 
 function resolveWebDistPath(): string | null {

@@ -44,6 +44,7 @@ export class AgentHub {
   private eventClients: EventClient[] = []
   private heartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private pendingCommands = new Map<string, PendingCommand<unknown>>()
+  latestAgentVersion: string | null = null
 
   handleConnection(socket: WebSocket, db: Database): void {
     let authenticated = false
@@ -151,7 +152,7 @@ export class AgentHub {
     updateAgentStatus(db, agentId, 'online')
     updateAgentLastSeen(db, agentId)
 
-    const msg: ServerToAgentMessage = { type: 'auth-ok' }
+    const msg: ServerToAgentMessage = { type: 'auth-ok', latestVersion: this.latestAgentVersion ?? undefined }
     socket.send(JSON.stringify(msg))
 
     return true

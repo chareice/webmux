@@ -18,7 +18,7 @@ export interface AgentInfo {
 
 // Agent → Server
 export type AgentMessage =
-  | { type: 'auth'; agentId: string; agentSecret: string }
+  | { type: 'auth'; agentId: string; agentSecret: string; version?: string }
   | { type: 'heartbeat' }
   | { type: 'sessions-sync'; sessions: SessionSummary[] }
   | { type: 'command-result'; requestId: string; ok: true; session?: SessionSummary }
@@ -30,7 +30,7 @@ export type AgentMessage =
 
 // Server → Agent
 export type ServerToAgentMessage =
-  | { type: 'auth-ok' }
+  | { type: 'auth-ok'; latestVersion?: string }
   | { type: 'auth-fail'; message: string }
   | { type: 'sessions-list' }
   | { type: 'terminal-attach'; browserId: string; sessionName: string; cols: number; rows: number }

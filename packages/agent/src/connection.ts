@@ -1,9 +1,11 @@
+import { execSync } from 'node:child_process'
 import WebSocket from 'ws'
 
 import type { AgentMessage, ServerToAgentMessage, SessionSummary } from '@webmux/shared'
 import type { TmuxClient } from './tmux.js'
 import { createTerminalBridge, type TerminalBridge } from './terminal.js'
 
+const AGENT_VERSION = '0.1.4'
 const HEARTBEAT_INTERVAL_MS = 30_000
 const SESSION_SYNC_INTERVAL_MS = 15_000
 const INITIAL_RECONNECT_DELAY_MS = 1_000
@@ -68,7 +70,7 @@ export class AgentConnection {
     ws.on('open', () => {
       console.log('[agent] WebSocket connected, authenticating...')
       this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS
-      this.sendMessage({ type: 'auth', agentId: this.agentId, agentSecret: this.agentSecret })
+      this.sendMessage({ type: 'auth', agentId: this.agentId, agentSecret: this.agentSecret, version: AGENT_VERSION })
     })
 
     ws.on('message', (raw: WebSocket.RawData) => {
@@ -98,6 +100,11 @@ export class AgentConnection {
     switch (msg.type) {
       case 'auth-ok':
         console.log('[agent] Authenticated successfully')
+        if (msg.latestVersion && msg.latestVersion !== AGENT_VERSION) {
+          console.log(`[agent] Update available: ${AGENT_VERSION} → ${msg.latestVersion}`)
+          this.selfUpdate(msg.latestVersion)
+          return
+        }
         this.startHeartbeat()
         this.startSessionSync()
         this.syncSessions()
@@ -246,6 +253,25 @@ export class AgentConnection {
       console.error(`[agent] Failed to kill session "${name}":`, message)
       this.sendMessage({ type: 'command-result', requestId, ok: false, error: message })
     }
+  }
+
+  private selfUpdate(targetVersion: string): void {
+    console.log(`[agent] Installing @webmux/agent@${targetVersion}...`)
+    try {
+      execSync(`npm install -g @webmux/agent@${targetVersion}`, { stdio: 'inherit' })
+      console.log('[agent] Update installed. Restarting...')
+    } catch (err) {
+      console.error('[agent] Update failed:', err instanceof Error ? err.message : err)
+      console.log('[agent] Continuing with current version')
+      this.startHeartbeat()
+      this.startSessionSync()
+      this.syncSessions()
+      return
+    }
+
+    // Exit cleanly — systemd will restart with the new version
+    this.stop()
+    process.exit(0)
   }
 
   private sendMessage(msg: AgentMessage): void {
