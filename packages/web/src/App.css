@@ -1174,8 +1174,14 @@
   line-height: 1.6;
 }
 
-.copy-button {
+.registration-actions {
+  display: flex;
+  gap: 0.35rem;
   margin-top: 0.5rem;
+}
+
+.copy-button {
+  flex: 1;
 }
 
 .modal-submit-button,

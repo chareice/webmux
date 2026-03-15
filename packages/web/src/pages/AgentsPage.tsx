@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Copy,
@@ -7,6 +7,7 @@ import {
   Monitor,
   Pencil,
   Plus,
+  RefreshCcw,
   Trash2,
   X,
 } from 'lucide-react'
@@ -19,6 +20,11 @@ import type {
 
 import { fetchApi } from '../auth.tsx'
 
+interface CachedToken {
+  token: string
+  expiresAt: number
+}
+
 export function AgentsPage() {
   const navigate = useNavigate()
 
@@ -29,8 +35,9 @@ export function AgentsPage() {
   // Add-agent modal
   const [modalOpen, setModalOpen] = useState(false)
   const [registering, setRegistering] = useState(false)
-  const [registrationCommand, setRegistrationCommand] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const cachedTokenRef = useRef<CachedToken | null>(null)
+  const [registrationCommand, setRegistrationCommand] = useState<string | null>(null)
 
   // Rename
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -53,7 +60,12 @@ export function AgentsPage() {
     void loadAgents()
   }, [loadAgents])
 
-  const handleAddAgent = async () => {
+  const buildCommand = (token: string) => {
+    const baseUrl = window.location.origin
+    return `npx @webmux/agent register \\\n  --server ${baseUrl} \\\n  --token ${token}`
+  }
+
+  const fetchNewToken = async () => {
     setRegistering(true)
     setError(null)
     try {
@@ -64,15 +76,37 @@ export function AgentsPage() {
       })
       if (!res.ok) throw new Error(await res.text())
       const data = (await res.json()) as CreateRegistrationTokenResponse
-      const baseUrl = window.location.origin
-      setRegistrationCommand(
-        `npx @webmux/agent register \\\n  --server ${baseUrl} \\\n  --token ${data.token}`,
-      )
+      cachedTokenRef.current = { token: data.token, expiresAt: data.expiresAt }
+      setRegistrationCommand(buildCommand(data.token))
     } catch (err) {
       setError((err as Error).message)
     } finally {
       setRegistering(false)
     }
+  }
+
+  const openModal = () => {
+    setModalOpen(true)
+    setCopied(false)
+
+    // Reuse cached token if still valid (with 1 min buffer)
+    const cached = cachedTokenRef.current
+    if (cached && cached.expiresAt > Date.now() + 60000) {
+      setRegistrationCommand(buildCommand(cached.token))
+      return
+    }
+
+    // Otherwise fetch a new one
+    cachedTokenRef.current = null
+    setRegistrationCommand(null)
+    void fetchNewToken()
+  }
+
+  const handleRegenerate = () => {
+    cachedTokenRef.current = null
+    setRegistrationCommand(null)
+    setCopied(false)
+    void fetchNewToken()
   }
 
   const handleDeleteAgent = async (agent: AgentInfo) => {
@@ -107,7 +141,6 @@ export function AgentsPage() {
 
   const closeModal = () => {
     setModalOpen(false)
-    setRegistrationCommand(null)
     setCopied(false)
     void loadAgents()
   }
@@ -134,14 +167,7 @@ export function AgentsPage() {
     <div className="agents-page">
       <div className="agents-header">
         <h1>Your Agents</h1>
-        <button
-          className="primary-button"
-          onClick={() => {
-            setModalOpen(true)
-            void handleAddAgent()
-          }}
-          type="button"
-        >
+        <button className="primary-button" onClick={openModal} type="button">
           <Plus size={16} />
           Add Agent
         </button>
@@ -157,14 +183,7 @@ export function AgentsPage() {
             Add an agent to connect a machine. Agents run on your servers and
             provide terminal access through webmux.
           </p>
-          <button
-            className="primary-button"
-            onClick={() => {
-              setModalOpen(true)
-              void handleAddAgent()
-            }}
-            type="button"
-          >
+          <button className="primary-button" onClick={openModal} type="button">
             <Plus size={16} />
             Add your first agent
           </button>
@@ -277,11 +296,7 @@ export function AgentsPage() {
 
       {/* Add Agent Modal */}
       {modalOpen ? (
-        <div
-          className="modal-overlay"
-          onClick={closeModal}
-          role="presentation"
-        >
+        <div className="modal-overlay" onClick={closeModal} role="presentation">
           <div
             className="modal-container"
             onClick={(e) => e.stopPropagation()}
@@ -313,16 +328,24 @@ export function AgentsPage() {
                   </p>
                   <div className="registration-command">
                     <pre>{registrationCommand}</pre>
-                    <button
-                      className="secondary-button copy-button"
-                      onClick={() => {
-                        void copyCommand()
-                      }}
-                      type="button"
-                    >
-                      {copied ? <Check size={14} /> : <Copy size={14} />}
-                      {copied ? 'Copied' : 'Copy'}
-                    </button>
+                    <div className="registration-actions">
+                      <button
+                        className="secondary-button copy-button"
+                        onClick={() => { void copyCommand() }}
+                        type="button"
+                      >
+                        {copied ? <Check size={14} /> : <Copy size={14} />}
+                        {copied ? 'Copied' : 'Copy'}
+                      </button>
+                      <button
+                        className="secondary-button"
+                        onClick={handleRegenerate}
+                        type="button"
+                        title="Generate a new token"
+                      >
+                        <RefreshCcw size={14} />
+                      </button>
+                    </div>
                   </div>
                   <p className="field-hint">
                     The agent name defaults to the machine's hostname. Use --name to override.
