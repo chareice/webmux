@@ -63,6 +63,19 @@ pnpm build
 pnpm start
 ```
 
+## Deploy with Docker
+
+Pushes to `main` publish a server image to `ghcr.io/chareice/webmux-server`.
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+The checked-in `docker-compose.yml` follows the same image-based deployment model used on NAS and is compatible with Watchtower.
+
+If the repository stays private, the first GHCR package will also be private by default. In that case the server host must authenticate to `ghcr.io` before `docker compose pull`, and Watchtower also needs access to the same registry credentials. If you switch the GHCR package visibility to public, NAS can pull updates anonymously and Watchtower can update it without extra secrets.
+
 ## Environment variables
 
 ```bash
@@ -141,4 +154,5 @@ pnpm build
 - Session names are intentionally constrained to a small safe charset.
 - Session list updates are pushed immediately on create, kill, attach, and detach, with periodic agent refresh to keep previews and activity markers current.
 - Agent upgrades are server-owned policy, not npm `latest`. Set `WEBMUX_AGENT_TARGET_VERSION` and `WEBMUX_AGENT_MIN_VERSION` during server deploys when you want to roll out or enforce a new agent release.
+- The container publish workflow pushes `ghcr.io/chareice/webmux-server:main`, `:latest`, and `:sha-<commit>` on every `main` push.
 - The current UI is optimized for single-pane attach flows. Multi-pane map views, thumbnails, auth policies, and ACLs are still future work.

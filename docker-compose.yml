@@ -1,20 +1,26 @@
 services:
   server:
-    image: node:22-slim
+    image: ${WEBMUX_SERVER_IMAGE:-ghcr.io/chareice/webmux-server:main}
+    pull_policy: always
     restart: unless-stopped
-    working_dir: /app
-    command: sh -c "npm install -g @webmux/server && webmux-server"
     ports:
       - "127.0.0.1:4317:4317"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     volumes:
       - webmux-data:/app/data
     environment:
-      - PORT=4317
-      - DATABASE_PATH=/app/data/webmux.db
-      - JWT_SECRET=${JWT_SECRET}
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
-      - WEBMUX_BASE_URL=${WEBMUX_BASE_URL}
+      PORT: "4317"
+      DATABASE_PATH: "/app/data/webmux.db"
+      JWT_SECRET: "${JWT_SECRET}"
+      GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID}"
+      GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      WEBMUX_BASE_URL: "${WEBMUX_BASE_URL}"
+      WEBMUX_AGENT_PACKAGE_NAME: "${WEBMUX_AGENT_PACKAGE_NAME:-@webmux/agent}"
+      WEBMUX_AGENT_TARGET_VERSION: "${WEBMUX_AGENT_TARGET_VERSION:-}"
+      WEBMUX_AGENT_MIN_VERSION: "${WEBMUX_AGENT_MIN_VERSION:-}"
 
 volumes:
   webmux-data:
