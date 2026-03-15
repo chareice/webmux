@@ -66,9 +66,6 @@ importers:
       '@fastify/static':
         specifier: ^9.0.0
         version: 9.0.0
-      '@webmux/shared':
-        specifier: workspace:*
-        version: link:../shared
       bcrypt:
         specifier: ^6.0.0
         version: 6.0.0
@@ -100,6 +97,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      '@webmux/shared':
+        specifier: workspace:*
+        version: link:../shared
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)
