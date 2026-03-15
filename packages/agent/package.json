@@ -1,23 +1,25 @@
 {
-  "name": "@webmux/agent",
-  "version": "0.0.0",
-  "private": true,
+  "name": "webmux-agent",
+  "version": "0.0.1",
   "type": "module",
   "bin": {
     "webmux-agent": "./dist/cli.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "build": "tsup src/cli.ts --format esm --out-dir dist --target node20",
+    "build": "tsup",
     "test": "vitest run"
   },
   "dependencies": {
-    "@webmux/shared": "workspace:*",
     "commander": "^14.0.0",
     "node-pty": "^1.1.0",
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@webmux/shared": "workspace:*",
     "@types/ws": "^8.18.1",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
