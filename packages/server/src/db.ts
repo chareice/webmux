@@ -145,6 +145,10 @@ export function deleteAgent(db: Database.Database, agentId: string): void {
   db.prepare('DELETE FROM agents WHERE id = ?').run(agentId)
 }
 
+export function renameAgent(db: Database.Database, agentId: string, name: string): void {
+  db.prepare('UPDATE agents SET name = ? WHERE id = ?').run(name, agentId)
+}
+
 export function updateAgentStatus(db: Database.Database, agentId: string, status: 'online' | 'offline'): void {
   db.prepare('UPDATE agents SET status = ? WHERE id = ?').run(status, agentId)
 }

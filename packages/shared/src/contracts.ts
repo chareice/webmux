@@ -74,7 +74,7 @@ export interface CreateRegistrationTokenResponse {
 
 export interface RegisterAgentRequest {
   token: string
-  name: string
+  name?: string
 }
 
 export interface RegisterAgentResponse {

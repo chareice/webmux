@@ -1,3 +1,4 @@
+import os from 'node:os'
 import { Command } from 'commander'
 
 import type { RegisterAgentRequest, RegisterAgentResponse } from '@webmux/shared'
@@ -17,15 +18,17 @@ program
   .description('Register this agent with a webmux server')
   .requiredOption('--server <url>', 'Server URL (e.g. https://webmux.example.com)')
   .requiredOption('--token <token>', 'One-time registration token from the server')
-  .requiredOption('--name <name>', 'Display name for this agent')
-  .action(async (opts: { server: string; token: string; name: string }) => {
+  .option('--name <name>', 'Display name for this agent (defaults to hostname)')
+  .action(async (opts: { server: string; token: string; name?: string }) => {
     const serverUrl = opts.server.replace(/\/+$/, '')
+    const agentName = opts.name ?? os.hostname()
 
     console.log(`[agent] Registering with server ${serverUrl}...`)
+    console.log(`[agent] Agent name: ${agentName}`)
 
     const body: RegisterAgentRequest = {
       token: opts.token,
-      name: opts.name,
+      name: agentName,
     }
 
     let response: Response
@@ -59,7 +62,7 @@ program
       serverUrl,
       agentId: result.agentId,
       agentSecret: result.agentSecret,
-      name: opts.name,
+      name: agentName,
     })
 
     console.log(`[agent] Registration successful!`)

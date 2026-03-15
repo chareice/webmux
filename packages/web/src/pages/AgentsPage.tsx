@@ -5,6 +5,7 @@ import {
   Check,
   LoaderCircle,
   Monitor,
+  Pencil,
   Plus,
   Trash2,
   X,
@@ -27,10 +28,13 @@ export function AgentsPage() {
 
   // Add-agent modal
   const [modalOpen, setModalOpen] = useState(false)
-  const [agentName, setAgentName] = useState('')
   const [registering, setRegistering] = useState(false)
   const [registrationCommand, setRegistrationCommand] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // Rename
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
 
   const loadAgents = useCallback(async () => {
     try {
@@ -50,21 +54,19 @@ export function AgentsPage() {
   }, [loadAgents])
 
   const handleAddAgent = async () => {
-    const name = agentName.trim()
-    if (!name) return
     setRegistering(true)
     setError(null)
     try {
       const res = await fetchApi('/api/agents/register-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({}),
       })
       if (!res.ok) throw new Error(await res.text())
       const data = (await res.json()) as CreateRegistrationTokenResponse
       const baseUrl = window.location.origin
       setRegistrationCommand(
-        `webmux-agent register \\\n  --server ${baseUrl} \\\n  --token ${data.token} \\\n  --name ${name}`,
+        `webmux-agent register \\\n  --server ${baseUrl} \\\n  --token ${data.token}`,
       )
     } catch (err) {
       setError((err as Error).message)
@@ -86,12 +88,27 @@ export function AgentsPage() {
     }
   }
 
+  const handleRename = async (agentId: string) => {
+    const name = renameValue.trim()
+    if (!name) return
+    try {
+      const res = await fetchApi(`/api/agents/${agentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) throw new Error('Failed to rename agent')
+      setRenamingId(null)
+      void loadAgents()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   const closeModal = () => {
     setModalOpen(false)
-    setAgentName('')
     setRegistrationCommand(null)
     setCopied(false)
-    // Refresh agents list in case a new one registered
     void loadAgents()
   }
 
@@ -119,7 +136,10 @@ export function AgentsPage() {
         <h1>Your Agents</h1>
         <button
           className="primary-button"
-          onClick={() => setModalOpen(true)}
+          onClick={() => {
+            setModalOpen(true)
+            void handleAddAgent()
+          }}
           type="button"
         >
           <Plus size={16} />
@@ -139,7 +159,10 @@ export function AgentsPage() {
           </p>
           <button
             className="primary-button"
-            onClick={() => setModalOpen(true)}
+            onClick={() => {
+              setModalOpen(true)
+              void handleAddAgent()
+            }}
             type="button"
           >
             <Plus size={16} />
@@ -152,11 +175,14 @@ export function AgentsPage() {
             <article
               className="agent-card"
               key={agent.id}
-              onClick={() => navigate(`/agents/${agent.id}`)}
+              onClick={() => {
+                if (renamingId) return
+                navigate(`/agents/${agent.id}`)
+              }}
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') navigate(`/agents/${agent.id}`)
+                if (e.key === 'Enter' && !renamingId) navigate(`/agents/${agent.id}`)
               }}
             >
               <div className="agent-card-header">
@@ -165,19 +191,74 @@ export function AgentsPage() {
                     className={`agent-status-dot ${agent.status}`}
                     title={agent.status}
                   />
-                  <h3>{agent.name}</h3>
+                  {renamingId === agent.id ? (
+                    <form
+                      className="agent-rename-form"
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        void handleRename(agent.id)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        autoFocus
+                        className="agent-rename-input"
+                        maxLength={32}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            e.stopPropagation()
+                            setRenamingId(null)
+                          }
+                        }}
+                        value={renameValue}
+                      />
+                      <button className="icon-button" type="submit">
+                        <Check size={14} />
+                      </button>
+                      <button
+                        className="icon-button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setRenamingId(null)
+                        }}
+                        type="button"
+                      >
+                        <X size={14} />
+                      </button>
+                    </form>
+                  ) : (
+                    <h3>{agent.name}</h3>
+                  )}
                 </div>
-                <button
-                  aria-label={`Delete ${agent.name}`}
-                  className="icon-button kill-button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void handleDeleteAgent(agent)
-                  }}
-                  type="button"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="agent-card-actions">
+                  {renamingId !== agent.id ? (
+                    <button
+                      aria-label={`Rename ${agent.name}`}
+                      className="icon-button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setRenamingId(agent.id)
+                        setRenameValue(agent.name)
+                      }}
+                      type="button"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  ) : null}
+                  <button
+                    aria-label={`Delete ${agent.name}`}
+                    className="icon-button kill-button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void handleDeleteAgent(agent)
+                    }}
+                    type="button"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
               <div className="agent-card-meta">
                 <span className={`agent-status-badge ${agent.status}`}>
@@ -208,7 +289,7 @@ export function AgentsPage() {
             aria-label="Add Agent"
           >
             <div className="modal-header">
-              <h2>{registrationCommand ? 'Register Agent' : 'Add Agent'}</h2>
+              <h2>Register Agent</h2>
               <button
                 className="icon-button"
                 onClick={closeModal}
@@ -219,70 +300,43 @@ export function AgentsPage() {
               </button>
             </div>
 
-            {registrationCommand ? (
-              <div className="modal-body">
-                <p className="modal-description">
-                  Run this command on the target machine to register the agent:
-                </p>
-                <div className="registration-command">
-                  <pre>{registrationCommand}</pre>
+            <div className="modal-body">
+              {registering ? (
+                <div className="modal-loading">
+                  <LoaderCircle className="spin" size={20} />
+                  <span>Generating token...</span>
+                </div>
+              ) : registrationCommand ? (
+                <>
+                  <p className="modal-description">
+                    Run this command on the target machine:
+                  </p>
+                  <div className="registration-command">
+                    <pre>{registrationCommand}</pre>
+                    <button
+                      className="secondary-button copy-button"
+                      onClick={() => {
+                        void copyCommand()
+                      }}
+                      type="button"
+                    >
+                      {copied ? <Check size={14} /> : <Copy size={14} />}
+                      {copied ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="field-hint">
+                    The agent name defaults to the machine's hostname. Use --name to override.
+                  </p>
                   <button
-                    className="secondary-button copy-button"
-                    onClick={() => {
-                      void copyCommand()
-                    }}
+                    className="primary-button modal-done-button"
+                    onClick={closeModal}
                     type="button"
                   >
-                    {copied ? <Check size={14} /> : <Copy size={14} />}
-                    {copied ? 'Copied' : 'Copy'}
+                    Done
                   </button>
-                </div>
-                <button
-                  className="primary-button modal-done-button"
-                  onClick={closeModal}
-                  type="button"
-                >
-                  Done
-                </button>
-              </div>
-            ) : (
-              <form
-                className="modal-body"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  void handleAddAgent()
-                }}
-              >
-                <label className="field-label" htmlFor="agent-name">
-                  Agent name
-                </label>
-                <input
-                  id="agent-name"
-                  autoComplete="off"
-                  autoFocus
-                  className="session-input"
-                  disabled={registering}
-                  maxLength={32}
-                  onChange={(e) => setAgentName(e.target.value)}
-                  placeholder="my-nas, dev-box, homelab"
-                  value={agentName}
-                />
-                <p className="field-hint">
-                  A friendly name for this machine.
-                </p>
-                <button
-                  className="primary-button modal-submit-button"
-                  disabled={registering || !agentName.trim()}
-                  type="submit"
-                >
-                  {registering ? (
-                    <LoaderCircle className="spin" size={16} />
-                  ) : (
-                    'Generate Registration Token'
-                  )}
-                </button>
-              </form>
-            )}
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}

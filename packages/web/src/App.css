@@ -1006,6 +1006,29 @@
   color: var(--ink);
 }
 
+.agent-card-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.agent-rename-form {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.agent-rename-input {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.95rem;
+  width: 10rem;
+  outline: none;
+}
+
 .agent-status-dot {
   width: 8px;
   height: 8px;

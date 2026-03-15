@@ -9,6 +9,7 @@ import {
   findAgentById,
   createAgent,
   deleteAgent,
+  renameAgent,
   updateAgentStatus,
   updateAgentLastSeen,
   createRegistrationToken,
@@ -128,6 +129,12 @@ describe('agents', () => {
     const agent = createAgent(db, { userId, name: 'temp', agentSecretHash: 'hash' })
     deleteAgent(db, agent.id)
     expect(findAgentById(db, agent.id)).toBeUndefined()
+  })
+
+  it('renames an agent', () => {
+    const agent = createAgent(db, { userId, name: 'old-name', agentSecretHash: 'h' })
+    renameAgent(db, agent.id, 'new-name')
+    expect(findAgentById(db, agent.id)?.name).toBe('new-name')
   })
 
   it('updates agent status', () => {

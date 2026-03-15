@@ -31,6 +31,7 @@ import {
   findAgentById,
   deleteAgent,
   createAgent,
+  renameAgent,
   createRegistrationToken,
   consumeRegistrationToken,
 } from './db.js'
@@ -255,8 +256,8 @@ export function registerRoutes(
 
   app.post('/api/agents/register', async (request, reply) => {
     const body = request.body as RegisterAgentRequest | undefined
-    if (!body?.token || !body?.name) {
-      return reply.status(400).send({ error: 'Missing token or name' })
+    if (!body?.token) {
+      return reply.status(400).send({ error: 'Missing token' })
     }
 
     const tokenHash = crypto.createHash('sha256').update(body.token).digest('hex')
@@ -269,9 +270,12 @@ export function registerRoutes(
     const agentSecret = crypto.randomUUID()
     const agentSecretHash = await hashSecret(agentSecret)
 
+    // Use provided name, or fall back to the name stored with the token
+    const agentName = body.name || regToken.agent_name
+
     const agent = createAgent(db, {
       userId: regToken.user_id,
-      name: body.name,
+      name: agentName,
       agentSecretHash,
     })
 
@@ -299,6 +303,27 @@ export function registerRoutes(
     hub.removeAgent(id, db)
     deleteAgent(db, id)
 
+    return { ok: true }
+  })
+
+  app.patch('/api/agents/:id', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const body = request.body as { name?: string } | undefined
+
+    if (!body?.name?.trim()) {
+      return reply.status(400).send({ error: 'Missing name' })
+    }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    renameAgent(db, id, body.name.trim())
     return { ok: true }
   })
 
