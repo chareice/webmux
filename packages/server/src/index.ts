@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import { createServer } from 'node:http'
 import path from 'node:path'
 import url from 'node:url'
@@ -61,7 +62,11 @@ registerRoutes(app, db, hub, {
 // --- Static file serving (production) ---
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
-const webDistPath = path.resolve(__dirname, '../../web/dist')
+// In npm package: dist/index.js → web/ (sibling to dist/)
+// In dev/monorepo: dist/index.js → ../../web/dist
+const webDistPath = fs.existsSync(path.resolve(__dirname, '../web'))
+  ? path.resolve(__dirname, '../web')
+  : path.resolve(__dirname, '../../web/dist')
 
 app.register(fastifyStatic, {
   root: webDistPath,
