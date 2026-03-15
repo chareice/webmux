@@ -62,6 +62,19 @@ If everything is set up correctly, you should see your new app running in the An
 
 This is one way to run your app — you can also build it directly from Android Studio or Xcode.
 
+## Release APK
+
+GitHub Releases can attach an Android APK through the repository workflow in `.github/workflows/mobile-release.yml`.
+
+The workflow builds `android/app/build/outputs/apk/release/app-release.apk` and uploads it to the published GitHub Release as `webmux-<tag>.apk`.
+
+By default the project falls back to the checked-in debug keystore so the APK stays installable for internal testing. For a real production signing key, configure these repository secrets before publishing a Release:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
 ## Step 3: Modify your app
 
 Now that you have successfully run the app, let's make changes!
