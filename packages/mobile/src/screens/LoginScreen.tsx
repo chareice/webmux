@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../store';
-import { getOAuthUrl, setServerUrl } from '../api';
+import { getOAuthUrl, OAuthProvider, setServerUrl } from '../api';
 import { colors, commonStyles } from '../theme';
 
 const STORAGE_KEY_LAST_SERVER = '@webmux/last_server_url';
@@ -19,7 +19,7 @@ const STORAGE_KEY_LAST_SERVER = '@webmux/last_server_url';
 export default function LoginScreen(): React.JSX.Element {
   const { login } = useAuth();
   const [serverUrl, setServerUrlInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [activeProvider, setActiveProvider] = useState<OAuthProvider | null>(null);
   const [error, setError] = useState('');
 
   // Restore last used server URL
@@ -38,7 +38,12 @@ export default function LoginScreen(): React.JSX.Element {
       const token = parsed.searchParams.get('token');
       if (token) {
         const redirectedServerUrl = parsed.searchParams.get('server');
-        void handleTokenReceived(token, redirectedServerUrl ?? serverUrl);
+        const provider = parsed.searchParams.get('provider');
+        void handleTokenReceived(
+          token,
+          redirectedServerUrl ?? serverUrl,
+          provider === 'google' ? 'google' : 'github',
+        );
       }
     };
 
@@ -54,8 +59,12 @@ export default function LoginScreen(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverUrl]);
 
-  const handleTokenReceived = async (token: string, incomingServerUrl: string) => {
-    setIsLoading(true);
+  const handleTokenReceived = async (
+    token: string,
+    incomingServerUrl: string,
+    provider: OAuthProvider,
+  ) => {
+    setActiveProvider(provider);
     setError('');
     try {
       const cleanUrl = incomingServerUrl.replace(/\/+$/, '');
@@ -65,11 +74,11 @@ export default function LoginScreen(): React.JSX.Element {
       const msg = e instanceof Error ? e.message : 'Login failed';
       setError(msg);
     } finally {
-      setIsLoading(false);
+      setActiveProvider(null);
     }
   };
 
-  const handleLogin = async () => {
+  const handleLogin = async (provider: OAuthProvider) => {
     Keyboard.dismiss();
     setError('');
 
@@ -84,18 +93,18 @@ export default function LoginScreen(): React.JSX.Element {
       return;
     }
 
-    setIsLoading(true);
+    setActiveProvider(provider);
     try {
       setServerUrl(cleanUrl);
       await AsyncStorage.setItem(STORAGE_KEY_LAST_SERVER, cleanUrl);
 
-      const oauthUrl = getOAuthUrl();
+      const oauthUrl = getOAuthUrl(provider);
       await Linking.openURL(oauthUrl);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to open login page';
       setError(msg);
     } finally {
-      setIsLoading(false);
+      setActiveProvider(null);
     }
   };
 
@@ -117,20 +126,32 @@ export default function LoginScreen(): React.JSX.Element {
             autoCorrect={false}
             keyboardType="url"
             returnKeyType="go"
-            onSubmitEditing={handleLogin}
+            onSubmitEditing={() => void handleLogin('github')}
           />
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <TouchableOpacity
             style={[commonStyles.button, styles.loginButton]}
-            onPress={handleLogin}
-            disabled={isLoading}
+            onPress={() => void handleLogin('github')}
+            disabled={activeProvider !== null}
             activeOpacity={0.7}>
-            {isLoading ? (
+            {activeProvider === 'github' ? (
               <ActivityIndicator color="#ffffff" />
             ) : (
               <Text style={commonStyles.buttonText}>Login with GitHub</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[commonStyles.button, styles.googleButton]}
+            onPress={() => void handleLogin('google')}
+            disabled={activeProvider !== null}
+            activeOpacity={0.7}>
+            {activeProvider === 'google' ? (
+              <ActivityIndicator color={colors.text} />
+            ) : (
+              <Text style={styles.googleButtonText}>Login with Google</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -172,6 +193,16 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     marginTop: 8,
+  },
+  googleButton: {
+    backgroundColor: colors.surfaceLight,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  googleButtonText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '600',
   },
   error: {
     color: colors.red,

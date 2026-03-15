@@ -8,6 +8,7 @@ React Native client for Webmux run management.
 - iOS bundle id: `site.chareice.webmux`
 - Display name: `Webmux`
 - Deep link callback: `webmux://auth`
+- Supported mobile sign-in buttons: GitHub and Google
 
 ## Local Development
 
@@ -57,6 +58,16 @@ Release tags must use `vX.Y.Z` or `X.Y.Z`. The workflow derives:
 
 Manual workflow runs still work, but they produce internal-test versions like
 `0.0.<run_number>`.
+
+## Authentication
+
+The mobile app opens the server-side OAuth flow in the system browser and
+returns through `webmux://auth`.
+
+The server currently exposes both:
+
+- `/api/auth/github`
+- `/api/auth/google`
 
 ## Android Signing
 

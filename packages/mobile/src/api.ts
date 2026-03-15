@@ -10,6 +10,8 @@ import {
 let _serverUrl = '';
 let _token = '';
 
+export type OAuthProvider = 'github' | 'google';
+
 export function setServerUrl(url: string): void {
   // Remove trailing slash
   _serverUrl = url.replace(/\/+$/, '');
@@ -62,9 +64,9 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 
 // --- Auth ---
 
-export function getOAuthUrl(): string {
-  const redirectTo = `webmux://auth?server=${encodeURIComponent(_serverUrl)}`;
-  return `${_serverUrl}/api/auth/github?redirectTo=${encodeURIComponent(redirectTo)}`;
+export function getOAuthUrl(provider: OAuthProvider): string {
+  const redirectTo = `webmux://auth?server=${encodeURIComponent(_serverUrl)}&provider=${provider}`;
+  return `${_serverUrl}/api/auth/${provider}?redirectTo=${encodeURIComponent(redirectTo)}`;
 }
 
 // --- Agents ---
