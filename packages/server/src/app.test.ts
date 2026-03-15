@@ -35,6 +35,7 @@ function createTestConfig(baseUrl: string) {
     googleClientSecret: '',
     baseUrl,
     devMode: false,
+    agentUpgradePolicy: null,
   }
 }
 

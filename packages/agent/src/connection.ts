@@ -1,21 +1,52 @@
-import { execSync } from 'node:child_process'
 import WebSocket from 'ws'
 
-import type { AgentMessage, ServerToAgentMessage, SessionSummary } from '@webmux/shared'
+import {
+  compareSemanticVersions,
+  type AgentMessage,
+  type AgentUpgradePolicy,
+  type ServerToAgentMessage,
+  type SessionSummary,
+} from '@webmux/shared'
+import { upgradeService } from './service.js'
 import type { TmuxClient } from './tmux.js'
 import { createTerminalBridge, type TerminalBridge } from './terminal.js'
+import { AGENT_PACKAGE_NAME, AGENT_VERSION } from './version.js'
 
-const AGENT_VERSION = '0.1.4'
 const HEARTBEAT_INTERVAL_MS = 30_000
 const SESSION_SYNC_INTERVAL_MS = 15_000
 const INITIAL_RECONNECT_DELAY_MS = 1_000
 const MAX_RECONNECT_DELAY_MS = 30_000
+
+export interface AgentRuntime {
+  version: string
+  serviceMode: boolean
+  autoUpgrade: boolean
+  applyServiceUpgrade: (options: { packageName: string; targetVersion: string }) => void
+  exit: (code: number) => void
+}
+
+const defaultAgentRuntime: AgentRuntime = {
+  version: AGENT_VERSION,
+  serviceMode: process.env.WEBMUX_AGENT_SERVICE === '1',
+  autoUpgrade: process.env.WEBMUX_AGENT_AUTO_UPGRADE !== '0',
+  applyServiceUpgrade: ({ packageName, targetVersion }) => {
+    upgradeService({
+      agentName: 'webmux-agent',
+      packageName,
+      version: targetVersion,
+    })
+  },
+  exit: (code: number) => {
+    process.exit(code)
+  },
+}
 
 export class AgentConnection {
   private readonly serverUrl: string
   private readonly agentId: string
   private readonly agentSecret: string
   private readonly tmux: TmuxClient
+  private readonly runtime: AgentRuntime
 
   private ws: WebSocket | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -30,11 +61,13 @@ export class AgentConnection {
     agentId: string,
     agentSecret: string,
     tmux: TmuxClient,
+    runtime: AgentRuntime = defaultAgentRuntime,
   ) {
     this.serverUrl = serverUrl
     this.agentId = agentId
     this.agentSecret = agentSecret
     this.tmux = tmux
+    this.runtime = runtime
   }
 
   start(): void {
@@ -70,7 +103,12 @@ export class AgentConnection {
     ws.on('open', () => {
       console.log('[agent] WebSocket connected, authenticating...')
       this.reconnectDelay = INITIAL_RECONNECT_DELAY_MS
-      this.sendMessage({ type: 'auth', agentId: this.agentId, agentSecret: this.agentSecret, version: AGENT_VERSION })
+      this.sendMessage({
+        type: 'auth',
+        agentId: this.agentId,
+        agentSecret: this.agentSecret,
+        version: this.runtime.version,
+      })
     })
 
     ws.on('message', (raw: WebSocket.RawData) => {
@@ -100,9 +138,7 @@ export class AgentConnection {
     switch (msg.type) {
       case 'auth-ok':
         console.log('[agent] Authenticated successfully')
-        if (msg.latestVersion && msg.latestVersion !== AGENT_VERSION) {
-          console.log(`[agent] Update available: ${AGENT_VERSION} → ${msg.latestVersion}`)
-          this.selfUpdate(msg.latestVersion)
+        if (this.applyRecommendedUpgrade(msg.upgradePolicy)) {
           return
         }
         this.startHeartbeat()
@@ -117,7 +153,7 @@ export class AgentConnection {
           this.ws.close()
           this.ws = null
         }
-        process.exit(1)
+        this.runtime.exit(1)
         break
 
       case 'sessions-list':
@@ -255,29 +291,54 @@ export class AgentConnection {
     }
   }
 
-  private selfUpdate(targetVersion: string): void {
-    console.log(`[agent] Installing @webmux/agent@${targetVersion}...`)
-    try {
-      execSync(`npm install -g @webmux/agent@${targetVersion}`, { stdio: 'inherit' })
-      console.log('[agent] Update installed. Restarting...')
-    } catch (err) {
-      console.error('[agent] Update failed:', err instanceof Error ? err.message : err)
-      console.log('[agent] Continuing with current version')
-      this.startHeartbeat()
-      this.startSessionSync()
-      this.syncSessions()
-      return
-    }
-
-    // Exit cleanly — systemd will restart with the new version
-    this.stop()
-    process.exit(0)
-  }
-
   private sendMessage(msg: AgentMessage): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg))
     }
+  }
+
+  private applyRecommendedUpgrade(upgradePolicy?: AgentUpgradePolicy): boolean {
+    const targetVersion = upgradePolicy?.targetVersion
+    if (!targetVersion) {
+      return false
+    }
+
+    let comparison: number
+    try {
+      comparison = compareSemanticVersions(this.runtime.version, targetVersion)
+    } catch {
+      console.warn('[agent] Skipping automatic upgrade because version parsing failed')
+      return false
+    }
+
+    if (comparison >= 0) {
+      return false
+    }
+
+    console.log(`[agent] Update available: ${this.runtime.version} → ${targetVersion}`)
+
+    if (!this.runtime.serviceMode || !this.runtime.autoUpgrade) {
+      console.log('[agent] Automatic upgrades are only applied for the managed systemd service')
+      console.log(`[agent] To upgrade manually, run: webmux-agent service upgrade --to ${targetVersion}`)
+      return false
+    }
+
+    try {
+      this.runtime.applyServiceUpgrade({
+        packageName: upgradePolicy.packageName || AGENT_PACKAGE_NAME,
+        targetVersion,
+      })
+      console.log(`[agent] Managed service switched to ${targetVersion}. Restarting...`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`[agent] Failed to apply managed upgrade: ${message}`)
+      console.log('[agent] Continuing with current version')
+      return false
+    }
+
+    this.stop()
+    this.runtime.exit(0)
+    return true
   }
 
   private startHeartbeat(): void {

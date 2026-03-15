@@ -4,12 +4,15 @@ import type { WebSocket } from 'ws'
 import type { Database } from 'better-sqlite3'
 import type {
   AgentMessage,
+  AgentUpgradePolicy,
   SessionSummary,
   ServerToAgentMessage,
   SessionEvent,
   TerminalServerMessage,
 } from '@webmux/shared'
+import { compareSemanticVersions } from '@webmux/shared'
 import { verifySecret } from './auth.js'
+import { describeMinimumVersionFailure } from './agent-upgrade.js'
 import { findAgentById, updateAgentStatus, updateAgentLastSeen } from './db.js'
 
 interface OnlineAgent {
@@ -39,12 +42,16 @@ interface PendingCommand<T> {
 }
 
 export class AgentHub {
+  upgradePolicy: AgentUpgradePolicy | null
   private agents = new Map<string, OnlineAgent>()
   private browsers = new Map<string, BrowserConnection>()
   private eventClients: EventClient[] = []
   private heartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private pendingCommands = new Map<string, PendingCommand<unknown>>()
-  latestAgentVersion: string | null = null
+
+  constructor(options: { upgradePolicy?: AgentUpgradePolicy | null } = {}) {
+    this.upgradePolicy = options.upgradePolicy ?? null
+  }
 
   handleConnection(socket: WebSocket, db: Database): void {
     let authenticated = false
@@ -74,7 +81,7 @@ export class AgentHub {
           return
         }
 
-        this.authenticateAgent(socket, db, message.agentId, message.agentSecret)
+        this.authenticateAgent(socket, db, message.agentId, message.agentSecret, message.version)
           .then((result) => {
             clearTimeout(authTimeout)
             if (result) {
@@ -118,7 +125,8 @@ export class AgentHub {
     socket: WebSocket,
     db: Database,
     agentId: string,
-    agentSecret: string
+    agentSecret: string,
+    version?: string,
   ): Promise<boolean> {
     const agent = findAgentById(db, agentId)
     if (!agent) {
@@ -131,6 +139,16 @@ export class AgentHub {
     const valid = await verifySecret(agentSecret, agent.agent_secret_hash)
     if (!valid) {
       const msg: ServerToAgentMessage = { type: 'auth-fail', message: 'Invalid credentials' }
+      socket.send(JSON.stringify(msg))
+      socket.close()
+      return false
+    }
+
+    if (isAgentBelowMinimumVersion(version, this.upgradePolicy)) {
+      const msg: ServerToAgentMessage = {
+        type: 'auth-fail',
+        message: describeMinimumVersionFailure(version, this.upgradePolicy!),
+      }
       socket.send(JSON.stringify(msg))
       socket.close()
       return false
@@ -152,7 +170,10 @@ export class AgentHub {
     updateAgentStatus(db, agentId, 'online')
     updateAgentLastSeen(db, agentId)
 
-    const msg: ServerToAgentMessage = { type: 'auth-ok', latestVersion: this.latestAgentVersion ?? undefined }
+    const msg: ServerToAgentMessage = {
+      type: 'auth-ok',
+      upgradePolicy: this.upgradePolicy ?? undefined,
+    }
     socket.send(JSON.stringify(msg))
 
     return true
@@ -429,5 +450,25 @@ export class AgentHub {
     } catch {
       // Ignore send errors on closed sockets
     }
+  }
+}
+
+function isAgentBelowMinimumVersion(
+  version: string | undefined,
+  upgradePolicy: AgentUpgradePolicy | null,
+): boolean {
+  const minimumVersion = upgradePolicy?.minimumVersion
+  if (!minimumVersion) {
+    return false
+  }
+
+  if (!version) {
+    return true
+  }
+
+  try {
+    return compareSemanticVersions(version, minimumVersion) < 0
+  } catch {
+    return true
   }
 }

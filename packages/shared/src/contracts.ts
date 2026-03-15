@@ -16,6 +16,12 @@ export interface AgentInfo {
   lastSeenAt: number | null
 }
 
+export interface AgentUpgradePolicy {
+  packageName: string
+  targetVersion?: string
+  minimumVersion?: string
+}
+
 // Agent → Server
 export type AgentMessage =
   | { type: 'auth'; agentId: string; agentSecret: string; version?: string }
@@ -30,7 +36,7 @@ export type AgentMessage =
 
 // Server → Agent
 export type ServerToAgentMessage =
-  | { type: 'auth-ok'; latestVersion?: string }
+  | { type: 'auth-ok'; upgradePolicy?: AgentUpgradePolicy }
   | { type: 'auth-fail'; message: string }
   | { type: 'sessions-list' }
   | { type: 'terminal-attach'; browserId: string; sessionName: string; cols: number; rows: number }

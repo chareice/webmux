@@ -3,6 +3,7 @@ import { WebSocketServer } from 'ws'
 import type { WebSocket } from 'ws'
 import { verifyJwt } from './auth.js'
 import type { JwtPayload } from './auth.js'
+import { buildAgentUpgradePolicy } from './agent-upgrade.js'
 import { buildApp } from './app.js'
 import { handleTerminalConnection } from './relay.js'
 import { DEFAULT_TERMINAL_SIZE } from '@webmux/shared'
@@ -18,6 +19,11 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? ''
 const WEBMUX_BASE_URL = process.env.WEBMUX_BASE_URL ?? `http://localhost:${PORT}`
 const DEV_MODE = process.env.WEBMUX_DEV_MODE === 'true'
 const DATABASE_PATH = process.env.DATABASE_PATH ?? './webmux.db'
+const AGENT_UPGRADE_POLICY = buildAgentUpgradePolicy({
+  packageName: process.env.WEBMUX_AGENT_PACKAGE_NAME,
+  targetVersion: process.env.WEBMUX_AGENT_TARGET_VERSION,
+  minimumVersion: process.env.WEBMUX_AGENT_MIN_VERSION,
+})
 
 if (DEV_MODE) {
   console.warn('=== WARNING: Running in DEV MODE — authentication is relaxed ===')
@@ -43,6 +49,7 @@ const { app, db, hub } = buildApp({
     googleClientSecret: GOOGLE_CLIENT_SECRET,
     baseUrl: WEBMUX_BASE_URL,
     devMode: DEV_MODE,
+    agentUpgradePolicy: AGENT_UPGRADE_POLICY,
   },
 })
 

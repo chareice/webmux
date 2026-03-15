@@ -5,6 +5,7 @@ import url from 'node:url'
 import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
 import type Database from 'better-sqlite3'
+import type { AgentUpgradePolicy } from '@webmux/shared'
 
 import { AgentHub } from './agent-hub.js'
 import { initDb } from './db.js'
@@ -18,6 +19,7 @@ export interface ServerConfig {
   googleClientSecret: string
   baseUrl: string
   devMode: boolean
+  agentUpgradePolicy: AgentUpgradePolicy | null
 }
 
 interface BuildAppOptions {
@@ -30,7 +32,8 @@ interface BuildAppOptions {
 
 export function buildApp(options: BuildAppOptions) {
   const db = options.db ?? initDb(options.dbPath ?? './webmux.db')
-  const hub = options.hub ?? new AgentHub()
+  const hub = options.hub ?? new AgentHub({ upgradePolicy: options.config.agentUpgradePolicy })
+  hub.upgradePolicy = options.config.agentUpgradePolicy
   const app = Fastify({
     logger: true,
   })
@@ -67,23 +70,7 @@ export function buildApp(options: BuildAppOptions) {
     })
   }
 
-  // Fetch latest agent version from npm and refresh every hour
-  void refreshLatestAgentVersion(hub)
-  setInterval(() => { void refreshLatestAgentVersion(hub) }, 60 * 60 * 1000)
-
   return { app, db, hub }
-}
-
-async function refreshLatestAgentVersion(hub: AgentHub): Promise<void> {
-  try {
-    const res = await fetch('https://registry.npmjs.org/@webmux/agent/latest')
-    if (res.ok) {
-      const data = (await res.json()) as { version: string }
-      hub.latestAgentVersion = data.version
-    }
-  } catch {
-    // Ignore — will retry in an hour
-  }
 }
 
 function resolveWebDistPath(): string | null {
