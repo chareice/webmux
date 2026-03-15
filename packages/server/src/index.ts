@@ -1,17 +1,9 @@
-import fs from 'node:fs'
-import { createServer } from 'node:http'
-import path from 'node:path'
-import url from 'node:url'
 import crypto from 'node:crypto'
-import Fastify from 'fastify'
-import fastifyStatic from '@fastify/static'
 import { WebSocketServer } from 'ws'
 import type { WebSocket } from 'ws'
-import { initDb } from './db.js'
 import { verifyJwt } from './auth.js'
 import type { JwtPayload } from './auth.js'
-import { AgentHub } from './agent-hub.js'
-import { registerRoutes } from './router.js'
+import { buildApp } from './app.js'
 import { handleTerminalConnection } from './relay.js'
 import { DEFAULT_TERMINAL_SIZE } from '@webmux/shared'
 
@@ -41,50 +33,18 @@ if (JWT_SECRET === 'dev-secret' && !DEV_MODE) {
 
 // --- Initialize ---
 
-const db = initDb(DATABASE_PATH)
-const hub = new AgentHub()
-
-const app = Fastify({
-  logger: true,
-  serverFactory: (handler) => {
-    const server = createServer(handler)
-    return server
+const { app, db, hub } = buildApp({
+  dbPath: DATABASE_PATH,
+  config: {
+    jwtSecret: JWT_SECRET,
+    githubClientId: GITHUB_CLIENT_ID,
+    githubClientSecret: GITHUB_CLIENT_SECRET,
+    googleClientId: GOOGLE_CLIENT_ID,
+    googleClientSecret: GOOGLE_CLIENT_SECRET,
+    baseUrl: WEBMUX_BASE_URL,
+    devMode: DEV_MODE,
   },
 })
-
-// Register REST routes
-registerRoutes(app, db, hub, {
-  jwtSecret: JWT_SECRET,
-  githubClientId: GITHUB_CLIENT_ID,
-  githubClientSecret: GITHUB_CLIENT_SECRET,
-  googleClientId: GOOGLE_CLIENT_ID,
-  googleClientSecret: GOOGLE_CLIENT_SECRET,
-  baseUrl: WEBMUX_BASE_URL,
-  devMode: DEV_MODE,
-})
-
-// --- Static file serving (production) ---
-
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
-// In npm package: dist/index.js → web/ (sibling to dist/)
-// In dev/monorepo: dist/index.js → ../../web/dist
-const webDistPath = fs.existsSync(path.resolve(__dirname, '../web'))
-  ? path.resolve(__dirname, '../web')
-  : path.resolve(__dirname, '../../web/dist')
-
-if (fs.existsSync(webDistPath)) {
-  app.register(fastifyStatic, {
-    root: webDistPath,
-    prefix: '/',
-    wildcard: false,
-  })
-
-  // SPA fallback: serve index.html for non-API, non-WS routes
-  const indexHtml = fs.readFileSync(path.join(webDistPath, 'index.html'), 'utf-8')
-  app.setNotFoundHandler((_request, reply) => {
-    return reply.type('text/html').send(indexHtml)
-  })
-}
 
 // --- WebSocket servers ---
 
@@ -95,7 +55,7 @@ const terminalWss = new WebSocketServer({ noServer: true })
 const eventsWss = new WebSocketServer({ noServer: true })
 
 server.on('upgrade', (request, socket, head) => {
-  const parsed = url.parse(request.url ?? '', true)
+  const parsed = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
   const pathname = parsed.pathname ?? ''
 
   if (pathname === '/ws/agent') {
@@ -107,7 +67,7 @@ server.on('upgrade', (request, socket, head) => {
 
   if (pathname === '/ws/terminal') {
     // Verify JWT from query params
-    const token = parsed.query.token as string | undefined
+    const token = parsed.searchParams.get('token') ?? undefined
     if (!token) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
       socket.destroy()
@@ -123,10 +83,10 @@ server.on('upgrade', (request, socket, head) => {
       return
     }
 
-    const agentId = parsed.query.agent as string | undefined
-    const sessionName = parsed.query.session as string | undefined
-    const cols = parseInt((parsed.query.cols as string) ?? String(DEFAULT_TERMINAL_SIZE.cols), 10)
-    const rows = parseInt((parsed.query.rows as string) ?? String(DEFAULT_TERMINAL_SIZE.rows), 10)
+    const agentId = parsed.searchParams.get('agent') ?? undefined
+    const sessionName = parsed.searchParams.get('session') ?? undefined
+    const cols = parseInt(parsed.searchParams.get('cols') ?? String(DEFAULT_TERMINAL_SIZE.cols), 10)
+    const rows = parseInt(parsed.searchParams.get('rows') ?? String(DEFAULT_TERMINAL_SIZE.rows), 10)
 
     if (!agentId || !sessionName) {
       socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
@@ -143,7 +103,7 @@ server.on('upgrade', (request, socket, head) => {
 
   if (pathname === '/ws/events') {
     // Verify JWT from query params
-    const token = parsed.query.token as string | undefined
+    const token = parsed.searchParams.get('token') ?? undefined
     if (!token) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
       socket.destroy()

@@ -21,6 +21,8 @@ export type AgentMessage =
   | { type: 'auth'; agentId: string; agentSecret: string }
   | { type: 'heartbeat' }
   | { type: 'sessions-sync'; sessions: SessionSummary[] }
+  | { type: 'command-result'; requestId: string; ok: true; session?: SessionSummary }
+  | { type: 'command-result'; requestId: string; ok: false; error: string }
   | { type: 'terminal-output'; browserId: string; data: string }
   | { type: 'terminal-ready'; browserId: string; sessionName: string }
   | { type: 'terminal-exit'; browserId: string; exitCode: number }
@@ -35,8 +37,8 @@ export type ServerToAgentMessage =
   | { type: 'terminal-detach'; browserId: string }
   | { type: 'terminal-input'; browserId: string; data: string }
   | { type: 'terminal-resize'; browserId: string; cols: number; rows: number }
-  | { type: 'session-create'; name: string }
-  | { type: 'session-kill'; name: string }
+  | { type: 'session-create'; requestId: string; name: string }
+  | { type: 'session-kill'; requestId: string; name: string }
 
 // Browser → Server
 export type TerminalClientMessage =

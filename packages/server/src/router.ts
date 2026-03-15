@@ -8,7 +8,6 @@ import type {
   RegisterAgentResponse,
   CreateSessionRequest,
   ListSessionsResponse,
-  ServerToAgentMessage,
 } from '@webmux/shared'
 import {
   signJwt,
@@ -223,7 +222,7 @@ export function registerRoutes(
           id: a.id,
           name: a.name,
           status: online ? 'online' : 'offline',
-          lastSeenAt: a.last_seen_at,
+          lastSeenAt: a.last_seen_at ? Math.floor(a.last_seen_at / 1000) : null,
         }
       }),
     }
@@ -368,10 +367,8 @@ export function registerRoutes(
       return reply.status(400).send({ error: 'Agent is offline' })
     }
 
-    const msg: ServerToAgentMessage = { type: 'session-create', name: body.name }
-    hub.sendToAgent(id, msg)
-
-    return { ok: true }
+    const session = await hub.requestSessionCreate(id, body.name)
+    return { session }
   })
 
   app.delete('/api/agents/:id/sessions/:name', { preHandler: authPreHandler }, async (request, reply) => {
@@ -391,8 +388,7 @@ export function registerRoutes(
       return reply.status(400).send({ error: 'Agent is offline' })
     }
 
-    const msg: ServerToAgentMessage = { type: 'session-kill', name }
-    hub.sendToAgent(id, msg)
+    await hub.requestSessionKill(id, name)
 
     return { ok: true }
   })

@@ -18,6 +18,7 @@ import type {
 import { fetchApi, useAuth } from '../auth.tsx'
 import { SessionSidebar } from '../components/SessionSidebar.tsx'
 import { CommandPalette } from '../components/CommandPalette.tsx'
+import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
 
 const TerminalPanel = lazy(async () => {
   const module = await import('../components/TerminalPanel.tsx')
@@ -66,8 +67,6 @@ export function SessionsPage() {
   const [pinnedSessions, setPinnedSessions] = useState(loadPinned)
   const [unreadSessions, setUnreadSessions] = useState<Set<string>>(new Set())
 
-  const eventSocketRef = useRef<WebSocket | null>(null)
-  const eventReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const selectedSessionNameRef = useRef(selectedSessionName)
   selectedSessionNameRef.current = selectedSessionName
 
@@ -142,64 +141,47 @@ export function SessionsPage() {
     })
   }, [])
 
-  // Events WebSocket connection
-  const connectEventSocket = useCallback(() => {
-    if (!token || !agentId) return
+  useEffect(() => {
+    if (!token || !agentId) {
+      return
+    }
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(
-      `${wsProtocol}//${window.location.host}/ws/events?token=${encodeURIComponent(token)}`,
-    )
-    eventSocketRef.current = socket
-
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data) as SessionEvent
-        if (message.type === 'sessions-sync' && message.agentId === agentId) {
-          applySessions(message.sessions)
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    socket.onclose = () => {
-      eventReconnectTimerRef.current = setTimeout(() => {
-        connectEventSocket()
-      }, 3000)
-    }
-
-    socket.onerror = () => {
-      // onclose will fire after this
-    }
-  }, [applySessions, token, agentId])
-
-  useEffect(() => {
-    connectEventSocket()
-
-    // Fallback: initial HTTP fetch
-    if (agentId) {
-      void (async () => {
+    const controller = createReconnectableSocket({
+      connect() {
+        return new WebSocket(
+          `${wsProtocol}//${window.location.host}/ws/events?token=${encodeURIComponent(token)}`,
+        )
+      },
+      onMessage(event) {
         try {
-          const res = await fetchApi(`/api/agents/${agentId}/sessions`)
-          if (res.ok) {
-            const payload = (await res.json()) as { sessions: SessionSummary[] }
-            applySessions(payload.sessions)
+          const message = JSON.parse(event.data) as SessionEvent
+          if (message.type === 'sessions-sync' && message.agentId === agentId) {
+            applySessions(message.sessions)
           }
         } catch {
-          // Event socket will handle it
+          // Ignore parse errors
         }
-      })()
-    }
+      },
+    })
+
+    // Fallback: initial HTTP fetch
+    void (async () => {
+      try {
+        const res = await fetchApi(`/api/agents/${agentId}/sessions`)
+        if (res.ok) {
+          const payload = (await res.json()) as { sessions: SessionSummary[] }
+          applySessions(payload.sessions)
+        }
+      } catch {
+        // Event socket will handle it
+      }
+    })()
 
     return () => {
-      if (eventReconnectTimerRef.current) {
-        clearTimeout(eventReconnectTimerRef.current)
-      }
-      eventSocketRef.current?.close()
-      eventSocketRef.current = null
+      controller.dispose()
     }
-  }, [connectEventSocket, applySessions, agentId])
+  }, [agentId, applySessions, token])
 
   const refreshSessions = async () => {
     if (!agentId) return

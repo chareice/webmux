@@ -114,8 +114,12 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
   const [activeModifiers, setActiveModifiers] = useState<Set<ModifierKey>>(new Set())
   const [connectionFlash, setConnectionFlash] = useState<'connect' | 'disconnect' | null>(null)
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
+  const [mobileInput, setMobileInput] = useState('')
+  const mobileInputRef = useRef<HTMLInputElement | null>(null)
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+
+  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 960px)').matches
 
   const sendRaw = useCallback((data: string) => {
     const socket = socketRef.current
@@ -148,11 +152,15 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
   )
 
   const focusTerminal = useCallback(() => {
+    if (isMobile) {
+      mobileInputRef.current?.focus()
+      return
+    }
     const el = containerRef.current
     if (!el) return
     const textarea = el.querySelector('textarea')
     textarea?.focus()
-  }, [])
+  }, [isMobile])
 
   // Single self-contained effect for terminal + WebSocket lifecycle
   useEffect(() => {
@@ -235,41 +243,24 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
       }))
     }
 
-    // Handle mobile IME composition correctly.
-    // Mobile keyboards fire onData with the FULL composed string on each update,
-    // not just the new character. We track what was already sent to only send the delta.
-    let composing = false
-    let lastCompositionText = ''
+    // On mobile, disable xterm's internal keyboard input — we use a separate input bar.
+    // On desktop, forward keyboard input directly via onData.
+    const isMobileDevice = window.matchMedia('(max-width: 960px)').matches
 
-    const textarea = container.querySelector('textarea')
-    if (textarea) {
-      textarea.addEventListener('compositionstart', () => {
-        composing = true
-        lastCompositionText = ''
-      })
-      textarea.addEventListener('compositionend', () => {
-        composing = false
-        lastCompositionText = ''
-      })
+    if (isMobileDevice) {
+      // Hide xterm's internal textarea so mobile keyboard doesn't open on tap
+      const xtermTextarea = container.querySelector('textarea')
+      if (xtermTextarea) {
+        xtermTextarea.setAttribute('readonly', 'true')
+        xtermTextarea.style.display = 'none'
+      }
     }
 
     const disposeInput = terminal.onData((data) => {
+      if (isMobileDevice) return // Input handled by mobile input bar
       const socket = socketRef.current
       if (!socket || socket.readyState !== WebSocket.OPEN) return
-
-      if (composing) {
-        // During composition, onData sends the full composed text each time.
-        // Only send the new part (delta).
-        const delta = data.startsWith(lastCompositionText)
-          ? data.slice(lastCompositionText.length)
-          : data
-        lastCompositionText = data
-        if (delta) {
-          socket.send(JSON.stringify({ type: 'input', data: delta }))
-        }
-      } else {
-        socket.send(JSON.stringify({ type: 'input', data }))
-      }
+      socket.send(JSON.stringify({ type: 'input', data }))
     })
 
     const connect = () => {
@@ -474,7 +465,35 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
 
       {/* Mobile-only toolbar */}
       <div className="terminal-toolbar">
-        <div className="toolbar-group modifier-group" role="toolbar" aria-label="Modifier keys">
+        {/* Input bar: type here, press Enter to send */}
+        <form
+          className="mobile-input-bar"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (mobileInput) {
+              sendRaw(mobileInput + '\n')
+              setMobileInput('')
+            }
+          }}
+        >
+          <input
+            ref={mobileInputRef}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            className="mobile-input"
+            onChange={(e) => setMobileInput(e.target.value)}
+            placeholder="Type command..."
+            spellCheck={false}
+            value={mobileInput}
+          />
+          <button className="mobile-send-button" type="submit">
+            Enter
+          </button>
+        </form>
+
+        {/* Shortcut buttons */}
+        <div className="toolbar-group modifier-group" role="toolbar" aria-label="Shortcuts">
           <button
             className={`shortcut-button modifier-button${activeModifiers.has('ctrl') ? ' active' : ''}`}
             onClick={() => toggleModifier('ctrl')}
@@ -496,7 +515,7 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
               key={shortcut.label}
               onClick={() => {
                 sendWithModifiers(shortcut.data)
-                focusTerminal()
+                mobileInputRef.current?.focus()
               }}
               type="button"
             >
@@ -513,7 +532,7 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
                 key={letter}
                 onClick={() => {
                   sendWithModifiers(letter)
-                  focusTerminal()
+                  mobileInputRef.current?.focus()
                 }}
                 type="button"
               >

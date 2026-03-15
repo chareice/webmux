@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n web,server \"cd packages/web && pnpm dev\" \"cd packages/server && WEBMUX_DEV_MODE=true JWT_SECRET=dev-secret pnpm dev\"",
+    "start": "pnpm --filter @webmux/server start",
     "build": "pnpm -r build",
     "typecheck": "tsc -b",
     "lint": "eslint packages/",

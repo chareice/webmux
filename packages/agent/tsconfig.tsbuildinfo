@@ -1,1 +1,1 @@
-{"root":["./src/cli.ts","./src/connection.ts","./src/credentials.ts","./src/terminal.ts","./src/tmux.test.ts","./src/tmux.ts"],"version":"5.9.3"}
+{"root":["./src/cli.ts","./src/connection.test.ts","./src/connection.ts","./src/credentials.ts","./src/terminal.ts","./src/tmux.test.ts","./src/tmux.ts"],"version":"5.9.3"}

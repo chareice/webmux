@@ -1,1 +1,1 @@
-{"root":["./src/agent-hub.ts","./src/auth.test.ts","./src/auth.ts","./src/db.test.ts","./src/db.ts","./src/index.ts","./src/relay.ts","./src/router.ts"],"version":"5.9.3"}
+{"root":["./src/agent-hub.ts","./src/app.test.ts","./src/app.ts","./src/auth.test.ts","./src/auth.ts","./src/db.test.ts","./src/db.ts","./src/index.ts","./src/relay.ts","./src/router.ts"],"version":"5.9.3"}

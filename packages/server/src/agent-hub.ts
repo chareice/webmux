@@ -1,11 +1,13 @@
+import crypto from 'node:crypto'
+
 import type { WebSocket } from 'ws'
 import type { Database } from 'better-sqlite3'
 import type {
   AgentMessage,
-  ServerToAgentMessage,
   SessionSummary,
-  TerminalServerMessage,
+  ServerToAgentMessage,
   SessionEvent,
+  TerminalServerMessage,
 } from '@webmux/shared'
 import { verifySecret } from './auth.js'
 import { findAgentById, updateAgentStatus, updateAgentLastSeen } from './db.js'
@@ -28,11 +30,20 @@ interface EventClient {
   userId: string
 }
 
+interface PendingCommand<T> {
+  agentId: string
+  timer: ReturnType<typeof setTimeout>
+  resolve: (value: T) => void
+  reject: (reason: Error) => void
+  type: 'session-create' | 'session-kill'
+}
+
 export class AgentHub {
   private agents = new Map<string, OnlineAgent>()
   private browsers = new Map<string, BrowserConnection>()
   private eventClients: EventClient[] = []
   private heartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private pendingCommands = new Map<string, PendingCommand<unknown>>()
 
   handleConnection(socket: WebSocket, db: Database): void {
     let authenticated = false
@@ -187,6 +198,33 @@ export class AgentHub {
         break
       }
 
+      case 'command-result': {
+        const pending = this.pendingCommands.get(message.requestId)
+        if (!pending) {
+          break
+        }
+
+        this.pendingCommands.delete(message.requestId)
+        clearTimeout(pending.timer)
+
+        if (!message.ok) {
+          pending.reject(new Error(message.error))
+          break
+        }
+
+        if (pending.type === 'session-create') {
+          if (!message.session) {
+            pending.reject(new Error('Agent did not return the created session'))
+            break
+          }
+          pending.resolve(message.session)
+          break
+        }
+
+        pending.resolve(undefined)
+        break
+      }
+
       case 'terminal-output': {
         const browser = this.browsers.get(message.browserId)
         if (browser && browser.agentId === agentId) {
@@ -241,6 +279,14 @@ export class AgentHub {
     return this.agents.get(agentId)?.sessions ?? []
   }
 
+  async requestSessionCreate(agentId: string, name: string): Promise<SessionSummary> {
+    return this.requestCommand<SessionSummary>(agentId, 'session-create', { name })
+  }
+
+  async requestSessionKill(agentId: string, name: string): Promise<void> {
+    await this.requestCommand<void>(agentId, 'session-kill', { name })
+  }
+
   sendToAgent(agentId: string, message: ServerToAgentMessage): boolean {
     const agent = this.agents.get(agentId)
     if (!agent) return false
@@ -253,6 +299,16 @@ export class AgentHub {
 
     const agent = this.agents.get(agentId)
     if (!agent) return
+
+    for (const [requestId, pending] of this.pendingCommands) {
+      if (pending.agentId !== agentId) {
+        continue
+      }
+
+      clearTimeout(pending.timer)
+      this.pendingCommands.delete(requestId)
+      pending.reject(new Error('Agent disconnected'))
+    }
 
     // Close all browser connections to this agent
     for (const [browserId, browser] of this.browsers) {
@@ -316,6 +372,43 @@ export class AgentHub {
 
   private removeEventClient(socket: WebSocket): void {
     this.eventClients = this.eventClients.filter((c) => c.socket !== socket)
+  }
+
+  private requestCommand<TResult>(
+    agentId: string,
+    type: 'session-create' | 'session-kill',
+    payload: { name: string },
+  ): Promise<TResult> {
+    const requestId = crypto.randomUUID()
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingCommands.delete(requestId)
+        reject(new Error(`Timed out waiting for ${type}`))
+      }, 5_000)
+
+      this.pendingCommands.set(requestId, {
+        agentId,
+        timer,
+        resolve: (value) => resolve(value as TResult),
+        reject,
+        type,
+      })
+
+      const sent = this.sendToAgent(agentId, {
+        type,
+        requestId,
+        name: payload.name,
+      })
+
+      if (sent) {
+        return
+      }
+
+      clearTimeout(timer)
+      this.pendingCommands.delete(requestId)
+      reject(new Error('Failed to reach agent'))
+    })
   }
 
   private broadcastSessionSync(agentId: string, userId: string, sessions: SessionSummary[]): void {

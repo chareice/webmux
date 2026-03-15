@@ -1285,6 +1285,45 @@
     padding-bottom: calc(0.4rem + env(safe-area-inset-bottom));
   }
 
+  .mobile-input-bar {
+    display: flex;
+    gap: 0.3rem;
+  }
+
+  .mobile-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.55rem 0.7rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-soft);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ink);
+    font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+    font-size: 0.9rem;
+    outline: none;
+  }
+
+  .mobile-input:focus {
+    border-color: var(--accent);
+  }
+
+  .mobile-input::placeholder {
+    color: var(--muted);
+  }
+
+  .mobile-send-button {
+    padding: 0.55rem 0.85rem;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #1a1b26;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
   .toolbar-group {
     display: flex;
     flex-wrap: nowrap;

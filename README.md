@@ -1,29 +1,34 @@
 # Webmux
 
-Webmux is a mobile-first web client for `tmux`.
+Webmux is a mobile-first control plane for `tmux` across your own machines.
 
-You run the server on a machine you control, open the web UI from your phone, pick a session, and attach to a real terminal backed by `tmux` and a PTY. The session stays alive on the server after the browser disconnects.
+You run the central server somewhere you control, register one or more remote agents, open the web UI from your phone or laptop, pick a machine, then attach to a real terminal backed by that machine's local `tmux` socket and PTY. The `tmux` session stays alive on the agent after the browser disconnects.
 
 ## What it does today
 
-- Lists `tmux` sessions from a dedicated socket namespace
-- Creates and kills sessions
-- Shows a small pane preview for each session
-- Opens a live terminal over WebSocket
+- Authenticates users with GitHub, Google, or dev mode
+- Registers remote agents with one-time enrollment tokens
+- Lists your agents and shows online or offline state
+- Lists `tmux` sessions for each connected agent
+- Creates and kills sessions with agent-side confirmation
+- Shows pane previews, current command, activity time, and unread indicators
+- Opens a live terminal over WebSocket with reconnect handling
 - Adds mobile shortcut keys like `Esc`, `Prefix`, arrows, `Ctrl+C`, and `Detach`
-- Keeps the terminal process on the server, not in the browser
+- Keeps the terminal process on the agent machine, not in the browser
 
 ## Stack
 
 - Frontend: React 19 + Vite + xterm.js
 - Backend: Fastify + bare `ws`
-- Terminal bridge: `node-pty`
+- Persistence: SQLite via `better-sqlite3`
+- Agent runtime: Node.js CLI + `node-pty`
 - Session engine: `tmux`
 
 ## Why this shape
 
 - `tmux` is the source of truth for session lifetime
 - `node-pty` gives the browser a real PTY, so `vim`, `fzf`, `htop`, and similar TUI apps work
+- The server stays focused on auth, enrollment, routing, and fan-out instead of owning terminal state
 - The WebSocket layer is kept small and explicit instead of hiding it behind a larger framework abstraction
 - The heavy terminal renderer is lazy-loaded so the session list stays fast on mobile
 
@@ -49,6 +54,8 @@ This starts:
 - Vite on `http://127.0.0.1:5173`
 - The API/WebSocket server on `http://127.0.0.1:4317`
 
+In local dev, the server enables `/api/auth/dev` and the UI can auto-login as a temporary admin user.
+
 ## Build and run
 
 ```bash
@@ -59,19 +66,34 @@ pnpm start
 ## Environment variables
 
 ```bash
-HOST=0.0.0.0
 PORT=4317
-WEBMUX_TMUX_SOCKET=webmux
-WEBMUX_WORKSPACE_ROOT=/path/to/default/session/cwd
+JWT_SECRET=change-me
+WEBMUX_BASE_URL=https://webmux.example.com
+DATABASE_PATH=./webmux.db
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
 ```
 
 ## API surface
 
 - `GET /api/health`
-- `GET /api/sessions`
-- `POST /api/sessions`
-- `DELETE /api/sessions/:name`
-- `WS /ws/terminal?session=<name>`
+- `GET /api/auth/me`
+- `GET /api/auth/github`
+- `GET /api/auth/google`
+- `GET /api/auth/dev` (dev only)
+- `GET /api/agents`
+- `POST /api/agents/register-token`
+- `POST /api/agents/register`
+- `PATCH /api/agents/:id`
+- `DELETE /api/agents/:id`
+- `GET /api/agents/:id/sessions`
+- `POST /api/agents/:id/sessions`
+- `DELETE /api/agents/:id/sessions/:name`
+- `WS /ws/agent`
+- `WS /ws/events?token=<jwt>`
+- `WS /ws/terminal?agent=<id>&session=<name>&token=<jwt>`
 
 ## Development commands
 
@@ -84,6 +106,7 @@ pnpm build
 
 ## Notes
 
-- The server uses a dedicated `tmux` socket name (`webmux` by default) so it does not need to share state with your personal terminal sessions unless you want it to.
+- The agent uses a dedicated `tmux` socket name (`webmux`) so it does not need to share state with your personal terminal sessions unless you want it to.
 - Session names are intentionally constrained to a small safe charset.
-- The current UI is optimized for single-pane attach flows. Multi-pane map views, thumbnails, auth, and ACLs are still future work.
+- Session list updates are pushed immediately on create, kill, attach, and detach, with periodic agent refresh to keep previews and activity markers current.
+- The current UI is optimized for single-pane attach flows. Multi-pane map views, thumbnails, auth policies, and ACLs are still future work.
