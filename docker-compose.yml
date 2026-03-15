@@ -1,7 +1,9 @@
 services:
   server:
-    image: ghcr.io/chareice/webmux:latest
+    image: node:22-slim
     restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install -g @webmux/server && webmux-server"
     ports:
       - "127.0.0.1:4317:4317"
     volumes:
