@@ -72,17 +72,19 @@ const webDistPath = fs.existsSync(path.resolve(__dirname, '../web'))
   ? path.resolve(__dirname, '../web')
   : path.resolve(__dirname, '../../web/dist')
 
-app.register(fastifyStatic, {
-  root: webDistPath,
-  prefix: '/',
-  decorateReply: false,
-  wildcard: false,
-})
+if (fs.existsSync(webDistPath)) {
+  app.register(fastifyStatic, {
+    root: webDistPath,
+    prefix: '/',
+    wildcard: false,
+  })
 
-// SPA fallback: serve index.html for non-API, non-WS routes
-app.setNotFoundHandler((_request, reply) => {
-  return reply.sendFile('index.html', webDistPath)
-})
+  // SPA fallback: serve index.html for non-API, non-WS routes
+  const indexHtml = fs.readFileSync(path.join(webDistPath, 'index.html'), 'utf-8')
+  app.setNotFoundHandler((_request, reply) => {
+    return reply.type('text/html').send(indexHtml)
+  })
+}
 
 // --- WebSocket servers ---
 
