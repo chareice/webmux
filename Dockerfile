@@ -1,20 +1,20 @@
 FROM node:22-slim AS base
 RUN corepack enable pnpm
 
-# Build stage
+# Build stage — only build server and web (no agent, no node-pty)
 FROM base AS build
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/
-COPY packages/agent/package.json packages/agent/
-RUN pnpm install --frozen-lockfile
+# Create a stub agent package.json without node-pty so pnpm workspace resolves
+RUN mkdir -p packages/agent && echo '{"name":"@webmux/agent","version":"0.0.0","private":true}' > packages/agent/package.json
+RUN pnpm install --frozen-lockfile --filter @webmux/server --filter @webmux/web --filter @webmux/shared
 
 COPY packages/shared packages/shared
 COPY packages/server packages/server
 COPY packages/web packages/web
-COPY packages/agent packages/agent
 RUN pnpm --filter @webmux/web build
 RUN pnpm --filter @webmux/server build
 
@@ -26,7 +26,8 @@ ENV NODE_ENV=production
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/server/package.json packages/server/
-
+RUN mkdir -p packages/agent && echo '{"name":"@webmux/agent","version":"0.0.0","private":true}' > packages/agent/package.json
+RUN mkdir -p packages/web && echo '{"name":"@webmux/web","version":"0.0.0","private":true}' > packages/web/package.json
 RUN pnpm install --frozen-lockfile --prod --filter @webmux/server
 
 COPY --from=build /app/packages/server/dist packages/server/dist
