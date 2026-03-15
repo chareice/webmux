@@ -10,7 +10,7 @@ COPY packages/server/package.json packages/server/
 COPY packages/web/package.json packages/web/
 # Create a stub agent package.json without node-pty so pnpm workspace resolves
 RUN mkdir -p packages/agent && echo '{"name":"@webmux/agent","version":"0.0.0","private":true}' > packages/agent/package.json
-RUN pnpm install --frozen-lockfile --filter @webmux/server --filter @webmux/web --filter @webmux/shared
+RUN pnpm install --no-frozen-lockfile --filter @webmux/server --filter @webmux/web --filter @webmux/shared
 
 COPY packages/shared packages/shared
 COPY packages/server packages/server
@@ -28,7 +28,7 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/server/package.json packages/server/
 RUN mkdir -p packages/agent && echo '{"name":"@webmux/agent","version":"0.0.0","private":true}' > packages/agent/package.json
 RUN mkdir -p packages/web && echo '{"name":"@webmux/web","version":"0.0.0","private":true}' > packages/web/package.json
-RUN pnpm install --frozen-lockfile --prod --filter @webmux/server
+RUN pnpm install --no-frozen-lockfile --prod --filter @webmux/server
 
 COPY --from=build /app/packages/server/dist packages/server/dist
 COPY --from=build /app/packages/web/dist packages/web/dist
