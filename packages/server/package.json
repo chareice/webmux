@@ -1,6 +1,6 @@
 {
-  "name": "webmux-server",
-  "version": "0.0.6",
+  "name": "@webmux/server",
+  "version": "0.1.0",
   "type": "module",
   "bin": {
     "webmux-server": "./dist/index.js"

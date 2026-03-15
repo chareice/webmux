@@ -25,17 +25,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm --filter @webmux/web build
-      - run: pnpm --filter webmux-server build
-      - run: pnpm --filter webmux-agent build
+      - run: pnpm --filter @webmux/server build
+      - run: pnpm --filter @webmux/agent build
 
       # Copy web dist into server package for npm publish
       - run: cp -r packages/web/dist packages/server/web
 
       # Publish packages (skip if version already exists)
-      - run: pnpm --filter webmux-server publish --no-git-checks --access public || true
+      - run: pnpm --filter @webmux/server publish --no-git-checks --access public || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: pnpm --filter webmux-agent publish --no-git-checks --access public || true
+      - run: pnpm --filter @webmux/agent publish --no-git-checks --access public || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
