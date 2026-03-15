@@ -8,6 +8,7 @@ import { colors } from './src/theme';
 import type { RootStackParamList } from './src/navigation';
 import LoginScreen from './src/screens/LoginScreen';
 import RunsScreen from './src/screens/RunsScreen';
+import AgentsScreen from './src/screens/AgentsScreen';
 import NewRunScreen from './src/screens/NewRunScreen';
 import RunDetailScreen from './src/screens/RunDetailScreen';
 import TerminalScreen from './src/screens/TerminalScreen';
@@ -47,6 +48,11 @@ function AppNavigator(): React.JSX.Element {
             name="Runs"
             component={RunsScreen}
             options={{ title: 'Runs', headerLargeTitle: true }}
+          />
+          <Stack.Screen
+            name="Agents"
+            component={AgentsScreen}
+            options={{ title: 'Agents', headerLargeTitle: true }}
           />
           <Stack.Screen
             name="NewRun"

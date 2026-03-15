@@ -25,11 +25,36 @@ Run Metro:
 pnpm start
 ```
 
+The local development port is fixed to `8082` so it does not clash with other
+React Native or Expo projects that still use the default `8081`.
+
 Run on Android:
 
 ```sh
 pnpm android
 ```
+
+For a local Android emulator on this machine:
+
+```sh
+pnpm android:emulator
+pnpm android:build-debug:emulator
+pnpm android:install-debug
+```
+
+The emulator helper uses:
+
+- AVD name: `webmux-api36`
+- System image: `system-images;android-36;google_apis;x86_64`
+- Metro reverse tunnel: `tcp:8082 -> tcp:8082`
+
+Debug APK builds are architecture-specific:
+
+- `pnpm android:build-debug:device` builds an `arm64-v8a` APK for a real phone
+- `pnpm android:build-debug:emulator` builds an `x86_64` APK for the local emulator
+
+If Metro is already running on this machine, the installed debug app can talk
+to it without manually typing the host every time.
 
 Run on iOS:
 
@@ -68,6 +93,16 @@ The server currently exposes both:
 
 - `/api/auth/github`
 - `/api/auth/google`
+
+## Current Mobile Flows
+
+The mobile app currently includes:
+
+- a `Runs` home screen for active and completed runs
+- an `Agents` screen for browsing online and offline agents
+- a `New Run` flow with recent repository shortcuts and an agent-backed
+  repository picker, so repository paths no longer need to be typed manually
+- a `Run Detail` screen with output streaming and terminal handoff
 
 ## Android Signing
 

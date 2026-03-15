@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { SessionSummary } from '@webmux/shared'
 
@@ -135,6 +135,66 @@ describe('buildApp', () => {
     expect(response.json()).toEqual({
       session: createSession('codex'),
     })
+
+    await app.close()
+  })
+
+  it('returns repository choices for an online agent', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'u-1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'nas',
+      agentSecretHash: 'hash',
+    })
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+
+    const browseResult = {
+      currentPath: '/home/chareice/projects',
+      parentPath: '/home/chareice',
+      entries: [
+        {
+          kind: 'repository',
+          name: 'webmux',
+          path: '/home/chareice/projects/webmux',
+        },
+      ],
+    }
+
+    const hub = {
+      getAgent: () => ({ id: agent.id }),
+      removeAgent() {},
+      getAgentSessions: () => [],
+      requestSessionCreate: async () => createSession('unused'),
+      requestSessionKill: async () => undefined,
+      sendToAgent: () => true,
+      requestRepositoryBrowse: vi.fn().mockResolvedValue(browseResult),
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/agents/${agent.id}/repositories?path=${encodeURIComponent('/home/chareice/projects')}`,
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual(browseResult)
 
     await app.close()
   })

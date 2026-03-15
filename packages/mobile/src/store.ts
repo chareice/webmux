@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setServerUrl, setToken } from './api';
+import { normalizeServerUrl } from './server-url';
 
 const STORAGE_KEY_SERVER_URL = '@webmux/server_url';
 const STORAGE_KEY_TOKEN = '@webmux/token';
@@ -42,7 +43,7 @@ export function useAuthProvider(): AuthContextType {
   const isLoggedIn = !!token && !!serverUrl;
 
   const login = useCallback(async (url: string, jwt: string) => {
-    const cleanUrl = url.replace(/\/+$/, '');
+    const cleanUrl = normalizeServerUrl(url);
     setServerUrlState(cleanUrl);
     setTokenState(jwt);
     setServerUrl(cleanUrl);
@@ -75,10 +76,15 @@ export function useAuthProvider(): AuthContextType {
       const storedToken = values[1][1];
 
       if (storedUrl && storedToken) {
-        setServerUrlState(storedUrl);
+        const cleanUrl = normalizeServerUrl(storedUrl);
+        setServerUrlState(cleanUrl);
         setTokenState(storedToken);
-        setServerUrl(storedUrl);
+        setServerUrl(cleanUrl);
         setToken(storedToken);
+
+        if (cleanUrl !== storedUrl) {
+          await AsyncStorage.setItem(STORAGE_KEY_SERVER_URL, cleanUrl);
+        }
       }
     } catch {
       // Ignore storage errors on restore

@@ -12,6 +12,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../store';
 import { getOAuthUrl, OAuthProvider, setServerUrl } from '../api';
+import { normalizeServerUrl } from '../server-url';
 import { colors, commonStyles } from '../theme';
 
 const STORAGE_KEY_LAST_SERVER = '@webmux/last_server_url';
@@ -26,7 +27,7 @@ export default function LoginScreen(): React.JSX.Element {
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY_LAST_SERVER).then(url => {
       if (url) {
-        setServerUrlInput(url);
+        setServerUrlInput(normalizeServerUrl(url));
       }
     });
   }, []);
@@ -67,7 +68,7 @@ export default function LoginScreen(): React.JSX.Element {
     setActiveProvider(provider);
     setError('');
     try {
-      const cleanUrl = incomingServerUrl.replace(/\/+$/, '');
+      const cleanUrl = normalizeServerUrl(incomingServerUrl);
       await AsyncStorage.setItem(STORAGE_KEY_LAST_SERVER, cleanUrl);
       await login(cleanUrl, token);
     } catch (e: unknown) {
@@ -82,19 +83,25 @@ export default function LoginScreen(): React.JSX.Element {
     Keyboard.dismiss();
     setError('');
 
-    const cleanUrl = serverUrl.trim().replace(/\/+$/, '');
+    const cleanUrl = normalizeServerUrl(serverUrl);
     if (!cleanUrl) {
       setError('Please enter a server URL');
       return;
     }
 
-    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
-      setError('URL must start with http:// or https://');
+    try {
+      const parsedUrl = new URL(cleanUrl);
+      if (!/^https?:$/.test(parsedUrl.protocol)) {
+        throw new Error('Unsupported protocol');
+      }
+    } catch {
+      setError('Please enter a valid server URL');
       return;
     }
 
     setActiveProvider(provider);
     try {
+      setServerUrlInput(cleanUrl);
       setServerUrl(cleanUrl);
       await AsyncStorage.setItem(STORAGE_KEY_LAST_SERVER, cleanUrl);
 
@@ -122,6 +129,12 @@ export default function LoginScreen(): React.JSX.Element {
             placeholderTextColor={colors.textSecondary}
             value={serverUrl}
             onChangeText={setServerUrlInput}
+            onBlur={() => {
+              const cleanUrl = normalizeServerUrl(serverUrl);
+              if (cleanUrl) {
+                setServerUrlInput(cleanUrl);
+              }
+            }}
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="url"

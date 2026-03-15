@@ -2,6 +2,7 @@ import { spawn, type IPty } from 'node-pty'
 
 import type { RunStatus, RunTool } from '@webmux/shared'
 import type { TmuxClient } from './tmux.js'
+import { TerminalOutputSanitizer } from './plain-output.js'
 
 const STATUS_DEBOUNCE_MS = 300
 const OUTPUT_BUFFER_MAX_LINES = 20
@@ -64,6 +65,7 @@ export class RunWrapper {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private disposed = false
   private interrupted = false
+  private readonly outputSanitizer = new TerminalOutputSanitizer()
 
   readonly sessionName: string
 
@@ -118,7 +120,10 @@ export class RunWrapper {
         return
       }
 
-      this.onOutput(data)
+      const plainOutput = this.outputSanitizer.push(data)
+      if (plainOutput) {
+        this.onOutput(plainOutput)
+      }
       this.appendToBuffer(data)
       this.scheduleStatusDetection()
     })
@@ -138,6 +143,12 @@ export class RunWrapper {
       if (finalStatus !== this.currentStatus) {
         this.emitStatus(finalStatus)
       }
+
+      const trailingOutput = this.outputSanitizer.flush()
+      if (trailingOutput) {
+        this.onOutput(trailingOutput)
+      }
+
       this.onFinish(finalStatus)
 
       this.ptyProcess = null

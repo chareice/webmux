@@ -22,6 +22,18 @@ export interface AgentUpgradePolicy {
   minimumVersion?: string
 }
 
+export interface RepositoryEntry {
+  name: string
+  path: string
+  kind: 'directory' | 'repository'
+}
+
+export interface RepositoryBrowseResponse {
+  currentPath: string
+  parentPath: string | null
+  entries: RepositoryEntry[]
+}
+
 // Agent → Server
 export type AgentMessage =
   | { type: 'auth'; agentId: string; agentSecret: string; version?: string }
@@ -29,6 +41,8 @@ export type AgentMessage =
   | { type: 'sessions-sync'; sessions: SessionSummary[] }
   | { type: 'command-result'; requestId: string; ok: true; session?: SessionSummary }
   | { type: 'command-result'; requestId: string; ok: false; error: string }
+  | { type: 'repository-browse-result'; requestId: string; ok: true; currentPath: string; parentPath: string | null; entries: RepositoryEntry[] }
+  | { type: 'repository-browse-result'; requestId: string; ok: false; error: string }
   | { type: 'terminal-output'; browserId: string; data: string }
   | { type: 'terminal-ready'; browserId: string; sessionName: string }
   | { type: 'terminal-exit'; browserId: string; exitCode: number }
@@ -47,6 +61,7 @@ export type ServerToAgentMessage =
   | { type: 'terminal-resize'; browserId: string; cols: number; rows: number }
   | { type: 'session-create'; requestId: string; name: string }
   | { type: 'session-kill'; requestId: string; name: string }
+  | { type: 'repository-browse'; requestId: string; path?: string }
   | { type: 'run-start'; runId: string; tool: RunTool; repoPath: string; prompt: string }
   | { type: 'run-input'; runId: string; input: string }
   | { type: 'run-interrupt'; runId: string }

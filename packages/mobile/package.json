@@ -3,10 +3,14 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "android": "react-native run-android",
+    "android": "react-native run-android --port 8082",
+    "android:build-debug:device": "bash scripts/build-debug-apk.sh device",
+    "android:build-debug:emulator": "bash scripts/build-debug-apk.sh emulator",
+    "android:emulator": "bash scripts/start-android-emulator.sh",
+    "android:install-debug": "bash scripts/install-debug-apk.sh",
     "ios": "react-native run-ios",
     "lint": "eslint .",
-    "start": "react-native start",
+    "start": "react-native start --port 8082",
     "test": "jest"
   },
   "dependencies": {

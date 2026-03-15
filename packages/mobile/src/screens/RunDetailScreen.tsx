@@ -19,21 +19,19 @@ import {
   rejectRun,
   sendInput,
 } from '../api';
+import { sanitizeTerminalOutput } from '../plain-output';
 import { Run, RunEvent } from '../types';
 import { colors, commonStyles, fonts, statusColor, statusLabel, toolIcon } from '../theme';
 import type { RootStackParamList } from '../navigation';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RunDetail'>;
-
-// Strip ANSI escape codes from text
-function stripAnsi(text: string): string {
-  return text.replace(/\x1b\[[0-9;]*m/g, '');
-}
 
 const MAX_OUTPUT_LINES = 100;
 
 export default function RunDetailScreen({ route, navigation }: Props): React.JSX.Element {
   const { agentId, runId } = route.params;
+  const insets = useSafeAreaInsets();
 
   const [run, setRun] = useState<Run | null>(null);
   const [output, setOutput] = useState<string[]>([]);
@@ -47,7 +45,7 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
     try {
       const result = await getRunDetail(agentId, runId);
       setRun(result.run);
-      const restoredOutput = stripAnsi(result.output);
+      const restoredOutput = sanitizeTerminalOutput(result.output);
       setOutput(restoredOutput.length > 0 ? restoredOutput.split('\n') : []);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to load run';
@@ -69,7 +67,10 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
       (event: unknown) => {
         const typedEvent = event as RunEvent;
         if (typedEvent.type === 'run-output') {
-          const cleanText = stripAnsi(typedEvent.data);
+          const cleanText = sanitizeTerminalOutput(typedEvent.data);
+          if (!cleanText) {
+            return;
+          }
           setOutput(prev => {
             const newLines = [...prev, ...cleanText.split('\n')];
             // Keep only last MAX_OUTPUT_LINES
@@ -265,7 +266,11 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
       </ScrollView>
 
       {/* Action buttons */}
-      <View style={styles.actionsContainer}>
+      <View
+        style={[
+          styles.actionsContainer,
+          !showInput && { paddingBottom: 8 + insets.bottom },
+        ]}>
         {showApproveReject && (
           <View style={styles.approveRejectRow}>
             <TouchableOpacity
@@ -311,7 +316,7 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
 
       {/* Input bar */}
       {showInput && (
-        <View style={styles.inputBar}>
+        <View style={[styles.inputBar, { paddingBottom: 8 + insets.bottom }]}>
           <TextInput
             style={styles.inputField}
             placeholder="Type a message..."

@@ -5,6 +5,7 @@ import type { Database } from 'better-sqlite3'
 import type {
   AgentMessage,
   AgentUpgradePolicy,
+  RepositoryBrowseResponse,
   SessionSummary,
   ServerToAgentMessage,
   SessionEvent,
@@ -49,7 +50,7 @@ interface PendingCommand<T> {
   timer: ReturnType<typeof setTimeout>
   resolve: (value: T) => void
   reject: (reason: Error) => void
-  type: 'session-create' | 'session-kill'
+  type: 'session-create' | 'session-kill' | 'repository-browse'
 }
 
 export class AgentHub {
@@ -259,6 +260,28 @@ export class AgentHub {
         break
       }
 
+      case 'repository-browse-result': {
+        const pending = this.pendingCommands.get(message.requestId)
+        if (!pending || pending.type !== 'repository-browse') {
+          break
+        }
+
+        this.pendingCommands.delete(message.requestId)
+        clearTimeout(pending.timer)
+
+        if (!message.ok) {
+          pending.reject(new Error(message.error))
+          break
+        }
+
+        pending.resolve({
+          currentPath: message.currentPath,
+          parentPath: message.parentPath,
+          entries: message.entries,
+        })
+        break
+      }
+
       case 'terminal-output': {
         const browser = this.browsers.get(message.browserId)
         if (browser && browser.agentId === agentId) {
@@ -329,6 +352,14 @@ export class AgentHub {
 
   async requestSessionKill(agentId: string, name: string): Promise<void> {
     await this.requestCommand<void>(agentId, 'session-kill', { name })
+  }
+
+  async requestRepositoryBrowse(agentId: string, repositoryPath?: string): Promise<RepositoryBrowseResponse> {
+    return this.requestCommand<RepositoryBrowseResponse>(
+      agentId,
+      'repository-browse',
+      { path: repositoryPath },
+    )
   }
 
   sendToAgent(agentId: string, message: ServerToAgentMessage): boolean {
@@ -519,8 +550,8 @@ export class AgentHub {
 
   private requestCommand<TResult>(
     agentId: string,
-    type: 'session-create' | 'session-kill',
-    payload: { name: string },
+    type: 'session-create' | 'session-kill' | 'repository-browse',
+    payload: { name?: string; path?: string },
   ): Promise<TResult> {
     const requestId = crypto.randomUUID()
 
@@ -538,11 +569,20 @@ export class AgentHub {
         type,
       })
 
-      const sent = this.sendToAgent(agentId, {
-        type,
-        requestId,
-        name: payload.name,
-      })
+      const message: ServerToAgentMessage =
+        type === 'repository-browse'
+          ? {
+              type,
+              requestId,
+              path: payload.path,
+            }
+          : {
+              type,
+              requestId,
+              name: payload.name ?? '',
+            }
+
+      const sent = this.sendToAgent(agentId, message)
 
       if (sent) {
         return

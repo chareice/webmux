@@ -35,6 +35,18 @@ export interface AgentInfo {
   lastSeenAt: number | null;
 }
 
+export interface RepositoryEntry {
+  name: string;
+  path: string;
+  kind: 'directory' | 'repository';
+}
+
+export interface RepositoryBrowseResponse {
+  currentPath: string;
+  parentPath: string | null;
+  entries: RepositoryEntry[];
+}
+
 export interface StartRunRequest {
   tool: RunTool;
   repoPath: string;

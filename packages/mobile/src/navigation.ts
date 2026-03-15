@@ -1,7 +1,8 @@
 export type RootStackParamList = {
   Login: undefined;
   Runs: undefined;
-  NewRun: undefined;
+  Agents: undefined;
+  NewRun: { agentId?: string } | undefined;
   RunDetail: { agentId: string; runId: string };
   Terminal: { agentId: string; sessionName?: string };
 };

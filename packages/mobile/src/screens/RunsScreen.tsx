@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -133,6 +133,23 @@ export default function RunsScreen(): React.JSX.Element {
   const activeRuns = runs.filter(r => ACTIVE_STATUSES.includes(r.status));
   const completedRuns = runs.filter(r => COMPLETED_STATUSES.includes(r.status));
 
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Agents')}
+            activeOpacity={0.7}>
+            <Text style={styles.headerActionText}>Agents</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={logout} activeOpacity={0.7}>
+            <Text style={styles.headerActionText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      ),
+    });
+  }, [logout, navigation]);
+
   const renderRunCard = (run: Run) => (
     <TouchableOpacity
       key={run.id}
@@ -258,14 +275,6 @@ export default function RunsScreen(): React.JSX.Element {
         activeOpacity={0.8}
         onPress={() => navigation.navigate('NewRun')}>
         <Text style={styles.fabText}>+</Text>
-      </TouchableOpacity>
-
-      {/* Logout button in header area (top right) */}
-      <TouchableOpacity
-        style={styles.logoutButton}
-        onPress={logout}
-        activeOpacity={0.7}>
-        <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
     </View>
   );
@@ -421,13 +430,13 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     marginTop: -2,
   },
-  logoutButton: {
-    position: 'absolute',
-    top: 8,
-    right: 16,
+  headerActions: {
+    flexDirection: 'row',
+    gap: 16,
   },
-  logoutText: {
+  headerActionText: {
     color: colors.textSecondary,
     fontSize: 14,
+    fontWeight: '600',
   },
 });

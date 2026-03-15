@@ -174,4 +174,73 @@ describe('AgentHub run lifecycle', () => {
       summary: 'Agent disconnected before the run completed.',
     })
   })
+
+  it('resolves repository browse requests with the agent response payload', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, { userId: user.id, name: 'owner', agentSecretHash: 'hash' })
+    const socket = createSocket()
+    const hub = new AgentHub()
+
+    ;(hub as unknown as {
+      agents: Map<
+        string,
+        {
+          socket: TestSocket
+          userId: string
+          name: string
+          sessions: []
+        }
+      >
+    }).agents.set(agent.id, {
+      socket,
+      userId: user.id,
+      name: agent.name,
+      sessions: [],
+    })
+
+    const browsePromise = hub.requestRepositoryBrowse(agent.id, '/home/chareice/projects')
+    const message = socket.messages[0] as Extract<ServerToAgentMessage, { type: 'repository-browse' }>
+
+    expect(message).toMatchObject({
+      type: 'repository-browse',
+      path: '/home/chareice/projects',
+    })
+
+    hub.handleAgentMessage(
+      agent.id,
+      {
+        type: 'repository-browse-result',
+        requestId: message.requestId,
+        ok: true,
+        currentPath: '/home/chareice/projects',
+        parentPath: '/home/chareice',
+        entries: [
+          {
+            kind: 'repository',
+            name: 'webmux',
+            path: '/home/chareice/projects/webmux',
+          },
+        ],
+      },
+      db,
+    )
+
+    await expect(browsePromise).resolves.toEqual({
+      currentPath: '/home/chareice/projects',
+      parentPath: '/home/chareice',
+      entries: [
+        {
+          kind: 'repository',
+          name: 'webmux',
+          path: '/home/chareice/projects/webmux',
+        },
+      ],
+    })
+  })
 })

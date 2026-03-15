@@ -12,6 +12,7 @@ import { upgradeService } from './service.js'
 import type { TmuxClient } from './tmux.js'
 import { createTerminalBridge, type TerminalBridge } from './terminal.js'
 import { RunWrapper } from './run-wrapper.js'
+import { browseRepositories } from './repositories.js'
 import { AGENT_PACKAGE_NAME, AGENT_VERSION } from './version.js'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
@@ -188,6 +189,10 @@ export class AgentConnection {
         this.handleSessionKill(msg.requestId, msg.name)
         break
 
+      case 'repository-browse':
+        this.handleRepositoryBrowse(msg.requestId, msg.path)
+        break
+
       case 'run-start':
         this.handleRunStart(msg.runId, msg.tool, msg.repoPath, msg.prompt)
         break
@@ -316,6 +321,27 @@ export class AgentConnection {
       const message = err instanceof Error ? err.message : String(err)
       console.error(`[agent] Failed to kill session "${name}":`, message)
       this.sendMessage({ type: 'command-result', requestId, ok: false, error: message })
+    }
+  }
+
+  private async handleRepositoryBrowse(requestId: string, requestedPath?: string): Promise<void> {
+    try {
+      const result = await browseRepositories({
+        rootPath: this.tmux.workspaceRoot,
+        requestedPath,
+      })
+      this.sendMessage({
+        type: 'repository-browse-result',
+        requestId,
+        ok: true,
+        currentPath: result.currentPath,
+        parentPath: result.parentPath,
+        entries: result.entries,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[agent] Failed to browse repositories:', message)
+      this.sendMessage({ type: 'repository-browse-result', requestId, ok: false, error: message })
     }
   }
 

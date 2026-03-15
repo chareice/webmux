@@ -8,6 +8,7 @@ import type {
   RegisterAgentResponse,
   CreateSessionRequest,
   ListSessionsResponse,
+  RepositoryBrowseResponse,
   StartRunRequest,
   RunListResponse,
   RunDetailResponse,
@@ -442,6 +443,33 @@ export function registerRoutes(
     await hub.requestSessionKill(id, name)
 
     return { ok: true }
+  })
+
+  app.get('/api/agents/:id/repositories', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { path } = request.query as { path?: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const online = hub.getAgent(id)
+    if (!online) {
+      return reply.status(400).send({ error: 'Agent is offline' })
+    }
+
+    try {
+      const response: RepositoryBrowseResponse = await hub.requestRepositoryBrowse(id, path)
+      return response
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to browse repositories'
+      return reply.status(400).send({ error: message })
+    }
   })
 
   // --- Run routes ---

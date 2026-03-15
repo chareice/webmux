@@ -1,11 +1,13 @@
 import {
   AgentListResponse,
+  RepositoryBrowseResponse,
   Run,
   RunDetailResponse,
   RunListResponse,
   RunTool,
   StartRunRequest,
 } from './types';
+import { normalizeServerUrl } from './server-url';
 
 let _serverUrl = '';
 let _token = '';
@@ -13,8 +15,7 @@ let _token = '';
 export type OAuthProvider = 'github' | 'google';
 
 export function setServerUrl(url: string): void {
-  // Remove trailing slash
-  _serverUrl = url.replace(/\/+$/, '');
+  _serverUrl = normalizeServerUrl(url);
 }
 
 export function getServerUrl(): string {
@@ -73,6 +74,19 @@ export function getOAuthUrl(provider: OAuthProvider): string {
 
 export async function listAgents(): Promise<AgentListResponse> {
   return fetchApi<AgentListResponse>('/api/agents');
+}
+
+export async function browseAgentRepositories(
+  agentId: string,
+  repositoryPath?: string,
+): Promise<RepositoryBrowseResponse> {
+  const query = repositoryPath
+    ? `?path=${encodeURIComponent(repositoryPath)}`
+    : '';
+
+  return fetchApi<RepositoryBrowseResponse>(
+    `/api/agents/${agentId}/repositories${query}`,
+  );
 }
 
 // --- Runs ---
