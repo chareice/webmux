@@ -1,12 +1,17 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
 import { describe, expect, it } from 'vitest'
 
-import { formatPreview, parseSessionList } from './tmux.js'
+import { formatPreview, isTmuxEmptyStateMessage, parseSessionList, TmuxClient } from './tmux.js'
+
+const execFileAsync = promisify(execFile)
 
 describe('parseSessionList', () => {
   it('parses tmux list output into structured sessions', () => {
     const stdout = [
-      'alpha\u001f2\u001f1\u001f1700000000\u001f1700000100\u001f/home/chareice/projects',
-      'beta\u001f1\u001f0\u001f1700000200\u001f1700000300\u001f/home/chareice',
+      'alpha\u001f2\u001f1\u001f1700000000\u001f1700000100\u001f/home/chareice/projects\u001fbash',
+      'beta\u001f1\u001f0\u001f1700000200\u001f1700000300\u001f/home/chareice\u001fvim',
     ].join('\n')
 
     expect(parseSessionList(stdout)).toEqual([
@@ -17,6 +22,7 @@ describe('parseSessionList', () => {
         createdAt: 1700000000,
         lastActivityAt: 1700000100,
         path: '/home/chareice/projects',
+        currentCommand: 'bash',
       },
       {
         name: 'beta',
@@ -25,6 +31,24 @@ describe('parseSessionList', () => {
         createdAt: 1700000200,
         lastActivityAt: 1700000300,
         path: '/home/chareice',
+        currentCommand: 'vim',
+      },
+    ])
+  })
+
+  it('handles missing currentCommand field gracefully', () => {
+    const stdout =
+      'gamma\u001f1\u001f0\u001f1700000000\u001f1700000100\u001f/home/chareice'
+
+    expect(parseSessionList(stdout)).toEqual([
+      {
+        name: 'gamma',
+        windows: 1,
+        attachedClients: 0,
+        createdAt: 1700000000,
+        lastActivityAt: 1700000100,
+        path: '/home/chareice',
+        currentCommand: '',
       },
     ])
   })
@@ -42,5 +66,37 @@ describe('formatPreview', () => {
 
   it('returns a default preview when the pane is empty', () => {
     expect(formatPreview('\n\n')).toEqual(['Fresh session. Nothing has run yet.'])
+  })
+})
+
+describe('isTmuxEmptyStateMessage', () => {
+  it('treats missing server errors as empty state', () => {
+    expect(
+      isTmuxEmptyStateMessage('no server running on /tmp/tmux-1000/webmux-test'),
+    ).toBe(true)
+    expect(
+      isTmuxEmptyStateMessage(
+        'error connecting to /tmp/tmux-1000/webmux-test (No such file or directory)',
+      ),
+    ).toBe(true)
+  })
+})
+
+describe('TmuxClient integration', () => {
+  it('creates a new session when the socket does not exist yet', async () => {
+    const socketName = `webmux-test-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+    const client = new TmuxClient({
+      socketName,
+      workspaceRoot: process.cwd(),
+    })
+
+    try {
+      await client.createSession('spec')
+      const session = await client.readSession('spec')
+      expect(session?.name).toBe('spec')
+      expect(session?.currentCommand).toBeTruthy()
+    } finally {
+      await execFileAsync('tmux', ['-L', socketName, 'kill-server']).catch(() => undefined)
+    }
   })
 })

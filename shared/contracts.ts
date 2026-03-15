@@ -6,6 +6,7 @@ export interface SessionSummary {
   lastActivityAt: number
   path: string
   preview: string[]
+  currentCommand: string
 }
 
 export interface ListSessionsResponse {
@@ -48,6 +49,11 @@ export type TerminalServerMessage =
       type: 'error'
       message: string
     }
+
+export type SessionEvent = {
+  type: 'sessions-sync'
+  sessions: SessionSummary[]
+}
 
 export const DEFAULT_TERMINAL_SIZE = {
   cols: 120,

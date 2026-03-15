@@ -26,6 +26,7 @@ interface SessionMeta {
   createdAt: number
   lastActivityAt: number
   path: string
+  currentCommand: string
 }
 
 export class TmuxClient {
@@ -49,6 +50,7 @@ export class TmuxClient {
           '#{session_created}',
           '#{session_activity}',
           '#{session_path}',
+          '#{pane_current_command}',
         ].join(FIELD_SEPARATOR),
       ],
       { allowEmptyState: true },
@@ -93,9 +95,17 @@ export class TmuxClient {
 
   private async hasSession(name: string): Promise<boolean> {
     try {
-      await this.run(['has-session', '-t', name], { allowEmptyState: true })
+      await this.run(['has-session', '-t', name])
       return true
-    } catch {
+    } catch (error) {
+      const message = String(
+        (error as { stderr?: string }).stderr ?? (error as Error).message,
+      )
+
+      if (isTmuxEmptyStateMessage(message)) {
+        return false
+      }
+
       return false
     }
   }
@@ -161,8 +171,9 @@ export function parseSessionList(stdout: string): SessionMeta[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .flatMap((line) => {
-      const [name, windows, attachedClients, createdAt, lastActivityAt, path] =
-        line.split(FIELD_SEPARATOR)
+      const parts = line.split(FIELD_SEPARATOR)
+      const [name, windows, attachedClients, createdAt, lastActivityAt, path] = parts
+      const currentCommand = parts[6] ?? ''
 
       if (!name || !windows || !attachedClients || !createdAt || !lastActivityAt || !path) {
         return []
@@ -176,6 +187,7 @@ export function parseSessionList(stdout: string): SessionMeta[] {
           createdAt: Number(createdAt),
           lastActivityAt: Number(lastActivityAt),
           path,
+          currentCommand,
         },
       ]
     })
@@ -194,4 +206,8 @@ export function formatPreview(stdout: string): string[] {
   }
 
   return ['Fresh session. Nothing has run yet.']
+}
+
+export function isTmuxEmptyStateMessage(message: string): boolean {
+  return TMUX_EMPTY_STATE_MARKERS.some((marker) => message.includes(marker))
 }

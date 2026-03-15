@@ -12,6 +12,7 @@ import {
   type CreateSessionRequest,
   type CreateSessionResponse,
   type ListSessionsResponse,
+  type SessionEvent,
   type TerminalClientMessage,
   type TerminalServerMessage,
 } from '../shared/contracts.js'
@@ -58,23 +59,75 @@ export async function buildServer() {
     noServer: true,
   })
 
+  const eventsSocketServer = new WebSocketServer({
+    noServer: true,
+  })
+
+  // Track connected event clients
+  const eventClients = new Set<WebSocket>()
+  let lastMetadataHash = ''
+
+  const broadcastSessionEvent = (event: SessionEvent) => {
+    const payload = JSON.stringify(event)
+    for (const client of eventClients) {
+      if (client.readyState === 1) {
+        client.send(payload)
+      }
+    }
+  }
+
+  // Extract stable metadata for change detection (exclude preview which changes constantly)
+  function sessionMetadataHash(sessions: { name: string; windows: number; attachedClients: number; lastActivityAt: number; currentCommand: string }[]): string {
+    return sessions
+      .map((s) => `${s.name}:${s.windows}:${s.attachedClients}:${s.lastActivityAt}:${s.currentCommand}`)
+      .join('|')
+  }
+
+  // Poll sessions and push changes to event clients
+  const pollInterval = setInterval(async () => {
+    if (eventClients.size === 0) {
+      return
+    }
+
+    try {
+      const sessions = await tmux.listSessions()
+      const hash = sessionMetadataHash(sessions)
+
+      if (hash !== lastMetadataHash) {
+        lastMetadataHash = hash
+        broadcastSessionEvent({ type: 'sessions-sync', sessions })
+      }
+    } catch {
+      // Ignore polling errors
+    }
+  }, 2000)
+
   server.server.on('upgrade', (request, socket, head) => {
     const requestUrl = new URL(
       request.url ?? '/',
       `http://${request.headers.host ?? 'localhost'}`,
     )
 
-    if (requestUrl.pathname !== '/ws/terminal') {
-      socket.destroy()
+    if (requestUrl.pathname === '/ws/terminal') {
+      terminalSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+        handleTerminalSocket(webSocket, request, tmux)
+      })
       return
     }
 
-    terminalSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-      handleTerminalSocket(webSocket, request, tmux)
-    })
+    if (requestUrl.pathname === '/ws/events') {
+      eventsSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+        handleEventsSocket(webSocket, eventClients, tmux)
+      })
+      return
+    }
+
+    socket.destroy()
   })
 
   server.addHook('onClose', (_, done) => {
+    clearInterval(pollInterval)
+    eventsSocketServer.close()
     terminalSocketServer.close(() => done())
   })
 
@@ -99,6 +152,10 @@ export async function buildServer() {
     }
 
     reply.code(201)
+
+    // Notify event clients about the change
+    lastMetadataHash = ''
+
     return { session }
   })
 
@@ -106,6 +163,10 @@ export async function buildServer() {
     const params = z.object({ name: z.string() }).parse(request.params)
     await tmux.killSession(params.name)
     reply.code(204)
+
+    // Notify event clients about the change
+    lastMetadataHash = ''
+
     return reply.send()
   })
 
@@ -132,6 +193,37 @@ function parseTerminalMessage(payload: string): TerminalClientMessage | null {
   } catch {
     return null
   }
+}
+
+function handleEventsSocket(
+  socket: WebSocket,
+  clients: Set<WebSocket>,
+  tmux: TmuxClient,
+) {
+  clients.add(socket)
+
+  // Send initial session list immediately
+  void (async () => {
+    try {
+      const sessions = await tmux.listSessions()
+      socket.send(
+        JSON.stringify({
+          type: 'sessions-sync',
+          sessions,
+        } satisfies SessionEvent),
+      )
+    } catch {
+      // Ignore initial sync errors
+    }
+  })()
+
+  socket.on('close', () => {
+    clients.delete(socket)
+  })
+
+  socket.on('error', () => {
+    clients.delete(socket)
+  })
 }
 
 function handleTerminalSocket(

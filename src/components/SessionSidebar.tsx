@@ -1,4 +1,14 @@
-import { LoaderCircle, RefreshCcw, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  LoaderCircle,
+  Pin,
+  PinOff,
+  RefreshCcw,
+  Search,
+  Trash2,
+} from 'lucide-react'
 
 import type { SessionSummary } from '../../shared/contracts.ts'
 
@@ -8,11 +18,16 @@ interface SessionSidebarProps {
   draftName: string
   isCreating: boolean
   error: string | null
+  collapsed: boolean
+  unreadSessions: Set<string>
+  pinnedSessions: Set<string>
   onDraftNameChange: (value: string) => void
   onCreateSession: () => void
   onRefresh: () => void
   onSelectSession: (name: string) => void
   onKillSession: (name: string) => void
+  onToggleCollapse: () => void
+  onTogglePin: (name: string) => void
 }
 
 export function SessionSidebar(props: SessionSidebarProps) {
@@ -22,21 +37,103 @@ export function SessionSidebar(props: SessionSidebarProps) {
     draftName,
     isCreating,
     error,
+    collapsed,
+    unreadSessions,
+    pinnedSessions,
     onDraftNameChange,
     onCreateSession,
     onRefresh,
     onSelectSession,
     onKillSession,
+    onToggleCollapse,
+    onTogglePin,
   } = props
+
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Dashboard stats
+  const activeSessions = sessions.filter((session) => session.attachedClients > 0)
+  const idleSessions = sessions.filter((session) => session.attachedClients === 0)
+  const unreadCount = unreadSessions.size
+
+  // Filter and sort: pinned first, then by activity
+  const filtered = sessions.filter((session) =>
+    session.name.toLowerCase().includes(searchQuery.toLowerCase()),
+  )
+
+  const pinned = filtered.filter((session) => pinnedSessions.has(session.name))
+  const unpinned = filtered.filter((session) => !pinnedSessions.has(session.name))
+  const sortedSessions = [...pinned, ...unpinned]
+
+  if (collapsed) {
+    return (
+      <section className="session-rail collapsed">
+        <button
+          className="collapse-toggle"
+          onClick={onToggleCollapse}
+          type="button"
+          title="Expand sidebar"
+        >
+          <ChevronRight size={18} />
+        </button>
+        <div className="collapsed-sessions">
+          {sessions.map((session) => {
+            const isSelected = selectedSessionName === session.name
+            const hasUnread = unreadSessions.has(session.name)
+
+            return (
+              <button
+                className={`collapsed-session-dot${isSelected ? ' active' : ''}`}
+                key={session.name}
+                onClick={() => onSelectSession(session.name)}
+                title={session.name}
+                type="button"
+              >
+                <span className="collapsed-initial">
+                  {session.name.charAt(0).toUpperCase()}
+                </span>
+                {hasUnread ? <span className="unread-dot" /> : null}
+              </button>
+            )
+          })}
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className="session-rail">
       <div className="brand-card">
-        <p className="eyebrow">Pocket Terminal</p>
-        <h1>Webmux</h1>
-        <p className="brand-copy">
-          A tmux-backed cockpit for hopping between long-running shells from your phone.
-        </p>
+        <div className="brand-header">
+          <h1>Webmux</h1>
+          <button
+            className="collapse-toggle desktop-only"
+            onClick={onToggleCollapse}
+            type="button"
+            title="Collapse sidebar"
+          >
+            <ChevronLeft size={18} />
+          </button>
+        </div>
+
+        {/* Dashboard overview */}
+        <div className="dashboard-bar">
+          <span className="dashboard-stat">
+            <span className="stat-dot live" />
+            {activeSessions.length} active
+          </span>
+          <span className="dashboard-stat">
+            <span className="stat-dot idle" />
+            {idleSessions.length} idle
+          </span>
+          {unreadCount > 0 ? (
+            <span className="dashboard-stat unread">
+              <span className="stat-dot unread" />
+              {unreadCount} unread
+            </span>
+          ) : null}
+        </div>
+
         <button className="secondary-button ghost-button" onClick={onRefresh} type="button">
           <RefreshCcw size={16} />
           Refresh
@@ -78,52 +175,88 @@ export function SessionSidebar(props: SessionSidebarProps) {
           <span>{sessions.length}</span>
         </div>
 
-        {sessions.length === 0 ? (
+        {/* Search filter */}
+        {sessions.length > 5 ? (
+          <div className="session-search">
+            <Search size={15} />
+            <input
+              className="session-search-input"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Filter sessions..."
+              type="text"
+              value={searchQuery}
+            />
+          </div>
+        ) : null}
+
+        {sortedSessions.length === 0 && sessions.length > 0 ? (
+          <div className="empty-card">
+            <p>No sessions match "{searchQuery}".</p>
+          </div>
+        ) : sortedSessions.length === 0 ? (
           <div className="empty-card">
             <p>No sessions yet.</p>
             <p>Create one and it will stay alive on the server after you disconnect.</p>
           </div>
         ) : (
           <div className="session-list">
-            {sessions.map((session) => {
+            {sortedSessions.map((session) => {
               const isSelected = selectedSessionName === session.name
+              const hasUnread = unreadSessions.has(session.name)
+              const isPinned = pinnedSessions.has(session.name)
 
               return (
                 <article
                   aria-pressed={isSelected}
-                  className={`session-card${isSelected ? ' active' : ''}`}
+                  className={`session-card${isSelected ? ' active' : ''}${hasUnread ? ' has-unread' : ''}`}
                   key={session.name}
                 >
                   <button
                     className="session-open"
                     onClick={() => onSelectSession(session.name)}
                     type="button"
+                    title={session.path}
                   >
                     <div className="session-header">
-                      <div>
+                      <div className="session-name-row">
+                        {hasUnread ? <span className="unread-dot" /> : null}
                         <h3>{session.name}</h3>
-                        <p>{session.path}</p>
+                        {isPinned ? <Pin size={13} className="pin-icon" /> : null}
                       </div>
                       <span className={`session-badge${session.attachedClients > 0 ? ' live' : ''}`}>
-                        {session.attachedClients > 0 ? 'Live' : 'Idle'}
+                        {session.attachedClients > 0
+                          ? session.attachedClients === 1
+                            ? 'Live'
+                            : `${session.attachedClients} clients`
+                          : 'Idle'}
                       </span>
                     </div>
                     <div className="session-meta">
-                      <span>{session.windows} windows</span>
-                      <span>{session.attachedClients} attached</span>
+                      <span className="session-cmd">{session.currentCommand || 'shell'}</span>
+                      <span>{compactPath(session.path)}</span>
                       <span>{formatTimestamp(session.lastActivityAt)}</span>
                     </div>
                     <pre className="session-preview">{session.preview.join('\n')}</pre>
                   </button>
 
-                  <button
-                    aria-label={`Kill ${session.name}`}
-                    className="icon-button"
-                    onClick={() => onKillSession(session.name)}
-                    type="button"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="session-actions">
+                    <button
+                      aria-label={isPinned ? `Unpin ${session.name}` : `Pin ${session.name}`}
+                      className="icon-button pin-button"
+                      onClick={() => onTogglePin(session.name)}
+                      type="button"
+                    >
+                      {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+                    </button>
+                    <button
+                      aria-label={`Kill ${session.name}`}
+                      className="icon-button kill-button"
+                      onClick={() => onKillSession(session.name)}
+                      type="button"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </article>
               )
             })}
@@ -141,4 +274,14 @@ function formatTimestamp(timestamp: number): string {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(timestamp * 1000))
+}
+
+function compactPath(path: string): string {
+  const segments = path.split('/').filter(Boolean)
+
+  if (segments.length <= 3) {
+    return path
+  }
+
+  return `.../${segments.slice(-3).join('/')}`
 }
