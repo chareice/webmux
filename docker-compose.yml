@@ -1,0 +1,18 @@
+services:
+  server:
+    image: ghcr.io/chareice/webmux:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4317:4317"
+    volumes:
+      - webmux-data:/app/data
+    environment:
+      - PORT=4317
+      - DATABASE_PATH=/app/data/webmux.db
+      - JWT_SECRET=${JWT_SECRET}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - WEBMUX_BASE_URL=${WEBMUX_BASE_URL}
+
+volumes:
+  webmux-data:
