@@ -66,7 +66,7 @@ export function AgentsPage() {
       const data = (await res.json()) as CreateRegistrationTokenResponse
       const baseUrl = window.location.origin
       setRegistrationCommand(
-        `webmux-agent register \\\n  --server ${baseUrl} \\\n  --token ${data.token}`,
+        `npx @webmux/agent register \\\n  --server ${baseUrl} \\\n  --token ${data.token}`,
       )
     } catch (err) {
       setError((err as Error).message)

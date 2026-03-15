@@ -210,4 +210,27 @@ describe('registration tokens', () => {
   it('returns undefined for nonexistent token', () => {
     expect(consumeRegistrationToken(db, 'nope')).toBeUndefined()
   })
+
+  it('cleans up expired and used tokens when creating new ones', () => {
+    // Manually insert an expired token (bypass createRegistrationToken to avoid cleanup)
+    db.prepare(
+      'INSERT INTO registration_tokens (id, user_id, agent_name, token_hash, expires_at, used) VALUES (?, ?, ?, ?, ?, 0)',
+    ).run('t1', userId, 'old', 'expired-hash', Date.now() - 1000)
+
+    // Manually insert a used token
+    db.prepare(
+      'INSERT INTO registration_tokens (id, user_id, agent_name, token_hash, expires_at, used) VALUES (?, ?, ?, ?, ?, 1)',
+    ).run('t2', userId, 'used', 'used-hash', Date.now() + 60000)
+
+    const countBefore = (db.prepare('SELECT COUNT(*) as cnt FROM registration_tokens').get() as { cnt: number }).cnt
+    expect(countBefore).toBe(2)
+
+    // Creating a new token should clean up the stale ones
+    createRegistrationToken(db, {
+      userId, agentName: 'new', tokenHash: 'new-hash', expiresAt: Date.now() + 60000,
+    })
+
+    const countAfter = (db.prepare('SELECT COUNT(*) as cnt FROM registration_tokens').get() as { cnt: number }).cnt
+    expect(countAfter).toBe(1)
+  })
 })

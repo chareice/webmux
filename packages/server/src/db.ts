@@ -163,6 +163,9 @@ export function createRegistrationToken(
   db: Database.Database,
   opts: { userId: string; agentName: string; tokenHash: string; expiresAt: number }
 ): RegistrationTokenRow {
+  // Clean up expired and used tokens
+  db.prepare('DELETE FROM registration_tokens WHERE used = 1 OR expires_at < ?').run(Date.now())
+
   const id = crypto.randomUUID()
 
   db.prepare(
