@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  ArrowLeft,
   ChevronLeft,
   ChevronRight,
   LoaderCircle,
@@ -10,7 +11,7 @@ import {
   Trash2,
 } from 'lucide-react'
 
-import type { SessionSummary } from '../../shared/contracts.ts'
+import type { SessionSummary } from '@webmux/shared'
 
 interface SessionSidebarProps {
   sessions: SessionSummary[]
@@ -21,6 +22,8 @@ interface SessionSidebarProps {
   collapsed: boolean
   unreadSessions: Set<string>
   pinnedSessions: Set<string>
+  agentName: string
+  onBackToAgents: () => void
   onDraftNameChange: (value: string) => void
   onCreateSession: () => void
   onRefresh: () => void
@@ -40,6 +43,8 @@ export function SessionSidebar(props: SessionSidebarProps) {
     collapsed,
     unreadSessions,
     pinnedSessions,
+    agentName,
+    onBackToAgents,
     onDraftNameChange,
     onCreateSession,
     onRefresh,
@@ -105,7 +110,17 @@ export function SessionSidebar(props: SessionSidebarProps) {
     <section className="session-rail">
       <div className="brand-card">
         <div className="brand-header">
-          <h1>Webmux</h1>
+          <div className="brand-agent-info">
+            <button
+              className="secondary-button back-to-agents"
+              onClick={onBackToAgents}
+              type="button"
+            >
+              <ArrowLeft size={14} />
+              Agents
+            </button>
+            <h1>{agentName || 'Webmux'}</h1>
+          </div>
           <button
             className="collapse-toggle desktop-only"
             onClick={onToggleCollapse}

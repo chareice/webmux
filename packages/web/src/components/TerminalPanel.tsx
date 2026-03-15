@@ -11,7 +11,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 
-import type { SessionSummary, TerminalServerMessage } from '../../shared/contracts.ts'
+import type { SessionSummary, TerminalServerMessage } from '@webmux/shared'
 
 type ModifierKey = 'ctrl' | 'alt'
 
@@ -27,10 +27,10 @@ const MOBILE_SHORTCUTS: readonly ShortcutKey[] = [
   { label: 'Ctrl+D', data: '\u0004' },
   { label: 'Ctrl+L', data: '\u000c' },
   { label: 'Ctrl+Z', data: '\u001a' },
-  { label: '↑', data: '\u001b[A' },
-  { label: '↓', data: '\u001b[B' },
-  { label: '←', data: '\u001b[D' },
-  { label: '→', data: '\u001b[C' },
+  { label: '\u2191', data: '\u001b[A' },
+  { label: '\u2193', data: '\u001b[B' },
+  { label: '\u2190', data: '\u001b[D' },
+  { label: '\u2192', data: '\u001b[C' },
   { label: 'Prefix', data: '\u0002' },
   { label: 'Detach', data: '\u0002d' },
 ] as const
@@ -42,6 +42,8 @@ type ConnectionState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'discon
 
 interface TerminalPanelProps {
   session: SessionSummary | null
+  agentId: string
+  token: string
   onBack: () => void
   onOpenPalette: () => void
   onNextSession: () => void
@@ -49,7 +51,7 @@ interface TerminalPanelProps {
   onToggleSidebar: () => void
 }
 
-export function TerminalPanel({ session, onBack, onOpenPalette, onNextSession, onPrevSession, onToggleSidebar }: TerminalPanelProps) {
+export function TerminalPanel({ session, agentId, token, onBack, onOpenPalette, onNextSession, onPrevSession, onToggleSidebar }: TerminalPanelProps) {
   if (!session) {
     return (
       <section className="terminal-panel empty-state">
@@ -67,6 +69,7 @@ export function TerminalPanel({ session, onBack, onOpenPalette, onNextSession, o
 
   return (
     <ActiveTerminal
+      agentId={agentId}
       key={session.name}
       onBack={onBack}
       onNextSession={onNextSession}
@@ -74,12 +77,15 @@ export function TerminalPanel({ session, onBack, onOpenPalette, onNextSession, o
       onPrevSession={onPrevSession}
       onToggleSidebar={onToggleSidebar}
       session={session}
+      token={token}
     />
   )
 }
 
 interface ActiveTerminalProps {
   session: SessionSummary
+  agentId: string
+  token: string
   onBack: () => void
   onOpenPalette: () => void
   onNextSession: () => void
@@ -87,7 +93,7 @@ interface ActiveTerminalProps {
   onToggleSidebar: () => void
 }
 
-function ActiveTerminal({ session, onBack, onOpenPalette, onNextSession, onPrevSession, onToggleSidebar }: ActiveTerminalProps) {
+function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNextSession, onPrevSession, onToggleSidebar }: ActiveTerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
 
@@ -247,8 +253,15 @@ function ActiveTerminal({ session, onBack, onOpenPalette, onNextSession, onPrevS
       }
 
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const params = new URLSearchParams({
+        agent: agentId,
+        session: session.name,
+        cols: String(terminal.cols),
+        rows: String(terminal.rows),
+        token,
+      })
       const socket = new WebSocket(
-        `${wsProtocol}//${window.location.host}/ws/terminal?session=${encodeURIComponent(session.name)}`,
+        `${wsProtocol}//${window.location.host}/ws/terminal?${params.toString()}`,
       )
       socketRef.current = socket
 
@@ -335,7 +348,7 @@ function ActiveTerminal({ session, onBack, onOpenPalette, onNextSession, onPrevS
       }
       terminal.dispose()
     }
-  }, [session.name])
+  }, [session.name, agentId, token])
 
   // Refit on fullscreen toggle
   useEffect(() => {

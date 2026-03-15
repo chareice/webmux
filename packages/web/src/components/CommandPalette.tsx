@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Search, Terminal } from 'lucide-react'
 
-import type { SessionSummary } from '../../shared/contracts.ts'
+import type { SessionSummary } from '@webmux/shared'
 
 interface CommandPaletteProps {
   sessions: SessionSummary[]

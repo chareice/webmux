@@ -24,3 +24,6 @@ dist-ssr
 *.sln
 *.sw?
 .playwright-mcp/
+*.db
+*.db-wal
+*.db-shm

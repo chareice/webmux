@@ -1,0 +1,180 @@
+import Database from 'better-sqlite3'
+import crypto from 'node:crypto'
+
+export interface UserRow {
+  id: string
+  github_id: number
+  github_login: string
+  avatar_url: string | null
+  role: string
+  created_at: number
+}
+
+export interface AgentRow {
+  id: string
+  user_id: string
+  name: string
+  agent_secret_hash: string
+  status: string
+  last_seen_at: number | null
+  created_at: number
+}
+
+export interface RegistrationTokenRow {
+  id: string
+  user_id: string
+  agent_name: string
+  token_hash: string
+  expires_at: number
+  used: number
+}
+
+export function initDb(dbPath: string): Database.Database {
+  const db = new Database(dbPath)
+
+  db.pragma('journal_mode = WAL')
+  db.pragma('foreign_keys = ON')
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id              TEXT PRIMARY KEY,
+      github_id       INTEGER UNIQUE NOT NULL,
+      github_login    TEXT NOT NULL,
+      avatar_url      TEXT,
+      role            TEXT NOT NULL DEFAULT 'user',
+      created_at      INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agents (
+      id                  TEXT PRIMARY KEY,
+      user_id             TEXT NOT NULL REFERENCES users(id),
+      name                TEXT NOT NULL,
+      agent_secret_hash   TEXT NOT NULL,
+      status              TEXT NOT NULL DEFAULT 'offline',
+      last_seen_at        INTEGER,
+      created_at          INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS registration_tokens (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id),
+      agent_name  TEXT NOT NULL,
+      token_hash  TEXT NOT NULL,
+      expires_at  INTEGER NOT NULL,
+      used        INTEGER NOT NULL DEFAULT 0
+    );
+  `)
+
+  return db
+}
+
+// --- Users ---
+
+export function findUserByGithubId(db: Database.Database, githubId: number): UserRow | undefined {
+  return db.prepare('SELECT * FROM users WHERE github_id = ?').get(githubId) as UserRow | undefined
+}
+
+export function findUserById(db: Database.Database, userId: string): UserRow | undefined {
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as UserRow | undefined
+}
+
+export function createUser(
+  db: Database.Database,
+  opts: { githubId: number; githubLogin: string; avatarUrl: string | null; role?: string }
+): UserRow {
+  const id = crypto.randomUUID()
+  const now = Date.now()
+  const role = opts.role ?? 'user'
+
+  db.prepare(
+    'INSERT INTO users (id, github_id, github_login, avatar_url, role, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, opts.githubId, opts.githubLogin, opts.avatarUrl, role, now)
+
+  return { id, github_id: opts.githubId, github_login: opts.githubLogin, avatar_url: opts.avatarUrl, role, created_at: now }
+}
+
+export function countUsers(db: Database.Database): number {
+  const row = db.prepare('SELECT COUNT(*) as cnt FROM users').get() as { cnt: number }
+  return row.cnt
+}
+
+// --- Agents ---
+
+export function findAgentsByUserId(db: Database.Database, userId: string): AgentRow[] {
+  return db.prepare('SELECT * FROM agents WHERE user_id = ?').all(userId) as AgentRow[]
+}
+
+export function findAgentById(db: Database.Database, agentId: string): AgentRow | undefined {
+  return db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as AgentRow | undefined
+}
+
+export function createAgent(
+  db: Database.Database,
+  opts: { userId: string; name: string; agentSecretHash: string }
+): AgentRow {
+  const id = crypto.randomUUID()
+  const now = Date.now()
+
+  db.prepare(
+    'INSERT INTO agents (id, user_id, name, agent_secret_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, opts.userId, opts.name, opts.agentSecretHash, 'offline', now)
+
+  return {
+    id,
+    user_id: opts.userId,
+    name: opts.name,
+    agent_secret_hash: opts.agentSecretHash,
+    status: 'offline',
+    last_seen_at: null,
+    created_at: now,
+  }
+}
+
+export function deleteAgent(db: Database.Database, agentId: string): void {
+  db.prepare('DELETE FROM agents WHERE id = ?').run(agentId)
+}
+
+export function updateAgentStatus(db: Database.Database, agentId: string, status: 'online' | 'offline'): void {
+  db.prepare('UPDATE agents SET status = ? WHERE id = ?').run(status, agentId)
+}
+
+export function updateAgentLastSeen(db: Database.Database, agentId: string): void {
+  db.prepare('UPDATE agents SET last_seen_at = ? WHERE id = ?').run(Date.now(), agentId)
+}
+
+// --- Registration Tokens ---
+
+export function createRegistrationToken(
+  db: Database.Database,
+  opts: { userId: string; agentName: string; tokenHash: string; expiresAt: number }
+): RegistrationTokenRow {
+  const id = crypto.randomUUID()
+
+  db.prepare(
+    'INSERT INTO registration_tokens (id, user_id, agent_name, token_hash, expires_at, used) VALUES (?, ?, ?, ?, ?, 0)'
+  ).run(id, opts.userId, opts.agentName, opts.tokenHash, opts.expiresAt)
+
+  return {
+    id,
+    user_id: opts.userId,
+    agent_name: opts.agentName,
+    token_hash: opts.tokenHash,
+    expires_at: opts.expiresAt,
+    used: 0,
+  }
+}
+
+export function consumeRegistrationToken(
+  db: Database.Database,
+  tokenHash: string
+): RegistrationTokenRow | undefined {
+  const token = db
+    .prepare('SELECT * FROM registration_tokens WHERE token_hash = ? AND used = 0 AND expires_at > ?')
+    .get(tokenHash, Date.now()) as RegistrationTokenRow | undefined
+
+  if (!token) return undefined
+
+  db.prepare('UPDATE registration_tokens SET used = 1 WHERE id = ?').run(token.id)
+
+  return token
+}

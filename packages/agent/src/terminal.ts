@@ -1,6 +1,6 @@
 import { spawn, type IPty } from 'node-pty'
 
-import { DEFAULT_TERMINAL_SIZE } from '../shared/contracts.js'
+import { DEFAULT_TERMINAL_SIZE } from '@webmux/shared'
 import { TmuxClient, assertValidSessionName } from './tmux.js'
 
 export interface TerminalBridgeOptions {

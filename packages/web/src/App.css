@@ -770,6 +770,362 @@
   font-size: 0.88rem;
 }
 
+/* ── App layout & top bar ──────────────────────────── */
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100svh;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.top-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.top-bar-brand {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.top-bar-avatar {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+}
+
+.top-bar-username {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.top-bar-logout {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+}
+
+/* ── Login page ────────────────────────────────────── */
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100svh;
+  padding: 2rem;
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2.5rem 2rem;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  width: min(92vw, 22rem);
+  text-align: center;
+}
+
+.login-title {
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.login-subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.login-button {
+  width: 100%;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.login-loading {
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ── Agents page ───────────────────────────────────── */
+
+.agents-page {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  max-width: 64rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.agents-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.agents-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.agents-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  min-height: 50vh;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.agents-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 4rem 2rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+.agents-empty h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--ink);
+}
+
+.agents-empty p {
+  margin: 0;
+  max-width: 28rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 0.85rem;
+}
+
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 1rem 1.15rem;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.agent-card:hover {
+  border-color: var(--accent);
+  background: rgba(122, 162, 247, 0.04);
+}
+
+.agent-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.agent-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.agent-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.agent-name-row h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.agent-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.agent-status-dot.online {
+  background: var(--success);
+}
+
+.agent-status-dot.offline {
+  background: var(--muted);
+}
+
+.agent-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.8rem;
+}
+
+.agent-status-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.agent-status-badge.online {
+  background: rgba(158, 206, 106, 0.15);
+  color: var(--success);
+}
+
+.agent-status-badge.offline {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.agent-last-seen {
+  color: var(--muted);
+}
+
+/* ── Add Agent modal ───────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+}
+
+.modal-container {
+  width: min(92vw, 28rem);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 1rem;
+}
+
+.modal-description {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.registration-command {
+  position: relative;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 0.85rem;
+}
+
+.registration-command pre {
+  margin: 0;
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.82rem;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+.copy-button {
+  margin-top: 0.5rem;
+}
+
+.modal-submit-button,
+.modal-done-button {
+  margin-top: 0.35rem;
+  width: 100%;
+}
+
+/* ── Sidebar: back to agents ───────────────────────── */
+
+.brand-agent-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.back-to-agents {
+  padding: 0.25rem 0.45rem;
+  font-size: 0.78rem;
+  gap: 0.2rem;
+  align-self: flex-start;
+}
+
 /* ── Mobile ─────────────────────────────────────────── */
 
 @media (max-width: 960px) {
@@ -971,5 +1327,29 @@
   .primary-button,
   .secondary-button {
     justify-content: center;
+  }
+
+  /* ── Mobile: agents page ────────── */
+
+  .agents-page {
+    padding: 1rem;
+  }
+
+  .agents-header h1 {
+    font-size: 1.2rem;
+  }
+
+  .agents-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* ── Mobile: top bar ────────────── */
+
+  .top-bar-username {
+    display: none;
+  }
+
+  .top-bar-logout .button-label {
+    display: none;
   }
 }

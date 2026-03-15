@@ -1,20 +1,27 @@
-import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  Suspense,
+  lazy,
+  startTransition,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 
 import type {
   CreateSessionResponse,
-  ListSessionsResponse,
   SessionEvent,
   SessionSummary,
-} from '../shared/contracts.ts'
-import { SessionSidebar } from './components/SessionSidebar.tsx'
-import { CommandPalette } from './components/CommandPalette.tsx'
-import './App.css'
+} from '@webmux/shared'
+
+import { fetchApi, useAuth } from '../auth.tsx'
+import { SessionSidebar } from '../components/SessionSidebar.tsx'
+import { CommandPalette } from '../components/CommandPalette.tsx'
 
 const TerminalPanel = lazy(async () => {
-  const module = await import('./components/TerminalPanel.tsx')
-  return {
-    default: module.TerminalPanel,
-  }
+  const module = await import('../components/TerminalPanel.tsx')
+  return { default: module.TerminalPanel }
 })
 
 const PINNED_STORAGE_KEY = 'webmux:pinned'
@@ -42,7 +49,12 @@ function loadNotificationsEnabled(): boolean {
   return localStorage.getItem(NOTIFICATIONS_STORAGE_KEY) === 'true'
 }
 
-function App() {
+export function SessionsPage() {
+  const { agentId } = useParams<{ agentId: string }>()
+  const navigate = useNavigate()
+  const { token } = useAuth()
+
+  const [agentName, setAgentName] = useState('')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [selectedSessionName, setSelectedSessionName] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('codex')
@@ -53,17 +65,38 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadCollapsed)
   const [pinnedSessions, setPinnedSessions] = useState(loadPinned)
   const [unreadSessions, setUnreadSessions] = useState<Set<string>>(new Set())
-  // Notifications enabled state is read directly from localStorage in applySessions
 
   const eventSocketRef = useRef<WebSocket | null>(null)
   const eventReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const selectedSessionNameRef = useRef(selectedSessionName)
   selectedSessionNameRef.current = selectedSessionName
 
+  // Fetch agent info
+  useEffect(() => {
+    if (!agentId) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetchApi('/api/agents')
+        if (res.ok) {
+          const data = (await res.json()) as { agents: Array<{ id: string; name: string }> }
+          const agent = data.agents.find((a) => a.id === agentId)
+          if (agent && !cancelled) {
+            setAgentName(agent.name)
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [agentId])
+
   const applySessions = useCallback((incoming: SessionSummary[]) => {
     setSessions((prev) => {
-      // Detect new output activity
-      const prevMap = new Map(prev.map((session) => [session.name, session]))
+      const prevMap = new Map(prev.map((s) => [s.name, s]))
 
       setUnreadSessions((currentUnread) => {
         let changed = false
@@ -81,7 +114,6 @@ function App() {
               next.add(session.name)
               changed = true
 
-              // Send browser notification
               if (
                 loadNotificationsEnabled() &&
                 'Notification' in window &&
@@ -104,9 +136,7 @@ function App() {
 
     startTransition(() => {
       setSelectedSessionName((current) => {
-        if (current && incoming.some((session) => session.name === current)) {
-          return current
-        }
+        if (current && incoming.some((s) => s.name === current)) return current
         return incoming[0]?.name ?? null
       })
     })
@@ -114,14 +144,18 @@ function App() {
 
   // Events WebSocket connection
   const connectEventSocket = useCallback(() => {
+    if (!token || !agentId) return
+
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(`${wsProtocol}//${window.location.host}/ws/events`)
+    const socket = new WebSocket(
+      `${wsProtocol}//${window.location.host}/ws/events?token=${encodeURIComponent(token)}`,
+    )
     eventSocketRef.current = socket
 
     socket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as SessionEvent
-        if (message.type === 'sessions-sync') {
+        if (message.type === 'sessions-sync' && message.agentId === agentId) {
           applySessions(message.sessions)
         }
       } catch {
@@ -130,7 +164,6 @@ function App() {
     }
 
     socket.onclose = () => {
-      // Reconnect after a delay
       eventReconnectTimerRef.current = setTimeout(() => {
         connectEventSocket()
       }, 3000)
@@ -139,23 +172,25 @@ function App() {
     socket.onerror = () => {
       // onclose will fire after this
     }
-  }, [applySessions])
+  }, [applySessions, token, agentId])
 
   useEffect(() => {
     connectEventSocket()
 
-    // Fallback: initial HTTP fetch in case WebSocket takes a moment
-    void (async () => {
-      try {
-        const response = await fetch('/api/sessions')
-        if (response.ok) {
-          const payload = (await response.json()) as ListSessionsResponse
-          applySessions(payload.sessions)
+    // Fallback: initial HTTP fetch
+    if (agentId) {
+      void (async () => {
+        try {
+          const res = await fetchApi(`/api/agents/${agentId}/sessions`)
+          if (res.ok) {
+            const payload = (await res.json()) as { sessions: SessionSummary[] }
+            applySessions(payload.sessions)
+          }
+        } catch {
+          // Event socket will handle it
         }
-      } catch {
-        // Event socket will handle it
-      }
-    })()
+      })()
+    }
 
     return () => {
       if (eventReconnectTimerRef.current) {
@@ -164,25 +199,22 @@ function App() {
       eventSocketRef.current?.close()
       eventSocketRef.current = null
     }
-  }, [connectEventSocket, applySessions])
+  }, [connectEventSocket, applySessions, agentId])
 
   const refreshSessions = async () => {
+    if (!agentId) return
     try {
-      const response = await fetch('/api/sessions')
-
-      if (!response.ok) {
-        throw new Error('Failed to load sessions.')
-      }
-
-      const payload = (await response.json()) as ListSessionsResponse
+      const res = await fetchApi(`/api/agents/${agentId}/sessions`)
+      if (!res.ok) throw new Error('Failed to load sessions.')
+      const payload = (await res.json()) as { sessions: SessionSummary[] }
       applySessions(payload.sessions)
-    } catch (requestError) {
-      setError((requestError as Error).message)
+    } catch (err) {
+      setError((err as Error).message)
     }
   }
 
   const selectedSession =
-    sessions.find((session) => session.name === selectedSessionName) ?? null
+    sessions.find((s) => s.name === selectedSessionName) ?? null
 
   const selectSession = useCallback((name: string) => {
     startTransition(() => {
@@ -191,7 +223,6 @@ function App() {
     setMobileTerminalOpen(true)
     setPaletteOpen(false)
 
-    // Clear unread for this session
     setUnreadSessions((current) => {
       if (!current.has(name)) return current
       const next = new Set(current)
@@ -202,8 +233,7 @@ function App() {
 
   const createSession = async () => {
     const trimmedName = draftName.trim()
-
-    if (!trimmedName) {
+    if (!trimmedName || !agentId) {
       setError('Session name cannot be empty.')
       return
     }
@@ -212,27 +242,18 @@ function App() {
     setError(null)
 
     try {
-      const response = await fetch('/api/sessions', {
+      const res = await fetchApi(`/api/agents/${agentId}/sessions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: trimmedName,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmedName }),
       })
-
-      if (!response.ok) {
-        throw new Error(await response.text())
-      }
-
-      const payload = (await response.json()) as CreateSessionResponse
+      if (!res.ok) throw new Error(await res.text())
+      const payload = (await res.json()) as CreateSessionResponse
       setDraftName(trimmedName)
       await refreshSessions()
-
       selectSession(payload.session.name)
-    } catch (requestError) {
-      setError((requestError as Error).message)
+    } catch (err) {
+      setError((err as Error).message)
     } finally {
       setIsCreating(false)
     }
@@ -240,31 +261,24 @@ function App() {
 
   const killSession = async (name: string) => {
     const confirmed = window.confirm(`Kill session "${name}"?`)
-
-    if (!confirmed) {
-      return
-    }
+    if (!confirmed || !agentId) return
 
     setError(null)
 
     try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(name)}`, {
-        method: 'DELETE',
-      })
-
-      if (!response.ok) {
-        throw new Error(`Failed to kill ${name}.`)
-      }
-
+      const res = await fetchApi(
+        `/api/agents/${agentId}/sessions/${encodeURIComponent(name)}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) throw new Error(`Failed to kill ${name}.`)
       await refreshSessions()
-
       if (selectedSessionName === name) {
         startTransition(() => {
           setSelectedSessionName(null)
         })
       }
-    } catch (requestError) {
-      setError((requestError as Error).message)
+    } catch (err) {
+      setError((err as Error).message)
     }
   }
 
@@ -289,11 +303,10 @@ function App() {
     })
   }, [])
 
-  // Navigate to adjacent session
   const navigateSession = useCallback(
     (direction: 1 | -1) => {
       if (sessions.length === 0) return
-      const currentIndex = sessions.findIndex((session) => session.name === selectedSessionName)
+      const currentIndex = sessions.findIndex((s) => s.name === selectedSessionName)
       const nextIndex = Math.max(0, Math.min(sessions.length - 1, currentIndex + direction))
       selectSession(sessions[nextIndex].name)
     },
@@ -303,27 +316,21 @@ function App() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Ctrl+K: command palette
       if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
         event.preventDefault()
-        setPaletteOpen((current) => !current)
+        setPaletteOpen((c) => !c)
         return
       }
-
-      // Ctrl+B: toggle sidebar
       if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
         event.preventDefault()
         toggleSidebarCollapse()
         return
       }
-
-      // Ctrl+[ / Ctrl+]: navigate sessions
       if ((event.ctrlKey || event.metaKey) && event.key === '[') {
         event.preventDefault()
         navigateSession(-1)
         return
       }
-
       if ((event.ctrlKey || event.metaKey) && event.key === ']') {
         event.preventDefault()
         navigateSession(1)
@@ -336,12 +343,16 @@ function App() {
   }, [toggleSidebarCollapse, navigateSession])
 
   return (
-    <div className={`app-shell${mobileTerminalOpen ? ' mobile-terminal-open' : ''}${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
+    <div
+      className={`app-shell${mobileTerminalOpen ? ' mobile-terminal-open' : ''}${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}
+    >
       <SessionSidebar
+        agentName={agentName}
         collapsed={sidebarCollapsed}
         draftName={draftName}
         error={error}
         isCreating={isCreating}
+        onBackToAgents={() => navigate('/')}
         onCreateSession={() => {
           void createSession()
         }}
@@ -372,6 +383,7 @@ function App() {
         }
       >
         <TerminalPanel
+          agentId={agentId ?? ''}
           onBack={() => {
             setMobileTerminalOpen(false)
           }}
@@ -380,6 +392,7 @@ function App() {
           onPrevSession={() => navigateSession(-1)}
           onToggleSidebar={toggleSidebarCollapse}
           session={selectedSession}
+          token={token ?? ''}
         />
       </Suspense>
 
@@ -393,5 +406,3 @@ function App() {
     </div>
   )
 }
-
-export default App

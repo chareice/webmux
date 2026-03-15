@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import type { SessionSummary } from '../shared/contracts.js'
+import type { SessionSummary } from '@webmux/shared'
 
 const execFileAsync = promisify(execFile)
 const FIELD_SEPARATOR = '\u001f'
