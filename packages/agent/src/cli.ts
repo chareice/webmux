@@ -1,10 +1,15 @@
+import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
+import { execSync } from 'node:child_process'
 import { Command } from 'commander'
 
 import type { RegisterAgentRequest, RegisterAgentResponse } from '@webmux/shared'
 import { loadCredentials, saveCredentials, credentialsPath } from './credentials.js'
 import { TmuxClient } from './tmux.js'
 import { AgentConnection } from './connection.js'
+
+const SERVICE_NAME = 'webmux-agent'
 
 const program = new Command()
 
@@ -68,7 +73,10 @@ program
     console.log(`[agent] Registration successful!`)
     console.log(`[agent] Agent ID: ${result.agentId}`)
     console.log(`[agent] Credentials saved to ${credentialsPath()}`)
-    console.log(`[agent] Run "webmux-agent start" to connect.`)
+    console.log(``)
+    console.log(`Next steps:`)
+    console.log(`  npx @webmux/agent start              # run once`)
+    console.log(`  npx @webmux/agent service install     # install as systemd service`)
   })
 
 program
@@ -78,7 +86,7 @@ program
     const creds = loadCredentials()
     if (!creds) {
       console.error(
-        `[agent] No credentials found at ${credentialsPath()}. Run "webmux-agent register" first.`,
+        `[agent] No credentials found at ${credentialsPath()}. Run "npx @webmux/agent register" first.`,
       )
       process.exit(1)
     }
@@ -89,7 +97,7 @@ program
 
     const tmux = new TmuxClient({
       socketName: 'webmux',
-      workspaceRoot: process.cwd(),
+      workspaceRoot: os.homedir(),
     })
 
     const connection = new AgentConnection(
@@ -125,6 +133,133 @@ program
     console.log(`Server URL:       ${creds.serverUrl}`)
     console.log(`Agent ID:         ${creds.agentId}`)
     console.log(`Credentials File: ${credentialsPath()}`)
+
+    // Check systemd service status
+    try {
+      const result = execSync(`systemctl --user is-active ${SERVICE_NAME} 2>/dev/null`, { encoding: 'utf-8' }).trim()
+      console.log(`Service:          ${result}`)
+    } catch {
+      console.log(`Service:          not installed`)
+    }
   })
+
+// --- Service management ---
+
+const service = program
+  .command('service')
+  .description('Manage the systemd service')
+
+service
+  .command('install')
+  .description('Install and start the agent as a systemd user service')
+  .action(() => {
+    const creds = loadCredentials()
+    if (!creds) {
+      console.error(`[agent] Not registered. Run "npx @webmux/agent register" first.`)
+      process.exit(1)
+    }
+
+    // Find the npx binary path
+    const npxPath = findBinary('npx')
+    if (!npxPath) {
+      console.error(`[agent] Cannot find npx. Make sure Node.js is installed.`)
+      process.exit(1)
+    }
+
+    const serviceDir = path.join(os.homedir(), '.config', 'systemd', 'user')
+    const servicePath = path.join(serviceDir, `${SERVICE_NAME}.service`)
+
+    const unit = `[Unit]
+Description=Webmux Agent (${creds.name})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${npxPath} -y @webmux/agent start
+Restart=always
+RestartSec=5
+Environment=HOME=${os.homedir()}
+Environment=PATH=${process.env.PATH}
+WorkingDirectory=${os.homedir()}
+
+[Install]
+WantedBy=default.target
+`
+
+    fs.mkdirSync(serviceDir, { recursive: true })
+    fs.writeFileSync(servicePath, unit)
+    console.log(`[agent] Service file created: ${servicePath}`)
+
+    try {
+      execSync('systemctl --user daemon-reload', { stdio: 'inherit' })
+      execSync(`systemctl --user enable ${SERVICE_NAME}`, { stdio: 'inherit' })
+      execSync(`systemctl --user start ${SERVICE_NAME}`, { stdio: 'inherit' })
+
+      // Enable linger so the service runs without login
+      execSync(`loginctl enable-linger ${os.userInfo().username}`, { stdio: 'inherit' })
+
+      console.log(``)
+      console.log(`[agent] Service installed and started!`)
+      console.log(`[agent] It will auto-start on boot.`)
+      console.log(``)
+      console.log(`Useful commands:`)
+      console.log(`  systemctl --user status ${SERVICE_NAME}`)
+      console.log(`  journalctl --user -u ${SERVICE_NAME} -f`)
+      console.log(`  npx @webmux/agent service uninstall`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`[agent] Failed to enable service: ${message}`)
+      console.error(`[agent] Service file was written to ${servicePath}`)
+      console.error(`[agent] You can try manually: systemctl --user enable --now ${SERVICE_NAME}`)
+      process.exit(1)
+    }
+  })
+
+service
+  .command('uninstall')
+  .description('Stop and remove the systemd user service')
+  .action(() => {
+    const servicePath = path.join(os.homedir(), '.config', 'systemd', 'user', `${SERVICE_NAME}.service`)
+
+    try {
+      execSync(`systemctl --user stop ${SERVICE_NAME} 2>/dev/null`, { stdio: 'inherit' })
+      execSync(`systemctl --user disable ${SERVICE_NAME} 2>/dev/null`, { stdio: 'inherit' })
+    } catch {
+      // Service might not exist
+    }
+
+    if (fs.existsSync(servicePath)) {
+      fs.unlinkSync(servicePath)
+      console.log(`[agent] Service file removed: ${servicePath}`)
+    }
+
+    try {
+      execSync('systemctl --user daemon-reload', { stdio: 'inherit' })
+    } catch {
+      // Ignore
+    }
+
+    console.log(`[agent] Service uninstalled.`)
+  })
+
+service
+  .command('status')
+  .description('Show systemd service status')
+  .action(() => {
+    try {
+      execSync(`systemctl --user status ${SERVICE_NAME}`, { stdio: 'inherit' })
+    } catch {
+      console.log(`[agent] Service is not installed or not running.`)
+    }
+  })
+
+function findBinary(name: string): string | null {
+  try {
+    return execSync(`which ${name} 2>/dev/null`, { encoding: 'utf-8' }).trim()
+  } catch {
+    return null
+  }
+}
 
 program.parse()
