@@ -10,12 +10,13 @@ import { signJwt } from './auth.js'
 import { AgentHub } from './agent-hub.js'
 import { buildApp } from './app.js'
 import {
+  appendRunTimelineEvent,
   createAgent,
   createRun,
   createUser,
   findAgentById,
   findRunById,
-  findRunOutput,
+  findRunTimelineEvents,
   findRunsByAgentId,
   initDb,
   updateAgentLastSeen,
@@ -230,6 +231,30 @@ describe('buildApp', () => {
     rmSync(tempDir, { recursive: true, force: true })
   })
 
+  it('skips SPA fallback when the static root has no index.html', async () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'webmux-static-empty-'))
+
+    const { app } = buildApp({
+      db: initDb(':memory:'),
+      hub: new AgentHub(),
+      config: createTestConfig('http://127.0.0.1:4317'),
+      staticRoot: tempDir,
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/missing',
+    })
+    expect(response.statusCode).toBe(404)
+    expect(response.json()).toMatchObject({
+      error: 'Not Found',
+      statusCode: 404,
+    })
+
+    await app.close()
+    rmSync(tempDir, { recursive: true, force: true })
+  })
+
   it('normalizes agent lastSeenAt to seconds in the API response', async () => {
     const db = initDb(':memory:')
     const user = createUser(db, {
@@ -329,7 +354,7 @@ describe('buildApp', () => {
     await app.close()
   })
 
-  it('appends a trailing newline when sending input to a run', async () => {
+  it('does not expose the legacy interactive run routes', async () => {
     const db = initDb(':memory:')
     const user = createUser(db, {
       provider: 'github',
@@ -349,7 +374,6 @@ describe('buildApp', () => {
       tool: 'codex',
       repoPath: '/tmp/project',
       prompt: 'Fix it',
-      tmuxSession: 'run-1',
     })
     const token = signJwt(
       { userId: user.id, displayName: user.display_name, role: user.role },
@@ -375,23 +399,39 @@ describe('buildApp', () => {
       config: createTestConfig('http://127.0.0.1:4317'),
     })
 
-    const response = await app.inject({
-      method: 'POST',
-      url: `/api/agents/${agent.id}/runs/${run.id}/input`,
-      headers: {
-        authorization: `Bearer ${token}`,
-      },
-      payload: {
-        input: 'continue',
-      },
-    })
+    const requests = [
+      app.inject({
+        method: 'POST',
+        url: `/api/agents/${agent.id}/runs/${run.id}/input`,
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+        payload: {
+          input: 'continue',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/agents/${agent.id}/runs/${run.id}/approve`,
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/api/agents/${agent.id}/runs/${run.id}/reject`,
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      }),
+    ]
 
-    expect(response.statusCode).toBe(200)
-    expect(messages).toContainEqual({
-      type: 'run-input',
-      runId: run.id,
-      input: 'continue\n',
-    })
+    const responses = await Promise.all(requests)
+
+    for (const response of responses) {
+      expect(response.statusCode).toBe(404)
+    }
+    expect(messages).toEqual([])
 
     await app.close()
   })
@@ -416,7 +456,6 @@ describe('buildApp', () => {
       tool: 'codex',
       repoPath: '/tmp/project',
       prompt: 'Fix it',
-      tmuxSession: 'run-1',
     })
     db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('running', run.id)
     const token = signJwt(
@@ -481,7 +520,6 @@ describe('buildApp', () => {
       tool: 'codex',
       repoPath: '/tmp/project',
       prompt: 'Fix it',
-      tmuxSession: 'run-2',
     })
     db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('interrupted', run.id)
     const token = signJwt(
@@ -526,7 +564,7 @@ describe('buildApp', () => {
     await app.close()
   })
 
-  it('returns stored output in the run detail response', async () => {
+  it('returns stored timeline items in the run detail response', async () => {
     const db = initDb(':memory:')
     const user = createUser(db, {
       provider: 'github',
@@ -546,12 +584,13 @@ describe('buildApp', () => {
       tool: 'codex',
       repoPath: '/tmp/project',
       prompt: 'Fix it',
-      tmuxSession: 'run-1',
     })
     db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('running', run.id)
-    db.prepare(
-      'INSERT INTO run_output_chunks (run_id, chunk, created_at) VALUES (?, ?, ?)',
-    ).run(run.id, 'hello\nworld\n', Date.now())
+    appendRunTimelineEvent(db, run.id, {
+      type: 'message',
+      role: 'assistant',
+      text: 'hello world',
+    })
     const token = signJwt(
       { userId: user.id, displayName: user.display_name, role: user.role },
       TEST_SECRET,
@@ -576,9 +615,16 @@ describe('buildApp', () => {
       run: {
         id: run.id,
       },
-      output: 'hello\nworld\n',
+      items: [
+        {
+          type: 'message',
+          role: 'assistant',
+          text: 'hello world',
+        },
+      ],
     })
-    expect(findRunOutput(db, run.id)).toBe('hello\nworld\n')
+    expect(response.json().run).not.toHaveProperty('tmuxSession')
+    expect(findRunTimelineEvents(db, run.id)).toHaveLength(1)
 
     await app.close()
   })
@@ -603,7 +649,6 @@ describe('buildApp', () => {
       tool: 'codex',
       repoPath: '/tmp/project',
       prompt: 'Fix it',
-      tmuxSession: 'run-1',
     })
     const token = signJwt(
       { userId: user.id, displayName: user.display_name, role: user.role },

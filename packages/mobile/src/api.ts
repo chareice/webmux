@@ -8,6 +8,7 @@ import {
   StartRunRequest,
 } from './types';
 import { normalizeServerUrl } from './server-url';
+import { normalizeRunDetailResponse } from './run-detail-response';
 
 let _serverUrl = '';
 let _token = '';
@@ -121,20 +122,10 @@ export async function getRunDetail(
   agentId: string,
   runId: string,
 ): Promise<RunDetailResponse> {
-  return fetchApi<RunDetailResponse>(
+  const response = await fetchApi<RunDetailResponse>(
     `/api/agents/${agentId}/runs/${runId}`,
   );
-}
-
-export async function sendInput(
-  agentId: string,
-  runId: string,
-  input: string,
-): Promise<void> {
-  await fetchApi(`/api/agents/${agentId}/runs/${runId}/input`, {
-    method: 'POST',
-    body: JSON.stringify({ input }),
-  });
+  return normalizeRunDetailResponse(response);
 }
 
 export async function interruptRun(
@@ -146,21 +137,12 @@ export async function interruptRun(
   });
 }
 
-export async function approveRun(
+export async function deleteRun(
   agentId: string,
   runId: string,
 ): Promise<void> {
-  await fetchApi(`/api/agents/${agentId}/runs/${runId}/approve`, {
-    method: 'POST',
-  });
-}
-
-export async function rejectRun(
-  agentId: string,
-  runId: string,
-): Promise<void> {
-  await fetchApi(`/api/agents/${agentId}/runs/${runId}/reject`, {
-    method: 'POST',
+  await fetchApi(`/api/agents/${agentId}/runs/${runId}`, {
+    method: 'DELETE',
   });
 }
 

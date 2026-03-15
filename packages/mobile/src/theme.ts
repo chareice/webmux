@@ -72,10 +72,6 @@ export function statusColor(status: string): string {
       return colors.yellow;
     case 'running':
       return colors.accent;
-    case 'waiting_input':
-      return colors.orange;
-    case 'waiting_approval':
-      return colors.purple;
     case 'success':
       return colors.green;
     case 'failed':
@@ -93,10 +89,6 @@ export function statusLabel(status: string): string {
       return 'Starting';
     case 'running':
       return 'Running';
-    case 'waiting_input':
-      return 'Waiting Input';
-    case 'waiting_approval':
-      return 'Waiting Approval';
     case 'success':
       return 'Success';
     case 'failed':

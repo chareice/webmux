@@ -1,41 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import {
-  approveRun,
-  connectRunWebSocket,
-  getRunDetail,
-  interruptRun,
-  rejectRun,
-  sendInput,
-} from '../api';
-import { sanitizeTerminalOutput } from '../plain-output';
-import { Run, RunEvent } from '../types';
+import { interruptRun, connectRunWebSocket, getRunDetail } from '../api';
+import { Run, RunEvent, RunTimelineEvent } from '../types';
 import { colors, commonStyles, fonts, statusColor, statusLabel, toolIcon } from '../theme';
 import type { RootStackParamList } from '../navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { isRunTimelineEvent } from '../run-detail-response';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RunDetail'>;
 
-const MAX_OUTPUT_LINES = 100;
-
-export default function RunDetailScreen({ route, navigation }: Props): React.JSX.Element {
+export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   const { agentId, runId } = route.params;
   const insets = useSafeAreaInsets();
 
   const [run, setRun] = useState<Run | null>(null);
-  const [output, setOutput] = useState<string[]>([]);
-  const [inputText, setInputText] = useState('');
+  const [items, setItems] = useState<RunTimelineEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const scrollViewRef = useRef<ScrollView>(null);
@@ -45,8 +25,7 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
     try {
       const result = await getRunDetail(agentId, runId);
       setRun(result.run);
-      const restoredOutput = sanitizeTerminalOutput(result.output);
-      setOutput(restoredOutput.length > 0 ? restoredOutput.split('\n') : []);
+      setItems(result.items);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to load run';
       setError(msg);
@@ -55,36 +34,25 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
     }
   }, [agentId, runId]);
 
-  // Initial fetch
   useEffect(() => {
     fetchRunDetail();
   }, [fetchRunDetail]);
 
-  // WebSocket connection for real-time output
   useEffect(() => {
     const ws = connectRunWebSocket(
       runId,
       (event: unknown) => {
         const typedEvent = event as RunEvent;
-        if (typedEvent.type === 'run-output') {
-          const cleanText = sanitizeTerminalOutput(typedEvent.data);
-          if (!cleanText) {
-            return;
-          }
-          setOutput(prev => {
-            const newLines = [...prev, ...cleanText.split('\n')];
-            // Keep only last MAX_OUTPUT_LINES
-            if (newLines.length > MAX_OUTPUT_LINES) {
-              return newLines.slice(-MAX_OUTPUT_LINES);
-            }
-            return newLines;
-          });
-        } else if (typedEvent.type === 'run-status') {
+        if (typedEvent.type === 'run-item' && isRunTimelineEvent(typedEvent.item)) {
+          setItems((prev) => [...prev, typedEvent.item]);
+          return;
+        }
+
+        if (typedEvent.type === 'run-status') {
           setRun(typedEvent.run);
         }
       },
       () => {
-        // On error, just try to refresh via REST
         fetchRunDetail();
       },
     );
@@ -97,60 +65,22 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
     };
   }, [runId, fetchRunDetail]);
 
-  // Auto-scroll to bottom when output changes
   useEffect(() => {
-    if (scrollViewRef.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 50);
-    }
-  }, [output]);
-
-  const handleSendInput = async () => {
-    if (!inputText.trim()) {
+    if (!scrollViewRef.current) {
       return;
     }
 
-    const text = inputText;
-    setInputText('');
-
-    try {
-      await sendInput(agentId, runId, text);
-    } catch {
-      // Show the text back so user can retry
-      setInputText(text);
-    }
-  };
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 50);
+  }, [items]);
 
   const handleInterrupt = async () => {
     try {
       await interruptRun(agentId, runId);
     } catch {
-      // Ignore
+      // Ignore transient action failures here.
     }
-  };
-
-  const handleApprove = async () => {
-    try {
-      await approveRun(agentId, runId);
-    } catch {
-      // Ignore
-    }
-  };
-
-  const handleReject = async () => {
-    try {
-      await rejectRun(agentId, runId);
-    } catch {
-      // Ignore
-    }
-  };
-
-  const handleOpenTerminal = () => {
-    if (!run) {
-      return;
-    }
-    navigation.navigate('Terminal', { agentId, sessionName: run.tmuxSession });
   };
 
   if (isLoading) {
@@ -177,19 +107,10 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
     );
   }
 
-  const isActive = ['starting', 'running', 'waiting_input', 'waiting_approval'].includes(
-    run.status,
-  );
-  const showInput = run.status === 'waiting_input' || run.status === 'running';
-  const showApproveReject = run.status === 'waiting_approval';
-  const showInterrupt = isActive;
+  const isActive = run.status === 'starting' || run.status === 'running';
 
   return (
-    <KeyboardAvoidingView
-      style={commonStyles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
-      {/* Header info */}
+    <View style={commonStyles.screen}>
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.headerLeft}>
@@ -235,107 +156,122 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
                 { backgroundColor: statusColor(run.status) },
               ]}
             />
-            <Text
-              style={[styles.statusText, { color: statusColor(run.status) }]}>
+            <Text style={[styles.statusText, { color: statusColor(run.status) }]}>
               {statusLabel(run.status)}
             </Text>
           </View>
         </View>
 
+        <Text style={styles.promptLabel}>Prompt</Text>
+        <Text style={styles.promptText}>{run.prompt}</Text>
+
         {run.summary ? (
-          <Text style={styles.summary} numberOfLines={2}>
-            {run.summary}
-          </Text>
+          <>
+            <Text style={styles.summaryLabel}>Latest Summary</Text>
+            <Text style={styles.summaryText}>{run.summary}</Text>
+          </>
         ) : null}
       </View>
 
-      {/* Output area */}
       <ScrollView
         ref={scrollViewRef}
-        style={styles.outputArea}
-        contentContainerStyle={styles.outputContent}>
-        {output.length === 0 ? (
-          <Text style={styles.outputPlaceholder}>
-            {isActive ? 'Waiting for output...' : 'No output recorded'}
-          </Text>
+        style={styles.timeline}
+        contentContainerStyle={styles.timelineContent}>
+        {items.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>
+              {isActive ? 'Run started. Waiting for timeline events.' : 'No timeline recorded.'}
+            </Text>
+            <Text style={styles.emptyHint}>
+              Structured runs show messages, commands, and activity updates here.
+            </Text>
+          </View>
         ) : (
-          <Text style={styles.outputText} selectable>
-            {output.join('\n')}
-          </Text>
+          items.map((item) => <TimelineItemView key={`${item.id}`} item={item} />)
         )}
       </ScrollView>
 
-      {/* Action buttons */}
-      <View
-        style={[
-          styles.actionsContainer,
-          !showInput && { paddingBottom: 8 + insets.bottom },
-        ]}>
-        {showApproveReject && (
-          <View style={styles.approveRejectRow}>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.rejectButton]}
-              onPress={handleReject}
-              activeOpacity={0.7}>
-              <Text style={[styles.actionButtonText, { color: colors.red }]}>
-                Reject
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionButton, styles.approveButton]}
-              onPress={handleApprove}
-              activeOpacity={0.7}>
-              <Text style={[styles.actionButtonText, { color: colors.green }]}>
-                Approve
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        <View style={styles.bottomRow}>
-          {showInterrupt && (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.interruptButton]}
-              onPress={handleInterrupt}
-              activeOpacity={0.7}>
-              <Text style={[styles.actionButtonText, { color: colors.orange }]}>
-                Interrupt
-              </Text>
-            </TouchableOpacity>
-          )}
+      <View style={[styles.footer, { paddingBottom: 12 + insets.bottom }]}>
+        {isActive ? (
           <TouchableOpacity
-            style={[styles.actionButton, styles.terminalButton]}
-            onPress={handleOpenTerminal}
+            style={[styles.actionButton, styles.interruptButton]}
+            onPress={handleInterrupt}
             activeOpacity={0.7}>
-            <Text style={[styles.actionButtonText, { color: colors.textSecondary }]}>
-              Terminal
+            <Text style={[styles.actionButtonText, { color: colors.orange }]}>
+              Interrupt
             </Text>
           </TouchableOpacity>
-        </View>
+        ) : null}
+        <Text style={styles.footerHint}>
+          Need a full terminal? Open it from the agent page. Run detail is now a structured timeline.
+        </Text>
       </View>
+    </View>
+  );
+}
 
-      {/* Input bar */}
-      {showInput && (
-        <View style={[styles.inputBar, { paddingBottom: 8 + insets.bottom }]}>
-          <TextInput
-            style={styles.inputField}
-            placeholder="Type a message..."
-            placeholderTextColor={colors.textSecondary}
-            value={inputText}
-            onChangeText={setInputText}
-            returnKeyType="send"
-            onSubmitEditing={handleSendInput}
-            autoCorrect={false}
-          />
-          <TouchableOpacity
-            style={styles.sendButton}
-            onPress={handleSendInput}
-            activeOpacity={0.7}>
-            <Text style={styles.sendButtonText}>Send</Text>
-          </TouchableOpacity>
+function TimelineItemView({ item }: { item: RunTimelineEvent }): React.JSX.Element {
+  if (item.type === 'message') {
+    return (
+      <View style={styles.messageCard}>
+        <Text style={styles.messageEyebrow}>
+          {item.role === 'assistant' ? 'Assistant' : item.role === 'user' ? 'User' : 'System'}
+        </Text>
+        <Text style={styles.messageText}>{item.text}</Text>
+      </View>
+    );
+  }
+
+  if (item.type === 'command') {
+    const commandColor =
+      item.status === 'failed'
+        ? colors.red
+        : item.status === 'completed'
+          ? colors.green
+          : colors.accent;
+
+    return (
+      <View style={styles.commandCard}>
+        <View style={styles.commandHeader}>
+          <Text style={[styles.commandEyebrow, { color: commandColor }]}>
+            {item.status === 'started' ? 'Command running' : 'Command'}
+          </Text>
+          {item.exitCode !== null ? (
+            <Text style={styles.commandExit}>exit {item.exitCode}</Text>
+          ) : null}
         </View>
-      )}
-    </KeyboardAvoidingView>
+        <Text style={styles.commandText}>{item.command}</Text>
+        {item.output ? (
+          <View style={styles.commandOutputBox}>
+            <Text style={styles.commandOutputText}>{item.output.trimEnd()}</Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.activityRow}>
+      <View
+        style={[
+          styles.activityDot,
+          {
+            backgroundColor:
+              item.status === 'success'
+                ? colors.green
+                : item.status === 'warning'
+                  ? colors.orange
+                  : item.status === 'error'
+                    ? colors.red
+                    : colors.accent,
+          },
+        ]}
+      />
+      <View style={styles.activityTextArea}>
+        <Text style={styles.activityLabel}>{item.label}</Text>
+        {item.detail ? <Text style={styles.activityDetail}>{item.detail}</Text> : null}
+      </View>
+    </View>
   );
 }
 
@@ -347,7 +283,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.surface,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -404,99 +340,173 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  summary: {
+  promptLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 12,
+  },
+  promptText: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  summaryLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 14,
+  },
+  summaryText: {
     color: colors.textSecondary,
     fontSize: 13,
+    lineHeight: 18,
+    marginTop: 6,
+  },
+  timeline: {
+    flex: 1,
+  },
+  timelineContent: {
+    padding: 14,
+    gap: 10,
+  },
+  emptyState: {
+    paddingVertical: 48,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  emptyHint: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: 10,
+    maxWidth: 280,
+  },
+  messageCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  messageEyebrow: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  messageText: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
     marginTop: 8,
   },
-  outputArea: {
-    flex: 1,
-    backgroundColor: colors.background,
+  commandCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  outputContent: {
-    padding: 12,
-    minHeight: '100%',
+  commandHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
   },
-  outputPlaceholder: {
+  commandEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  commandExit: {
     color: colors.textSecondary,
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: fonts.mono,
-    textAlign: 'center',
-    marginTop: 40,
   },
-  outputText: {
+  commandText: {
     color: colors.text,
     fontSize: 12,
     fontFamily: fonts.mono,
     lineHeight: 18,
+    marginTop: 8,
   },
-  actionsContainer: {
-    backgroundColor: colors.surface,
+  commandOutputBox: {
+    backgroundColor: colors.background,
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
+    marginTop: 10,
+  },
+  commandOutputText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontFamily: fonts.mono,
+    lineHeight: 18,
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  activityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 6,
+    marginRight: 10,
+  },
+  activityTextArea: {
+    flex: 1,
+  },
+  activityLabel: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  activityDetail: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
+    fontFamily: fonts.mono,
+  },
+  footer: {
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    gap: 8,
-  },
-  approveRejectRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  bottomRow: {
-    flexDirection: 'row',
-    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 12,
   },
   actionButton: {
-    flex: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
+    borderRadius: 10,
+    paddingVertical: 11,
     alignItems: 'center',
-  },
-  approveButton: {
-    backgroundColor: colors.green + '22',
-  },
-  rejectButton: {
-    backgroundColor: colors.red + '22',
+    marginBottom: 10,
   },
   interruptButton: {
     backgroundColor: colors.orange + '22',
-  },
-  terminalButton: {
-    backgroundColor: colors.surfaceLight,
   },
   actionButtonText: {
     fontSize: 14,
     fontWeight: '600',
   },
-  inputBar: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    alignItems: 'center',
-    gap: 8,
-  },
-  inputField: {
-    flex: 1,
-    backgroundColor: colors.background,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    color: colors.text,
-    fontSize: 15,
-  },
-  sendButton: {
-    backgroundColor: colors.accent,
-    borderRadius: 20,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-  },
-  sendButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
+  footerHint: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
   },
   errorText: {
     color: colors.red,

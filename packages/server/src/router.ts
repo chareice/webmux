@@ -43,7 +43,7 @@ import {
   consumeRegistrationToken,
   createRun,
   findRunById,
-  findRunOutput,
+  findRunTimelineEvents,
   findRunsByAgentId,
   findRunsByUserId,
   markRunRead,
@@ -498,8 +498,6 @@ export function registerRoutes(
     }
 
     const runId = crypto.randomUUID()
-    const tmuxSession = `run-${runId.slice(0, 8)}`
-
     const runRow = createRun(db, {
       id: runId,
       agentId: id,
@@ -507,7 +505,6 @@ export function registerRoutes(
       tool: body.tool,
       repoPath: body.repoPath,
       prompt: body.prompt,
-      tmuxSession,
     })
 
     // Send run-start to agent
@@ -525,7 +522,7 @@ export function registerRoutes(
       })
     }
 
-    const response: RunDetailResponse = { run: runRowToRun(runRow), output: '' }
+    const response: RunDetailResponse = { run: runRowToRun(runRow), items: [] }
     return reply.status(201).send(response)
   })
 
@@ -574,46 +571,9 @@ export function registerRoutes(
 
     const response: RunDetailResponse = {
       run: runRowToRun(runRow),
-      output: findRunOutput(db, runId),
+      items: findRunTimelineEvents(db, runId),
     }
     return response
-  })
-
-  // Send input to a run
-  app.post('/api/agents/:id/runs/:runId/input', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id, runId } = request.params as { id: string; runId: string }
-    const body = request.body as { input?: string } | undefined
-
-    if (!body?.input) {
-      return reply.status(400).send({ error: 'Missing input' })
-    }
-
-    const agent = findAgentById(db, id)
-    if (!agent) {
-      return reply.status(404).send({ error: 'Agent not found' })
-    }
-
-    if (agent.user_id !== request.user!.userId) {
-      return reply.status(403).send({ error: 'Not your agent' })
-    }
-
-    const runRow = findRunById(db, runId)
-    if (!runRow || runRow.agent_id !== id) {
-      return reply.status(404).send({ error: 'Run not found' })
-    }
-
-    const online = hub.getAgent(id)
-    if (!online) {
-      return reply.status(400).send({ error: 'Agent is offline' })
-    }
-
-    const normalizedInput = body.input.endsWith('\n') ? body.input : `${body.input}\n`
-    const msg: ServerToAgentMessage = { type: 'run-input', runId, input: normalizedInput }
-    if (!sendRunMessage(id, msg, reply)) {
-      return
-    }
-
-    return { ok: true }
   })
 
   // Interrupt a run
@@ -640,68 +600,6 @@ export function registerRoutes(
     }
 
     const msg: ServerToAgentMessage = { type: 'run-interrupt', runId }
-    if (!sendRunMessage(id, msg, reply)) {
-      return
-    }
-
-    return { ok: true }
-  })
-
-  // Approve changes for a run
-  app.post('/api/agents/:id/runs/:runId/approve', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id, runId } = request.params as { id: string; runId: string }
-
-    const agent = findAgentById(db, id)
-    if (!agent) {
-      return reply.status(404).send({ error: 'Agent not found' })
-    }
-
-    if (agent.user_id !== request.user!.userId) {
-      return reply.status(403).send({ error: 'Not your agent' })
-    }
-
-    const runRow = findRunById(db, runId)
-    if (!runRow || runRow.agent_id !== id) {
-      return reply.status(404).send({ error: 'Run not found' })
-    }
-
-    const online = hub.getAgent(id)
-    if (!online) {
-      return reply.status(400).send({ error: 'Agent is offline' })
-    }
-
-    const msg: ServerToAgentMessage = { type: 'run-approve', runId }
-    if (!sendRunMessage(id, msg, reply)) {
-      return
-    }
-
-    return { ok: true }
-  })
-
-  // Reject changes for a run
-  app.post('/api/agents/:id/runs/:runId/reject', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id, runId } = request.params as { id: string; runId: string }
-
-    const agent = findAgentById(db, id)
-    if (!agent) {
-      return reply.status(404).send({ error: 'Agent not found' })
-    }
-
-    if (agent.user_id !== request.user!.userId) {
-      return reply.status(403).send({ error: 'Not your agent' })
-    }
-
-    const runRow = findRunById(db, runId)
-    if (!runRow || runRow.agent_id !== id) {
-      return reply.status(404).send({ error: 'Run not found' })
-    }
-
-    const online = hub.getAgent(id)
-    if (!online) {
-      return reply.status(400).send({ error: 'Agent is offline' })
-    }
-
-    const msg: ServerToAgentMessage = { type: 'run-reject', runId }
     if (!sendRunMessage(id, msg, reply)) {
       return
     }

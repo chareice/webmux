@@ -188,12 +188,12 @@ wait_for_run_output_marker() {
     response="$(api GET "/api/agents/${AGENT_ID}/runs/${run_id}")"
     printf '%s\n' "${response}" > "${output_file}"
 
-    if printf '%s' "${response}" | jq -r '.output' | grep -Fq "${marker}"; then
+    if run_detail_contains_marker "${response}" "${marker}"; then
       return 0
     fi
 
     if (( SECONDS - started_at >= timeout_seconds )); then
-      fail "Timed out waiting for run output marker: ${marker}"
+      fail "Timed out waiting for run timeline marker: ${marker}"
     fi
 
     sleep 2
@@ -224,6 +224,29 @@ wait_for_run_status() {
 
     sleep 2
   done
+}
+
+run_detail_contains_marker() {
+  local response="$1"
+  local marker="$2"
+
+  printf '%s' "${response}" | jq -e --arg marker "${marker}" '
+    def event_text:
+      if .type == "message" then
+        .text
+      elif .type == "command" then
+        ((.command // "") + "\n" + (.output // ""))
+      elif .type == "activity" then
+        ((.label // "") + "\n" + (.detail // ""))
+      else
+        ""
+      end;
+
+    (
+      (.run.summary // "") + "\n" +
+      ([.items[]? | event_text] | join("\n"))
+    ) | contains($marker)
+  ' >/dev/null
 }
 
 log "Starting built server on ${BASE_URL}"
@@ -309,41 +332,28 @@ ab open "${BASE_URL}/agents/${AGENT_ID}?session=e2e-shell"
 ab wait --load networkidle >/dev/null
 browser_wait_for_text 'e2e-shell' 15
 
-log 'Running the interactive run-manager flow'
+log 'Running the structured run-manager flow'
 FIRST_MARKER="E2E_FIRST_${RANDOM}${RANDOM}"
-SECOND_MARKER="E2E_SECOND_${RANDOM}${RANDOM}"
 RUN_DETAIL_FILE="${ARTIFACTS_DIR}/run-detail.json"
 
-RUN_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/runs" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Reply with exactly ${FIRST_MARKER}. Then wait for my next instruction." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
+RUN_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/runs" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Run a shell command that prints exactly ${FIRST_MARKER}, then keep the process alive for 120 seconds so I can interrupt it." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
 printf '%s\n' "${RUN_RESPONSE}" > "${ARTIFACTS_DIR}/run-start.json"
 RUN_ID="$(printf '%s' "${RUN_RESPONSE}" | jq -r '.run.id')"
 [[ -n "${RUN_ID}" && "${RUN_ID}" != "null" ]] || fail 'Failed to start the first run'
 
 wait_for_run_output_marker "${RUN_ID}" "${FIRST_MARKER}" "${RUN_DETAIL_FILE}" 120
 
-api POST "/api/agents/${AGENT_ID}/runs/${RUN_ID}/input" "$(jq -nc --arg input "Reply with exactly ${SECOND_MARKER}." '{input: $input}')" >/dev/null
-wait_for_run_output_marker "${RUN_ID}" "${SECOND_MARKER}" "${RUN_DETAIL_FILE}" 120
-
 api POST "/api/agents/${AGENT_ID}/runs/${RUN_ID}/interrupt" >/dev/null
 wait_for_run_status "${RUN_ID}" interrupted "${RUN_DETAIL_FILE}" 60
 
-RUN_OUTPUT="$(jq -r '.output' "${RUN_DETAIL_FILE}")"
-grep -Fq "${FIRST_MARKER}" <<<"${RUN_OUTPUT}" || fail "Missing first marker in persisted run output"
-grep -Fq "${SECOND_MARKER}" <<<"${RUN_OUTPUT}" || fail "Missing second marker in persisted run output"
-
-RUN_SESSION_NAME="run-${RUN_ID:0:8}"
+run_detail_contains_marker "$(cat "${RUN_DETAIL_FILE}")" "${FIRST_MARKER}" || fail "Missing marker in persisted run timeline"
 api DELETE "/api/agents/${AGENT_ID}/runs/${RUN_ID}" >/dev/null
 [[ "$(api_status GET "/api/agents/${AGENT_ID}/runs/${RUN_ID}")" == "404" ]] || fail 'Deleted run is still accessible'
-sleep 2
-TMUX_SESSIONS_AFTER_DELETE="$(TMUX_TMPDIR="${TMUX_DIR}" tmux -L webmux list-sessions -F '#{session_name}' 2>/dev/null || true)"
-if grep -Fxq "${RUN_SESSION_NAME}" <<<"${TMUX_SESSIONS_AFTER_DELETE}"; then
-  fail "Deleted run still has a tmux session: ${RUN_SESSION_NAME}"
-fi
 
 log 'Verifying disconnect handling for an active run'
 DISCONNECT_MARKER="E2E_DISCONNECT_${RANDOM}${RANDOM}"
 DISCONNECT_DETAIL_FILE="${ARTIFACTS_DIR}/disconnect-run-detail.json"
-DISCONNECT_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/runs" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Reply with exactly ${DISCONNECT_MARKER}. Then wait for my next instruction." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
+DISCONNECT_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/runs" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Run a shell command that prints exactly ${DISCONNECT_MARKER}, then keep the process alive for 120 seconds." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
 printf '%s\n' "${DISCONNECT_RESPONSE}" > "${ARTIFACTS_DIR}/disconnect-run-start.json"
 DISCONNECT_RUN_ID="$(printf '%s' "${DISCONNECT_RESPONSE}" | jq -r '.run.id')"
 [[ -n "${DISCONNECT_RUN_ID}" && "${DISCONNECT_RUN_ID}" != "null" ]] || fail 'Failed to start the disconnect run'
@@ -358,12 +368,6 @@ wait_for_run_status "${DISCONNECT_RUN_ID}" failed "${DISCONNECT_DETAIL_FILE}" 60
 
 DISCONNECT_SUMMARY="$(jq -r '.run.summary // empty' "${DISCONNECT_DETAIL_FILE}")"
 grep -Fq 'Agent disconnected before the run completed.' <<<"${DISCONNECT_SUMMARY}" || fail 'Disconnect summary did not mention agent disconnection'
-
-DISCONNECT_SESSION_NAME="run-${DISCONNECT_RUN_ID:0:8}"
-TMUX_SESSIONS_AFTER_DISCONNECT="$(TMUX_TMPDIR="${TMUX_DIR}" tmux -L webmux list-sessions -F '#{session_name}' 2>/dev/null || true)"
-if grep -Fxq "${DISCONNECT_SESSION_NAME}" <<<"${TMUX_SESSIONS_AFTER_DISCONNECT}"; then
-  fail "Disconnected run still has a tmux session: ${DISCONNECT_SESSION_NAME}"
-fi
 
 ab open "${BASE_URL}/"
 ab wait --load networkidle >/dev/null

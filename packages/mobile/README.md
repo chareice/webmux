@@ -98,11 +98,12 @@ The server currently exposes both:
 
 The mobile app currently includes:
 
-- a `Runs` home screen for active and completed runs
+- a `Runs` home screen for active and completed runs, with inline remove actions
 - an `Agents` screen for browsing online and offline agents
 - a `New Run` flow with recent repository shortcuts and an agent-backed
   repository picker, so repository paths no longer need to be typed manually
-- a `Run Detail` screen with output streaming and terminal handoff
+- a `Run Detail` screen that renders a structured run timeline
+- a separate `Terminal` screen for full-fidelity shell access from the agent page
 
 ## Android Signing
 

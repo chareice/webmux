@@ -43,14 +43,15 @@ export function buildApp(options: BuildAppOptions) {
   registerRoutes(app, db, hub, options.config)
 
   const staticRoot = options.staticRoot ?? resolveWebDistPath()
-  if (staticRoot && fs.existsSync(staticRoot)) {
+  const indexHtmlPath = staticRoot ? path.join(staticRoot, 'index.html') : null
+  if (staticRoot && indexHtmlPath && fs.existsSync(indexHtmlPath)) {
     app.register(fastifyStatic, {
       root: staticRoot,
       prefix: '/',
       wildcard: false,
     })
 
-    const indexHtml = fs.readFileSync(path.join(staticRoot, 'index.html'), 'utf-8')
+    const indexHtml = fs.readFileSync(indexHtmlPath, 'utf-8')
     app.setNotFoundHandler((request, reply) => {
       const pathname = request.raw.url?.split('?')[0] ?? ''
       const isSpaRoute =

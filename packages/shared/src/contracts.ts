@@ -47,8 +47,8 @@ export type AgentMessage =
   | { type: 'terminal-ready'; browserId: string; sessionName: string }
   | { type: 'terminal-exit'; browserId: string; exitCode: number }
   | { type: 'error'; browserId?: string; message: string }
-  | { type: 'run-event'; runId: string; status: RunStatus; summary?: string; hasDiff?: boolean }
-  | { type: 'run-output'; runId: string; data: string }
+  | { type: 'run-status'; runId: string; status: RunStatus; summary?: string; hasDiff?: boolean }
+  | { type: 'run-item'; runId: string; item: RunTimelineEventPayload }
 
 // Server → Agent
 export type ServerToAgentMessage =
@@ -63,11 +63,8 @@ export type ServerToAgentMessage =
   | { type: 'session-kill'; requestId: string; name: string }
   | { type: 'repository-browse'; requestId: string; path?: string }
   | { type: 'run-start'; runId: string; tool: RunTool; repoPath: string; prompt: string }
-  | { type: 'run-input'; runId: string; input: string }
   | { type: 'run-interrupt'; runId: string }
   | { type: 'run-kill'; runId: string }
-  | { type: 'run-approve'; runId: string }
-  | { type: 'run-reject'; runId: string }
 
 // Browser → Server
 export type TerminalClientMessage =
@@ -137,8 +134,6 @@ export type RunTool = 'codex' | 'claude'
 export type RunStatus =
   | 'starting'
   | 'running'
-  | 'waiting_input'
-  | 'waiting_approval'
   | 'success'
   | 'failed'
   | 'interrupted'
@@ -156,7 +151,33 @@ export interface Run {
   summary?: string
   hasDiff: boolean
   unread: boolean
-  tmuxSession: string
+}
+
+export type RunTimelineEventStatus = 'info' | 'success' | 'warning' | 'error'
+
+export type RunTimelineEventPayload =
+  | {
+      type: 'message'
+      role: 'assistant' | 'user' | 'system'
+      text: string
+    }
+  | {
+      type: 'command'
+      status: 'started' | 'completed' | 'failed'
+      command: string
+      output: string
+      exitCode: number | null
+    }
+  | {
+      type: 'activity'
+      status: RunTimelineEventStatus
+      label: string
+      detail?: string
+    }
+
+export type RunTimelineEvent = RunTimelineEventPayload & {
+  id: number
+  createdAt: number
 }
 
 // --- Run REST API types ---
@@ -173,11 +194,11 @@ export interface RunListResponse {
 
 export interface RunDetailResponse {
   run: Run
-  output: string
+  items: RunTimelineEvent[]
 }
 
 // --- Run WebSocket event (Server → Browser) ---
 
 export type RunEvent =
   | { type: 'run-status'; run: Run }
-  | { type: 'run-output'; runId: string; data: string }
+  | { type: 'run-item'; runId: string; item: RunTimelineEvent }

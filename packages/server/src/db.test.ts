@@ -1,6 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+import BetterSqlite3 from 'better-sqlite3'
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
-  appendRunOutput,
+  appendRunTimelineEvent,
   initDb,
   findUserByProvider,
   findUserById,
@@ -12,7 +17,7 @@ import {
   createRun,
   deleteAgent,
   findRunById,
-  findRunOutput,
+  findRunTimelineEvents,
   renameAgent,
   updateAgentStatus,
   updateAgentLastSeen,
@@ -144,15 +149,18 @@ describe('agents', () => {
       tool: 'codex',
       repoPath: '/tmp/project',
       prompt: 'Fix it',
-      tmuxSession: 'run-run-1',
     })
-    appendRunOutput(db, run.id, 'hello\n')
+    appendRunTimelineEvent(db, run.id, {
+      type: 'message',
+      role: 'assistant',
+      text: 'hello',
+    })
 
     deleteAgent(db, agent.id)
 
     expect(findAgentById(db, agent.id)).toBeUndefined()
     expect(findRunById(db, run.id)).toBeUndefined()
-    expect(findRunOutput(db, run.id)).toBe('')
+    expect(findRunTimelineEvents(db, run.id)).toEqual([])
   })
 
   it('renames an agent', () => {
@@ -259,7 +267,7 @@ describe('registration tokens', () => {
   })
 })
 
-describe('run output', () => {
+describe('run timeline events', () => {
   let userId: string
   let agentId: string
 
@@ -274,7 +282,7 @@ describe('run output', () => {
     agentId = createAgent(db, { userId, name: 'runner', agentSecretHash: 'hash' }).id
   })
 
-  it('stores output chunks in order and returns the reconstructed text', () => {
+  it('stores timeline events in order and returns typed items', () => {
     const run = createRun(db, {
       id: 'run-output',
       agentId,
@@ -282,12 +290,114 @@ describe('run output', () => {
       tool: 'claude',
       repoPath: '/tmp/project',
       prompt: 'ship it',
-      tmuxSession: 'run-output',
     })
 
-    appendRunOutput(db, run.id, 'line 1\n')
-    appendRunOutput(db, run.id, 'line 2\n')
+    appendRunTimelineEvent(db, run.id, {
+      type: 'message',
+      role: 'assistant',
+      text: 'Planning the fix.',
+    })
+    appendRunTimelineEvent(db, run.id, {
+      type: 'command',
+      status: 'completed',
+      command: '/usr/bin/bash -lc ls',
+      output: 'README.md\nsrc\n',
+      exitCode: 0,
+    })
 
-    expect(findRunOutput(db, run.id)).toBe('line 1\nline 2\n')
+    expect(findRunTimelineEvents(db, run.id)).toEqual([
+      {
+        id: 1,
+        createdAt: expect.any(Number),
+        type: 'message',
+        role: 'assistant',
+        text: 'Planning the fix.',
+      },
+      {
+        id: 2,
+        createdAt: expect.any(Number),
+        type: 'command',
+        status: 'completed',
+        command: '/usr/bin/bash -lc ls',
+        output: 'README.md\nsrc\n',
+        exitCode: 0,
+      },
+    ])
+  })
+
+  it('migrates legacy run tables by dropping the tmux session column', () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'webmux-db-'))
+    const dbPath = path.join(tempDir, 'webmux.db')
+    const legacyDb = new BetterSqlite3(dbPath)
+
+    legacyDb.exec(`
+      PRAGMA foreign_keys = ON;
+
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        avatar_url TEXT,
+        role TEXT NOT NULL DEFAULT 'user',
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        name TEXT NOT NULL,
+        agent_secret_hash TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'offline',
+        last_seen_at INTEGER,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL REFERENCES agents(id),
+        user_id TEXT NOT NULL REFERENCES users(id),
+        tool TEXT NOT NULL,
+        repo_path TEXT NOT NULL,
+        branch TEXT NOT NULL DEFAULT '',
+        prompt TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'starting',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        summary TEXT,
+        has_diff INTEGER NOT NULL DEFAULT 0,
+        unread INTEGER NOT NULL DEFAULT 1,
+        tmux_session TEXT NOT NULL
+      );
+    `)
+
+    legacyDb
+      .prepare('INSERT INTO users (id, provider, provider_id, display_name, avatar_url, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('user-1', 'github', '1', 'owner', null, 'user', 1)
+    legacyDb
+      .prepare('INSERT INTO agents (id, user_id, name, agent_secret_hash, status, last_seen_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('agent-1', 'user-1', 'runner', 'hash', 'offline', null, 1)
+    legacyDb
+      .prepare('INSERT INTO runs (id, agent_id, user_id, tool, repo_path, branch, prompt, status, created_at, updated_at, summary, has_diff, unread, tmux_session) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('run-legacy', 'agent-1', 'user-1', 'codex', '/tmp/project', 'main', 'Fix it', 'success', 1, 2, 'done', 1, 0, 'run-legacy')
+    legacyDb.close()
+
+    const migratedDb = initDb(dbPath)
+    const columns = migratedDb.pragma('table_info(runs)') as Array<{ name: string }>
+    const migratedRun = findRunById(migratedDb, 'run-legacy')
+
+    expect(columns.map((column) => column.name)).not.toContain('tmux_session')
+    expect(migratedRun).toMatchObject({
+      id: 'run-legacy',
+      agent_id: 'agent-1',
+      user_id: 'user-1',
+      prompt: 'Fix it',
+      summary: 'done',
+      has_diff: 1,
+      unread: 0,
+    })
+
+    migratedDb.close()
+    rmSync(tempDir, { recursive: true, force: true })
   })
 })

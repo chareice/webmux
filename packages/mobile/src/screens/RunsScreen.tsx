@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -10,7 +11,7 @@ import {
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
-import { listAllRuns, approveRun, rejectRun } from '../api';
+import { deleteRun, listAllRuns } from '../api';
 import { useAuth } from '../store';
 import { Run, RunStatus } from '../types';
 import { colors, commonStyles, statusColor, statusLabel, toolIcon } from '../theme';
@@ -18,12 +19,7 @@ import type { RootStackParamList } from '../navigation';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const ACTIVE_STATUSES: RunStatus[] = [
-  'starting',
-  'running',
-  'waiting_input',
-  'waiting_approval',
-];
+const ACTIVE_STATUSES: RunStatus[] = ['starting', 'running'];
 const COMPLETED_STATUSES: RunStatus[] = ['success', 'failed', 'interrupted'];
 const AUTO_REFRESH_INTERVAL = 5000;
 
@@ -56,6 +52,7 @@ export default function RunsScreen(): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [deletingRunId, setDeletingRunId] = useState('');
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchRuns = useCallback(async (showLoading = false) => {
@@ -112,24 +109,6 @@ export default function RunsScreen(): React.JSX.Element {
     fetchRuns(false);
   }, [fetchRuns]);
 
-  const handleApprove = async (run: Run) => {
-    try {
-      await approveRun(run.agentId, run.id);
-      fetchRuns(false);
-    } catch {
-      // Silently fail, next refresh will show correct state
-    }
-  };
-
-  const handleReject = async (run: Run) => {
-    try {
-      await rejectRun(run.agentId, run.id);
-      fetchRuns(false);
-    } catch {
-      // Silently fail
-    }
-  };
-
   const activeRuns = runs.filter(r => ACTIVE_STATUSES.includes(r.status));
   const completedRuns = runs.filter(r => COMPLETED_STATUSES.includes(r.status));
 
@@ -150,68 +129,98 @@ export default function RunsScreen(): React.JSX.Element {
     });
   }, [logout, navigation]);
 
-  const renderRunCard = (run: Run) => (
-    <TouchableOpacity
-      key={run.id}
-      style={commonStyles.card}
-      activeOpacity={0.7}
-      onPress={() =>
-        navigation.navigate('RunDetail', {
-          agentId: run.agentId,
-          runId: run.id,
-        })
-      }>
-      <View style={styles.cardHeader}>
-        <View style={styles.cardHeaderLeft}>
-          <View style={[styles.toolBadge, { backgroundColor: run.tool === 'codex' ? colors.green + '22' : colors.accent + '22' }]}>
-            <Text style={[styles.toolBadgeText, { color: run.tool === 'codex' ? colors.green : colors.accent }]}>
-              {toolIcon(run.tool)}
-            </Text>
-          </View>
-          <View style={styles.cardTitleArea}>
-            <Text style={styles.repoName} numberOfLines={1}>
-              {repoName(run.repoPath)}
-            </Text>
-            {run.branch ? (
-              <Text style={styles.branch} numberOfLines={1}>
-                {run.branch}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-        <View style={[styles.statusBadge, { backgroundColor: statusColor(run.status) + '22' }]}>
-          <View style={[styles.statusDot, { backgroundColor: statusColor(run.status) }]} />
-          <Text style={[styles.statusText, { color: statusColor(run.status) }]}>
-            {statusLabel(run.status)}
-          </Text>
-        </View>
-      </View>
+  const handleDelete = useCallback((run: Run) => {
+    const actionLabel =
+      run.status === 'starting' || run.status === 'running'
+        ? 'This will stop the running task and remove it from the list.'
+        : 'This will remove the run from the list.';
 
-      <Text style={styles.prompt} numberOfLines={2}>
-        {run.prompt}
-      </Text>
+    Alert.alert(
+      'Remove run?',
+      actionLabel,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDeletingRunId(run.id);
+              await deleteRun(run.agentId, run.id);
+              setRuns(prev => prev.filter(item => item.id !== run.id));
+            } catch (e: unknown) {
+              const msg = e instanceof Error ? e.message : 'Failed to remove run';
+              setError(msg);
+            } finally {
+              setDeletingRunId('');
+            }
+          },
+        },
+      ],
+    );
+  }, []);
+
+  const renderRunCard = (run: Run) => (
+    <View key={run.id} style={commonStyles.card}>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() =>
+          navigation.navigate('RunDetail', {
+            agentId: run.agentId,
+            runId: run.id,
+          })
+        }>
+        <View style={styles.cardHeader}>
+          <View style={styles.cardHeaderLeft}>
+            <View style={[styles.toolBadge, { backgroundColor: run.tool === 'codex' ? colors.green + '22' : colors.accent + '22' }]}>
+              <Text style={[styles.toolBadgeText, { color: run.tool === 'codex' ? colors.green : colors.accent }]}>
+                {toolIcon(run.tool)}
+              </Text>
+            </View>
+            <View style={styles.cardTitleArea}>
+              <Text style={styles.repoName} numberOfLines={1}>
+                {repoName(run.repoPath)}
+              </Text>
+              {run.branch ? (
+                <Text style={styles.branch} numberOfLines={1}>
+                  {run.branch}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: statusColor(run.status) + '22' }]}>
+            <View style={[styles.statusDot, { backgroundColor: statusColor(run.status) }]} />
+            <Text style={[styles.statusText, { color: statusColor(run.status) }]}>
+              {statusLabel(run.status)}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.prompt} numberOfLines={2}>
+          {run.prompt}
+        </Text>
+      </TouchableOpacity>
 
       <View style={styles.cardFooter}>
         <Text style={styles.timeText}>{timeAgo(run.updatedAt)}</Text>
-
-        {run.status === 'waiting_approval' && (
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.rejectBtn]}
-              onPress={() => handleReject(run)}
-              activeOpacity={0.7}>
-              <Text style={[styles.actionBtnText, { color: colors.red }]}>Reject</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.approveBtn]}
-              onPress={() => handleApprove(run)}
-              activeOpacity={0.7}>
-              <Text style={[styles.actionBtnText, { color: colors.green }]}>Approve</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        <TouchableOpacity
+          activeOpacity={0.7}
+          disabled={deletingRunId === run.id}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          onPress={() => handleDelete(run)}>
+          <Text
+            style={[
+              styles.deleteText,
+              deletingRunId === run.id && styles.deleteTextDisabled,
+            ]}>
+            {deletingRunId === run.id ? 'Removing...' : 'Remove'}
+          </Text>
+        </TouchableOpacity>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 
   if (isLoading && runs.length === 0) {
@@ -358,24 +367,13 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 12,
   },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  approveBtn: {
-    backgroundColor: colors.green + '22',
-  },
-  rejectBtn: {
-    backgroundColor: colors.red + '22',
-  },
-  actionBtnText: {
+  deleteText: {
+    color: colors.red,
     fontSize: 13,
     fontWeight: '600',
+  },
+  deleteTextDisabled: {
+    opacity: 0.6,
   },
   errorContainer: {
     alignItems: 'center',

@@ -197,24 +197,12 @@ export class AgentConnection {
         this.handleRunStart(msg.runId, msg.tool, msg.repoPath, msg.prompt)
         break
 
-      case 'run-input':
-        this.handleRunInput(msg.runId, msg.input)
-        break
-
       case 'run-interrupt':
         this.handleRunInterrupt(msg.runId)
         break
 
       case 'run-kill':
         this.handleRunKill(msg.runId)
-        break
-
-      case 'run-approve':
-        this.handleRunApprove(msg.runId)
-        break
-
-      case 'run-reject':
-        this.handleRunReject(msg.runId)
         break
 
       default:
@@ -455,15 +443,14 @@ export class AgentConnection {
       tool,
       repoPath,
       prompt,
-      tmux: this.tmux,
       onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => {
-        this.sendMessage({ type: 'run-event', runId, status, summary, hasDiff })
+        this.sendMessage({ type: 'run-status', runId, status, summary, hasDiff })
       },
       onFinish: () => {
         this.runs.delete(runId)
       },
-      onOutput: (data: string) => {
-        this.sendMessage({ type: 'run-output', runId, data })
+      onItem: (item) => {
+        this.sendMessage({ type: 'run-item', runId, item })
       },
     })
 
@@ -473,22 +460,13 @@ export class AgentConnection {
       const message = err instanceof Error ? err.message : String(err)
       console.error(`[agent] Failed to start run ${runId}:`, message)
       this.sendMessage({
-        type: 'run-event',
+        type: 'run-status',
         runId,
         status: 'failed',
         summary: `Failed to start: ${message}`,
       })
       this.runs.delete(runId)
     })
-  }
-
-  private handleRunInput(runId: string, input: string): void {
-    const run = this.runs.get(runId)
-    if (run) {
-      run.sendInput(input)
-    } else {
-      console.warn(`[agent] run-input: no run found for ${runId}`)
-    }
   }
 
   private handleRunInterrupt(runId: string): void {
@@ -505,29 +483,6 @@ export class AgentConnection {
     if (run) {
       run.dispose()
       this.runs.delete(runId)
-    } else {
-      void this.tmux.killSession(getRunSessionName(runId)).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err)
-        console.warn(`[agent] run-kill: failed to clean session for ${runId}: ${message}`)
-      })
-    }
-  }
-
-  private handleRunApprove(runId: string): void {
-    const run = this.runs.get(runId)
-    if (run) {
-      run.approve()
-    } else {
-      console.warn(`[agent] run-approve: no run found for ${runId}`)
-    }
-  }
-
-  private handleRunReject(runId: string): void {
-    const run = this.runs.get(runId)
-    if (run) {
-      run.reject()
-    } else {
-      console.warn(`[agent] run-reject: no run found for ${runId}`)
     }
   }
 
@@ -558,8 +513,4 @@ function buildWsUrl(serverUrl: string): string {
   const url = new URL('/ws/agent', serverUrl)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.toString()
-}
-
-function getRunSessionName(runId: string): string {
-  return `run-${runId.slice(0, 8)}`
 }

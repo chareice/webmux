@@ -6,6 +6,7 @@ import type {
   AgentMessage,
   AgentUpgradePolicy,
   RepositoryBrowseResponse,
+  RunTimelineEventPayload,
   SessionSummary,
   ServerToAgentMessage,
   SessionEvent,
@@ -17,7 +18,7 @@ import { compareSemanticVersions } from '@webmux/shared'
 import { verifySecret } from './auth.js'
 import { describeMinimumVersionFailure } from './agent-upgrade.js'
 import {
-  appendRunOutput,
+  appendRunTimelineEvent,
   findActiveRunsByAgentId,
   findAgentById,
   findRunById,
@@ -322,13 +323,13 @@ export class AgentHub {
         break
       }
 
-      case 'run-event': {
+      case 'run-status': {
         this.handleRunEvent(agentId, message, db)
         break
       }
 
-      case 'run-output': {
-        this.handleRunOutput(agentId, message, db)
+      case 'run-item': {
+        this.handleRunItem(agentId, message, db)
         break
       }
 
@@ -500,7 +501,7 @@ export class AgentHub {
 
   private handleRunEvent(
     agentId: string,
-    message: { type: 'run-event'; runId: string; status: string; summary?: string; hasDiff?: boolean },
+    message: { type: 'run-status'; runId: string; status: string; summary?: string; hasDiff?: boolean },
     db: Database
   ): void {
     const runRow = findRunById(db, message.runId)
@@ -527,9 +528,9 @@ export class AgentHub {
     }
   }
 
-  private handleRunOutput(
+  private handleRunItem(
     agentId: string,
-    message: { type: 'run-output'; runId: string; data: string },
+    message: { type: 'run-item'; runId: string; item: RunTimelineEventPayload },
     db: Database,
   ): void {
     const ownedRun = findRunById(db, message.runId)
@@ -537,8 +538,8 @@ export class AgentHub {
       return
     }
 
-    appendRunOutput(db, message.runId, message.data)
-    const event: RunEvent = { type: 'run-output', runId: message.runId, data: message.data }
+    const item = appendRunTimelineEvent(db, message.runId, message.item)
+    const event: RunEvent = { type: 'run-item', runId: message.runId, item }
 
     const clients = this.runClients.get(message.runId)
     if (clients) {
@@ -628,7 +629,6 @@ export function runRowToRun(row: RunRow): Run {
     summary: row.summary ?? undefined,
     hasDiff: row.has_diff === 1,
     unread: row.unread === 1,
-    tmuxSession: row.tmux_session,
   }
 }
 

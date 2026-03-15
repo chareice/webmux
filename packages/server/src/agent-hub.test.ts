@@ -116,13 +116,12 @@ describe('AgentHub run lifecycle', () => {
       tool: 'codex',
       repoPath: '/tmp/project',
       prompt: 'Fix it',
-      tmuxSession: 'run-1',
     })
 
     const hub = new AgentHub()
     hub.handleAgentMessage(
       intruder.id,
-      { type: 'run-event', runId: run.id, status: 'success', summary: 'done' },
+      { type: 'run-status', runId: run.id, status: 'success', summary: 'done' },
       db,
     )
 
@@ -145,7 +144,6 @@ describe('AgentHub run lifecycle', () => {
       tool: 'codex',
       repoPath: '/tmp/project',
       prompt: 'Fix it',
-      tmuxSession: 'run-1',
     })
     db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('running', run.id)
 

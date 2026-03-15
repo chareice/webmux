@@ -67,7 +67,7 @@ describe('AgentConnection', () => {
     connection.stop()
   })
 
-  it('kills the inferred tmux session when run-kill arrives after the wrapper is gone', async () => {
+  it('ignores run-kill when the wrapper is already gone', async () => {
     const tmux = {
       listSessions: vi.fn().mockResolvedValue([]),
       createSession: vi.fn(),
@@ -87,6 +87,6 @@ describe('AgentConnection', () => {
 
     await flushMicrotasks()
 
-    expect(tmux.killSession).toHaveBeenCalledWith('run-12345678')
+    expect(tmux.killSession).not.toHaveBeenCalled()
   })
 })

@@ -1,6 +1,8 @@
 import Database from 'better-sqlite3'
 import crypto from 'node:crypto'
 
+import type { RunTimelineEvent, RunTimelineEventPayload } from '@webmux/shared'
+
 export interface UserRow {
   id: string
   provider: string
@@ -39,7 +41,7 @@ export function initDb(dbPath: string): Database.Database {
   // If old schema exists (github_id column), drop and recreate
   const tableInfo = db.pragma('table_info(users)') as { name: string }[]
   if (tableInfo.some((col) => col.name === 'github_id')) {
-    db.exec('DROP TABLE IF EXISTS run_output_chunks')
+    db.exec('DROP TABLE IF EXISTS run_events')
     db.exec('DROP TABLE IF EXISTS runs')
     db.exec('DROP TABLE IF EXISTS registration_tokens')
     db.exec('DROP TABLE IF EXISTS agents')
@@ -90,22 +92,24 @@ export function initDb(dbPath: string): Database.Database {
       updated_at    INTEGER NOT NULL,
       summary       TEXT,
       has_diff      INTEGER NOT NULL DEFAULT 0,
-      unread        INTEGER NOT NULL DEFAULT 1,
-      tmux_session  TEXT NOT NULL
+      unread        INTEGER NOT NULL DEFAULT 1
     );
   `)
 
   migrateRunsTableIfNeeded(db)
   db.exec(`
-    CREATE TABLE IF NOT EXISTS run_output_chunks (
+    DROP TABLE IF EXISTS run_output_chunks;
+
+    CREATE TABLE IF NOT EXISTS run_events (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       run_id      TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-      chunk       TEXT NOT NULL,
+      event_type  TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
       created_at  INTEGER NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_run_output_chunks_run_id_id
-      ON run_output_chunks(run_id, id);
+    CREATE INDEX IF NOT EXISTS idx_run_events_run_id_id
+      ON run_events(run_id, id);
   `)
 
   return db
@@ -245,7 +249,6 @@ export interface RunRow {
   summary: string | null
   has_diff: number
   unread: number
-  tmux_session: string
 }
 
 export function createRun(
@@ -257,7 +260,6 @@ export function createRun(
     tool: string
     repoPath: string
     prompt: string
-    tmuxSession: string
     branch?: string
   }
 ): RunRow {
@@ -265,9 +267,9 @@ export function createRun(
   const branch = opts.branch ?? ''
 
   db.prepare(
-    `INSERT INTO runs (id, agent_id, user_id, tool, repo_path, branch, prompt, status, created_at, updated_at, summary, has_diff, unread, tmux_session)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, NULL, 0, 1, ?)`
-  ).run(opts.id, opts.agentId, opts.userId, opts.tool, opts.repoPath, branch, opts.prompt, now, now, opts.tmuxSession)
+    `INSERT INTO runs (id, agent_id, user_id, tool, repo_path, branch, prompt, status, created_at, updated_at, summary, has_diff, unread)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, NULL, 0, 1)`
+  ).run(opts.id, opts.agentId, opts.userId, opts.tool, opts.repoPath, branch, opts.prompt, now, now)
 
   return {
     id: opts.id,
@@ -283,7 +285,6 @@ export function createRun(
     summary: null,
     has_diff: 0,
     unread: 1,
-    tmux_session: opts.tmuxSession,
   }
 }
 
@@ -303,7 +304,7 @@ export function findActiveRunsByAgentId(db: Database.Database, agentId: string):
   return db.prepare(
     `SELECT * FROM runs
      WHERE agent_id = ?
-       AND status IN ('starting', 'running', 'waiting_input', 'waiting_approval')
+       AND status IN ('starting', 'running')
      ORDER BY updated_at DESC`,
   ).all(agentId) as RunRow[]
 }
@@ -331,19 +332,36 @@ export function updateRunStatus(
   }
 }
 
-export function appendRunOutput(db: Database.Database, runId: string, chunk: string): void {
+export function appendRunTimelineEvent(
+  db: Database.Database,
+  runId: string,
+  event: RunTimelineEventPayload,
+): RunTimelineEvent {
   const now = Date.now()
-  db.prepare(
-    'INSERT INTO run_output_chunks (run_id, chunk, created_at) VALUES (?, ?, ?)',
-  ).run(runId, chunk, now)
+  const result = db.prepare(
+    'INSERT INTO run_events (run_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)',
+  ).run(runId, event.type, JSON.stringify(event), now)
+  const eventId = Number(result.lastInsertRowid)
+
   db.prepare('UPDATE runs SET unread = 1, updated_at = ? WHERE id = ?').run(now, runId)
+
+  return {
+    ...event,
+    id: eventId,
+    createdAt: now,
+  }
 }
 
-export function findRunOutput(db: Database.Database, runId: string): string {
+export function findRunTimelineEvents(db: Database.Database, runId: string): RunTimelineEvent[] {
   const rows = db.prepare(
-    'SELECT chunk FROM run_output_chunks WHERE run_id = ? ORDER BY id ASC',
-  ).all(runId) as Array<{ chunk: string }>
-  return rows.map((row) => row.chunk).join('')
+    'SELECT id, payload_json, created_at FROM run_events WHERE run_id = ? ORDER BY id ASC',
+  ).all(runId) as Array<{ id: number; payload_json: string; created_at: number }>
+
+  return rows.map((row) => ({
+    ...(JSON.parse(row.payload_json) as RunTimelineEventPayload),
+    id: row.id,
+    createdAt: row.created_at,
+  }))
 }
 
 export function markRunRead(db: Database.Database, runId: string): void {
@@ -367,14 +385,16 @@ function migrateRunsTableIfNeeded(db: Database.Database): void {
     table: string
     on_delete: string
   }>
+  const columns = db.pragma('table_info(runs)') as Array<{ name: string }>
   const hasCascadeAgentFk = foreignKeys.some(
     (fk) => fk.table === 'agents' && fk.on_delete.toUpperCase() === 'CASCADE',
   )
   const hasCascadeUserFk = foreignKeys.some(
     (fk) => fk.table === 'users' && fk.on_delete.toUpperCase() === 'CASCADE',
   )
+  const hasLegacyTmuxSessionColumn = columns.some((column) => column.name === 'tmux_session')
 
-  if (hasCascadeAgentFk && hasCascadeUserFk) {
+  if (hasCascadeAgentFk && hasCascadeUserFk && !hasLegacyTmuxSessionColumn) {
     return
   }
 
@@ -395,8 +415,7 @@ function migrateRunsTableIfNeeded(db: Database.Database): void {
       updated_at    INTEGER NOT NULL,
       summary       TEXT,
       has_diff      INTEGER NOT NULL DEFAULT 0,
-      unread        INTEGER NOT NULL DEFAULT 1,
-      tmux_session  TEXT NOT NULL
+      unread        INTEGER NOT NULL DEFAULT 1
     );
 
     INSERT INTO runs (
@@ -412,8 +431,7 @@ function migrateRunsTableIfNeeded(db: Database.Database): void {
       updated_at,
       summary,
       has_diff,
-      unread,
-      tmux_session
+      unread
     )
     SELECT
       id,
@@ -428,8 +446,7 @@ function migrateRunsTableIfNeeded(db: Database.Database): void {
       updated_at,
       summary,
       has_diff,
-      unread,
-      tmux_session
+      unread
     FROM runs_legacy;
 
     DROP TABLE runs_legacy;

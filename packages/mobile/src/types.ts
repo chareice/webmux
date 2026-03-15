@@ -6,8 +6,6 @@ export type RunTool = 'codex' | 'claude';
 export type RunStatus =
   | 'starting'
   | 'running'
-  | 'waiting_input'
-  | 'waiting_approval'
   | 'success'
   | 'failed'
   | 'interrupted';
@@ -25,8 +23,34 @@ export interface Run {
   summary?: string;
   hasDiff: boolean;
   unread: boolean;
-  tmuxSession: string;
 }
+
+export type RunTimelineEventStatus = 'info' | 'success' | 'warning' | 'error';
+
+export type RunTimelineEventPayload =
+  | {
+      type: 'message';
+      role: 'assistant' | 'user' | 'system';
+      text: string;
+    }
+  | {
+      type: 'command';
+      status: 'started' | 'completed' | 'failed';
+      command: string;
+      output: string;
+      exitCode: number | null;
+    }
+  | {
+      type: 'activity';
+      status: RunTimelineEventStatus;
+      label: string;
+      detail?: string;
+    };
+
+export type RunTimelineEvent = RunTimelineEventPayload & {
+  id: number;
+  createdAt: number;
+};
 
 export interface AgentInfo {
   id: string;
@@ -59,7 +83,7 @@ export interface RunListResponse {
 
 export interface RunDetailResponse {
   run: Run;
-  output: string;
+  items: RunTimelineEvent[];
 }
 
 export interface AgentListResponse {
@@ -73,4 +97,4 @@ export interface LoginResponse {
 // Server -> Browser (run WebSocket events)
 export type RunEvent =
   | { type: 'run-status'; run: Run }
-  | { type: 'run-output'; runId: string; data: string };
+  | { type: 'run-item'; runId: string; item: RunTimelineEvent };
