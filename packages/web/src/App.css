@@ -850,14 +850,16 @@
 .login-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 1rem;
+  gap: 2rem;
   padding: 2.5rem 2rem;
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: 12px;
   box-shadow: var(--shadow);
   width: min(92vw, 22rem);
+}
+
+.login-brand {
   text-align: center;
 }
 
@@ -866,40 +868,71 @@
   font-size: 1.8rem;
   font-weight: 700;
   color: var(--ink);
+  letter-spacing: -0.02em;
 }
 
 .login-subtitle {
-  margin: 0;
+  margin: 0.4rem 0 0;
   color: var(--muted);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
+}
+
+.login-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
 .login-button {
-  width: 100%;
+  display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
   text-decoration: none;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.login-github {
+  background: #fff;
+  color: #24292f;
+}
+
+.login-github:hover {
+  background: #f3f4f6;
+}
+
+.login-google {
+  background: #fff;
+  color: #3c4043;
+}
+
+.login-google:hover {
+  background: #f3f4f6;
+}
+
+.login-dev {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--border-soft);
+}
+
+.login-dev:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
 }
 
 .login-loading {
   color: var(--muted);
   margin: 0;
-}
-
-.login-divider {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  gap: 0.75rem;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.login-divider::before,
-.login-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border-soft);
+  text-align: center;
 }
 
 /* ── Agents page ───────────────────────────────────── */
