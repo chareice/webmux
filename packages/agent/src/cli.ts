@@ -169,6 +169,8 @@ service
     const serviceDir = path.join(os.homedir(), '.config', 'systemd', 'user')
     const servicePath = path.join(serviceDir, `${SERVICE_NAME}.service`)
 
+    const npmPath = findBinary('npm') ?? 'npm'
+
     const unit = `[Unit]
 Description=Webmux Agent (${creds.name})
 After=network-online.target
@@ -176,9 +178,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${npxPath} -y @webmux/agent start
+ExecStartPre=${npmPath} install -g @webmux/agent@latest
+ExecStart=${findBinary('webmux-agent') ?? `${npxPath} -y @webmux/agent`} start
 Restart=always
-RestartSec=5
+RestartSec=10
 Environment=HOME=${os.homedir()}
 Environment=PATH=${process.env.PATH}
 WorkingDirectory=${os.homedir()}
@@ -251,6 +254,28 @@ service
       execSync(`systemctl --user status ${SERVICE_NAME}`, { stdio: 'inherit' })
     } catch {
       console.log(`[agent] Service is not installed or not running.`)
+    }
+  })
+
+service
+  .command('upgrade')
+  .description('Upgrade agent to latest version and restart service')
+  .action(() => {
+    console.log('[agent] Upgrading @webmux/agent to latest...')
+    try {
+      execSync('npm install -g @webmux/agent@latest', { stdio: 'inherit' })
+    } catch {
+      console.error('[agent] Failed to upgrade. Try manually: npm install -g @webmux/agent@latest')
+      process.exit(1)
+    }
+
+    console.log('[agent] Restarting service...')
+    try {
+      execSync(`systemctl --user restart ${SERVICE_NAME}`, { stdio: 'inherit' })
+      console.log('[agent] Upgrade complete!')
+    } catch {
+      console.log('[agent] Package upgraded. Service not installed or restart failed.')
+      console.log('[agent] If running manually, restart with: npx @webmux/agent@latest start')
     }
   })
 
