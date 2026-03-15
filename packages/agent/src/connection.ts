@@ -200,6 +200,10 @@ export class AgentConnection {
         this.handleRunInterrupt(msg.runId)
         break
 
+      case 'run-kill':
+        this.handleRunKill(msg.runId)
+        break
+
       case 'run-approve':
         this.handleRunApprove(msg.runId)
         break
@@ -429,6 +433,9 @@ export class AgentConnection {
       onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => {
         this.sendMessage({ type: 'run-event', runId, status, summary, hasDiff })
       },
+      onFinish: () => {
+        this.runs.delete(runId)
+      },
       onOutput: (data: string) => {
         this.sendMessage({ type: 'run-output', runId, data })
       },
@@ -467,6 +474,19 @@ export class AgentConnection {
     }
   }
 
+  private handleRunKill(runId: string): void {
+    const run = this.runs.get(runId)
+    if (run) {
+      run.dispose()
+      this.runs.delete(runId)
+    } else {
+      void this.tmux.killSession(getRunSessionName(runId)).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err)
+        console.warn(`[agent] run-kill: failed to clean session for ${runId}: ${message}`)
+      })
+    }
+  }
+
   private handleRunApprove(runId: string): void {
     const run = this.runs.get(runId)
     if (run) {
@@ -489,6 +509,7 @@ export class AgentConnection {
     this.stopHeartbeat()
     this.stopSessionSync()
     this.disposeAllBridges()
+    this.disposeAllRuns()
     this.ws = null
 
     if (this.stopped) {
@@ -511,4 +532,8 @@ function buildWsUrl(serverUrl: string): string {
   const url = new URL('/ws/agent', serverUrl)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.toString()
+}
+
+function getRunSessionName(runId: string): string {
+  return `run-${runId.slice(0, 8)}`
 }

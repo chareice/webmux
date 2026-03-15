@@ -3,7 +3,7 @@ export type RootStackParamList = {
   Runs: undefined;
   NewRun: undefined;
   RunDetail: { agentId: string; runId: string };
-  Terminal: { agentId: string };
+  Terminal: { agentId: string; sessionName?: string };
 };
 
 // Allow typing for useNavigation / useRoute

@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import type {
   CreateSessionResponse,
@@ -52,8 +52,10 @@ function loadNotificationsEnabled(): boolean {
 
 export function SessionsPage() {
   const { agentId } = useParams<{ agentId: string }>()
+  const location = useLocation()
   const navigate = useNavigate()
   const { token } = useAuth()
+  const requestedSessionName = new URLSearchParams(location.search).get('session')
 
   const [agentName, setAgentName] = useState('')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -136,10 +138,13 @@ export function SessionsPage() {
     startTransition(() => {
       setSelectedSessionName((current) => {
         if (current && incoming.some((s) => s.name === current)) return current
+        if (requestedSessionName && incoming.some((s) => s.name === requestedSessionName)) {
+          return requestedSessionName
+        }
         return incoming[0]?.name ?? null
       })
     })
-  }, [])
+  }, [requestedSessionName])
 
   useEffect(() => {
     if (!token || !agentId) {

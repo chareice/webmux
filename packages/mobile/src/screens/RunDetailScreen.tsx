@@ -46,7 +46,9 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
   const fetchRunDetail = useCallback(async () => {
     try {
       const result = await getRunDetail(agentId, runId);
-      setRun(result);
+      setRun(result.run);
+      const restoredOutput = stripAnsi(result.output);
+      setOutput(restoredOutput.length > 0 ? restoredOutput.split('\n') : []);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to load run';
       setError(msg);
@@ -144,7 +146,10 @@ export default function RunDetailScreen({ route, navigation }: Props): React.JSX
   };
 
   const handleOpenTerminal = () => {
-    navigation.navigate('Terminal', { agentId });
+    if (!run) {
+      return;
+    }
+    navigation.navigate('Terminal', { agentId, sessionName: run.tmuxSession });
   };
 
   if (isLoading) {

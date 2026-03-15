@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
+  appendRunOutput,
   initDb,
   findUserByProvider,
   findUserById,
@@ -8,7 +9,10 @@ import {
   findAgentsByUserId,
   findAgentById,
   createAgent,
+  createRun,
   deleteAgent,
+  findRunById,
+  findRunOutput,
   renameAgent,
   updateAgentStatus,
   updateAgentLastSeen,
@@ -131,6 +135,26 @@ describe('agents', () => {
     expect(findAgentById(db, agent.id)).toBeUndefined()
   })
 
+  it('cascades runs and output when deleting an agent', () => {
+    const agent = createAgent(db, { userId, name: 'temp', agentSecretHash: 'hash' })
+    const run = createRun(db, {
+      id: 'run-1',
+      agentId: agent.id,
+      userId,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Fix it',
+      tmuxSession: 'run-run-1',
+    })
+    appendRunOutput(db, run.id, 'hello\n')
+
+    deleteAgent(db, agent.id)
+
+    expect(findAgentById(db, agent.id)).toBeUndefined()
+    expect(findRunById(db, run.id)).toBeUndefined()
+    expect(findRunOutput(db, run.id)).toBe('')
+  })
+
   it('renames an agent', () => {
     const agent = createAgent(db, { userId, name: 'old-name', agentSecretHash: 'h' })
     renameAgent(db, agent.id, 'new-name')
@@ -232,5 +256,38 @@ describe('registration tokens', () => {
 
     const countAfter = (db.prepare('SELECT COUNT(*) as cnt FROM registration_tokens').get() as { cnt: number }).cnt
     expect(countAfter).toBe(1)
+  })
+})
+
+describe('run output', () => {
+  let userId: string
+  let agentId: string
+
+  beforeEach(() => {
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'owner',
+      avatarUrl: null,
+    })
+    userId = user.id
+    agentId = createAgent(db, { userId, name: 'runner', agentSecretHash: 'hash' }).id
+  })
+
+  it('stores output chunks in order and returns the reconstructed text', () => {
+    const run = createRun(db, {
+      id: 'run-output',
+      agentId,
+      userId,
+      tool: 'claude',
+      repoPath: '/tmp/project',
+      prompt: 'ship it',
+      tmuxSession: 'run-output',
+    })
+
+    appendRunOutput(db, run.id, 'line 1\n')
+    appendRunOutput(db, run.id, 'line 2\n')
+
+    expect(findRunOutput(db, run.id)).toBe('line 1\nline 2\n')
   })
 })

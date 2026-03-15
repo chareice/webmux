@@ -34,12 +34,11 @@ export default function LoginScreen(): React.JSX.Element {
   // Handle deep link callback with token
   useEffect(() => {
     const handleUrl = (event: { url: string }) => {
-      const { url } = event;
-      // Expected format: webmux://auth?token=xxx
-      const match = url.match(/[?&]token=([^&]+)/);
-      if (match) {
-        const token = decodeURIComponent(match[1]);
-        handleTokenReceived(token);
+      const parsed = new URL(event.url);
+      const token = parsed.searchParams.get('token');
+      if (token) {
+        const redirectedServerUrl = parsed.searchParams.get('server');
+        void handleTokenReceived(token, redirectedServerUrl ?? serverUrl);
       }
     };
 
@@ -55,11 +54,11 @@ export default function LoginScreen(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverUrl]);
 
-  const handleTokenReceived = async (token: string) => {
+  const handleTokenReceived = async (token: string, incomingServerUrl: string) => {
     setIsLoading(true);
     setError('');
     try {
-      const cleanUrl = serverUrl.replace(/\/+$/, '');
+      const cleanUrl = incomingServerUrl.replace(/\/+$/, '');
       await AsyncStorage.setItem(STORAGE_KEY_LAST_SERVER, cleanUrl);
       await login(cleanUrl, token);
     } catch (e: unknown) {

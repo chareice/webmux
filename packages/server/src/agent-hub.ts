@@ -15,7 +15,15 @@ import type {
 import { compareSemanticVersions } from '@webmux/shared'
 import { verifySecret } from './auth.js'
 import { describeMinimumVersionFailure } from './agent-upgrade.js'
-import { findAgentById, updateAgentStatus, updateAgentLastSeen, findRunById, updateRunStatus } from './db.js'
+import {
+  appendRunOutput,
+  findActiveRunsByAgentId,
+  findAgentById,
+  findRunById,
+  updateAgentLastSeen,
+  updateAgentStatus,
+  updateRunStatus,
+} from './db.js'
 import type { RunRow } from './db.js'
 
 interface OnlineAgent {
@@ -297,7 +305,7 @@ export class AgentHub {
       }
 
       case 'run-output': {
-        this.handleRunOutput(agentId, message)
+        this.handleRunOutput(agentId, message, db)
         break
       }
 
@@ -365,6 +373,26 @@ export class AgentHub {
 
     this.agents.delete(agentId)
     updateAgentStatus(db, agentId, 'offline')
+    for (const run of findActiveRunsByAgentId(db, agentId)) {
+      updateRunStatus(
+        db,
+        run.id,
+        'failed',
+        'Agent disconnected before the run completed.',
+      )
+      const clients = this.runClients.get(run.id)
+      if (!clients) {
+        continue
+      }
+
+      const event: RunEvent = {
+        type: 'run-status',
+        run: runRowToRun(findRunById(db, run.id) ?? run),
+      }
+      for (const client of clients) {
+        this.safeSend(client, event)
+      }
+    }
 
     // Notify event clients that sessions are gone
     this.broadcastSessionSync(agentId, agent.userId, [])
@@ -440,18 +468,23 @@ export class AgentHub {
   }
 
   private handleRunEvent(
-    _agentId: string,
+    agentId: string,
     message: { type: 'run-event'; runId: string; status: string; summary?: string; hasDiff?: boolean },
     db: Database
   ): void {
+    const runRow = findRunById(db, message.runId)
+    if (!runRow || runRow.agent_id !== agentId) {
+      return
+    }
+
     // Update run in DB
     updateRunStatus(db, message.runId, message.status, message.summary, message.hasDiff)
 
     // Load the updated run to broadcast
-    const runRow = findRunById(db, message.runId)
-    if (!runRow) return
+    const updatedRunRow = findRunById(db, message.runId)
+    if (!updatedRunRow) return
 
-    const run = runRowToRun(runRow)
+    const run = runRowToRun(updatedRunRow)
     const event: RunEvent = { type: 'run-status', run }
 
     // Broadcast to all WebSocket clients watching this run
@@ -464,9 +497,16 @@ export class AgentHub {
   }
 
   private handleRunOutput(
-    _agentId: string,
-    message: { type: 'run-output'; runId: string; data: string }
+    agentId: string,
+    message: { type: 'run-output'; runId: string; data: string },
+    db: Database,
   ): void {
+    const ownedRun = findRunById(db, message.runId)
+    if (!ownedRun || ownedRun.agent_id !== agentId) {
+      return
+    }
+
+    appendRunOutput(db, message.runId, message.data)
     const event: RunEvent = { type: 'run-output', runId: message.runId, data: message.data }
 
     const clients = this.runClients.get(message.runId)

@@ -14,8 +14,11 @@ import type {
   ServerToAgentMessage,
 } from '@webmux/shared'
 import {
+  appendAuthTokenToRedirectTarget,
+  decodeOAuthState,
   signJwt,
   verifyJwt,
+  encodeOAuthState,
   hashSecret,
   getGithubOAuthUrl,
   exchangeGithubCode,
@@ -39,6 +42,7 @@ import {
   consumeRegistrationToken,
   createRun,
   findRunById,
+  findRunOutput,
   findRunsByAgentId,
   findRunsByUserId,
   markRunRead,
@@ -69,6 +73,32 @@ export function registerRoutes(
   hub: AgentHub,
   config: ServerConfig
 ): void {
+  const redirectAfterAuth = (jwt: string, state?: string): string => {
+    const redirectTo = decodeOAuthState(state).redirectTo
+    if (!redirectTo) {
+      return `${config.baseUrl}/?token=${jwt}`
+    }
+
+    try {
+      return appendAuthTokenToRedirectTarget(redirectTo, jwt)
+    } catch {
+      return `${config.baseUrl}/?token=${jwt}`
+    }
+  }
+
+  const sendRunMessage = (
+    agentId: string,
+    message: ServerToAgentMessage,
+    reply: FastifyReply,
+  ): boolean => {
+    if (hub.sendToAgent(agentId, message)) {
+      return true
+    }
+
+    void reply.status(503).send({ error: 'Agent became unavailable before the command could be delivered' })
+    return false
+  }
+
   // --- JWT auth middleware ---
   const authPreHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const authHeader = request.headers.authorization
@@ -86,11 +116,16 @@ export function registerRoutes(
 
   // --- Auth routes ---
 
-  app.get('/api/auth/github', async (_request, reply) => {
+  app.get('/api/auth/github', async (request, reply) => {
     if (config.devMode) {
       return reply.status(400).send({ error: 'GitHub OAuth is not available in dev mode' })
     }
-    const url = getGithubOAuthUrl(config.githubClientId, config.baseUrl)
+    const { redirectTo } = request.query as { redirectTo?: string }
+    const url = getGithubOAuthUrl(
+      config.githubClientId,
+      config.baseUrl,
+      encodeOAuthState({ redirectTo }),
+    )
     return reply.redirect(url)
   })
 
@@ -99,7 +134,7 @@ export function registerRoutes(
       return reply.status(400).send({ error: 'GitHub OAuth is not available in dev mode' })
     }
 
-    const { code } = request.query as { code?: string }
+    const { code, state } = request.query as { code?: string; state?: string }
     if (!code) {
       return reply.status(400).send({ error: 'Missing code parameter' })
     }
@@ -126,7 +161,7 @@ export function registerRoutes(
         config.jwtSecret
       )
 
-      return reply.redirect(`${config.baseUrl}/?token=${jwt}`)
+      return reply.redirect(redirectAfterAuth(jwt, state))
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       return reply.status(500).send({ error: message })
@@ -135,11 +170,16 @@ export function registerRoutes(
 
   // --- Google OAuth routes ---
 
-  app.get('/api/auth/google', async (_request, reply) => {
+  app.get('/api/auth/google', async (request, reply) => {
     if (!config.googleClientId || !config.googleClientSecret) {
       return reply.status(400).send({ error: 'Google OAuth is not configured' })
     }
-    const url = getGoogleOAuthUrl(config.googleClientId, config.baseUrl)
+    const { redirectTo } = request.query as { redirectTo?: string }
+    const url = getGoogleOAuthUrl(
+      config.googleClientId,
+      config.baseUrl,
+      encodeOAuthState({ redirectTo }),
+    )
     return reply.redirect(url)
   })
 
@@ -148,7 +188,7 @@ export function registerRoutes(
       return reply.status(400).send({ error: 'Google OAuth is not configured' })
     }
 
-    const { code } = request.query as { code?: string }
+    const { code, state } = request.query as { code?: string; state?: string }
     if (!code) {
       return reply.status(400).send({ error: 'Missing code parameter' })
     }
@@ -175,7 +215,7 @@ export function registerRoutes(
         config.jwtSecret
       )
 
-      return reply.redirect(`${config.baseUrl}/?token=${jwt}`)
+      return reply.redirect(redirectAfterAuth(jwt, state))
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       return reply.status(500).send({ error: message })
@@ -450,9 +490,14 @@ export function registerRoutes(
       repoPath: body.repoPath,
       prompt: body.prompt,
     }
-    hub.sendToAgent(id, msg)
+    if (!hub.sendToAgent(id, msg)) {
+      deleteRun(db, runId)
+      return reply.status(503).send({
+        error: 'Agent became unavailable before the run could start',
+      })
+    }
 
-    const response: RunDetailResponse = { run: runRowToRun(runRow) }
+    const response: RunDetailResponse = { run: runRowToRun(runRow), output: '' }
     return reply.status(201).send(response)
   })
 
@@ -499,7 +544,10 @@ export function registerRoutes(
       return reply.status(404).send({ error: 'Run not found' })
     }
 
-    const response: RunDetailResponse = { run: runRowToRun(runRow) }
+    const response: RunDetailResponse = {
+      run: runRowToRun(runRow),
+      output: findRunOutput(db, runId),
+    }
     return response
   })
 
@@ -531,8 +579,11 @@ export function registerRoutes(
       return reply.status(400).send({ error: 'Agent is offline' })
     }
 
-    const msg: ServerToAgentMessage = { type: 'run-input', runId, input: body.input }
-    hub.sendToAgent(id, msg)
+    const normalizedInput = body.input.endsWith('\n') ? body.input : `${body.input}\n`
+    const msg: ServerToAgentMessage = { type: 'run-input', runId, input: normalizedInput }
+    if (!sendRunMessage(id, msg, reply)) {
+      return
+    }
 
     return { ok: true }
   })
@@ -561,7 +612,9 @@ export function registerRoutes(
     }
 
     const msg: ServerToAgentMessage = { type: 'run-interrupt', runId }
-    hub.sendToAgent(id, msg)
+    if (!sendRunMessage(id, msg, reply)) {
+      return
+    }
 
     return { ok: true }
   })
@@ -590,7 +643,9 @@ export function registerRoutes(
     }
 
     const msg: ServerToAgentMessage = { type: 'run-approve', runId }
-    hub.sendToAgent(id, msg)
+    if (!sendRunMessage(id, msg, reply)) {
+      return
+    }
 
     return { ok: true }
   })
@@ -619,7 +674,9 @@ export function registerRoutes(
     }
 
     const msg: ServerToAgentMessage = { type: 'run-reject', runId }
-    hub.sendToAgent(id, msg)
+    if (!sendRunMessage(id, msg, reply)) {
+      return
+    }
 
     return { ok: true }
   })
@@ -663,6 +720,13 @@ export function registerRoutes(
     const runRow = findRunById(db, runId)
     if (!runRow || runRow.agent_id !== id) {
       return reply.status(404).send({ error: 'Run not found' })
+    }
+
+    const online = hub.getAgent(id)
+    if (online) {
+      if (!sendRunMessage(id, { type: 'run-kill', runId }, reply)) {
+        return
+      }
     }
 
     deleteRun(db, runId)

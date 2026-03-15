@@ -13,6 +13,7 @@ export interface RunWrapperOptions {
   prompt: string
   tmux: TmuxClient
   onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => void
+  onFinish: (status: RunStatus) => void
   onOutput: (data: string) => void
 }
 
@@ -54,6 +55,7 @@ export class RunWrapper {
   private readonly prompt: string
   private readonly tmux: TmuxClient
   private readonly onEvent: RunWrapperOptions['onEvent']
+  private readonly onFinish: RunWrapperOptions['onFinish']
   private readonly onOutput: RunWrapperOptions['onOutput']
 
   private ptyProcess: IPty | null = null
@@ -61,6 +63,7 @@ export class RunWrapper {
   private outputBuffer: string[] = []
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private disposed = false
+  private interrupted = false
 
   readonly sessionName: string
 
@@ -71,6 +74,7 @@ export class RunWrapper {
     this.prompt = options.prompt
     this.tmux = options.tmux
     this.onEvent = options.onEvent
+    this.onFinish = options.onFinish
     this.onOutput = options.onOutput
 
     // Use first 8 chars of runId to keep tmux session name short
@@ -129,11 +133,12 @@ export class RunWrapper {
         this.debounceTimer = null
       }
 
-      if (exitCode === 0) {
-        this.emitStatus('success')
-      } else {
-        this.emitStatus('failed')
+      const finalStatus =
+        this.interrupted ? 'interrupted' : exitCode === 0 ? 'success' : 'failed'
+      if (finalStatus !== this.currentStatus) {
+        this.emitStatus(finalStatus)
       }
+      this.onFinish(finalStatus)
 
       this.ptyProcess = null
     })
@@ -157,6 +162,7 @@ export class RunWrapper {
   interrupt(): void {
     if (this.ptyProcess && !this.disposed) {
       // Send Ctrl+C
+      this.interrupted = true
       this.ptyProcess.write('\x03')
       this.emitStatus('interrupted')
     }

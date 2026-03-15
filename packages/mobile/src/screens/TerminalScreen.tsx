@@ -9,12 +9,16 @@ import type { RootStackParamList } from '../navigation';
 type Props = NativeStackScreenProps<RootStackParamList, 'Terminal'>;
 
 export default function TerminalScreen({ route }: Props): React.JSX.Element {
-  const { agentId } = route.params;
+  const { agentId, sessionName } = route.params;
   const serverUrl = getServerUrl();
   const token = getToken();
 
   // Load the webmux web app's terminal page with auth token
-  const uri = `${serverUrl}/agents/${agentId}?token=${token}`;
+  const params = new URLSearchParams({ token });
+  if (sessionName) {
+    params.set('session', sessionName);
+  }
+  const uri = `${serverUrl}/agents/${agentId}?${params.toString()}`;
 
   return (
     <View style={styles.container}>

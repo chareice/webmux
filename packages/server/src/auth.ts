@@ -9,6 +9,10 @@ export interface JwtPayload {
   role: string
 }
 
+interface OAuthStatePayload {
+  redirectTo?: string
+}
+
 export function signJwt(payload: JwtPayload, secret: string): string {
   return jwt.sign(payload, secret, { expiresIn: '7d' })
 }
@@ -25,13 +29,43 @@ export async function verifySecret(plain: string, hash: string): Promise<boolean
   return bcrypt.compare(plain, hash)
 }
 
-export function getGithubOAuthUrl(clientId: string, baseUrl: string): string {
+export function encodeOAuthState(payload: OAuthStatePayload): string | undefined {
+  if (!payload.redirectTo) {
+    return undefined
+  }
+
+  return Buffer.from(JSON.stringify(payload)).toString('base64url')
+}
+
+export function decodeOAuthState(state?: string | null): OAuthStatePayload {
+  if (!state) {
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(state, 'base64url').toString('utf-8')) as OAuthStatePayload
+    return parsed.redirectTo ? { redirectTo: parsed.redirectTo } : {}
+  } catch {
+    return {}
+  }
+}
+
+export function appendAuthTokenToRedirectTarget(redirectTarget: string, token: string): string {
+  const url = new URL(redirectTarget)
+  url.searchParams.set('token', token)
+  return url.toString()
+}
+
+export function getGithubOAuthUrl(clientId: string, baseUrl: string, state?: string): string {
   const redirectUri = `${baseUrl}/api/auth/github/callback`
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     scope: 'read:user',
   })
+  if (state) {
+    params.set('state', state)
+  }
   return `https://github.com/login/oauth/authorize?${params.toString()}`
 }
 
@@ -93,7 +127,7 @@ export interface GoogleUser {
   picture: string
 }
 
-export function getGoogleOAuthUrl(clientId: string, baseUrl: string): string {
+export function getGoogleOAuthUrl(clientId: string, baseUrl: string, state?: string): string {
   const redirectUri = `${baseUrl}/api/auth/google/callback`
   const params = new URLSearchParams({
     client_id: clientId,
@@ -101,6 +135,9 @@ export function getGoogleOAuthUrl(clientId: string, baseUrl: string): string {
     response_type: 'code',
     scope: 'openid email profile',
   })
+  if (state) {
+    params.set('state', state)
+  }
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
 }
 

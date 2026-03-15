@@ -9,7 +9,17 @@ import type { SessionSummary } from '@webmux/shared'
 import { signJwt } from './auth.js'
 import { AgentHub } from './agent-hub.js'
 import { buildApp } from './app.js'
-import { createAgent, createUser, initDb, updateAgentLastSeen } from './db.js'
+import {
+  createAgent,
+  createRun,
+  createUser,
+  findAgentById,
+  findRunById,
+  findRunOutput,
+  findRunsByAgentId,
+  initDb,
+  updateAgentLastSeen,
+} from './db.js'
 
 const TEST_SECRET = 'test-secret'
 
@@ -203,6 +213,359 @@ describe('buildApp', () => {
     expect(payload.agents[0].lastSeenAt).toBeTypeOf('number')
     expect(Number.isInteger(payload.agents[0].lastSeenAt)).toBe(true)
     expect(payload.agents[0].lastSeenAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000))
+
+    await app.close()
+  })
+
+  it('returns 503 and does not persist the run when the start command cannot reach the agent', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'u-1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'nas',
+      agentSecretHash: 'hash',
+    })
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+
+    const hub = {
+      getAgent: () => ({ id: agent.id }),
+      sendToAgent: () => false,
+      removeAgent() {},
+      getAgentSessions: () => [],
+      requestSessionCreate: async () => createSession('unused'),
+      requestSessionKill: async () => undefined,
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/agents/${agent.id}/runs`,
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        tool: 'codex',
+        repoPath: '/tmp/project',
+        prompt: 'Fix it',
+      },
+    })
+
+    expect(response.statusCode).toBe(503)
+    expect(findRunsByAgentId(db, agent.id)).toEqual([])
+
+    await app.close()
+  })
+
+  it('appends a trailing newline when sending input to a run', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'u-1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'nas',
+      agentSecretHash: 'hash',
+    })
+    const run = createRun(db, {
+      id: 'run-1',
+      agentId: agent.id,
+      userId: user.id,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Fix it',
+      tmuxSession: 'run-1',
+    })
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+
+    const messages: Array<{ type: string; input?: string }> = []
+    const hub = {
+      getAgent: () => ({ id: agent.id }),
+      sendToAgent: (_agentId: string, message: { type: string; input?: string }) => {
+        messages.push(message)
+        return true
+      },
+      removeAgent() {},
+      getAgentSessions: () => [],
+      requestSessionCreate: async () => createSession('unused'),
+      requestSessionKill: async () => undefined,
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/agents/${agent.id}/runs/${run.id}/input`,
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        input: 'continue',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(messages).toContainEqual({
+      type: 'run-input',
+      runId: run.id,
+      input: 'continue\n',
+    })
+
+    await app.close()
+  })
+
+  it('kills active runs before deleting them', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'u-1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'nas',
+      agentSecretHash: 'hash',
+    })
+    const run = createRun(db, {
+      id: 'run-1',
+      agentId: agent.id,
+      userId: user.id,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Fix it',
+      tmuxSession: 'run-1',
+    })
+    db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('running', run.id)
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+
+    const messages: Array<{ type: string; runId?: string }> = []
+    const hub = {
+      getAgent: () => ({ id: agent.id }),
+      sendToAgent: (_agentId: string, message: { type: string; runId?: string }) => {
+        messages.push(message)
+        return true
+      },
+      removeAgent() {},
+      getAgentSessions: () => [],
+      requestSessionCreate: async () => createSession('unused'),
+      requestSessionKill: async () => undefined,
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/agents/${agent.id}/runs/${run.id}`,
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(messages).toContainEqual({
+      type: 'run-kill',
+      runId: run.id,
+    })
+    expect(findRunById(db, run.id)).toBeUndefined()
+
+    await app.close()
+  })
+
+  it('kills interrupted runs before deleting them', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'u-1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'nas',
+      agentSecretHash: 'hash',
+    })
+    const run = createRun(db, {
+      id: 'run-2',
+      agentId: agent.id,
+      userId: user.id,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Fix it',
+      tmuxSession: 'run-2',
+    })
+    db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('interrupted', run.id)
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+
+    const messages: Array<{ type: string; runId?: string }> = []
+    const hub = {
+      getAgent: () => ({ id: agent.id }),
+      sendToAgent: (_agentId: string, message: { type: string; runId?: string }) => {
+        messages.push(message)
+        return true
+      },
+      removeAgent() {},
+      getAgentSessions: () => [],
+      requestSessionCreate: async () => createSession('unused'),
+      requestSessionKill: async () => undefined,
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/agents/${agent.id}/runs/${run.id}`,
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(messages).toContainEqual({
+      type: 'run-kill',
+      runId: run.id,
+    })
+    expect(findRunById(db, run.id)).toBeUndefined()
+
+    await app.close()
+  })
+
+  it('returns stored output in the run detail response', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'u-1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'nas',
+      agentSecretHash: 'hash',
+    })
+    const run = createRun(db, {
+      id: 'run-1',
+      agentId: agent.id,
+      userId: user.id,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Fix it',
+      tmuxSession: 'run-1',
+    })
+    db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('running', run.id)
+    db.prepare(
+      'INSERT INTO run_output_chunks (run_id, chunk, created_at) VALUES (?, ?, ?)',
+    ).run(run.id, 'hello\nworld\n', Date.now())
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+
+    const { app } = buildApp({
+      db,
+      hub: new AgentHub(),
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/agents/${agent.id}/runs/${run.id}`,
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      run: {
+        id: run.id,
+      },
+      output: 'hello\nworld\n',
+    })
+    expect(findRunOutput(db, run.id)).toBe('hello\nworld\n')
+
+    await app.close()
+  })
+
+  it('deletes agents that already have run history', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'u-1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'nas',
+      agentSecretHash: 'hash',
+    })
+    createRun(db, {
+      id: 'run-1',
+      agentId: agent.id,
+      userId: user.id,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Fix it',
+      tmuxSession: 'run-1',
+    })
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+
+    const { app } = buildApp({
+      db,
+      hub: new AgentHub(),
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/agents/${agent.id}`,
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(findAgentById(db, agent.id)).toBeUndefined()
 
     await app.close()
   })

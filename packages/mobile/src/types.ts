@@ -47,6 +47,7 @@ export interface RunListResponse {
 
 export interface RunDetailResponse {
   run: Run;
+  output: string;
 }
 
 export interface AgentListResponse {

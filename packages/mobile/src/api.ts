@@ -63,7 +63,8 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 // --- Auth ---
 
 export function getOAuthUrl(): string {
-  return `${_serverUrl}/auth/github`;
+  const redirectTo = `webmux://auth?server=${encodeURIComponent(_serverUrl)}`;
+  return `${_serverUrl}/api/auth/github?redirectTo=${encodeURIComponent(redirectTo)}`;
 }
 
 // --- Agents ---
@@ -96,28 +97,17 @@ export async function listRuns(agentId: string): Promise<Run[]> {
 }
 
 export async function listAllRuns(): Promise<Run[]> {
-  const { agents } = await listAgents();
-  const onlineAgents = agents.filter(a => a.status === 'online');
-
-  if (onlineAgents.length === 0) {
-    return [];
-  }
-
-  const results = await Promise.all(
-    onlineAgents.map(agent => listRuns(agent.id).catch(() => [] as Run[])),
-  );
-
-  return results.flat().sort((a, b) => b.updatedAt - a.updatedAt);
+  const response = await fetchApi<RunListResponse>('/api/runs');
+  return response.runs;
 }
 
 export async function getRunDetail(
   agentId: string,
   runId: string,
-): Promise<Run> {
-  const response = await fetchApi<RunDetailResponse>(
+): Promise<RunDetailResponse> {
+  return fetchApi<RunDetailResponse>(
     `/api/agents/${agentId}/runs/${runId}`,
   );
-  return response.run;
 }
 
 export async function sendInput(

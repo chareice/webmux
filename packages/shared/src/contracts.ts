@@ -50,6 +50,7 @@ export type ServerToAgentMessage =
   | { type: 'run-start'; runId: string; tool: RunTool; repoPath: string; prompt: string }
   | { type: 'run-input'; runId: string; input: string }
   | { type: 'run-interrupt'; runId: string }
+  | { type: 'run-kill'; runId: string }
   | { type: 'run-approve'; runId: string }
   | { type: 'run-reject'; runId: string }
 
@@ -157,6 +158,7 @@ export interface RunListResponse {
 
 export interface RunDetailResponse {
   run: Run
+  output: string
 }
 
 // --- Run WebSocket event (Server → Browser) ---

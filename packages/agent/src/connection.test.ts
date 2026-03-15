@@ -66,4 +66,27 @@ describe('AgentConnection', () => {
 
     connection.stop()
   })
+
+  it('kills the inferred tmux session when run-kill arrives after the wrapper is gone', async () => {
+    const tmux = {
+      listSessions: vi.fn().mockResolvedValue([]),
+      createSession: vi.fn(),
+      killSession: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const connection = new AgentConnection(
+      'http://127.0.0.1:4317',
+      'agent-1',
+      'secret',
+      tmux as never,
+    )
+
+    ;(connection as unknown as {
+      handleMessage: (message: { type: 'run-kill'; runId: string }) => void
+    }).handleMessage({ type: 'run-kill', runId: '12345678-dead-beef-cafe-000000000000' })
+
+    await flushMicrotasks()
+
+    expect(tmux.killSession).toHaveBeenCalledWith('run-12345678')
+  })
 })
