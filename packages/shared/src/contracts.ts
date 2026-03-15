@@ -33,6 +33,8 @@ export type AgentMessage =
   | { type: 'terminal-ready'; browserId: string; sessionName: string }
   | { type: 'terminal-exit'; browserId: string; exitCode: number }
   | { type: 'error'; browserId?: string; message: string }
+  | { type: 'run-event'; runId: string; status: RunStatus; summary?: string; hasDiff?: boolean }
+  | { type: 'run-output'; runId: string; data: string }
 
 // Server → Agent
 export type ServerToAgentMessage =
@@ -45,6 +47,11 @@ export type ServerToAgentMessage =
   | { type: 'terminal-resize'; browserId: string; cols: number; rows: number }
   | { type: 'session-create'; requestId: string; name: string }
   | { type: 'session-kill'; requestId: string; name: string }
+  | { type: 'run-start'; runId: string; tool: RunTool; repoPath: string; prompt: string }
+  | { type: 'run-input'; runId: string; input: string }
+  | { type: 'run-interrupt'; runId: string }
+  | { type: 'run-approve'; runId: string }
+  | { type: 'run-reject'; runId: string }
 
 // Browser → Server
 export type TerminalClientMessage =
@@ -106,3 +113,54 @@ export const DEFAULT_TERMINAL_SIZE = {
   cols: 120,
   rows: 36,
 } as const
+
+// --- Run types ---
+
+export type RunTool = 'codex' | 'claude'
+
+export type RunStatus =
+  | 'starting'
+  | 'running'
+  | 'waiting_input'
+  | 'waiting_approval'
+  | 'success'
+  | 'failed'
+  | 'interrupted'
+
+export interface Run {
+  id: string
+  agentId: string
+  tool: RunTool
+  repoPath: string
+  branch: string
+  prompt: string
+  status: RunStatus
+  createdAt: number
+  updatedAt: number
+  summary?: string
+  hasDiff: boolean
+  unread: boolean
+  tmuxSession: string
+}
+
+// --- Run REST API types ---
+
+export interface StartRunRequest {
+  tool: RunTool
+  repoPath: string
+  prompt: string
+}
+
+export interface RunListResponse {
+  runs: Run[]
+}
+
+export interface RunDetailResponse {
+  run: Run
+}
+
+// --- Run WebSocket event (Server → Browser) ---
+
+export type RunEvent =
+  | { type: 'run-status'; run: Run }
+  | { type: 'run-output'; runId: string; data: string }

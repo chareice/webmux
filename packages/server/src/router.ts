@@ -8,6 +8,10 @@ import type {
   RegisterAgentResponse,
   CreateSessionRequest,
   ListSessionsResponse,
+  StartRunRequest,
+  RunListResponse,
+  RunDetailResponse,
+  ServerToAgentMessage,
 } from '@webmux/shared'
 import {
   signJwt,
@@ -33,8 +37,15 @@ import {
   renameAgent,
   createRegistrationToken,
   consumeRegistrationToken,
+  createRun,
+  findRunById,
+  findRunsByAgentId,
+  findRunsByUserId,
+  markRunRead,
+  deleteRun,
 } from './db.js'
 import type { AgentHub } from './agent-hub.js'
+import { runRowToRun } from './agent-hub.js'
 
 interface ServerConfig {
   jwtSecret: string
@@ -389,6 +400,272 @@ export function registerRoutes(
     }
 
     await hub.requestSessionKill(id, name)
+
+    return { ok: true }
+  })
+
+  // --- Run routes ---
+
+  // Start a run
+  app.post('/api/agents/:id/runs', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const body = request.body as StartRunRequest | undefined
+
+    if (!body?.tool || !body?.repoPath || !body?.prompt) {
+      return reply.status(400).send({ error: 'Missing required fields: tool, repoPath, prompt' })
+    }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const online = hub.getAgent(id)
+    if (!online) {
+      return reply.status(400).send({ error: 'Agent is offline' })
+    }
+
+    const runId = crypto.randomUUID()
+    const tmuxSession = `run-${runId.slice(0, 8)}`
+
+    const runRow = createRun(db, {
+      id: runId,
+      agentId: id,
+      userId: request.user!.userId,
+      tool: body.tool,
+      repoPath: body.repoPath,
+      prompt: body.prompt,
+      tmuxSession,
+    })
+
+    // Send run-start to agent
+    const msg: ServerToAgentMessage = {
+      type: 'run-start',
+      runId,
+      tool: body.tool,
+      repoPath: body.repoPath,
+      prompt: body.prompt,
+    }
+    hub.sendToAgent(id, msg)
+
+    const response: RunDetailResponse = { run: runRowToRun(runRow) }
+    return reply.status(201).send(response)
+  })
+
+  // List runs for an agent
+  app.get('/api/agents/:id/runs', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const rows = findRunsByAgentId(db, id)
+    const response: RunListResponse = { runs: rows.map(runRowToRun) }
+    return response
+  })
+
+  // List all runs for current user
+  app.get('/api/runs', { preHandler: authPreHandler }, async (request) => {
+    const rows = findRunsByUserId(db, request.user!.userId)
+    const response: RunListResponse = { runs: rows.map(runRowToRun) }
+    return response
+  })
+
+  // Run detail
+  app.get('/api/agents/:id/runs/:runId', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, runId } = request.params as { id: string; runId: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const runRow = findRunById(db, runId)
+    if (!runRow || runRow.agent_id !== id) {
+      return reply.status(404).send({ error: 'Run not found' })
+    }
+
+    const response: RunDetailResponse = { run: runRowToRun(runRow) }
+    return response
+  })
+
+  // Send input to a run
+  app.post('/api/agents/:id/runs/:runId/input', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, runId } = request.params as { id: string; runId: string }
+    const body = request.body as { input?: string } | undefined
+
+    if (!body?.input) {
+      return reply.status(400).send({ error: 'Missing input' })
+    }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const runRow = findRunById(db, runId)
+    if (!runRow || runRow.agent_id !== id) {
+      return reply.status(404).send({ error: 'Run not found' })
+    }
+
+    const online = hub.getAgent(id)
+    if (!online) {
+      return reply.status(400).send({ error: 'Agent is offline' })
+    }
+
+    const msg: ServerToAgentMessage = { type: 'run-input', runId, input: body.input }
+    hub.sendToAgent(id, msg)
+
+    return { ok: true }
+  })
+
+  // Interrupt a run
+  app.post('/api/agents/:id/runs/:runId/interrupt', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, runId } = request.params as { id: string; runId: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const runRow = findRunById(db, runId)
+    if (!runRow || runRow.agent_id !== id) {
+      return reply.status(404).send({ error: 'Run not found' })
+    }
+
+    const online = hub.getAgent(id)
+    if (!online) {
+      return reply.status(400).send({ error: 'Agent is offline' })
+    }
+
+    const msg: ServerToAgentMessage = { type: 'run-interrupt', runId }
+    hub.sendToAgent(id, msg)
+
+    return { ok: true }
+  })
+
+  // Approve changes for a run
+  app.post('/api/agents/:id/runs/:runId/approve', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, runId } = request.params as { id: string; runId: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const runRow = findRunById(db, runId)
+    if (!runRow || runRow.agent_id !== id) {
+      return reply.status(404).send({ error: 'Run not found' })
+    }
+
+    const online = hub.getAgent(id)
+    if (!online) {
+      return reply.status(400).send({ error: 'Agent is offline' })
+    }
+
+    const msg: ServerToAgentMessage = { type: 'run-approve', runId }
+    hub.sendToAgent(id, msg)
+
+    return { ok: true }
+  })
+
+  // Reject changes for a run
+  app.post('/api/agents/:id/runs/:runId/reject', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, runId } = request.params as { id: string; runId: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const runRow = findRunById(db, runId)
+    if (!runRow || runRow.agent_id !== id) {
+      return reply.status(404).send({ error: 'Run not found' })
+    }
+
+    const online = hub.getAgent(id)
+    if (!online) {
+      return reply.status(400).send({ error: 'Agent is offline' })
+    }
+
+    const msg: ServerToAgentMessage = { type: 'run-reject', runId }
+    hub.sendToAgent(id, msg)
+
+    return { ok: true }
+  })
+
+  // Mark run as read
+  app.post('/api/agents/:id/runs/:runId/read', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, runId } = request.params as { id: string; runId: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const runRow = findRunById(db, runId)
+    if (!runRow || runRow.agent_id !== id) {
+      return reply.status(404).send({ error: 'Run not found' })
+    }
+
+    markRunRead(db, runId)
+
+    return { ok: true }
+  })
+
+  // Delete a run
+  app.delete('/api/agents/:id/runs/:runId', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, runId } = request.params as { id: string; runId: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const runRow = findRunById(db, runId)
+    if (!runRow || runRow.agent_id !== id) {
+      return reply.status(404).send({ error: 'Run not found' })
+    }
+
+    deleteRun(db, runId)
 
     return { ok: true }
   })

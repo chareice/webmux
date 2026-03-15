@@ -4,12 +4,14 @@ import {
   compareSemanticVersions,
   type AgentMessage,
   type AgentUpgradePolicy,
+  type RunStatus,
   type ServerToAgentMessage,
   type SessionSummary,
 } from '@webmux/shared'
 import { upgradeService } from './service.js'
 import type { TmuxClient } from './tmux.js'
 import { createTerminalBridge, type TerminalBridge } from './terminal.js'
+import { RunWrapper } from './run-wrapper.js'
 import { AGENT_PACKAGE_NAME, AGENT_VERSION } from './version.js'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
@@ -31,7 +33,7 @@ const defaultAgentRuntime: AgentRuntime = {
   autoUpgrade: process.env.WEBMUX_AGENT_AUTO_UPGRADE !== '0',
   applyServiceUpgrade: ({ packageName, targetVersion }) => {
     upgradeService({
-      agentName: 'webmux-agent',
+      agentName: process.env.WEBMUX_AGENT_NAME ?? 'webmux-agent',
       packageName,
       version: targetVersion,
     })
@@ -54,6 +56,7 @@ export class AgentConnection {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = INITIAL_RECONNECT_DELAY_MS
   private bridges = new Map<string, TerminalBridge>()
+  private runs = new Map<string, RunWrapper>()
   private stopped = false
 
   constructor(
@@ -86,6 +89,7 @@ export class AgentConnection {
     this.stopHeartbeat()
     this.stopSessionSync()
     this.disposeAllBridges()
+    this.disposeAllRuns()
 
     if (this.ws) {
       this.ws.close(1000, 'agent shutting down')
@@ -182,6 +186,26 @@ export class AgentConnection {
 
       case 'session-kill':
         this.handleSessionKill(msg.requestId, msg.name)
+        break
+
+      case 'run-start':
+        this.handleRunStart(msg.runId, msg.tool, msg.repoPath, msg.prompt)
+        break
+
+      case 'run-input':
+        this.handleRunInput(msg.runId, msg.input)
+        break
+
+      case 'run-interrupt':
+        this.handleRunInterrupt(msg.runId)
+        break
+
+      case 'run-approve':
+        this.handleRunApprove(msg.runId)
+        break
+
+      case 'run-reject':
+        this.handleRunReject(msg.runId)
         break
 
       default:
@@ -319,7 +343,7 @@ export class AgentConnection {
 
     if (!this.runtime.serviceMode || !this.runtime.autoUpgrade) {
       console.log('[agent] Automatic upgrades are only applied for the managed systemd service')
-      console.log(`[agent] To upgrade manually, run: webmux-agent service upgrade --to ${targetVersion}`)
+      console.log(`[agent] To upgrade manually, run: pnpm dlx @webmux/agent service upgrade --to ${targetVersion}`)
       return false
     }
 
@@ -373,6 +397,91 @@ export class AgentConnection {
     for (const [browserId, bridge] of this.bridges) {
       bridge.dispose()
       this.bridges.delete(browserId)
+    }
+  }
+
+  private disposeAllRuns(): void {
+    for (const [runId, run] of this.runs) {
+      run.dispose()
+      this.runs.delete(runId)
+    }
+  }
+
+  private handleRunStart(
+    runId: string,
+    tool: 'codex' | 'claude',
+    repoPath: string,
+    prompt: string,
+  ): void {
+    // Dispose existing run with the same id if any
+    const existing = this.runs.get(runId)
+    if (existing) {
+      existing.dispose()
+      this.runs.delete(runId)
+    }
+
+    const run = new RunWrapper({
+      runId,
+      tool,
+      repoPath,
+      prompt,
+      tmux: this.tmux,
+      onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => {
+        this.sendMessage({ type: 'run-event', runId, status, summary, hasDiff })
+      },
+      onOutput: (data: string) => {
+        this.sendMessage({ type: 'run-output', runId, data })
+      },
+    })
+
+    this.runs.set(runId, run)
+
+    run.start().catch((err) => {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`[agent] Failed to start run ${runId}:`, message)
+      this.sendMessage({
+        type: 'run-event',
+        runId,
+        status: 'failed',
+        summary: `Failed to start: ${message}`,
+      })
+      this.runs.delete(runId)
+    })
+  }
+
+  private handleRunInput(runId: string, input: string): void {
+    const run = this.runs.get(runId)
+    if (run) {
+      run.sendInput(input)
+    } else {
+      console.warn(`[agent] run-input: no run found for ${runId}`)
+    }
+  }
+
+  private handleRunInterrupt(runId: string): void {
+    const run = this.runs.get(runId)
+    if (run) {
+      run.interrupt()
+    } else {
+      console.warn(`[agent] run-interrupt: no run found for ${runId}`)
+    }
+  }
+
+  private handleRunApprove(runId: string): void {
+    const run = this.runs.get(runId)
+    if (run) {
+      run.approve()
+    } else {
+      console.warn(`[agent] run-approve: no run found for ${runId}`)
+    }
+  }
+
+  private handleRunReject(runId: string): void {
+    const run = this.runs.get(runId)
+    if (run) {
+      run.reject()
+    } else {
+      console.warn(`[agent] run-reject: no run found for ${runId}`)
     }
   }
 

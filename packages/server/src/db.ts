@@ -74,6 +74,23 @@ export function initDb(dbPath: string): Database.Database {
       expires_at  INTEGER NOT NULL,
       used        INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS runs (
+      id            TEXT PRIMARY KEY,
+      agent_id      TEXT NOT NULL REFERENCES agents(id),
+      user_id       TEXT NOT NULL REFERENCES users(id),
+      tool          TEXT NOT NULL,
+      repo_path     TEXT NOT NULL,
+      branch        TEXT NOT NULL DEFAULT '',
+      prompt        TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'starting',
+      created_at    INTEGER NOT NULL,
+      updated_at    INTEGER NOT NULL,
+      summary       TEXT,
+      has_diff      INTEGER NOT NULL DEFAULT 0,
+      unread        INTEGER NOT NULL DEFAULT 1,
+      tmux_session  TEXT NOT NULL
+    );
   `)
 
   return db
@@ -195,4 +212,105 @@ export function consumeRegistrationToken(
   db.prepare('UPDATE registration_tokens SET used = 1 WHERE id = ?').run(token.id)
 
   return token
+}
+
+// --- Runs ---
+
+export interface RunRow {
+  id: string
+  agent_id: string
+  user_id: string
+  tool: string
+  repo_path: string
+  branch: string
+  prompt: string
+  status: string
+  created_at: number
+  updated_at: number
+  summary: string | null
+  has_diff: number
+  unread: number
+  tmux_session: string
+}
+
+export function createRun(
+  db: Database.Database,
+  opts: {
+    id: string
+    agentId: string
+    userId: string
+    tool: string
+    repoPath: string
+    prompt: string
+    tmuxSession: string
+    branch?: string
+  }
+): RunRow {
+  const now = Date.now()
+  const branch = opts.branch ?? ''
+
+  db.prepare(
+    `INSERT INTO runs (id, agent_id, user_id, tool, repo_path, branch, prompt, status, created_at, updated_at, summary, has_diff, unread, tmux_session)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, NULL, 0, 1, ?)`
+  ).run(opts.id, opts.agentId, opts.userId, opts.tool, opts.repoPath, branch, opts.prompt, now, now, opts.tmuxSession)
+
+  return {
+    id: opts.id,
+    agent_id: opts.agentId,
+    user_id: opts.userId,
+    tool: opts.tool,
+    repo_path: opts.repoPath,
+    branch,
+    prompt: opts.prompt,
+    status: 'starting',
+    created_at: now,
+    updated_at: now,
+    summary: null,
+    has_diff: 0,
+    unread: 1,
+    tmux_session: opts.tmuxSession,
+  }
+}
+
+export function findRunById(db: Database.Database, runId: string): RunRow | undefined {
+  return db.prepare('SELECT * FROM runs WHERE id = ?').get(runId) as RunRow | undefined
+}
+
+export function findRunsByAgentId(db: Database.Database, agentId: string): RunRow[] {
+  return db.prepare('SELECT * FROM runs WHERE agent_id = ? ORDER BY updated_at DESC').all(agentId) as RunRow[]
+}
+
+export function findRunsByUserId(db: Database.Database, userId: string): RunRow[] {
+  return db.prepare('SELECT * FROM runs WHERE user_id = ? ORDER BY updated_at DESC').all(userId) as RunRow[]
+}
+
+export function updateRunStatus(
+  db: Database.Database,
+  runId: string,
+  status: string,
+  summary?: string,
+  hasDiff?: boolean
+): void {
+  const now = Date.now()
+  if (summary !== undefined && hasDiff !== undefined) {
+    db.prepare('UPDATE runs SET status = ?, summary = ?, has_diff = ?, updated_at = ? WHERE id = ?')
+      .run(status, summary, hasDiff ? 1 : 0, now, runId)
+  } else if (summary !== undefined) {
+    db.prepare('UPDATE runs SET status = ?, summary = ?, updated_at = ? WHERE id = ?')
+      .run(status, summary, now, runId)
+  } else if (hasDiff !== undefined) {
+    db.prepare('UPDATE runs SET status = ?, has_diff = ?, updated_at = ? WHERE id = ?')
+      .run(status, hasDiff ? 1 : 0, now, runId)
+  } else {
+    db.prepare('UPDATE runs SET status = ?, updated_at = ? WHERE id = ?')
+      .run(status, now, runId)
+  }
+}
+
+export function markRunRead(db: Database.Database, runId: string): void {
+  db.prepare('UPDATE runs SET unread = 0 WHERE id = ?').run(runId)
+}
+
+export function deleteRun(db: Database.Database, runId: string): void {
+  db.prepare('DELETE FROM runs WHERE id = ?').run(runId)
 }

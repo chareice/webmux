@@ -53,6 +53,7 @@ Restart=always
 RestartSec=10
 Environment=WEBMUX_AGENT_SERVICE=1
 Environment=WEBMUX_AGENT_AUTO_UPGRADE=${options.autoUpgrade ? '1' : '0'}
+Environment=WEBMUX_AGENT_NAME=${options.agentName}
 Environment=HOME=${options.homeDir}
 Environment=PATH=${options.pathEnv}
 WorkingDirectory=${options.homeDir}
@@ -80,7 +81,7 @@ export function installService(options: InstallServiceOptions): void {
 
   runSystemctl(['--user', 'daemon-reload'])
   runSystemctl(['--user', 'enable', SERVICE_NAME])
-  runSystemctl(['--user', 'start', SERVICE_NAME])
+  runSystemctl(['--user', 'restart', SERVICE_NAME])
   runCommand('loginctl', ['enable-linger', os.userInfo().username])
 }
 

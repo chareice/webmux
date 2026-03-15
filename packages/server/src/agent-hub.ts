@@ -9,11 +9,14 @@ import type {
   ServerToAgentMessage,
   SessionEvent,
   TerminalServerMessage,
+  RunEvent,
+  Run,
 } from '@webmux/shared'
 import { compareSemanticVersions } from '@webmux/shared'
 import { verifySecret } from './auth.js'
 import { describeMinimumVersionFailure } from './agent-upgrade.js'
-import { findAgentById, updateAgentStatus, updateAgentLastSeen } from './db.js'
+import { findAgentById, updateAgentStatus, updateAgentLastSeen, findRunById, updateRunStatus } from './db.js'
+import type { RunRow } from './db.js'
 
 interface OnlineAgent {
   socket: WebSocket
@@ -48,6 +51,7 @@ export class AgentHub {
   private eventClients: EventClient[] = []
   private heartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private pendingCommands = new Map<string, PendingCommand<unknown>>()
+  private runClients = new Map<string, Set<WebSocket>>()
 
   constructor(options: { upgradePolicy?: AgentUpgradePolicy | null } = {}) {
     this.upgradePolicy = options.upgradePolicy ?? null
@@ -287,6 +291,16 @@ export class AgentHub {
         break
       }
 
+      case 'run-event': {
+        this.handleRunEvent(agentId, message, db)
+        break
+      }
+
+      case 'run-output': {
+        this.handleRunOutput(agentId, message)
+        break
+      }
+
       // auth is handled separately; ignore here
       case 'auth':
         break
@@ -396,6 +410,73 @@ export class AgentHub {
     this.eventClients = this.eventClients.filter((c) => c.socket !== socket)
   }
 
+  // --- Run client management ---
+
+  addRunClient(runId: string, socket: WebSocket): void {
+    let clients = this.runClients.get(runId)
+    if (!clients) {
+      clients = new Set()
+      this.runClients.set(runId, clients)
+    }
+    clients.add(socket)
+
+    socket.on('close', () => {
+      this.removeRunClient(runId, socket)
+    })
+
+    socket.on('error', () => {
+      this.removeRunClient(runId, socket)
+    })
+  }
+
+  removeRunClient(runId: string, socket: WebSocket): void {
+    const clients = this.runClients.get(runId)
+    if (clients) {
+      clients.delete(socket)
+      if (clients.size === 0) {
+        this.runClients.delete(runId)
+      }
+    }
+  }
+
+  private handleRunEvent(
+    _agentId: string,
+    message: { type: 'run-event'; runId: string; status: string; summary?: string; hasDiff?: boolean },
+    db: Database
+  ): void {
+    // Update run in DB
+    updateRunStatus(db, message.runId, message.status, message.summary, message.hasDiff)
+
+    // Load the updated run to broadcast
+    const runRow = findRunById(db, message.runId)
+    if (!runRow) return
+
+    const run = runRowToRun(runRow)
+    const event: RunEvent = { type: 'run-status', run }
+
+    // Broadcast to all WebSocket clients watching this run
+    const clients = this.runClients.get(message.runId)
+    if (clients) {
+      for (const client of clients) {
+        this.safeSend(client, event)
+      }
+    }
+  }
+
+  private handleRunOutput(
+    _agentId: string,
+    message: { type: 'run-output'; runId: string; data: string }
+  ): void {
+    const event: RunEvent = { type: 'run-output', runId: message.runId, data: message.data }
+
+    const clients = this.runClients.get(message.runId)
+    if (clients) {
+      for (const client of clients) {
+        this.safeSend(client, event)
+      }
+    }
+  }
+
   private requestCommand<TResult>(
     agentId: string,
     type: 'session-create' | 'session-kill',
@@ -450,6 +531,24 @@ export class AgentHub {
     } catch {
       // Ignore send errors on closed sockets
     }
+  }
+}
+
+export function runRowToRun(row: RunRow): Run {
+  return {
+    id: row.id,
+    agentId: row.agent_id,
+    tool: row.tool as Run['tool'],
+    repoPath: row.repo_path,
+    branch: row.branch,
+    prompt: row.prompt,
+    status: row.status as Run['status'],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    summary: row.summary ?? undefined,
+    hasDiff: row.has_diff === 1,
+    unread: row.unread === 1,
+    tmuxSession: row.tmux_session,
   }
 }
 

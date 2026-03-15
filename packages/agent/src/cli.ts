@@ -1,22 +1,27 @@
-import fs from 'node:fs'
 import os from 'node:os'
-import path from 'node:path'
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { Command } from 'commander'
 
 import type { RegisterAgentRequest, RegisterAgentResponse } from '@webmux/shared'
 import { loadCredentials, saveCredentials, credentialsPath } from './credentials.js'
-import { TmuxClient } from './tmux.js'
 import { AgentConnection } from './connection.js'
-
-const SERVICE_NAME = 'webmux-agent'
+import {
+  SERVICE_NAME,
+  installService,
+  readInstalledServiceConfig,
+  servicePath,
+  uninstallService,
+  upgradeService,
+} from './service.js'
+import { TmuxClient } from './tmux.js'
+import { AGENT_PACKAGE_NAME, AGENT_VERSION } from './version.js'
 
 const program = new Command()
 
 program
   .name('webmux-agent')
   .description('Webmux agent — connects your machine to the webmux server')
-  .version('0.0.0')
+  .version(AGENT_VERSION)
 
 program
   .command('register')
@@ -75,8 +80,8 @@ program
     console.log(`[agent] Credentials saved to ${credentialsPath()}`)
     console.log(``)
     console.log(`Next steps:`)
-    console.log(`  npx @webmux/agent start              # run once`)
-    console.log(`  npx @webmux/agent service install     # install as systemd service`)
+    console.log(`  pnpm dlx @webmux/agent start         # run once`)
+    console.log(`  pnpm dlx @webmux/agent service install    # install as managed systemd service`)
   })
 
 program
@@ -130,16 +135,21 @@ program
     }
 
     console.log(`Agent Name:       ${creds.name}`)
+    console.log(`Agent Version:    ${AGENT_VERSION}`)
     console.log(`Server URL:       ${creds.serverUrl}`)
     console.log(`Agent ID:         ${creds.agentId}`)
     console.log(`Credentials File: ${credentialsPath()}`)
 
-    // Check systemd service status
+    const installedService = readInstalledServiceConfig()
     try {
-      const result = execSync(`systemctl --user is-active ${SERVICE_NAME} 2>/dev/null`, { encoding: 'utf-8' }).trim()
+      const result = execFileSync('systemctl', ['--user', 'is-active', SERVICE_NAME], { encoding: 'utf-8' }).trim()
       console.log(`Service:          ${result}`)
     } catch {
       console.log(`Service:          not installed`)
+    }
+
+    if (installedService?.version) {
+      console.log(`Service Version:  ${installedService.version}`)
     }
   })
 
@@ -151,70 +161,37 @@ const service = program
 
 service
   .command('install')
-  .description('Install and start the agent as a systemd user service')
-  .action(() => {
+  .description('Install and start the agent as a managed systemd user service')
+  .option('--no-auto-upgrade', 'Disable automatic upgrades for the managed service')
+  .action((opts: { autoUpgrade: boolean }) => {
     const creds = loadCredentials()
     if (!creds) {
       console.error(`[agent] Not registered. Run "npx @webmux/agent register" first.`)
       process.exit(1)
     }
 
-    // Find the npx binary path
-    const npxPath = findBinary('npx')
-    if (!npxPath) {
-      console.error(`[agent] Cannot find npx. Make sure Node.js is installed.`)
-      process.exit(1)
-    }
-
-    const serviceDir = path.join(os.homedir(), '.config', 'systemd', 'user')
-    const servicePath = path.join(serviceDir, `${SERVICE_NAME}.service`)
-
-    const npmPath = findBinary('npm') ?? 'npm'
-
-    const unit = `[Unit]
-Description=Webmux Agent (${creds.name})
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStartPre=${npmPath} install -g @webmux/agent@latest
-ExecStart=${findBinary('webmux-agent') ?? `${npxPath} -y @webmux/agent`} start
-Restart=always
-RestartSec=10
-Environment=HOME=${os.homedir()}
-Environment=PATH=${process.env.PATH}
-WorkingDirectory=${os.homedir()}
-
-[Install]
-WantedBy=default.target
-`
-
-    fs.mkdirSync(serviceDir, { recursive: true })
-    fs.writeFileSync(servicePath, unit)
-    console.log(`[agent] Service file created: ${servicePath}`)
-
     try {
-      execSync('systemctl --user daemon-reload', { stdio: 'inherit' })
-      execSync(`systemctl --user enable ${SERVICE_NAME}`, { stdio: 'inherit' })
-      execSync(`systemctl --user start ${SERVICE_NAME}`, { stdio: 'inherit' })
-
-      // Enable linger so the service runs without login
-      execSync(`loginctl enable-linger ${os.userInfo().username}`, { stdio: 'inherit' })
+      installService({
+        agentName: creds.name,
+        packageName: AGENT_PACKAGE_NAME,
+        version: AGENT_VERSION,
+        autoUpgrade: opts.autoUpgrade,
+      })
 
       console.log(``)
       console.log(`[agent] Service installed and started!`)
+      console.log(`[agent] Managed version: ${AGENT_VERSION}`)
       console.log(`[agent] It will auto-start on boot.`)
       console.log(``)
       console.log(`Useful commands:`)
       console.log(`  systemctl --user status ${SERVICE_NAME}`)
       console.log(`  journalctl --user -u ${SERVICE_NAME} -f`)
-      console.log(`  npx @webmux/agent service uninstall`)
+      console.log(`  pnpm dlx @webmux/agent service upgrade --to <version>`)
+      console.log(`  pnpm dlx @webmux/agent service uninstall`)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error(`[agent] Failed to enable service: ${message}`)
-      console.error(`[agent] Service file was written to ${servicePath}`)
-      console.error(`[agent] You can try manually: systemctl --user enable --now ${SERVICE_NAME}`)
+      console.error(`[agent] Failed to install managed service: ${message}`)
+      console.error(`[agent] Service file path: ${servicePath()}`)
       process.exit(1)
     }
   })
@@ -223,27 +200,15 @@ service
   .command('uninstall')
   .description('Stop and remove the systemd user service')
   .action(() => {
-    const servicePath = path.join(os.homedir(), '.config', 'systemd', 'user', `${SERVICE_NAME}.service`)
-
     try {
-      execSync(`systemctl --user stop ${SERVICE_NAME} 2>/dev/null`, { stdio: 'inherit' })
-      execSync(`systemctl --user disable ${SERVICE_NAME} 2>/dev/null`, { stdio: 'inherit' })
-    } catch {
-      // Service might not exist
+      uninstallService()
+      console.log(`[agent] Service file removed: ${servicePath()}`)
+      console.log(`[agent] Service uninstalled.`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`[agent] Failed to uninstall service: ${message}`)
+      process.exit(1)
     }
-
-    if (fs.existsSync(servicePath)) {
-      fs.unlinkSync(servicePath)
-      console.log(`[agent] Service file removed: ${servicePath}`)
-    }
-
-    try {
-      execSync('systemctl --user daemon-reload', { stdio: 'inherit' })
-    } catch {
-      // Ignore
-    }
-
-    console.log(`[agent] Service uninstalled.`)
   })
 
 service
@@ -251,7 +216,7 @@ service
   .description('Show systemd service status')
   .action(() => {
     try {
-      execSync(`systemctl --user status ${SERVICE_NAME}`, { stdio: 'inherit' })
+      execFileSync('systemctl', ['--user', 'status', SERVICE_NAME], { stdio: 'inherit' })
     } catch {
       console.log(`[agent] Service is not installed or not running.`)
     }
@@ -259,32 +224,28 @@ service
 
 service
   .command('upgrade')
-  .description('Upgrade agent to latest version and restart service')
-  .action(() => {
-    console.log('[agent] Upgrading @webmux/agent to latest...')
-    try {
-      execSync('npm install -g @webmux/agent@latest', { stdio: 'inherit' })
-    } catch {
-      console.error('[agent] Failed to upgrade. Try manually: npm install -g @webmux/agent@latest')
+  .description('Switch the managed service to a specific agent version and restart it')
+  .requiredOption('--to <version>', 'Target agent version (for example 0.1.5)')
+  .action((opts: { to: string }) => {
+    const creds = loadCredentials()
+    if (!creds) {
+      console.error(`[agent] Not registered. Run "npx @webmux/agent register" first.`)
       process.exit(1)
     }
 
-    console.log('[agent] Restarting service...')
+    console.log(`[agent] Switching managed service to ${opts.to}...`)
     try {
-      execSync(`systemctl --user restart ${SERVICE_NAME}`, { stdio: 'inherit' })
-      console.log('[agent] Upgrade complete!')
-    } catch {
-      console.log('[agent] Package upgraded. Service not installed or restart failed.')
-      console.log('[agent] If running manually, restart with: npx @webmux/agent@latest start')
+      upgradeService({
+        agentName: creds.name,
+        packageName: AGENT_PACKAGE_NAME,
+        version: opts.to,
+      })
+      console.log('[agent] Managed service updated successfully.')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(`[agent] Failed to upgrade managed service: ${message}`)
+      process.exit(1)
     }
   })
-
-function findBinary(name: string): string | null {
-  try {
-    return execSync(`which ${name} 2>/dev/null`, { encoding: 'utf-8' }).trim()
-  } catch {
-    return null
-  }
-}
 
 program.parse()

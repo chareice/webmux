@@ -7,6 +7,8 @@ import { buildAgentUpgradePolicy } from './agent-upgrade.js'
 import { buildApp } from './app.js'
 import { handleTerminalConnection } from './relay.js'
 import { DEFAULT_TERMINAL_SIZE } from '@webmux/shared'
+import { findRunById } from './db.js'
+import { runRowToRun } from './agent-hub.js'
 
 // --- Parse environment ---
 
@@ -60,6 +62,7 @@ const server = app.server
 const agentWss = new WebSocketServer({ noServer: true })
 const terminalWss = new WebSocketServer({ noServer: true })
 const eventsWss = new WebSocketServer({ noServer: true })
+const runWss = new WebSocketServer({ noServer: true })
 
 server.on('upgrade', (request, socket, head) => {
   const parsed = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
@@ -128,6 +131,50 @@ server.on('upgrade', (request, socket, head) => {
 
     eventsWss.handleUpgrade(request, socket, head, (ws) => {
       hub.addEventClient(ws, payload.userId)
+    })
+    return
+  }
+
+  if (pathname === '/ws/run') {
+    // Verify JWT from query params
+    const token = parsed.searchParams.get('token') ?? undefined
+    if (!token) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    let payload: JwtPayload
+    try {
+      payload = verifyJwt(token, JWT_SECRET)
+    } catch {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    const runId = parsed.searchParams.get('runId') ?? undefined
+    if (!runId) {
+      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    // Verify run exists and belongs to user
+    const runRow = findRunById(db, runId)
+    if (!runRow || runRow.user_id !== payload.userId) {
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    runWss.handleUpgrade(request, socket, head, (ws) => {
+      // Register as run event client
+      hub.addRunClient(runId, ws)
+
+      // Send current run state immediately
+      const run = runRowToRun(runRow)
+      ws.send(JSON.stringify({ type: 'run-status', run }))
     })
     return
   }

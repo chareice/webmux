@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type Database from 'better-sqlite3'
 
 import type { AgentUpgradePolicy, ServerToAgentMessage } from '@webmux/shared'
 
@@ -17,6 +18,15 @@ function createSocket() {
     close: vi.fn(),
   }
 }
+
+type TestSocket = ReturnType<typeof createSocket>
+type AuthenticateAgent = (
+  socket: TestSocket,
+  db: Database.Database,
+  agentId: string,
+  agentSecret: string,
+  version?: string,
+) => Promise<boolean>
 
 describe('AgentHub upgrade policy', () => {
   it('sends the configured upgrade policy to compatible agents', async () => {
@@ -41,15 +51,8 @@ describe('AgentHub upgrade policy', () => {
     }
 
     const hub = new AgentHub({ upgradePolicy })
-    const authenticated = await (hub as unknown as {
-      authenticateAgent: (
-        socket: typeof socket,
-        db: typeof db,
-        agentId: string,
-        agentSecret: string,
-        version?: string,
-      ) => Promise<boolean>
-    }).authenticateAgent(socket, db, agent.id, secret, '0.1.4')
+    const authenticated = await (hub as unknown as { authenticateAgent: AuthenticateAgent })
+      .authenticateAgent(socket, db, agent.id, secret, '0.1.4')
 
     expect(authenticated).toBe(true)
     expect(socket.messages).toContainEqual({
@@ -82,15 +85,8 @@ describe('AgentHub upgrade policy', () => {
       },
     })
 
-    const authenticated = await (hub as unknown as {
-      authenticateAgent: (
-        socket: typeof socket,
-        db: typeof db,
-        agentId: string,
-        agentSecret: string,
-        version?: string,
-      ) => Promise<boolean>
-    }).authenticateAgent(socket, db, agent.id, secret, '0.1.4')
+    const authenticated = await (hub as unknown as { authenticateAgent: AuthenticateAgent })
+      .authenticateAgent(socket, db, agent.id, secret, '0.1.4')
 
     expect(authenticated).toBe(false)
     expect(socket.messages).toHaveLength(1)

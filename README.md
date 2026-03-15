@@ -70,10 +70,41 @@ PORT=4317
 JWT_SECRET=change-me
 WEBMUX_BASE_URL=https://webmux.example.com
 DATABASE_PATH=./webmux.db
+WEBMUX_AGENT_PACKAGE_NAME=@webmux/agent
+WEBMUX_AGENT_TARGET_VERSION=
+WEBMUX_AGENT_MIN_VERSION=
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+```
+
+`WEBMUX_AGENT_TARGET_VERSION` is the recommended agent release for managed upgrades.
+`WEBMUX_AGENT_MIN_VERSION` is the oldest agent version the server will accept.
+If both are empty, the server does not advertise or enforce agent upgrades.
+
+## Managed Agent Service
+
+Register the machine once, then either run it manually or install the managed user service:
+
+```bash
+pnpm dlx @webmux/agent register \
+  --server https://webmux.example.com \
+  --token <registration-token> \
+  --name my-nas
+
+pnpm dlx @webmux/agent start
+pnpm dlx @webmux/agent service install
+```
+
+The managed service keeps a pinned agent runtime under `~/.webmux/releases/<version>` and points the systemd unit at that exact release. It does not run `latest` on startup and it does not depend on a global install.
+
+When the server advertises a newer `WEBMUX_AGENT_TARGET_VERSION`, a managed service with auto-upgrade enabled will install that exact version, rewrite the unit, and restart itself. Manual `start` runs never mutate themselves; they only log the recommended upgrade command.
+
+To switch a managed agent to a specific version manually:
+
+```bash
+pnpm dlx @webmux/agent service upgrade --to 0.1.5
 ```
 
 ## API surface
@@ -109,4 +140,5 @@ pnpm build
 - The agent uses a dedicated `tmux` socket name (`webmux`) so it does not need to share state with your personal terminal sessions unless you want it to.
 - Session names are intentionally constrained to a small safe charset.
 - Session list updates are pushed immediately on create, kill, attach, and detach, with periodic agent refresh to keep previews and activity markers current.
+- Agent upgrades are server-owned policy, not npm `latest`. Set `WEBMUX_AGENT_TARGET_VERSION` and `WEBMUX_AGENT_MIN_VERSION` during server deploys when you want to roll out or enforce a new agent release.
 - The current UI is optimized for single-pane attach flows. Multi-pane map views, thumbnails, auth policies, and ACLs are still future work.
