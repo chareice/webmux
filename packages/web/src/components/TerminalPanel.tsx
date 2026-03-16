@@ -114,8 +114,8 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
   const [activeModifiers, setActiveModifiers] = useState<Set<ModifierKey>>(new Set())
   const [connectionFlash, setConnectionFlash] = useState<'connect' | 'disconnect' | null>(null)
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
-  const [mobileInput, setMobileInput] = useState('')
   const mobileInputRef = useRef<HTMLInputElement | null>(null)
+  const isComposingRef = useRef(false)
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
 
@@ -470,9 +470,10 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
           className="mobile-input-bar"
           onSubmit={(e) => {
             e.preventDefault()
-            if (mobileInput) {
-              sendRaw(mobileInput + '\n')
-              setMobileInput('')
+            const input = mobileInputRef.current
+            if (input && input.value) {
+              sendRaw(input.value + '\n')
+              input.value = ''
             }
           }}
         >
@@ -482,10 +483,10 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
             autoComplete="off"
             autoCorrect="off"
             className="mobile-input"
-            onChange={(e) => setMobileInput(e.target.value)}
+            onCompositionStart={() => { isComposingRef.current = true }}
+            onCompositionEnd={() => { isComposingRef.current = false }}
             placeholder="Type command..."
             spellCheck={false}
-            value={mobileInput}
           />
           <button className="mobile-send-button" type="submit">
             Enter
