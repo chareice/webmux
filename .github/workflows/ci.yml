@@ -18,7 +18,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22.11.0
-          cache: pnpm
 
       - run: corepack enable
       - run: corepack prepare pnpm@10.23.0 --activate
@@ -39,8 +38,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22.11.0
-          cache: pnpm
-          cache-dependency-path: packages/mobile/pnpm-lock.yaml
 
       - run: corepack enable
       - run: corepack prepare pnpm@10.23.0 --activate
