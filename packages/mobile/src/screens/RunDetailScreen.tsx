@@ -215,6 +215,9 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
 
   const latestTurn = latestRunTurn(turns);
   const isActive = latestTurn ? isRunActive(latestTurn.status) : run ? isRunActive(run.status) : false;
+  const canRetry = latestTurn !== null
+    && (latestTurn.status === 'failed' || latestTurn.status === 'interrupted')
+    && !!latestTurn.prompt;
   const handleOpenContent = useCallback(
     (title: string, content: string, mono = false) => {
       navigation.navigate('ThreadContent', { title, content, mono });
@@ -260,6 +263,28 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
       setError(msg);
     } finally {
       setIsContinuing(false);
+    }
+  };
+
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  const handleRetry = async () => {
+    const failedTurn = latestTurn;
+    if (!failedTurn || !failedTurn.prompt) return;
+
+    setIsRetrying(true);
+    try {
+      const result = await continueThread(agentId, runId, {
+        prompt: failedTurn.prompt,
+      });
+      setRun(result.run);
+      setTurns(result.turns);
+      setError('');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to retry';
+      setError(msg);
+    } finally {
+      setIsRetrying(false);
     }
   };
 
@@ -416,6 +441,21 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
           </>
         ) : canContinueRun(latestTurn) ? (
           <>
+            {canRetry ? (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.retryButton]}
+                onPress={handleRetry}
+                disabled={isRetrying}
+                activeOpacity={0.7}>
+                {isRetrying ? (
+                  <ActivityIndicator color={colors.accent} size="small" />
+                ) : (
+                  <Text style={[styles.actionButtonText, { color: colors.accent }]}>
+                    Retry
+                  </Text>
+                )}
+              </TouchableOpacity>
+            ) : null}
             <View style={styles.composerCard}>
               {followUpAttachments.length > 0 ? (
                 <ScrollView
@@ -1092,6 +1132,10 @@ const styles = StyleSheet.create({
   },
   interruptButton: {
     backgroundColor: colors.orange + '22',
+  },
+  retryButton: {
+    backgroundColor: colors.accent + '22',
+    marginBottom: 0,
   },
   actionButtonText: {
     fontSize: 14,

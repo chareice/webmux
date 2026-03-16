@@ -137,6 +137,20 @@ export function initDb(dbPath: string): Database.Database {
   ensureRunEventsTable(db)
   db.exec('DROP TABLE IF EXISTS run_output_chunks')
 
+  // On server startup, clean up stale state from a previous run:
+  // 1. Mark all agents as offline (they will reconnect if still alive)
+  db.prepare("UPDATE agents SET status = 'offline'").run()
+  // 2. Fail any runs/turns that were active when the server stopped
+  const now = Date.now()
+  db.prepare(
+    `UPDATE run_turns SET status = 'failed', summary = 'Server restarted while this task was running.', updated_at = ?
+     WHERE status IN ('starting', 'running')`,
+  ).run(now)
+  db.prepare(
+    `UPDATE runs SET status = 'failed', summary = 'Server restarted while this task was running.', updated_at = ?
+     WHERE status IN ('starting', 'running')`,
+  ).run(now)
+
   return db
 }
 
