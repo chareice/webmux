@@ -27,16 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.23.0
-
       - uses: actions/setup-node@v6
         with:
           node-version: 22.11.0
           cache: pnpm
           cache-dependency-path: packages/mobile/pnpm-lock.yaml
 
+      - run: corepack enable
+      - run: corepack prepare pnpm@10.23.0 --activate
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
