@@ -29,6 +29,11 @@ interface SessionMeta {
   currentCommand: string
 }
 
+interface SessionAvailabilityOptions {
+  attempts?: number
+  delayMs?: number
+}
+
 export class TmuxClient {
   readonly socketName: string
   readonly workspaceRoot: string
@@ -81,6 +86,8 @@ export class TmuxClient {
     }
 
     await this.run(['new-session', '-d', '-s', name, '-c', this.workspaceRoot])
+
+    await waitForSessionAvailability(() => this.readSession(name))
   }
 
   async killSession(name: string): Promise<void> {
@@ -157,6 +164,28 @@ export class TmuxClient {
   }
 }
 
+export async function waitForSessionAvailability(
+  readSession: () => Promise<SessionSummary | null>,
+  options: SessionAvailabilityOptions = {},
+): Promise<SessionSummary | null> {
+  const attempts = options.attempts ?? 10
+  const delayMs = options.delayMs ?? 25
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const session = await readSession()
+
+    if (session) {
+      return session
+    }
+
+    if (attempt < attempts - 1) {
+      await sleep(delayMs)
+    }
+  }
+
+  return null
+}
+
 export function assertValidSessionName(name: string): void {
   if (!SESSION_NAME_PATTERN.test(name)) {
     throw new Error(
@@ -210,4 +239,10 @@ export function formatPreview(stdout: string): string[] {
 
 export function isTmuxEmptyStateMessage(message: string): boolean {
   return TMUX_EMPTY_STATE_MARKERS.some((marker) => message.includes(marker))
+}
+
+async function sleep(delayMs: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, delayMs)
+  })
 }

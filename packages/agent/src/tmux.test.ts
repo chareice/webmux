@@ -3,7 +3,13 @@ import { promisify } from 'node:util'
 
 import { describe, expect, it } from 'vitest'
 
-import { formatPreview, isTmuxEmptyStateMessage, parseSessionList, TmuxClient } from './tmux.js'
+import {
+  formatPreview,
+  isTmuxEmptyStateMessage,
+  parseSessionList,
+  TmuxClient,
+  waitForSessionAvailability,
+} from './tmux.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -79,6 +85,37 @@ describe('isTmuxEmptyStateMessage', () => {
         'error connecting to /tmp/tmux-1000/webmux-test (No such file or directory)',
       ),
     ).toBe(true)
+  })
+})
+
+describe('waitForSessionAvailability', () => {
+  it('retries until the session becomes visible', async () => {
+    let attempts = 0
+
+    const session = await waitForSessionAvailability(
+      async () => {
+        attempts += 1
+
+        if (attempts < 3) {
+          return null
+        }
+
+        return {
+          name: 'spec',
+          windows: 1,
+          attachedClients: 0,
+          createdAt: 1,
+          lastActivityAt: 1,
+          path: '/tmp/spec',
+          preview: ['Fresh session. Nothing has run yet.'],
+          currentCommand: 'tmux',
+        }
+      },
+      { attempts: 4, delayMs: 0 },
+    )
+
+    expect(session?.name).toBe('spec')
+    expect(attempts).toBe(3)
   })
 })
 
