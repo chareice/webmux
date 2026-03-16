@@ -122,7 +122,6 @@ export function ThreadDetailPage() {
   const timelineRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const isCodex = run?.tool === 'codex'
 
   const fetchDetail = useCallback(async () => {
     try {
@@ -252,7 +251,7 @@ export function ThreadDetailPage() {
     })
   }
 
-  const hasContent = followUp.trim().length > 0 || (isCodex && attachments.length > 0)
+  const hasContent = followUp.trim().length > 0 || attachments.length > 0
 
   const handleContinue = async () => {
     if (!hasContent) {
@@ -456,7 +455,7 @@ export function ThreadDetailPage() {
             ) : canContinue(latestTurn) ? (
               <>
                 {/* Attachment thumbnails */}
-                {isCodex && attachments.length > 0 ? (
+                {attachments.length > 0 ? (
                   <div className="composer-attachments">
                     {attachments.map((a) => (
                       <div key={a.id} className="attachment-thumb attachment-thumb--small">
@@ -476,27 +475,23 @@ export function ThreadDetailPage() {
                 ) : null}
 
                 <div className="thread-composer">
-                  {isCodex ? (
-                    <>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="visually-hidden"
-                        onChange={(e) => void handleFilesSelected(e.target.files)}
-                      />
-                      <button
-                        className="icon-button composer-attach-button"
-                        disabled={attachments.length >= MAX_ATTACHMENTS}
-                        onClick={() => fileInputRef.current?.click()}
-                        title={`Attach images (${attachments.length}/${MAX_ATTACHMENTS})`}
-                        type="button"
-                      >
-                        <ImagePlus size={16} />
-                      </button>
-                    </>
-                  ) : null}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="visually-hidden"
+                    onChange={(e) => void handleFilesSelected(e.target.files)}
+                  />
+                  <button
+                    className="icon-button composer-attach-button"
+                    disabled={attachments.length >= MAX_ATTACHMENTS}
+                    onClick={() => fileInputRef.current?.click()}
+                    title={`Attach images (${attachments.length}/${MAX_ATTACHMENTS})`}
+                    type="button"
+                  >
+                    <ImagePlus size={16} />
+                  </button>
                   <textarea
                     className="thread-composer-input"
                     placeholder="Message this thread..."

@@ -606,10 +606,6 @@ export function registerRoutes(
       return reply.status(400).send({ error: 'Missing required fields: tool, repoPath, and prompt or attachments' })
     }
 
-    if (attachments.length > 0 && body.tool !== 'codex') {
-      return reply.status(400).send({ error: 'Image attachments are currently supported for Codex only' })
-    }
-
     const agent = findAgentById(db, id)
     if (!agent) {
       return reply.status(404).send({ error: 'Agent not found' })
@@ -740,10 +736,6 @@ export function registerRoutes(
     const runRow = findRunById(db, threadId)
     if (!runRow || runRow.agent_id !== id) {
       return reply.status(404).send({ error: 'Thread not found' })
-    }
-
-    if (attachments.length > 0 && runRow.tool !== 'codex') {
-      return reply.status(400).send({ error: 'Image attachments are currently supported for Codex only' })
     }
 
     if (findActiveRunTurnByRunId(db, threadId)) {

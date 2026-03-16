@@ -90,7 +90,7 @@ export function NewThreadPage() {
   const previousAgentRef = useRef('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const isCodex = selectedTool === 'codex'
+  // Image attachments are supported for all tools
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -184,15 +184,6 @@ export function NewThreadPage() {
     return () => { cancelled = true }
   }, [selectedAgent])
 
-  // Clear attachments when switching away from codex
-  useEffect(() => {
-    if (!isCodex && attachments.length > 0) {
-      for (const a of attachments) {
-        URL.revokeObjectURL(a.previewUrl)
-      }
-      setAttachments([])
-    }
-  }, [isCodex]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedAgentInfo = useMemo(
     () => agents.find((a) => a.id === selectedAgent) ?? null,
@@ -229,7 +220,7 @@ export function NewThreadPage() {
     })
   }
 
-  const hasContent = prompt.trim().length > 0 || (isCodex && attachments.length > 0)
+  const hasContent = prompt.trim().length > 0 || attachments.length > 0
 
   const handleSubmit = async () => {
     setError(null)
@@ -403,9 +394,8 @@ export function NewThreadPage() {
           />
         </div>
 
-        {/* Image Attachments (codex only) */}
-        {isCodex ? (
-          <div className="form-section">
+        {/* Image Attachments */}
+        <div className="form-section">
             <label className="form-label">Image Attachments</label>
             <input
               ref={fileInputRef}
@@ -454,7 +444,6 @@ export function NewThreadPage() {
               <p className="form-hint">Maximum {MAX_ATTACHMENTS} images reached.</p>
             )}
           </div>
-        ) : null}
 
         {error ? <p className="error-banner">{error}</p> : null}
 
