@@ -356,7 +356,6 @@
   background: var(--bg, #0f0f14);
   position: relative;
   z-index: 1;
-  will-change: transform;
 }
 
 /* Delete zone behind the card */
@@ -2982,6 +2981,84 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* ── Queued turns ────────────────────────────────── */
+
+.queued-turns {
+  margin-top: 0.75rem;
+  border-top: 1px dashed var(--border-soft);
+  padding-top: 0.5rem;
+}
+
+.queued-turns-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.queued-turns-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.queued-turn-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  margin-bottom: 0.25rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed var(--border-soft);
+}
+
+.queued-turn-prompt {
+  flex: 1;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+  font-family: inherit;
+}
+
+.queued-turn-actions {
+  display: flex;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+
+.queued-turn-edit {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.queued-turn-edit-actions {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.queue-decision {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  flex-wrap: wrap;
+}
+
+.queue-decision-label {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-right: auto;
 }
 
 /* ── Thread detail footer ────────────────────────── */

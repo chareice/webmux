@@ -761,6 +761,72 @@ export function deleteRunTurn(db: Database.Database, turnId: string): void {
   remove()
 }
 
+// --- Queued turns ---
+
+export function createQueuedRunTurn(
+  db: Database.Database,
+  opts: {
+    id: string
+    runId: string
+    prompt: string
+    attachments?: RunImageAttachment[]
+  },
+): RunTurnRow {
+  const now = Date.now()
+  const latest = findLatestRunTurnByRunId(db, opts.runId)
+  const turnIndex = latest ? latest.turn_index + 1 : 1
+
+  db.prepare(
+    `INSERT INTO run_turns (
+      id, run_id, turn_index, prompt, status, created_at, updated_at, summary, has_diff
+    ) VALUES (?, ?, ?, ?, 'queued', ?, ?, NULL, 0)`,
+  ).run(opts.id, opts.runId, turnIndex, opts.prompt, now, now)
+
+  if (opts.attachments?.length) {
+    createRunTurnAttachments(db, opts.id, opts.attachments)
+  }
+
+  return {
+    id: opts.id,
+    run_id: opts.runId,
+    turn_index: turnIndex,
+    prompt: opts.prompt,
+    status: 'queued',
+    created_at: now,
+    updated_at: now,
+    summary: null,
+    has_diff: 0,
+  }
+}
+
+export function findQueuedRunTurnsByRunId(db: Database.Database, runId: string): RunTurnRow[] {
+  return db.prepare(
+    `SELECT * FROM run_turns WHERE run_id = ? AND status = 'queued' ORDER BY turn_index ASC`,
+  ).all(runId) as RunTurnRow[]
+}
+
+export function updateQueuedTurnPrompt(
+  db: Database.Database,
+  turnId: string,
+  prompt: string,
+): RunTurnRow | undefined {
+  const turn = findRunTurnById(db, turnId)
+  if (!turn || turn.status !== 'queued') return undefined
+
+  const now = Date.now()
+  db.prepare('UPDATE run_turns SET prompt = ?, updated_at = ? WHERE id = ?')
+    .run(prompt, now, turnId)
+
+  return { ...turn, prompt, updated_at: now }
+}
+
+export function deleteQueuedTurnsByRunId(db: Database.Database, runId: string): number {
+  const result = db.prepare(
+    `DELETE FROM run_turns WHERE run_id = ? AND status = 'queued'`,
+  ).run(runId)
+  return result.changes
+}
+
 export function runTurnRowToRunTurn(
   row: RunTurnRow,
   attachments: RunImageAttachment[] = [],

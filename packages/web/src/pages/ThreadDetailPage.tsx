@@ -7,8 +7,10 @@ import {
   ChevronDown,
   ChevronRight,
   ImagePlus,
+  ListRestart,
   LoaderCircle,
   Paperclip,
+  Pencil,
   Send,
   StopCircle,
   Trash2,
@@ -41,6 +43,7 @@ interface DraftAttachment {
 
 function statusLabel(status: RunStatus): string {
   switch (status) {
+    case 'queued': return 'Queued'
     case 'starting': return 'Starting'
     case 'running': return 'Running'
     case 'success': return 'Success'
@@ -51,6 +54,7 @@ function statusLabel(status: RunStatus): string {
 
 function statusClass(status: RunStatus): string {
   switch (status) {
+    case 'queued': return 'muted'
     case 'starting': return 'warning'
     case 'running': return 'accent'
     case 'success': return 'success'
@@ -235,8 +239,58 @@ export function ThreadDetailPage() {
     }
   }, [turns])
 
-  const latestTurn = turns.length > 0 ? turns[turns.length - 1] : undefined
+  const queuedTurns = turns.filter((t) => t.status === 'queued')
+  const nonQueuedTurns = turns.filter((t) => t.status !== 'queued')
+  const latestTurn = nonQueuedTurns.length > 0 ? nonQueuedTurns[nonQueuedTurns.length - 1] : undefined
   const active = latestTurn ? isRunActive(latestTurn.status) : run ? isRunActive(run.status) : false
+  const interruptedWithQueue = latestTurn?.status === 'interrupted' && queuedTurns.length > 0
+
+  const [editingTurnId, setEditingTurnId] = useState<string | null>(null)
+  const [editingPrompt, setEditingPrompt] = useState('')
+
+  const handleDeleteQueuedTurn = async (turnId: string) => {
+    try {
+      await fetchApi(`/api/agents/${agentId}/threads/${threadId}/turns/${turnId}`, { method: 'DELETE' })
+    } catch {
+      // Ignore
+    }
+  }
+
+  const handleUpdateQueuedTurn = async (turnId: string, prompt: string) => {
+    try {
+      await fetchApi(`/api/agents/${agentId}/threads/${threadId}/turns/${turnId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+      setEditingTurnId(null)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  const handleResumeQueue = async () => {
+    try {
+      const res = await fetchApi(`/api/agents/${agentId}/threads/${threadId}/resume-queue`, { method: 'POST' })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null)
+        throw new Error((errData as any)?.error || 'Failed to resume queue')
+      }
+      const data = (await res.json()) as RunDetailResponse
+      setRun(data.run)
+      setTurns(data.turns)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  const handleDiscardQueue = async () => {
+    try {
+      await fetchApi(`/api/agents/${agentId}/threads/${threadId}/discard-queue`, { method: 'POST' })
+    } catch {
+      // Ignore
+    }
+  }
 
   const handleInterrupt = async () => {
     try {
@@ -453,12 +507,12 @@ export function ThreadDetailPage() {
         <div className="thread-detail-main">
           {/* Timeline */}
           <div className="thread-detail-timeline" ref={timelineRef}>
-            {turns.length === 0 ? (
+            {nonQueuedTurns.length === 0 && queuedTurns.length === 0 ? (
               <div className="thread-detail-empty">
                 <p>{active ? 'Thread started. Waiting for timeline events...' : 'No timeline recorded.'}</p>
               </div>
             ) : (
-              turns.map((turn, i) => (
+              nonQueuedTurns.map((turn, i) => (
                 <TurnMessages
                   key={turn.id}
                   turn={turn}
@@ -467,25 +521,119 @@ export function ThreadDetailPage() {
                 />
               ))
             )}
+
+            {/* Queued messages */}
+            {queuedTurns.length > 0 ? (
+              <div className="queued-turns">
+                <div className="queued-turns-header">
+                  <span className="queued-turns-label">Queued ({queuedTurns.length})</span>
+                </div>
+                {queuedTurns.map((turn) => (
+                  <div className="queued-turn-card" key={turn.id}>
+                    {editingTurnId === turn.id ? (
+                      <div className="queued-turn-edit">
+                        <textarea
+                          className="thread-composer-input"
+                          rows={2}
+                          value={editingPrompt}
+                          onChange={(e) => setEditingPrompt(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                              e.preventDefault()
+                              void handleUpdateQueuedTurn(turn.id, editingPrompt)
+                            }
+                            if (e.key === 'Escape') setEditingTurnId(null)
+                          }}
+                          // eslint-disable-next-line jsx-a11y/no-autofocus
+                          autoFocus
+                        />
+                        <div className="queued-turn-edit-actions">
+                          <button
+                            className="secondary-button"
+                            onClick={() => setEditingTurnId(null)}
+                            type="button"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            className="primary-button"
+                            disabled={!editingPrompt.trim()}
+                            onClick={() => void handleUpdateQueuedTurn(turn.id, editingPrompt)}
+                            type="button"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <pre className="queued-turn-prompt">{turn.prompt}</pre>
+                        <div className="queued-turn-actions">
+                          <button
+                            className="icon-button"
+                            onClick={() => { setEditingTurnId(turn.id); setEditingPrompt(turn.prompt) }}
+                            title="Edit"
+                            type="button"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            className="icon-button kill-button"
+                            onClick={() => void handleDeleteQueuedTurn(turn.id)}
+                            title="Remove"
+                            type="button"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           {/* Footer */}
           <div className="thread-detail-footer">
+            {/* Interrupt + resume/discard controls */}
             {active ? (
-              <>
+              <button
+                className="secondary-button thread-interrupt-button thread-interrupt-button--mobile"
+                onClick={() => void handleInterrupt()}
+                type="button"
+              >
+                <StopCircle size={14} />
+                Interrupt
+              </button>
+            ) : null}
+
+            {interruptedWithQueue ? (
+              <div className="queue-decision">
+                <span className="queue-decision-label">
+                  {queuedTurns.length} queued message{queuedTurns.length > 1 ? 's' : ''}
+                </span>
                 <button
-                  className="secondary-button thread-interrupt-button thread-interrupt-button--mobile"
-                  onClick={() => void handleInterrupt()}
+                  className="primary-button"
+                  onClick={() => void handleResumeQueue()}
                   type="button"
                 >
-                  <StopCircle size={14} />
-                  Interrupt
+                  <ListRestart size={14} />
+                  Resume queue
                 </button>
-                <span className="thread-footer-hint">
-                  Follow-up input becomes available after the current turn finishes.
-                </span>
-              </>
-            ) : canContinue(latestTurn) ? (
+                <button
+                  className="secondary-button"
+                  onClick={() => void handleDiscardQueue()}
+                  type="button"
+                >
+                  <Trash2 size={14} />
+                  Discard all
+                </button>
+              </div>
+            ) : null}
+
+            {/* Composer — always visible when thread can accept messages */}
+            {active || canContinue(latestTurn) ? (
               <>
                 {/* Attachment thumbnails */}
                 {attachments.length > 0 ? (
@@ -507,13 +655,15 @@ export function ThreadDetailPage() {
                   </div>
                 ) : null}
 
-                <TurnOptionsPanel
-                  tool={run?.tool ?? 'claude'}
-                  options={turnOptions}
-                  onChange={setTurnOptions}
-                  expanded={showOptions}
-                  onToggle={() => setShowOptions(v => !v)}
-                />
+                {!active ? (
+                  <TurnOptionsPanel
+                    tool={run?.tool ?? 'claude'}
+                    options={turnOptions}
+                    onChange={setTurnOptions}
+                    expanded={showOptions}
+                    onToggle={() => setShowOptions(v => !v)}
+                  />
+                ) : null}
                 <div className="thread-composer">
                   <input
                     ref={fileInputRef}
@@ -534,7 +684,7 @@ export function ThreadDetailPage() {
                   </button>
                   <textarea
                     className="thread-composer-input"
-                    placeholder="Message this thread..."
+                    placeholder={active ? 'Queue a follow-up message...' : 'Message this thread...'}
                     rows={1}
                     value={followUp}
                     onChange={(e) => setFollowUp(e.target.value)}
@@ -550,6 +700,7 @@ export function ThreadDetailPage() {
                     disabled={isContinuing || !hasContent}
                     onClick={() => void handleContinue()}
                     type="button"
+                    title={active ? 'Queue message' : 'Send message'}
                   >
                     {isContinuing ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
                   </button>

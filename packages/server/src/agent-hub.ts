@@ -19,10 +19,12 @@ import { verifySecret } from './auth.js'
 import { describeMinimumVersionFailure } from './agent-upgrade.js'
 import {
   appendRunTimelineEvent,
+  createRunTurn,
   findActiveRunsByAgentId,
   findAgentById,
   findRunById,
   findActiveRunTurnByRunId,
+  findQueuedRunTurnsByRunId,
   findRunTurnById,
   findLatestRunTurnByRunId,
   runTurnRowToRunTurn,
@@ -32,7 +34,7 @@ import {
   updateRunToolThreadId,
   updateRunTurnStatus,
 } from './db.js'
-import type { RunRow } from './db.js'
+import type { RunRow, RunTurnRow } from './db.js'
 
 export interface TurnCompletionNotification {
   userId: string
@@ -588,6 +590,10 @@ export class AgentHub {
         message.status as Run['status'],
         nextSummary,
       )
+      // Auto-dispatch next queued turn (skip if interrupted — let user decide)
+      if (message.status !== 'interrupted') {
+        this.dispatchNextQueuedTurn(agentId, message.runId, db)
+      }
     }
   }
 
@@ -681,6 +687,38 @@ export class AgentHub {
     } catch {
       // Ignore send errors on closed sockets
     }
+  }
+
+  /** Pick the next queued turn and send it to the agent for execution. */
+  dispatchNextQueuedTurn(agentId: string, runId: string, db: Database): boolean {
+    const queued = findQueuedRunTurnsByRunId(db, runId)
+    if (queued.length === 0) return false
+
+    const next = queued[0]
+    const runRow = findRunById(db, runId)
+    if (!runRow) return false
+
+    // Promote queued → starting
+    updateRunTurnStatus(db, next.id, 'starting')
+
+    const msg: ServerToAgentMessage = {
+      type: 'run-turn-start',
+      runId,
+      turnId: next.id,
+      tool: runRow.tool as Run['tool'],
+      repoPath: runRow.repo_path,
+      prompt: next.prompt,
+      toolThreadId: runRow.tool_thread_id ?? undefined,
+    }
+
+    if (!this.sendToAgent(agentId, msg)) {
+      // Agent went offline; revert to queued
+      updateRunTurnStatus(db, next.id, 'queued')
+      return false
+    }
+
+    this.broadcastRunSnapshot(db, runId, next.id)
+    return true
   }
 
   private notifyTurnCompleted(

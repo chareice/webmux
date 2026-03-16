@@ -68,6 +68,8 @@ export const commonStyles = StyleSheet.create({
 
 export function statusColor(status: string): string {
   switch (status) {
+    case 'queued':
+      return colors.textSecondary;
     case 'starting':
       return colors.yellow;
     case 'running':
@@ -85,6 +87,8 @@ export function statusColor(status: string): string {
 
 export function statusLabel(status: string): string {
   switch (status) {
+    case 'queued':
+      return 'Queued';
     case 'starting':
       return 'Starting';
     case 'running':

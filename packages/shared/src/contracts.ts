@@ -153,6 +153,7 @@ export const DEFAULT_TERMINAL_SIZE = {
 export type RunTool = 'codex' | 'claude'
 
 export type RunStatus =
+  | 'queued'
   | 'starting'
   | 'running'
   | 'success'
@@ -257,6 +258,10 @@ export interface ContinueRunRequest {
   prompt: string
   attachments?: RunImageAttachmentUpload[]
   options?: RunTurnOptions
+}
+
+export interface UpdateQueuedTurnRequest {
+  prompt: string
 }
 
 // --- Run WebSocket event (Server → Browser) ---

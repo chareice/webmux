@@ -33,6 +33,7 @@ function repoName(repoPath: string): string {
 
 function statusLabel(status: RunStatus): string {
   switch (status) {
+    case 'queued': return 'Queued'
     case 'starting': return 'Starting'
     case 'running': return 'Running'
     case 'success': return 'Success'
@@ -43,6 +44,7 @@ function statusLabel(status: RunStatus): string {
 
 function statusClass(status: RunStatus): string {
   switch (status) {
+    case 'queued': return 'muted'
     case 'starting': return 'warning'
     case 'running': return 'accent'
     case 'success': return 'success'

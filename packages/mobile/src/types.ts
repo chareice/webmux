@@ -4,6 +4,7 @@
 export type RunTool = 'codex' | 'claude';
 
 export type RunStatus =
+  | 'queued'
   | 'starting'
   | 'running'
   | 'success'

@@ -10,6 +10,7 @@ import type {
   ListSessionsResponse,
   RepositoryBrowseResponse,
   ContinueRunRequest,
+  UpdateQueuedTurnRequest,
   RunImageAttachmentUpload,
   StartRunRequest,
   RunListResponse,
@@ -45,16 +46,21 @@ import {
   renameAgent,
   createRegistrationToken,
   consumeRegistrationToken,
+  createQueuedRunTurn,
   createRunWithInitialTurn,
   createRunTurn,
+  deleteQueuedTurnsByRunId,
   findRunById,
+  findRunTurnById,
   findRunTurnDetails,
   findActiveRunTurnByRunId,
+  findQueuedRunTurnsByRunId,
   findRunsByAgentId,
   findRunsByUserId,
   markRunRead,
   deleteRun,
   deleteRunTurn,
+  updateQueuedTurnPrompt,
   upsertNotificationDevice,
 } from './db.js'
 import type { AgentHub } from './agent-hub.js'
@@ -739,17 +745,31 @@ export function registerRoutes(
       return reply.status(404).send({ error: 'Thread not found' })
     }
 
-    if (findActiveRunTurnByRunId(db, threadId)) {
-      return reply.status(409).send({ error: 'Thread is still active' })
+    const trimmedPrompt = body?.prompt?.trim() ?? ''
+    const turnId = crypto.randomUUID()
+    const activeTurn = findActiveRunTurnByRunId(db, threadId)
+
+    // If a turn is already running, queue the message for later
+    if (activeTurn) {
+      createQueuedRunTurn(db, {
+        id: turnId,
+        runId: threadId,
+        prompt: trimmedPrompt,
+        attachments,
+      })
+      hub.broadcastRunSnapshot(db, threadId, turnId)
+      return {
+        run: runRowToRun(findRunById(db, threadId)!),
+        turns: findRunTurnDetails(db, threadId),
+      } satisfies RunDetailResponse
     }
 
+    // No active turn — also accept queued turns that need resuming
     const online = hub.getAgent(id)
     if (!online) {
       return reply.status(400).send({ error: 'Agent is offline' })
     }
 
-    const trimmedPrompt = body?.prompt?.trim() ?? ''
-    const turnId = crypto.randomUUID()
     createRunTurn(db, {
       id: turnId,
       runId: threadId,
@@ -822,6 +842,95 @@ export function registerRoutes(
     }
 
     return { ok: true }
+  })
+
+  // Update a queued turn's prompt
+  app.patch('/api/agents/:id/threads/:threadId/turns/:turnId', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, threadId, turnId } = request.params as { id: string; threadId: string; turnId: string }
+    const body = request.body as UpdateQueuedTurnRequest | undefined
+
+    if (!body?.prompt?.trim()) {
+      return reply.status(400).send({ error: 'Missing prompt' })
+    }
+
+    const agent = findAgentById(db, id)
+    if (!agent || agent.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    const turn = findRunTurnById(db, turnId)
+    if (!turn || turn.run_id !== threadId) {
+      return reply.status(404).send({ error: 'Turn not found' })
+    }
+
+    const updated = updateQueuedTurnPrompt(db, turnId, body.prompt.trim())
+    if (!updated) {
+      return reply.status(409).send({ error: 'Turn is not queued' })
+    }
+
+    hub.broadcastRunSnapshot(db, threadId, turnId)
+    return { ok: true }
+  })
+
+  // Delete a queued turn
+  app.delete('/api/agents/:id/threads/:threadId/turns/:turnId', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, threadId, turnId } = request.params as { id: string; threadId: string; turnId: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent || agent.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    const turn = findRunTurnById(db, turnId)
+    if (!turn || turn.run_id !== threadId || turn.status !== 'queued') {
+      return reply.status(409).send({ error: 'Turn is not queued' })
+    }
+
+    deleteRunTurn(db, turnId)
+    hub.broadcastRunSnapshot(db, threadId)
+    return { ok: true }
+  })
+
+  // Discard all queued turns
+  app.post('/api/agents/:id/threads/:threadId/discard-queue', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, threadId } = request.params as { id: string; threadId: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent || agent.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    const deleted = deleteQueuedTurnsByRunId(db, threadId)
+    hub.broadcastRunSnapshot(db, threadId)
+    return { ok: true, deleted }
+  })
+
+  // Resume queue (dispatch next queued turn)
+  app.post('/api/agents/:id/threads/:threadId/resume-queue', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, threadId } = request.params as { id: string; threadId: string }
+
+    const agent = findAgentById(db, id)
+    if (!agent || agent.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (findActiveRunTurnByRunId(db, threadId)) {
+      return reply.status(409).send({ error: 'Thread is still active' })
+    }
+
+    const online = hub.getAgent(id)
+    if (!online) {
+      return reply.status(400).send({ error: 'Agent is offline' })
+    }
+
+    if (!hub.dispatchNextQueuedTurn(id, threadId, db)) {
+      return reply.status(404).send({ error: 'No queued turns' })
+    }
+
+    return {
+      run: runRowToRun(findRunById(db, threadId)!),
+      turns: findRunTurnDetails(db, threadId),
+    } satisfies RunDetailResponse
   })
 
   // Mark thread as read
