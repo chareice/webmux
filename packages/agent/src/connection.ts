@@ -194,7 +194,7 @@ export class AgentConnection {
         break
 
       case 'run-turn-start':
-        this.handleRunStart(msg.runId, msg.turnId, msg.tool, msg.repoPath, msg.prompt)
+        this.handleRunStart(msg.runId, msg.turnId, msg.tool, msg.repoPath, msg.prompt, msg.toolThreadId)
         break
 
       case 'run-turn-interrupt':
@@ -431,6 +431,7 @@ export class AgentConnection {
     tool: 'codex' | 'claude',
     repoPath: string,
     prompt: string,
+    toolThreadId?: string,
   ): void {
     // Dispose existing run with the same id if any
     const existing = this.runs.get(runId)
@@ -442,6 +443,7 @@ export class AgentConnection {
     const run = new RunWrapper({
       runId,
       tool,
+      toolThreadId,
       repoPath,
       prompt,
       onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => {
@@ -452,6 +454,15 @@ export class AgentConnection {
       },
       onItem: (item) => {
         this.sendMessage({ type: 'run-item', runId, turnId, item })
+      },
+      onThreadReady: (nextToolThreadId) => {
+        this.sendMessage({
+          type: 'run-status',
+          runId,
+          turnId,
+          status: 'running',
+          toolThreadId: nextToolThreadId,
+        })
       },
     })
 

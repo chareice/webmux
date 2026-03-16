@@ -129,6 +129,41 @@ describe('AgentHub run lifecycle', () => {
     expect(findRunById(db, run.id)?.status).toBe('starting')
   })
 
+  it('stores the external Codex thread id reported by the agent', () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, { userId: user.id, name: 'owner', agentSecretHash: 'hash' })
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-thread-id',
+      turnId: 'run-thread-id:turn:1',
+      agentId: agent.id,
+      userId: user.id,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Fix it',
+    })
+
+    const hub = new AgentHub()
+    hub.handleAgentMessage(
+      agent.id,
+      {
+        type: 'run-status',
+        runId: run.id,
+        turnId: turn.id,
+        status: 'running',
+        toolThreadId: 'codex-thread-1',
+      },
+      db,
+    )
+
+    expect(findRunById(db, run.id)?.tool_thread_id).toBe('codex-thread-1')
+  })
+
   it('marks active runs as failed when an agent disconnects unexpectedly', () => {
     const db = initDb(':memory:')
     const user = createUser(db, {

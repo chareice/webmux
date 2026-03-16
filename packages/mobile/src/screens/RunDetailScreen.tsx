@@ -10,7 +10,12 @@ import {
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { continueRun, interruptRun, connectRunWebSocket, getRunDetail } from '../api';
+import {
+  connectThreadWebSocket,
+  continueThread,
+  getThreadDetail,
+  interruptThread,
+} from '../api';
 import { Run, RunEvent, RunTimelineEvent, RunTurnDetail } from '../types';
 import { colors, commonStyles, fonts, statusColor, statusLabel, toolIcon } from '../theme';
 import type { RootStackParamList } from '../navigation';
@@ -18,7 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isRunTimelineEvent, isRunTurn } from '../run-detail-response';
 import { appendTurnItem, canContinueRun, isRunActive, latestRunTurn, upsertRunTurn } from '../run-thread';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'RunDetail'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'ThreadDetail'>;
 
 export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   const { agentId, runId } = route.params;
@@ -33,14 +38,14 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   const scrollViewRef = useRef<ScrollView>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const fetchRunDetail = useCallback(async () => {
+  const fetchThreadDetail = useCallback(async () => {
     try {
-      const result = await getRunDetail(agentId, runId);
+      const result = await getThreadDetail(agentId, runId);
       setRun(result.run);
       setTurns(result.turns);
       setError('');
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to load run';
+      const msg = e instanceof Error ? e.message : 'Failed to load thread';
       setError(msg);
     } finally {
       setIsLoading(false);
@@ -53,11 +58,11 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
     setError('');
     setFollowUpPrompt('');
     setIsLoading(true);
-    void fetchRunDetail();
-  }, [fetchRunDetail, runId]);
+    void fetchThreadDetail();
+  }, [fetchThreadDetail, runId]);
 
   useEffect(() => {
-    const ws = connectRunWebSocket(
+    const ws = connectThreadWebSocket(
       runId,
       (event: unknown) => {
         const typedEvent = event as RunEvent;
@@ -65,7 +70,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
           setTurns((prev) => {
             const next = appendTurnItem(prev, typedEvent.turnId, typedEvent.item);
             if (next === prev) {
-              void fetchRunDetail();
+              void fetchThreadDetail();
             }
             return next;
           });
@@ -82,7 +87,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
         }
       },
       () => {
-        void fetchRunDetail();
+        void fetchThreadDetail();
       },
     );
 
@@ -92,7 +97,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
       ws.close();
       wsRef.current = null;
     };
-  }, [runId, fetchRunDetail]);
+  }, [runId, fetchThreadDetail]);
 
   useEffect(() => {
     if (!scrollViewRef.current) {
@@ -109,7 +114,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
 
   const handleInterrupt = async () => {
     try {
-      await interruptRun(agentId, runId);
+      await interruptThread(agentId, runId);
     } catch {
       // Ignore transient action failures here.
     }
@@ -125,7 +130,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
 
     setIsContinuing(true);
     try {
-      const result = await continueRun(agentId, runId, {
+      const result = await continueThread(agentId, runId, {
         prompt: followUpPrompt.trim(),
       });
       setRun(result.run);
@@ -133,7 +138,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
       setFollowUpPrompt('');
       setError('');
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to continue run';
+      const msg = e instanceof Error ? e.message : 'Failed to continue thread';
       setError(msg);
     } finally {
       setIsContinuing(false);
@@ -159,7 +164,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   if (!run) {
     return (
       <View style={[commonStyles.screen, styles.center]}>
-        <Text style={styles.errorText}>Run not found</Text>
+        <Text style={styles.errorText}>Thread not found</Text>
       </View>
     );
   }
@@ -235,10 +240,10 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
         {turns.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>
-              {isActive ? 'Run started. Waiting for timeline events.' : 'No timeline recorded.'}
+              {isActive ? 'Thread started. Waiting for timeline events.' : 'No timeline recorded.'}
             </Text>
             <Text style={styles.emptyHint}>
-              Each completed run turn stays in this thread, so you can continue after it finishes.
+              Each completed turn stays in this thread, so you can continue after it finishes.
             </Text>
           </View>
         ) : (
@@ -265,7 +270,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
           <>
             <TextInput
               style={[commonStyles.input, styles.followUpInput]}
-              placeholder="Continue this run with a follow-up prompt"
+              placeholder="Continue this thread with a follow-up prompt"
               placeholderTextColor={colors.textSecondary}
               value={followUpPrompt}
               onChangeText={setFollowUpPrompt}
@@ -290,12 +295,12 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
               )}
             </TouchableOpacity>
             <Text style={styles.footerHint}>
-              This starts the next turn in the same run thread. The page stays here.
+              This starts the next turn in the same thread. The page stays here.
             </Text>
           </>
         ) : (
           <Text style={styles.footerHint}>
-            Need a full terminal? Open it from the agent page. Run detail is a structured thread view.
+            Need a full terminal? Open it from the agent page. Thread detail is a structured thread view.
           </Text>
         )}
       </View>

@@ -16,8 +16,8 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import {
   browseAgentRepositories,
   listAgents,
-  listRuns,
-  startRun,
+  listThreads,
+  startThread,
 } from '../api';
 import RepositoryBrowserModal from '../components/RepositoryBrowserModal';
 import type { RootStackParamList } from '../navigation';
@@ -30,7 +30,7 @@ import {
 import { colors, commonStyles, fonts } from '../theme';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-type NewRunRouteProp = RouteProp<RootStackParamList, 'NewRun'>;
+type NewRunRouteProp = RouteProp<RootStackParamList, 'NewThread'>;
 
 const TOOLS: { value: RunTool; label: string; description: string }[] = [
   { value: 'claude', label: 'Claude Code', description: 'Anthropic Claude Code CLI' },
@@ -155,7 +155,7 @@ export default function NewRunScreen(): React.JSX.Element {
     setRepositoryError('');
 
     void Promise.allSettled([
-      listRuns(selectedAgent),
+      listThreads(selectedAgent),
       browseAgentRepositories(selectedAgent),
     ]).then((results) => {
       if (isCancelled) {
@@ -214,18 +214,18 @@ export default function NewRunScreen(): React.JSX.Element {
 
     setIsSubmitting(true);
     try {
-      const run = await startRun(selectedAgent, {
+      const run = await startThread(selectedAgent, {
         tool: selectedTool,
         repoPath: repoPath.trim(),
         prompt: prompt.trim(),
       });
 
-      navigation.replace('RunDetail', {
+      navigation.replace('ThreadDetail', {
         agentId: run.agentId,
         runId: run.id,
       });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to start run';
+      const msg = e instanceof Error ? e.message : 'Failed to start thread';
       setError(msg);
     } finally {
       setIsSubmitting(false);
@@ -401,7 +401,7 @@ export default function NewRunScreen(): React.JSX.Element {
           {isSubmitting ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
-            <Text style={commonStyles.buttonText}>Start Run</Text>
+            <Text style={commonStyles.buttonText}>Start Thread</Text>
           )}
         </TouchableOpacity>
       </ScrollView>

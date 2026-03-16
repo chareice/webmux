@@ -185,7 +185,7 @@ wait_for_run_output_marker() {
 
   while true; do
     local response
-    response="$(api GET "/api/agents/${AGENT_ID}/runs/${run_id}")"
+    response="$(api GET "/api/agents/${AGENT_ID}/threads/${run_id}")"
     printf '%s\n' "${response}" > "${output_file}"
 
     if run_detail_contains_marker "${response}" "${marker}"; then
@@ -209,7 +209,7 @@ wait_for_run_status() {
 
   while true; do
     local response
-    response="$(api GET "/api/agents/${AGENT_ID}/runs/${run_id}")"
+    response="$(api GET "/api/agents/${AGENT_ID}/threads/${run_id}")"
     printf '%s\n' "${response}" > "${output_file}"
 
     local actual_status
@@ -332,29 +332,29 @@ ab open "${BASE_URL}/agents/${AGENT_ID}?session=e2e-shell"
 ab wait --load networkidle >/dev/null
 browser_wait_for_text 'e2e-shell' 15
 
-log 'Running the structured run-manager flow'
+log 'Running the structured thread-manager flow'
 FIRST_MARKER="E2E_FIRST_${RANDOM}${RANDOM}"
 RUN_DETAIL_FILE="${ARTIFACTS_DIR}/run-detail.json"
 
-RUN_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/runs" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Run a shell command that prints exactly ${FIRST_MARKER}, then keep the process alive for 120 seconds so I can interrupt it." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
+RUN_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/threads" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Run a shell command that prints exactly ${FIRST_MARKER}, then keep the process alive for 120 seconds so I can interrupt it." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
 printf '%s\n' "${RUN_RESPONSE}" > "${ARTIFACTS_DIR}/run-start.json"
 RUN_ID="$(printf '%s' "${RUN_RESPONSE}" | jq -r '.run.id')"
 [[ -n "${RUN_ID}" && "${RUN_ID}" != "null" ]] || fail 'Failed to start the first run'
 
 wait_for_run_output_marker "${RUN_ID}" "${FIRST_MARKER}" "${RUN_DETAIL_FILE}" 120
 
-api POST "/api/agents/${AGENT_ID}/runs/${RUN_ID}/interrupt" >/dev/null
+api POST "/api/agents/${AGENT_ID}/threads/${RUN_ID}/interrupt" >/dev/null
 wait_for_run_status "${RUN_ID}" interrupted "${RUN_DETAIL_FILE}" 60
 
 run_detail_contains_marker "$(cat "${RUN_DETAIL_FILE}")" "${FIRST_MARKER}" || fail "Missing marker in persisted run timeline"
-api DELETE "/api/agents/${AGENT_ID}/runs/${RUN_ID}" >/dev/null
-[[ "$(api_status GET "/api/agents/${AGENT_ID}/runs/${RUN_ID}")" == "404" ]] || fail 'Deleted run is still accessible'
+api DELETE "/api/agents/${AGENT_ID}/threads/${RUN_ID}" >/dev/null
+[[ "$(api_status GET "/api/agents/${AGENT_ID}/threads/${RUN_ID}")" == "404" ]] || fail 'Deleted thread is still accessible'
 
 log 'Verifying same-run follow-up turns'
 THREAD_MARKER="E2E_THREAD_${RANDOM}${RANDOM}"
 FOLLOW_UP_MARKER="E2E_FOLLOW_UP_${RANDOM}${RANDOM}"
 THREAD_DETAIL_FILE="${ARTIFACTS_DIR}/thread-run-detail.json"
-THREAD_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/runs" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Run a shell command that prints exactly ${THREAD_MARKER} and then exits successfully." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
+THREAD_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/threads" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Run a shell command that prints exactly ${THREAD_MARKER} and then exits successfully." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
 printf '%s\n' "${THREAD_RESPONSE}" > "${ARTIFACTS_DIR}/thread-run-start.json"
 THREAD_RUN_ID="$(printf '%s' "${THREAD_RESPONSE}" | jq -r '.run.id')"
 [[ -n "${THREAD_RUN_ID}" && "${THREAD_RUN_ID}" != "null" ]] || fail 'Failed to start the thread run'
@@ -362,7 +362,7 @@ THREAD_RUN_ID="$(printf '%s' "${THREAD_RESPONSE}" | jq -r '.run.id')"
 wait_for_run_output_marker "${THREAD_RUN_ID}" "${THREAD_MARKER}" "${THREAD_DETAIL_FILE}" 120
 wait_for_run_status "${THREAD_RUN_ID}" success "${THREAD_DETAIL_FILE}" 60
 
-FOLLOW_UP_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/runs/${THREAD_RUN_ID}/turns" "$(jq -nc --arg prompt "Run a shell command that prints exactly ${FOLLOW_UP_MARKER} and then exits successfully." '{prompt: $prompt}')")"
+FOLLOW_UP_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/threads/${THREAD_RUN_ID}/turns" "$(jq -nc --arg prompt "Run a shell command that prints exactly ${FOLLOW_UP_MARKER} and then exits successfully." '{prompt: $prompt}')")"
 printf '%s\n' "${FOLLOW_UP_RESPONSE}" > "${ARTIFACTS_DIR}/thread-run-follow-up.json"
 
 wait_for_run_output_marker "${THREAD_RUN_ID}" "${FOLLOW_UP_MARKER}" "${THREAD_DETAIL_FILE}" 120
@@ -372,7 +372,7 @@ wait_for_run_status "${THREAD_RUN_ID}" success "${THREAD_DETAIL_FILE}" 60
 log 'Verifying disconnect handling for an active run'
 DISCONNECT_MARKER="E2E_DISCONNECT_${RANDOM}${RANDOM}"
 DISCONNECT_DETAIL_FILE="${ARTIFACTS_DIR}/disconnect-run-detail.json"
-DISCONNECT_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/runs" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Run a shell command that prints exactly ${DISCONNECT_MARKER}, then keep the process alive for 120 seconds." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
+DISCONNECT_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/threads" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Run a shell command that prints exactly ${DISCONNECT_MARKER}, then keep the process alive for 120 seconds." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
 printf '%s\n' "${DISCONNECT_RESPONSE}" > "${ARTIFACTS_DIR}/disconnect-run-start.json"
 DISCONNECT_RUN_ID="$(printf '%s' "${DISCONNECT_RESPONSE}" | jq -r '.run.id')"
 [[ -n "${DISCONNECT_RUN_ID}" && "${DISCONNECT_RUN_ID}" != "null" ]] || fail 'Failed to start the disconnect run'

@@ -165,8 +165,8 @@ export default function AgentsScreen(): React.JSX.Element {
               ]}
               activeOpacity={0.7}
               disabled={agent.status !== 'online'}
-              onPress={() => navigation.navigate('NewRun', { agentId: agent.id })}>
-              <Text style={styles.actionButtonText}>New Run</Text>
+              onPress={() => navigation.navigate('NewThread', { agentId: agent.id })}>
+              <Text style={styles.actionButtonText}>New Thread</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[

@@ -21,6 +21,7 @@ import {
   findRunTurnsByRunId,
   findRunsByAgentId,
   initDb,
+  updateRunToolThreadId,
   updateAgentLastSeen,
 } from './db.js'
 
@@ -339,7 +340,7 @@ describe('buildApp', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: `/api/agents/${agent.id}/runs`,
+      url: `/api/agents/${agent.id}/threads`,
       headers: {
         authorization: `Bearer ${token}`,
       },
@@ -404,7 +405,7 @@ describe('buildApp', () => {
     const requests = [
       app.inject({
         method: 'POST',
-        url: `/api/agents/${agent.id}/runs/${run.id}/input`,
+        url: `/api/agents/${agent.id}/threads/${run.id}/input`,
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -414,14 +415,14 @@ describe('buildApp', () => {
       }),
       app.inject({
         method: 'POST',
-        url: `/api/agents/${agent.id}/runs/${run.id}/approve`,
+        url: `/api/agents/${agent.id}/threads/${run.id}/approve`,
         headers: {
           authorization: `Bearer ${token}`,
         },
       }),
       app.inject({
         method: 'POST',
-        url: `/api/agents/${agent.id}/runs/${run.id}/reject`,
+        url: `/api/agents/${agent.id}/threads/${run.id}/reject`,
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -462,15 +463,16 @@ describe('buildApp', () => {
     })
     db.prepare('UPDATE runs SET status = ?, summary = ? WHERE id = ?').run('success', 'done', run.id)
     db.prepare('UPDATE run_turns SET status = ?, summary = ? WHERE id = ?').run('success', 'done', turn.id)
+    updateRunToolThreadId(db, run.id, 'codex-thread-1')
     const token = signJwt(
       { userId: user.id, displayName: user.display_name, role: user.role },
       TEST_SECRET,
     )
 
-    const messages: Array<{ type: string; runId?: string; turnId?: string; prompt?: string }> = []
+    const messages: Array<{ type: string; runId?: string; turnId?: string; prompt?: string; toolThreadId?: string }> = []
     const hub = {
       getAgent: () => ({ id: agent.id }),
-      sendToAgent: (_agentId: string, message: { type: string; runId?: string; turnId?: string; prompt?: string }) => {
+      sendToAgent: (_agentId: string, message: { type: string; runId?: string; turnId?: string; prompt?: string; toolThreadId?: string }) => {
         messages.push(message)
         return true
       },
@@ -489,7 +491,7 @@ describe('buildApp', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: `/api/agents/${agent.id}/runs/${run.id}/turns`,
+      url: `/api/agents/${agent.id}/threads/${run.id}/turns`,
       headers: {
         authorization: `Bearer ${token}`,
       },
@@ -503,6 +505,7 @@ describe('buildApp', () => {
       type: 'run-turn-start',
       runId: run.id,
       prompt: 'Continue with the implementation',
+      toolThreadId: 'codex-thread-1',
     })
     expect(findRunById(db, run.id)).toMatchObject({
       id: run.id,
@@ -563,7 +566,7 @@ describe('buildApp', () => {
 
     const response = await app.inject({
       method: 'DELETE',
-      url: `/api/agents/${agent.id}/runs/${run.id}`,
+      url: `/api/agents/${agent.id}/threads/${run.id}`,
       headers: {
         authorization: `Bearer ${token}`,
       },
@@ -630,7 +633,7 @@ describe('buildApp', () => {
 
     const response = await app.inject({
       method: 'DELETE',
-      url: `/api/agents/${agent.id}/runs/${run.id}`,
+      url: `/api/agents/${agent.id}/threads/${run.id}`,
       headers: {
         authorization: `Bearer ${token}`,
       },
@@ -684,7 +687,7 @@ describe('buildApp', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/agents/${agent.id}/runs/${run.id}`,
+      url: `/api/agents/${agent.id}/threads/${run.id}`,
       headers: {
         authorization: `Bearer ${token}`,
       },

@@ -7,10 +7,10 @@ import { AuthContext, useAuthProvider } from './src/store';
 import { colors } from './src/theme';
 import type { RootStackParamList } from './src/navigation';
 import LoginScreen from './src/screens/LoginScreen';
-import RunsScreen from './src/screens/RunsScreen';
+import ThreadsScreen from './src/screens/RunsScreen';
 import AgentsScreen from './src/screens/AgentsScreen';
-import NewRunScreen from './src/screens/NewRunScreen';
-import RunDetailScreen from './src/screens/RunDetailScreen';
+import NewThreadScreen from './src/screens/NewRunScreen';
+import ThreadDetailScreen from './src/screens/RunDetailScreen';
 import TerminalScreen from './src/screens/TerminalScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -45,9 +45,9 @@ function AppNavigator(): React.JSX.Element {
       ) : (
         <>
           <Stack.Screen
-            name="Runs"
-            component={RunsScreen}
-            options={{ title: 'Runs', headerLargeTitle: true }}
+            name="Threads"
+            component={ThreadsScreen}
+            options={{ title: 'Threads', headerLargeTitle: true }}
           />
           <Stack.Screen
             name="Agents"
@@ -55,14 +55,14 @@ function AppNavigator(): React.JSX.Element {
             options={{ title: 'Agents', headerLargeTitle: true }}
           />
           <Stack.Screen
-            name="NewRun"
-            component={NewRunScreen}
-            options={{ title: 'New Run' }}
+            name="NewThread"
+            component={NewThreadScreen}
+            options={{ title: 'New Thread' }}
           />
           <Stack.Screen
-            name="RunDetail"
-            component={RunDetailScreen}
-            options={{ title: 'Run Detail' }}
+            name="ThreadDetail"
+            component={ThreadDetailScreen}
+            options={{ title: 'Thread Detail' }}
           />
           <Stack.Screen
             name="Terminal"

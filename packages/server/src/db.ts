@@ -89,6 +89,7 @@ export function initDb(dbPath: string): Database.Database {
       agent_id      TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
       user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       tool          TEXT NOT NULL,
+      tool_thread_id TEXT,
       repo_path     TEXT NOT NULL,
       branch        TEXT NOT NULL DEFAULT '',
       prompt        TEXT NOT NULL,
@@ -236,6 +237,7 @@ export interface RunRow {
   agent_id: string
   user_id: string
   tool: string
+  tool_thread_id: string | null
   repo_path: string
   branch: string
   prompt: string
@@ -275,8 +277,8 @@ export function createRun(
   const branch = opts.branch ?? ''
 
   db.prepare(
-    `INSERT INTO runs (id, agent_id, user_id, tool, repo_path, branch, prompt, status, created_at, updated_at, summary, has_diff, unread)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, NULL, 0, 1)`
+    `INSERT INTO runs (id, agent_id, user_id, tool, tool_thread_id, repo_path, branch, prompt, status, created_at, updated_at, summary, has_diff, unread)
+     VALUES (?, ?, ?, ?, NULL, ?, ?, ?, 'starting', ?, ?, NULL, 0, 1)`
   ).run(opts.id, opts.agentId, opts.userId, opts.tool, opts.repoPath, branch, opts.prompt, now, now)
 
   return {
@@ -284,6 +286,7 @@ export function createRun(
     agent_id: opts.agentId,
     user_id: opts.userId,
     tool: opts.tool,
+    tool_thread_id: null,
     repo_path: opts.repoPath,
     branch,
     prompt: opts.prompt,
@@ -441,6 +444,16 @@ export function updateRunStatus(
     db.prepare('UPDATE runs SET status = ?, unread = 1, updated_at = ? WHERE id = ?')
       .run(status, now, runId)
   }
+}
+
+export function updateRunToolThreadId(
+  db: Database.Database,
+  runId: string,
+  toolThreadId: string,
+): void {
+  db.prepare(
+    'UPDATE runs SET tool_thread_id = ?, updated_at = ? WHERE id = ?',
+  ).run(toolThreadId, Date.now(), runId)
 }
 
 export function updateRunTurnStatus(
@@ -608,8 +621,9 @@ function migrateRunsTableIfNeeded(db: Database.Database): void {
     (fk) => fk.table === 'users' && fk.on_delete.toUpperCase() === 'CASCADE',
   )
   const hasLegacyTmuxSessionColumn = columns.some((column) => column.name === 'tmux_session')
+  const hasToolThreadIdColumn = columns.some((column) => column.name === 'tool_thread_id')
 
-  if (hasCascadeAgentFk && hasCascadeUserFk && !hasLegacyTmuxSessionColumn) {
+  if (hasCascadeAgentFk && hasCascadeUserFk && !hasLegacyTmuxSessionColumn && hasToolThreadIdColumn) {
     return
   }
 
@@ -622,6 +636,7 @@ function migrateRunsTableIfNeeded(db: Database.Database): void {
       agent_id      TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
       user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       tool          TEXT NOT NULL,
+      tool_thread_id TEXT,
       repo_path     TEXT NOT NULL,
       branch        TEXT NOT NULL DEFAULT '',
       prompt        TEXT NOT NULL,
@@ -638,6 +653,7 @@ function migrateRunsTableIfNeeded(db: Database.Database): void {
       agent_id,
       user_id,
       tool,
+      tool_thread_id,
       repo_path,
       branch,
       prompt,
@@ -653,6 +669,7 @@ function migrateRunsTableIfNeeded(db: Database.Database): void {
       agent_id,
       user_id,
       tool,
+      NULL,
       repo_path,
       branch,
       prompt,

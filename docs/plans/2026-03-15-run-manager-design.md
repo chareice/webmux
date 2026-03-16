@@ -1,18 +1,18 @@
-# AI Coding Run Manager Design
+# AI Coding Thread Manager Design
 
 ## Overview
 
-Webmux run management is now based on **structured timeline events**, not on
+Webmux thread management is now based on **structured timeline events**, not on
 sanitized PTY output.
 
 The product split is explicit:
 
-1. `Run Detail` is a readable task timeline.
+1. `Thread Detail` is a readable task timeline.
 2. `Terminal` is a separate full-fidelity shell.
 
 We do not try to make a lossy terminal transcript behave like a terminal.
 
-## Run Data Model
+## Thread Data Model
 
 ```typescript
 interface Run {
@@ -57,9 +57,10 @@ type RunTimelineEvent =
 
 ## Agent Execution Model
 
-Runs are executed as direct child processes, not tmux-backed PTY sessions.
+Threads are executed as structured tool turns, not tmux-backed PTY sessions.
 
-- Codex runs through `codex exec --json`
+- Codex threads run through `@openai/codex-sdk`, with one Webmux thread bound
+  to one Codex SDK thread ID and follow-up turns calling `resumeThread(threadId)`
 - Claude runs through `claude -p --output-format stream-json`
 
 Adapters convert tool-native JSON lines into structured timeline events.
@@ -69,29 +70,30 @@ Adapters convert tool-native JSON lines into structured timeline events.
 ### Server → Agent
 
 ```typescript
-| { type: 'run-start'; runId: string; tool: 'codex' | 'claude'; repoPath: string; prompt: string }
-| { type: 'run-interrupt'; runId: string }
-| { type: 'run-kill'; runId: string }
+| { type: 'run-turn-start'; runId: string; turnId: string; tool: 'codex' | 'claude'; repoPath: string; prompt: string; toolThreadId?: string }
+| { type: 'run-turn-interrupt'; runId: string; turnId: string }
+| { type: 'run-turn-kill'; runId: string; turnId: string }
 ```
 
 ### Agent → Server
 
 ```typescript
-| { type: 'run-status'; runId: string; status: RunStatus; summary?: string; hasDiff?: boolean }
-| { type: 'run-item'; runId: string; item: RunTimelineEventPayload }
+| { type: 'run-status'; runId: string; turnId: string; status: RunStatus; summary?: string; hasDiff?: boolean; toolThreadId?: string }
+| { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEventPayload }
 ```
 
 ## API
 
 ```text
-POST   /api/agents/:id/runs                start run
-GET    /api/agents/:id/runs                list runs for one agent
-GET    /api/runs                           list runs for current user
-GET    /api/agents/:id/runs/:runId         run detail with timeline items
-POST   /api/agents/:id/runs/:runId/read    mark run as read
-POST   /api/agents/:id/runs/:runId/interrupt interrupt a running task
-DELETE /api/agents/:id/runs/:runId         delete run
-WS     /ws/run?runId=xxx&token=xxx         real-time run-status and run-item events
+POST   /api/agents/:id/threads                   start thread
+GET    /api/agents/:id/threads                   list threads for one agent
+GET    /api/threads                              list threads for current user
+GET    /api/agents/:id/threads/:threadId         thread detail with timeline items
+POST   /api/agents/:id/threads/:threadId/turns   continue a thread with a new turn
+POST   /api/agents/:id/threads/:threadId/read    mark thread as read
+POST   /api/agents/:id/threads/:threadId/interrupt interrupt the active turn
+DELETE /api/agents/:id/threads/:threadId         delete thread
+WS     /ws/thread?threadId=xxx&token=xxx         real-time run-status and run-item events
 ```
 
 Legacy interactive routes such as `/input`, `/approve`, and `/reject` are
@@ -99,14 +101,14 @@ removed.
 
 ## Mobile Product Model
 
-- `RunsScreen` shows active and completed tasks
-- `RunDetailScreen` renders structured timeline cards
+- `ThreadsScreen` shows active and completed threads
+- `ThreadDetailScreen` renders structured timeline cards
 - `AgentsScreen` is the entry for machine browsing and terminal access
 - `TerminalScreen` remains the fallback for full shell fidelity
 
 ## Non-Goals
 
-- No ANSI/VT100 reconstruction in `Run Detail`
+- No ANSI/VT100 reconstruction in `Thread Detail`
 - No attempt to mirror full-screen TUIs into the timeline
 - No embedded approval/input controls in structured run cards
 

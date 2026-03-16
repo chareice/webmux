@@ -89,7 +89,7 @@ describe('RunWrapper', () => {
     vi.restoreAllMocks()
   })
 
-  it('emits structured timeline items from adapter output', async () => {
+  it('emits structured timeline items from Claude adapter output', async () => {
     const child = createChildProcess()
     spawnMock.mockReturnValue(child)
 
@@ -98,7 +98,7 @@ describe('RunWrapper', () => {
     const onFinish = vi.fn()
     const wrapper = new RunWrapper({
       runId: '12345678-abcd-efgh-ijkl-1234567890ab',
-      tool: 'codex',
+      tool: 'claude',
       repoPath: '/tmp/project',
       prompt: 'Count files',
       onEvent,
@@ -109,11 +109,9 @@ describe('RunWrapper', () => {
     await wrapper.start()
     child.emitStdout(
       `${JSON.stringify({
-        type: 'item.completed',
-        item: {
-          id: 'item_0',
-          type: 'agent_message',
-          text: 'I will inspect the repository first.',
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: 'I will inspect the repository first.' }],
         },
       })}\n`,
     )
@@ -123,7 +121,7 @@ describe('RunWrapper', () => {
     expect(onItem).toHaveBeenCalledWith({
       type: 'activity',
       status: 'info',
-      label: 'Starting Codex',
+      label: 'Starting Claude',
       detail: '/tmp/project',
     })
     expect(onItem).toHaveBeenCalledWith({
@@ -139,6 +137,115 @@ describe('RunWrapper', () => {
     expect(onFinish).toHaveBeenCalledWith('success')
   })
 
+  it('resumes an existing Codex thread for follow-up turns', async () => {
+    const onEvent = vi.fn()
+    const onItem = vi.fn()
+    const onFinish = vi.fn()
+    const onThreadReady = vi.fn()
+    const events = (async function* () {
+      yield {
+        type: 'item.completed',
+        item: {
+          id: 'msg-1',
+          type: 'agent_message',
+          text: 'Follow-up complete.',
+        },
+      }
+      yield {
+        type: 'turn.completed',
+        usage: {
+          input_tokens: 1,
+          cached_input_tokens: 0,
+          output_tokens: 1,
+        },
+      }
+    })()
+
+    const resumeThread = vi.fn().mockReturnValue({
+      id: 'codex-thread-1',
+      runStreamed: vi.fn().mockResolvedValue({ events }),
+    })
+    const startThread = vi.fn()
+    const wrapper = new RunWrapper({
+      runId: 'run-1',
+      tool: 'codex',
+      toolThreadId: 'codex-thread-1',
+      repoPath: '/tmp/project',
+      prompt: 'Continue working',
+      onEvent,
+      onFinish,
+      onItem,
+      onThreadReady,
+      codexClientFactory: () => ({
+        startThread,
+        resumeThread,
+      }),
+    })
+
+    await wrapper.start()
+    await flushMicrotasks()
+
+    expect(startThread).not.toHaveBeenCalled()
+    expect(resumeThread).toHaveBeenCalledWith(
+      'codex-thread-1',
+      expect.objectContaining({
+        workingDirectory: '/tmp/project',
+        sandboxMode: 'workspace-write',
+        approvalPolicy: 'never',
+      }),
+    )
+    expect(onThreadReady).not.toHaveBeenCalled()
+    expect(onItem).toHaveBeenCalledWith({
+      type: 'message',
+      role: 'assistant',
+      text: 'Follow-up complete.',
+    })
+    expect(onFinish).toHaveBeenCalledWith('success')
+  })
+
+  it('persists the newly created Codex thread id on the first turn', async () => {
+    const onThreadReady = vi.fn()
+    const events = (async function* () {
+      yield {
+        type: 'thread.started',
+        thread_id: 'codex-thread-2',
+      }
+      yield {
+        type: 'turn.completed',
+        usage: {
+          input_tokens: 1,
+          cached_input_tokens: 0,
+          output_tokens: 1,
+        },
+      }
+    })()
+
+    const startThread = vi.fn().mockReturnValue({
+      id: null,
+      runStreamed: vi.fn().mockResolvedValue({ events }),
+    })
+    const wrapper = new RunWrapper({
+      runId: 'run-1',
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Continue working',
+      onEvent: vi.fn(),
+      onFinish: vi.fn(),
+      onItem: vi.fn(),
+      onThreadReady,
+      codexClientFactory: () => ({
+        startThread,
+        resumeThread: vi.fn(),
+      }),
+    })
+
+    await wrapper.start()
+    await flushMicrotasks()
+
+    expect(startThread).toHaveBeenCalledOnce()
+    expect(onThreadReady).toHaveBeenCalledWith('codex-thread-2')
+  })
+
   it('preserves the interrupted terminal state when the process exits non-zero', async () => {
     const child = createChildProcess()
     spawnMock.mockReturnValue(child)
@@ -147,7 +254,7 @@ describe('RunWrapper', () => {
     const onFinish = vi.fn()
     const wrapper = new RunWrapper({
       runId: '12345678-abcd-efgh-ijkl-1234567890ab',
-      tool: 'codex',
+      tool: 'claude',
       repoPath: '/tmp/project',
       prompt: 'Fix the failing test',
       onEvent,

@@ -135,7 +135,7 @@ server.on('upgrade', (request, socket, head) => {
     return
   }
 
-  if (pathname === '/ws/run') {
+  if (pathname === '/ws/thread') {
     // Verify JWT from query params
     const token = parsed.searchParams.get('token') ?? undefined
     if (!token) {
@@ -153,15 +153,15 @@ server.on('upgrade', (request, socket, head) => {
       return
     }
 
-    const runId = parsed.searchParams.get('runId') ?? undefined
-    if (!runId) {
+    const threadId = parsed.searchParams.get('threadId') ?? undefined
+    if (!threadId) {
       socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
       socket.destroy()
       return
     }
 
-    // Verify run exists and belongs to user
-    const runRow = findRunById(db, runId)
+    // Verify thread exists and belongs to user
+    const runRow = findRunById(db, threadId)
     if (!runRow || runRow.user_id !== payload.userId) {
       socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
       socket.destroy()
@@ -169,10 +169,10 @@ server.on('upgrade', (request, socket, head) => {
     }
 
     runWss.handleUpgrade(request, socket, head, (ws) => {
-      // Register as run event client
-      hub.addRunClient(runId, ws)
+      // Register as thread event client
+      hub.addRunClient(threadId, ws)
 
-      // Send current run state immediately
+      // Send current thread state immediately
       const run = runRowToRun(runRow)
       ws.send(JSON.stringify({ type: 'run-status', run }))
     })

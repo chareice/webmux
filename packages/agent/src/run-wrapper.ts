@@ -2,6 +2,8 @@ import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child
 import { promisify } from 'node:util'
 
 import type { RunStatus, RunTimelineEventPayload, RunTool } from '@webmux/shared'
+import { createCodexClient, type CodexClient } from './codex-client.js'
+import { parseCodexThreadEvent } from './codex-event.js'
 import { createRunAdapter } from './run-adapter.js'
 
 const execFileAsync = promisify(execFile)
@@ -9,23 +11,30 @@ const execFileAsync = promisify(execFile)
 export interface RunWrapperOptions {
   runId: string
   tool: RunTool
+  toolThreadId?: string
   repoPath: string
   prompt: string
   onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => void
   onFinish: (status: RunStatus) => void
   onItem: (item: RunTimelineEventPayload) => void
+  onThreadReady?: (toolThreadId: string) => void
+  codexClientFactory?: () => CodexClient
 }
 
 export class RunWrapper {
   private readonly tool: RunTool
+  private readonly toolThreadId?: string
   private readonly repoPath: string
   private readonly prompt: string
   private readonly onEvent: RunWrapperOptions['onEvent']
   private readonly onFinish: RunWrapperOptions['onFinish']
   private readonly onItem: RunWrapperOptions['onItem']
+  private readonly onThreadReady?: RunWrapperOptions['onThreadReady']
+  private readonly codexClientFactory: () => CodexClient
 
   private readonly adapter
   private child: ChildProcessWithoutNullStreams | null = null
+  private abortController: AbortController | null = null
   private currentStatus: RunStatus = 'starting'
   private disposed = false
   private interrupted = false
@@ -36,11 +45,14 @@ export class RunWrapper {
 
   constructor(options: RunWrapperOptions) {
     this.tool = options.tool
+    this.toolThreadId = options.toolThreadId
     this.repoPath = options.repoPath
     this.prompt = options.prompt
     this.onEvent = options.onEvent
     this.onFinish = options.onFinish
     this.onItem = options.onItem
+    this.onThreadReady = options.onThreadReady
+    this.codexClientFactory = options.codexClientFactory ?? createCodexClient
     this.adapter = createRunAdapter(this.tool)
   }
 
@@ -49,11 +61,16 @@ export class RunWrapper {
       return
     }
 
+    if (this.tool === 'codex') {
+      await this.startCodexThread()
+      return
+    }
+
     this.emitStatus('starting')
     this.onItem({
       type: 'activity',
       status: 'info',
-      label: `Starting ${this.tool === 'codex' ? 'Codex' : 'Claude'}`,
+      label: 'Starting Claude',
       detail: this.repoPath,
     })
 
@@ -113,7 +130,7 @@ export class RunWrapper {
   }
 
   interrupt(): void {
-    if (!this.child || this.disposed || this.finished) {
+    if ((this.tool === 'codex' && !this.abortController) || (this.tool !== 'codex' && !this.child) || this.disposed || this.finished) {
       return
     }
 
@@ -124,7 +141,12 @@ export class RunWrapper {
       label: 'Interrupt requested',
     })
     this.emitStatus('interrupted', this.latestSummary)
-    this.child.kill('SIGINT')
+    if (this.abortController) {
+      this.abortController.abort()
+      return
+    }
+
+    this.child?.kill('SIGINT')
   }
 
   dispose(): void {
@@ -133,6 +155,11 @@ export class RunWrapper {
     }
 
     this.disposed = true
+
+    if (this.abortController) {
+      this.abortController.abort()
+      this.abortController = null
+    }
 
     if (this.child) {
       this.child.kill('SIGKILL')
@@ -211,6 +238,7 @@ export class RunWrapper {
 
     this.finished = true
     this.child = null
+    this.abortController = null
     this.emitStatus(finalStatus, summary, hasDiff)
     this.onFinish(finalStatus)
   }
@@ -219,6 +247,109 @@ export class RunWrapper {
     this.currentStatus = status
     this.onEvent(status, summary, hasDiff)
   }
+
+  private async startCodexThread(): Promise<void> {
+    this.emitStatus('starting')
+    this.onItem({
+      type: 'activity',
+      status: 'info',
+      label: 'Starting Codex',
+      detail: this.repoPath,
+    })
+
+    const client = this.codexClientFactory()
+    const threadOptions = {
+      workingDirectory: this.repoPath,
+      skipGitRepoCheck: true,
+      sandboxMode: 'workspace-write' as const,
+      approvalPolicy: 'never' as const,
+      networkAccessEnabled: true,
+    }
+    const thread = this.toolThreadId
+      ? client.resumeThread(this.toolThreadId, threadOptions)
+      : client.startThread(threadOptions)
+
+    this.abortController = new AbortController()
+    this.emitStatus('running')
+
+    let sawTurnCompleted = false
+    let announcedThreadId = this.toolThreadId ?? undefined
+
+    try {
+      const streamedTurn = await thread.runStreamed(this.prompt, {
+        signal: this.abortController.signal,
+      })
+
+      for await (const event of streamedTurn.events) {
+        if (this.disposed || this.finished) {
+          return
+        }
+
+        const result = parseCodexThreadEvent(event)
+        const nextThreadId = result.threadId ?? thread.id ?? undefined
+        if (nextThreadId && nextThreadId !== announcedThreadId) {
+          announcedThreadId = nextThreadId
+          this.onThreadReady?.(nextThreadId)
+        }
+
+        if (result.summary) {
+          this.latestSummary = result.summary
+          this.emitStatus(this.currentStatus, result.summary)
+        }
+
+        for (const item of result.items) {
+          this.onItem(item)
+        }
+
+        if (event.type === 'turn.completed') {
+          sawTurnCompleted = true
+        }
+
+        if (result.finalStatus) {
+          await this.complete(result.finalStatus)
+          return
+        }
+      }
+
+      if (this.finished) {
+        return
+      }
+
+      const finalStatus = this.interrupted
+        ? 'interrupted'
+        : sawTurnCompleted
+          ? 'success'
+          : 'failed'
+      await this.complete(finalStatus)
+    } catch (error) {
+      if (this.disposed || this.finished) {
+        return
+      }
+
+      if (this.interrupted || isAbortError(error)) {
+        await this.complete('interrupted')
+        return
+      }
+
+      const message = error instanceof Error ? error.message : String(error)
+      this.onItem({
+        type: 'activity',
+        status: 'error',
+        label: 'Run failed',
+        detail: message,
+      })
+      this.finalize('failed', false, message)
+    }
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  const candidate = error as { name?: string; code?: string }
+  return candidate.name === 'AbortError' || candidate.code === 'ABORT_ERR'
 }
 
 async function detectRepoChanges(repoPath: string): Promise<boolean> {

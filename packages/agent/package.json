@@ -14,13 +14,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@openai/codex-sdk": "^0.114.0",
     "commander": "^14.0.0",
     "node-pty": "^1.1.0",
     "ws": "^8.19.0"
   },
   "devDependencies": {
-    "@webmux/shared": "workspace:*",
     "@types/ws": "^8.18.1",
+    "@webmux/shared": "workspace:*",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "vitest": "^4.1.0"

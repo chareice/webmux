@@ -85,14 +85,14 @@ export async function browseAgentRepositories(
   );
 }
 
-// --- Runs ---
+// --- Threads ---
 
-export async function startRun(
+export async function startThread(
   agentId: string,
   request: StartRunRequest,
 ): Promise<Run> {
   const response = await fetchApi<{ run: Run }>(
-    `/api/agents/${agentId}/runs`,
+    `/api/agents/${agentId}/threads`,
     {
       method: 'POST',
       body: JSON.stringify(request),
@@ -101,35 +101,35 @@ export async function startRun(
   return response.run;
 }
 
-export async function listRuns(agentId: string): Promise<Run[]> {
+export async function listThreads(agentId: string): Promise<Run[]> {
   const response = await fetchApi<RunListResponse>(
-    `/api/agents/${agentId}/runs`,
+    `/api/agents/${agentId}/threads`,
   );
   return response.runs;
 }
 
-export async function listAllRuns(): Promise<Run[]> {
-  const response = await fetchApi<RunListResponse>('/api/runs');
+export async function listAllThreads(): Promise<Run[]> {
+  const response = await fetchApi<RunListResponse>('/api/threads');
   return response.runs;
 }
 
-export async function getRunDetail(
+export async function getThreadDetail(
   agentId: string,
-  runId: string,
+  threadId: string,
 ): Promise<RunDetailResponse> {
   const response = await fetchApi<RunDetailResponse>(
-    `/api/agents/${agentId}/runs/${runId}`,
+    `/api/agents/${agentId}/threads/${threadId}`,
   );
   return normalizeRunDetailResponse(response);
 }
 
-export async function continueRun(
+export async function continueThread(
   agentId: string,
-  runId: string,
+  threadId: string,
   request: ContinueRunRequest,
 ): Promise<RunDetailResponse> {
   const response = await fetchApi<RunDetailResponse>(
-    `/api/agents/${agentId}/runs/${runId}/turns`,
+    `/api/agents/${agentId}/threads/${threadId}/turns`,
     {
       method: 'POST',
       body: JSON.stringify(request),
@@ -138,35 +138,35 @@ export async function continueRun(
   return normalizeRunDetailResponse(response);
 }
 
-export async function interruptRun(
+export async function interruptThread(
   agentId: string,
-  runId: string,
+  threadId: string,
 ): Promise<void> {
-  await fetchApi(`/api/agents/${agentId}/runs/${runId}/interrupt`, {
+  await fetchApi(`/api/agents/${agentId}/threads/${threadId}/interrupt`, {
     method: 'POST',
   });
 }
 
-export async function deleteRun(
+export async function deleteThread(
   agentId: string,
-  runId: string,
+  threadId: string,
 ): Promise<void> {
-  await fetchApi(`/api/agents/${agentId}/runs/${runId}`, {
+  await fetchApi(`/api/agents/${agentId}/threads/${threadId}`, {
     method: 'DELETE',
   });
 }
 
 // --- WebSocket ---
 
-export function connectRunWebSocket(
-  runId: string,
+export function connectThreadWebSocket(
+  threadId: string,
   onMessage: (event: unknown) => void,
   onError?: (error: Event) => void,
   onClose?: () => void,
 ): WebSocket {
   const wsProtocol = _serverUrl.startsWith('https') ? 'wss' : 'ws';
   const wsHost = _serverUrl.replace(/^https?:\/\//, '');
-  const wsUrl = `${wsProtocol}://${wsHost}/ws/run?runId=${runId}&token=${_token}`;
+  const wsUrl = `${wsProtocol}://${wsHost}/ws/thread?threadId=${threadId}&token=${_token}`;
 
   const ws = new WebSocket(wsUrl);
 

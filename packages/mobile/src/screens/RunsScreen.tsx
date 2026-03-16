@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
-import { deleteRun, listAllRuns } from '../api';
+import { deleteThread, listAllThreads } from '../api';
 import { useAuth } from '../store';
 import { Run, RunStatus } from '../types';
 import { colors, commonStyles, statusColor, statusLabel, toolIcon } from '../theme';
@@ -45,7 +45,7 @@ function repoName(repoPath: string): string {
   return parts[parts.length - 1] || repoPath;
 }
 
-export default function RunsScreen(): React.JSX.Element {
+export default function ThreadsScreen(): React.JSX.Element {
   const navigation = useNavigation<NavigationProp>();
   const { logout } = useAuth();
   const [runs, setRuns] = useState<Run[]>([]);
@@ -55,16 +55,16 @@ export default function RunsScreen(): React.JSX.Element {
   const [deletingRunId, setDeletingRunId] = useState('');
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchRuns = useCallback(async (showLoading = false) => {
+  const fetchThreads = useCallback(async (showLoading = false) => {
     if (showLoading) {
       setIsLoading(true);
     }
     setError('');
     try {
-      const result = await listAllRuns();
+      const result = await listAllThreads();
       setRuns(result);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to load runs';
+      const msg = e instanceof Error ? e.message : 'Failed to load threads';
       setError(msg);
     } finally {
       setIsLoading(false);
@@ -73,8 +73,8 @@ export default function RunsScreen(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    fetchRuns(true);
-  }, [fetchRuns]);
+    fetchThreads(true);
+  }, [fetchThreads]);
 
   // Auto-refresh when there are active runs
   useEffect(() => {
@@ -84,7 +84,7 @@ export default function RunsScreen(): React.JSX.Element {
 
     if (hasActiveRuns) {
       intervalRef.current = setInterval(() => {
-        fetchRuns(false);
+        fetchThreads(false);
       }, AUTO_REFRESH_INTERVAL);
     }
 
@@ -94,20 +94,20 @@ export default function RunsScreen(): React.JSX.Element {
         intervalRef.current = null;
       }
     };
-  }, [runs, fetchRuns]);
+  }, [runs, fetchThreads]);
 
   // Refresh when screen is focused
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      fetchRuns(false);
+      fetchThreads(false);
     });
     return unsubscribe;
-  }, [navigation, fetchRuns]);
+  }, [navigation, fetchThreads]);
 
   const onRefresh = useCallback(() => {
     setIsRefreshing(true);
-    fetchRuns(false);
-  }, [fetchRuns]);
+    fetchThreads(false);
+  }, [fetchThreads]);
 
   const activeRuns = runs.filter(r => ACTIVE_STATUSES.includes(r.status));
   const completedRuns = runs.filter(r => COMPLETED_STATUSES.includes(r.status));
@@ -133,10 +133,10 @@ export default function RunsScreen(): React.JSX.Element {
     const actionLabel =
       run.status === 'starting' || run.status === 'running'
         ? 'This will stop the running task and remove it from the list.'
-        : 'This will remove the run from the list.';
+        : 'This will remove the thread from the list.';
 
     Alert.alert(
-      'Remove run?',
+      'Remove thread?',
       actionLabel,
       [
         {
@@ -149,10 +149,10 @@ export default function RunsScreen(): React.JSX.Element {
           onPress: async () => {
             try {
               setDeletingRunId(run.id);
-              await deleteRun(run.agentId, run.id);
+              await deleteThread(run.agentId, run.id);
               setRuns(prev => prev.filter(item => item.id !== run.id));
             } catch (e: unknown) {
-              const msg = e instanceof Error ? e.message : 'Failed to remove run';
+              const msg = e instanceof Error ? e.message : 'Failed to remove thread';
               setError(msg);
             } finally {
               setDeletingRunId('');
@@ -168,7 +168,7 @@ export default function RunsScreen(): React.JSX.Element {
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={() =>
-          navigation.navigate('RunDetail', {
+          navigation.navigate('ThreadDetail', {
             agentId: run.agentId,
             runId: run.id,
           })
@@ -245,7 +245,7 @@ export default function RunsScreen(): React.JSX.Element {
         {error ? (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity onPress={() => fetchRuns(true)}>
+            <TouchableOpacity onPress={() => fetchThreads(true)}>
               <Text style={styles.retryText}>Tap to retry</Text>
             </TouchableOpacity>
           </View>
@@ -253,9 +253,9 @@ export default function RunsScreen(): React.JSX.Element {
 
         {runs.length === 0 && !error ? (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No runs yet</Text>
+            <Text style={styles.emptyText}>No threads yet</Text>
             <Text style={styles.emptySubtext}>
-              Tap + to create your first run
+              Tap + to create your first thread
             </Text>
           </View>
         ) : null}
@@ -282,7 +282,7 @@ export default function RunsScreen(): React.JSX.Element {
       <TouchableOpacity
         style={styles.fab}
         activeOpacity={0.8}
-        onPress={() => navigation.navigate('NewRun')}>
+        onPress={() => navigation.navigate('NewThread')}>
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
     </View>

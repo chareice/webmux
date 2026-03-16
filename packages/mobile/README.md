@@ -98,12 +98,12 @@ The server currently exposes both:
 
 The mobile app currently includes:
 
-- a `Runs` home screen for active and completed runs, with inline remove actions
+- a `Threads` home screen for active and completed threads, with inline remove actions
 - an `Agents` screen for browsing online and offline agents
-- a `New Run` flow with recent repository shortcuts and an agent-backed
+- a `New Thread` flow with recent repository shortcuts and an agent-backed
   repository picker, so repository paths no longer need to be typed manually
-- a `Run Detail` screen that renders a structured run thread made of multiple turns
-- completed run turns can be continued in place with a follow-up prompt, while
+- a `Thread Detail` screen that renders a structured coding thread made of multiple turns
+- completed thread turns can be continued in place with a follow-up prompt, while
   active turns still expose `Interrupt`
 - a separate `Terminal` screen for full-fidelity shell access from the agent page
 

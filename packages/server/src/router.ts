@@ -478,8 +478,8 @@ export function registerRoutes(
 
   // --- Run routes ---
 
-  // Start a run
-  app.post('/api/agents/:id/runs', { preHandler: authPreHandler }, async (request, reply) => {
+  // Start a thread
+  app.post('/api/agents/:id/threads', { preHandler: authPreHandler }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const body = request.body as StartRunRequest | undefined
 
@@ -521,11 +521,12 @@ export function registerRoutes(
       tool: body.tool,
       repoPath: body.repoPath,
       prompt: body.prompt,
+      toolThreadId: runRow.tool_thread_id ?? undefined,
     }
     if (!hub.sendToAgent(id, msg)) {
       deleteRun(db, runId)
       return reply.status(503).send({
-        error: 'Agent became unavailable before the run could start',
+        error: 'Agent became unavailable before the thread could start',
       })
     }
 
@@ -536,8 +537,8 @@ export function registerRoutes(
     return reply.status(201).send(response)
   })
 
-  // List runs for an agent
-  app.get('/api/agents/:id/runs', { preHandler: authPreHandler }, async (request, reply) => {
+  // List threads for an agent
+  app.get('/api/agents/:id/threads', { preHandler: authPreHandler }, async (request, reply) => {
     const { id } = request.params as { id: string }
 
     const agent = findAgentById(db, id)
@@ -554,16 +555,16 @@ export function registerRoutes(
     return response
   })
 
-  // List all runs for current user
-  app.get('/api/runs', { preHandler: authPreHandler }, async (request) => {
+  // List all threads for current user
+  app.get('/api/threads', { preHandler: authPreHandler }, async (request) => {
     const rows = findRunsByUserId(db, request.user!.userId)
     const response: RunListResponse = { runs: rows.map(runRowToRun) }
     return response
   })
 
-  // Run detail
-  app.get('/api/agents/:id/runs/:runId', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id, runId } = request.params as { id: string; runId: string }
+  // Thread detail
+  app.get('/api/agents/:id/threads/:threadId', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, threadId } = request.params as { id: string; threadId: string }
 
     const agent = findAgentById(db, id)
     if (!agent) {
@@ -574,20 +575,20 @@ export function registerRoutes(
       return reply.status(403).send({ error: 'Not your agent' })
     }
 
-    const runRow = findRunById(db, runId)
+    const runRow = findRunById(db, threadId)
     if (!runRow || runRow.agent_id !== id) {
-      return reply.status(404).send({ error: 'Run not found' })
+      return reply.status(404).send({ error: 'Thread not found' })
     }
 
     const response: RunDetailResponse = {
       run: runRowToRun(runRow),
-      turns: findRunTurnDetails(db, runId),
+      turns: findRunTurnDetails(db, threadId),
     }
     return response
   })
 
-  app.post('/api/agents/:id/runs/:runId/turns', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id, runId } = request.params as { id: string; runId: string }
+  app.post('/api/agents/:id/threads/:threadId/turns', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, threadId } = request.params as { id: string; threadId: string }
     const body = request.body as ContinueRunRequest | undefined
 
     if (!body?.prompt?.trim()) {
@@ -603,13 +604,13 @@ export function registerRoutes(
       return reply.status(403).send({ error: 'Not your agent' })
     }
 
-    const runRow = findRunById(db, runId)
+    const runRow = findRunById(db, threadId)
     if (!runRow || runRow.agent_id !== id) {
-      return reply.status(404).send({ error: 'Run not found' })
+      return reply.status(404).send({ error: 'Thread not found' })
     }
 
-    if (findActiveRunTurnByRunId(db, runId)) {
-      return reply.status(409).send({ error: 'Run is still active' })
+    if (findActiveRunTurnByRunId(db, threadId)) {
+      return reply.status(409).send({ error: 'Thread is still active' })
     }
 
     const online = hub.getAgent(id)
@@ -620,37 +621,38 @@ export function registerRoutes(
     const turnId = crypto.randomUUID()
     createRunTurn(db, {
       id: turnId,
-      runId,
+      runId: threadId,
       prompt: body.prompt.trim(),
     })
 
     const msg: ServerToAgentMessage = {
       type: 'run-turn-start',
-      runId,
+      runId: threadId,
       turnId,
       tool: runRow.tool as StartRunRequest['tool'],
       repoPath: runRow.repo_path,
       prompt: body.prompt.trim(),
+      toolThreadId: runRow.tool_thread_id ?? undefined,
     }
 
     if (!hub.sendToAgent(id, msg)) {
       deleteRunTurn(db, turnId)
       return reply.status(503).send({
-        error: 'Agent became unavailable before the run could continue',
+        error: 'Agent became unavailable before the thread could continue',
       })
     }
 
-    hub.broadcastRunSnapshot(db, runId)
+    hub.broadcastRunSnapshot(db, threadId)
 
     return {
-      run: runRowToRun(findRunById(db, runId)!),
-      turns: findRunTurnDetails(db, runId),
+      run: runRowToRun(findRunById(db, threadId)!),
+      turns: findRunTurnDetails(db, threadId),
     } satisfies RunDetailResponse
   })
 
-  // Interrupt a run
-  app.post('/api/agents/:id/runs/:runId/interrupt', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id, runId } = request.params as { id: string; runId: string }
+  // Interrupt a thread
+  app.post('/api/agents/:id/threads/:threadId/interrupt', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, threadId } = request.params as { id: string; threadId: string }
 
     const agent = findAgentById(db, id)
     if (!agent) {
@@ -661,9 +663,9 @@ export function registerRoutes(
       return reply.status(403).send({ error: 'Not your agent' })
     }
 
-    const runRow = findRunById(db, runId)
+    const runRow = findRunById(db, threadId)
     if (!runRow || runRow.agent_id !== id) {
-      return reply.status(404).send({ error: 'Run not found' })
+      return reply.status(404).send({ error: 'Thread not found' })
     }
 
     const online = hub.getAgent(id)
@@ -671,14 +673,14 @@ export function registerRoutes(
       return reply.status(400).send({ error: 'Agent is offline' })
     }
 
-    const activeTurn = findActiveRunTurnByRunId(db, runId)
+    const activeTurn = findActiveRunTurnByRunId(db, threadId)
     if (!activeTurn) {
-      return reply.status(409).send({ error: 'Run is not active' })
+      return reply.status(409).send({ error: 'Thread is not active' })
     }
 
     const msg: ServerToAgentMessage = {
       type: 'run-turn-interrupt',
-      runId,
+      runId: threadId,
       turnId: activeTurn.id,
     }
     if (!sendRunMessage(id, msg, reply)) {
@@ -688,9 +690,9 @@ export function registerRoutes(
     return { ok: true }
   })
 
-  // Mark run as read
-  app.post('/api/agents/:id/runs/:runId/read', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id, runId } = request.params as { id: string; runId: string }
+  // Mark thread as read
+  app.post('/api/agents/:id/threads/:threadId/read', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, threadId } = request.params as { id: string; threadId: string }
 
     const agent = findAgentById(db, id)
     if (!agent) {
@@ -701,19 +703,19 @@ export function registerRoutes(
       return reply.status(403).send({ error: 'Not your agent' })
     }
 
-    const runRow = findRunById(db, runId)
+    const runRow = findRunById(db, threadId)
     if (!runRow || runRow.agent_id !== id) {
-      return reply.status(404).send({ error: 'Run not found' })
+      return reply.status(404).send({ error: 'Thread not found' })
     }
 
-    markRunRead(db, runId)
+    markRunRead(db, threadId)
 
     return { ok: true }
   })
 
-  // Delete a run
-  app.delete('/api/agents/:id/runs/:runId', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id, runId } = request.params as { id: string; runId: string }
+  // Delete a thread
+  app.delete('/api/agents/:id/threads/:threadId', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, threadId } = request.params as { id: string; threadId: string }
 
     const agent = findAgentById(db, id)
     if (!agent) {
@@ -724,20 +726,20 @@ export function registerRoutes(
       return reply.status(403).send({ error: 'Not your agent' })
     }
 
-    const runRow = findRunById(db, runId)
+    const runRow = findRunById(db, threadId)
     if (!runRow || runRow.agent_id !== id) {
-      return reply.status(404).send({ error: 'Run not found' })
+      return reply.status(404).send({ error: 'Thread not found' })
     }
 
     const online = hub.getAgent(id)
     if (online) {
-      const activeTurn = findActiveRunTurnByRunId(db, runId)
-      if (activeTurn && !sendRunMessage(id, { type: 'run-turn-kill', runId, turnId: activeTurn.id }, reply)) {
+      const activeTurn = findActiveRunTurnByRunId(db, threadId)
+      if (activeTurn && !sendRunMessage(id, { type: 'run-turn-kill', runId: threadId, turnId: activeTurn.id }, reply)) {
         return
       }
     }
 
-    deleteRun(db, runId)
+    deleteRun(db, threadId)
 
     return { ok: true }
   })

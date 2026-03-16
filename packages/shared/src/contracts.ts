@@ -47,7 +47,7 @@ export type AgentMessage =
   | { type: 'terminal-ready'; browserId: string; sessionName: string }
   | { type: 'terminal-exit'; browserId: string; exitCode: number }
   | { type: 'error'; browserId?: string; message: string }
-  | { type: 'run-status'; runId: string; turnId: string; status: RunStatus; summary?: string; hasDiff?: boolean }
+  | { type: 'run-status'; runId: string; turnId: string; status: RunStatus; summary?: string; hasDiff?: boolean; toolThreadId?: string }
   | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEventPayload }
 
 // Server → Agent
@@ -62,7 +62,7 @@ export type ServerToAgentMessage =
   | { type: 'session-create'; requestId: string; name: string }
   | { type: 'session-kill'; requestId: string; name: string }
   | { type: 'repository-browse'; requestId: string; path?: string }
-  | { type: 'run-turn-start'; runId: string; turnId: string; tool: RunTool; repoPath: string; prompt: string }
+  | { type: 'run-turn-start'; runId: string; turnId: string; tool: RunTool; repoPath: string; prompt: string; toolThreadId?: string }
   | { type: 'run-turn-interrupt'; runId: string; turnId: string }
   | { type: 'run-turn-kill'; runId: string; turnId: string }
 

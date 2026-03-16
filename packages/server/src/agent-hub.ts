@@ -29,6 +29,7 @@ import {
   updateAgentLastSeen,
   updateAgentStatus,
   updateRunStatus,
+  updateRunToolThreadId,
   updateRunTurnStatus,
 } from './db.js'
 import type { RunRow } from './db.js'
@@ -538,13 +539,17 @@ export class AgentHub {
 
   private handleRunEvent(
     agentId: string,
-    message: { type: 'run-status'; runId: string; turnId: string; status: string; summary?: string; hasDiff?: boolean },
+    message: { type: 'run-status'; runId: string; turnId: string; status: string; summary?: string; hasDiff?: boolean; toolThreadId?: string },
     db: Database
   ): void {
     const runRow = findRunById(db, message.runId)
     const turnRow = findRunTurnById(db, message.turnId)
     if (!runRow || !turnRow || runRow.agent_id !== agentId || turnRow.run_id !== message.runId) {
       return
+    }
+
+    if (message.toolThreadId) {
+      updateRunToolThreadId(db, message.runId, message.toolThreadId)
     }
 
     updateRunTurnStatus(db, message.turnId, message.status, message.summary, message.hasDiff)

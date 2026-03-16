@@ -26,6 +26,7 @@ import {
   updateAgentLastSeen,
   createRegistrationToken,
   consumeRegistrationToken,
+  updateRunToolThreadId,
 } from './db.js'
 import type Database from 'better-sqlite3'
 
@@ -189,6 +190,31 @@ describe('agents', () => {
     updateAgentLastSeen(db, agent.id)
     const updated = findAgentById(db, agent.id)
     expect(updated?.last_seen_at).toBeGreaterThan(0)
+  })
+})
+
+describe('runs', () => {
+  it('persists the external Codex thread id on the run row', () => {
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'thread-owner',
+      displayName: 'owner',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, { userId: user.id, name: 'nas', agentSecretHash: 'hash' })
+    const { run } = createRunWithInitialTurn(db, {
+      runId: 'run-thread-id',
+      turnId: 'run-thread-id:turn:1',
+      agentId: agent.id,
+      userId: user.id,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Inspect the repository',
+    })
+
+    updateRunToolThreadId(db, run.id, 'codex-thread-1')
+
+    expect(findRunById(db, run.id)?.tool_thread_id).toBe('codex-thread-1')
   })
 })
 

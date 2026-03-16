@@ -119,7 +119,7 @@ export default function LoginScreen(): React.JSX.Element {
     <View style={styles.container}>
       <View style={styles.content}>
         <Text style={styles.title}>webmux</Text>
-        <Text style={styles.subtitle}>AI Coding Run Manager</Text>
+        <Text style={styles.subtitle}>AI Coding Thread Manager</Text>
 
         <View style={styles.form}>
           <Text style={styles.label}>Server URL</Text>
