@@ -26,7 +26,7 @@ import {
   RunTimelineEvent,
   RunTurnDetail,
 } from '../types';
-import { colors, commonStyles, fonts, statusColor, statusLabel, toolIcon } from '../theme';
+import { colors, commonStyles, fonts, statusColor, statusLabel } from '../theme';
 import type { RootStackParamList } from '../navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isRunTimelineEvent, isRunTurn } from '../run-detail-response';
@@ -39,6 +39,80 @@ import {
 import { normalizePreviewText, shouldForcePreviewText } from '../thread-detail-preview';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ThreadDetail'>;
+
+// Group timeline items into conversation segments (like web version)
+type ConversationSegment =
+  | { type: 'user'; text: string; attachments: RunImageAttachment[]; id: string }
+  | { type: 'assistant'; text: string; id: number }
+  | { type: 'tools'; items: RunTimelineEvent[]; id: string }
+  | { type: 'system'; text: string; id: number };
+
+function isTrivialActivity(item: RunTimelineEvent): boolean {
+  if (item.type !== 'activity') return false;
+  const lbl = item.label.toLowerCase();
+  return (
+    lbl.includes('completed') ||
+    lbl.includes('started') ||
+    lbl.includes('finished')
+  );
+}
+
+function getActivityText(item: RunTimelineEvent): string {
+  if (item.type !== 'activity') return '';
+  return item.label + (item.detail ? `: ${item.detail}` : '');
+}
+
+function groupIntoSegments(turns: RunTurnDetail[]): ConversationSegment[] {
+  const segments: ConversationSegment[] = [];
+
+  for (const turn of turns) {
+    // User message
+    if (turn.prompt || turn.attachments.length > 0) {
+      segments.push({
+        type: 'user',
+        text: turn.prompt,
+        attachments: turn.attachments,
+        id: `user-${turn.id}`,
+      });
+    }
+
+    // Group items into assistant messages vs tool calls
+    let pendingTools: RunTimelineEvent[] = [];
+
+    const flushTools = () => {
+      if (pendingTools.length === 0) return;
+      // Single trivial activity → inline system text
+      if (pendingTools.length === 1 && isTrivialActivity(pendingTools[0])) {
+        segments.push({
+          type: 'system',
+          text: getActivityText(pendingTools[0]),
+          id: pendingTools[0].id,
+        });
+      } else {
+        segments.push({
+          type: 'tools',
+          items: [...pendingTools],
+          id: `tools-${turn.id}-${pendingTools[0].id}`,
+        });
+      }
+      pendingTools = [];
+    };
+
+    for (const item of turn.items) {
+      if (item.type === 'message' && item.role === 'assistant') {
+        flushTools();
+        segments.push({ type: 'assistant', text: item.text, id: item.id });
+      } else {
+        // Commands, activities, system messages → tool group
+        pendingTools.push(item);
+      }
+    }
+
+    flushTools();
+  }
+
+  return segments;
+}
 
 export default function RunDetailScreen({ navigation, route }: Props): React.JSX.Element {
   const { agentId, runId } = route.params;
@@ -185,6 +259,8 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
     }
   };
 
+  const segments = groupIntoSegments(turns);
+
   if (isLoading) {
     return (
       <View style={[commonStyles.screen, styles.center]}>
@@ -211,94 +287,98 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
 
   return (
     <View style={commonStyles.screen}>
+      {/* Compact header */}
       <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <View style={styles.headerLeft}>
-            <View
-              style={[
-                styles.toolBadge,
-                {
-                  backgroundColor:
-                    run.tool === 'codex'
-                      ? colors.green + '22'
-                      : colors.accent + '22',
-                },
-              ]}>
-              <Text
-                style={[
-                  styles.toolBadgeText,
-                  {
-                    color: run.tool === 'codex' ? colors.green : colors.accent,
-                  },
-                ]}>
-                {toolIcon(run.tool)}
-              </Text>
-            </View>
-            <View style={styles.headerInfo}>
-              <Text style={styles.repoName} numberOfLines={1}>
-                {run.repoPath}
-              </Text>
-              {run.branch ? (
-                <Text style={styles.branch} numberOfLines={1}>
-                  {run.branch}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-          <View
-            style={[
-              styles.statusBadge,
-              { backgroundColor: statusColor(run.status) + '22' },
-            ]}>
-            <View
-              style={[
-                styles.statusDot,
-                { backgroundColor: statusColor(run.status) },
-              ]}
-            />
-            <Text style={[styles.statusText, { color: statusColor(run.status) }]}>
+        <View style={styles.headerRow}>
+          <Text style={styles.headerRepo} numberOfLines={1}>
+            {run.repoPath.split('/').pop()}
+          </Text>
+          <Text style={styles.headerSep}>·</Text>
+          <Text style={styles.headerTool}>
+            {run.tool === 'codex' ? 'Codex' : 'Claude Code'}
+          </Text>
+          <View style={[styles.headerStatusBadge, { backgroundColor: statusColor(run.status) + '22' }]}>
+            <View style={[styles.headerStatusDot, { backgroundColor: statusColor(run.status) }]} />
+            <Text style={[styles.headerStatusText, { color: statusColor(run.status) }]}>
               {statusLabel(run.status)}
             </Text>
           </View>
         </View>
-
-        {run.summary ? (
-          <>
-            <Text style={styles.summaryLabel}>Latest Summary</Text>
-            <PreviewableMarkdownCard
-              style={styles.summaryCard}
-              content={run.summary}
-              lineLimit={4}
-              charLimit={200}
-              openLabel="Open full summary"
-              previewTextStyle={styles.summaryText}
-              measureTextStyle={styles.summaryMeasureText}
-              onOpenContent={() => handleOpenContent('Latest Summary', run.summary ?? '')}
-            />
-          </>
+        {run.branch ? (
+          <Text style={styles.headerBranch} numberOfLines={1}>{run.branch}</Text>
         ) : null}
       </View>
 
+      {/* Chat conversation */}
       <ScrollView
         ref={scrollViewRef}
-        style={styles.timeline}
-        contentContainerStyle={styles.timelineContent}>
-        {turns.length === 0 ? (
+        style={styles.chatArea}
+        contentContainerStyle={styles.chatContent}>
+        {segments.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>
-              {isActive ? 'Thread started. Waiting for timeline events.' : 'No timeline recorded.'}
-            </Text>
-            <Text style={styles.emptyHint}>
-              Each completed turn stays in this thread, so you can continue after it finishes.
+              {isActive ? 'Waiting for response...' : 'No conversation recorded.'}
             </Text>
           </View>
         ) : (
-          turns.map((turn) => (
-            <TurnSectionView key={turn.id} turn={turn} onOpenContent={handleOpenContent} />
-          ))
+          segments.map((segment) => {
+            if (segment.type === 'user') {
+              return (
+                <View key={segment.id} style={styles.bubbleUser}>
+                  <Text style={styles.bubbleRole}>You</Text>
+                  {segment.text ? (
+                    <Text style={styles.bubbleUserText}>{segment.text}</Text>
+                  ) : null}
+                  {segment.attachments.length > 0 ? (
+                    <View style={styles.attachmentRow}>
+                      {segment.attachments.map((a) => (
+                        <AttachmentChip key={a.id} attachment={a} />
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              );
+            }
+
+            if (segment.type === 'assistant') {
+              return (
+                <View key={segment.id} style={styles.bubbleAssistant}>
+                  <Text style={styles.bubbleRoleAssistant}>Assistant</Text>
+                  <PreviewableMarkdownCard
+                    style={styles.bubbleContent}
+                    content={segment.text}
+                    lineLimit={10}
+                    charLimit={500}
+                    openLabel="Read more"
+                    previewTextStyle={styles.bubbleAssistantText}
+                    measureTextStyle={styles.bubbleMeasureText}
+                    onOpenContent={() => handleOpenContent('Message', segment.text)}
+                  />
+                </View>
+              );
+            }
+
+            if (segment.type === 'system') {
+              return (
+                <View key={segment.id} style={styles.systemLine}>
+                  <Text style={styles.systemText}>{segment.text}</Text>
+                </View>
+              );
+            }
+
+            // tools segment
+            return (
+              <ToolsAccordion
+                key={segment.id}
+                items={segment.items}
+                onOpenContent={handleOpenContent}
+              />
+            );
+          })
         )}
       </ScrollView>
 
+      {/* Composer / footer */}
       <View style={[styles.footer, { paddingBottom: 12 + insets.bottom }]}>
         {isActive ? (
           <>
@@ -389,7 +469,7 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
           </>
         ) : (
           <Text style={styles.footerHint}>
-            Need a full terminal? Open it from the agent page. Thread detail is a structured thread view.
+            Thread completed. Open the agent page for a full terminal.
           </Text>
         )}
       </View>
@@ -397,60 +477,42 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
   );
 }
 
-function TurnSectionView({
-  turn,
+function ToolsAccordion({
+  items,
   onOpenContent,
 }: {
-  turn: RunTurnDetail;
+  items: RunTimelineEvent[];
   onOpenContent: (title: string, content: string, mono?: boolean) => void;
 }): React.JSX.Element {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const first = items[0];
+  const label = items.length === 1
+    ? (first.type === 'command' ? 'Command' : first.type === 'activity' ? first.label : '1 item')
+    : `${items.length} tool calls`;
+
   return (
-    <View style={styles.turnSection}>
-      <View style={styles.turnHeader}>
-        <Text style={styles.turnTitle}>Turn {turn.index}</Text>
-        <Text style={[styles.turnStatus, { color: statusColor(turn.status) }]}>
-          {statusLabel(turn.status)}
+    <View style={styles.toolsAccordion}>
+      <TouchableOpacity
+        style={styles.toolsAccordionHeader}
+        onPress={() => setIsExpanded(!isExpanded)}
+        activeOpacity={0.7}>
+        <Text style={styles.toolsAccordionChevron}>
+          {isExpanded ? '⌄' : '›'}
         </Text>
-      </View>
-
-      <View style={styles.messageCard}>
-        <Text style={styles.messageEyebrow}>User</Text>
-        {turn.prompt ? (
-          <PreviewableMarkdownCard
-            style={styles.messageContent}
-            content={turn.prompt}
-            lineLimit={6}
-            charLimit={280}
-            openLabel="Open full prompt"
-            previewTextStyle={styles.messagePreviewText}
-            measureTextStyle={styles.messageMeasureText}
-            onOpenContent={() => onOpenContent(`Turn ${turn.index} Prompt`, turn.prompt)}
-          />
-        ) : (
-          <Text style={styles.messagePlaceholder}>Sent image attachment</Text>
-        )}
-        {turn.attachments.length > 0 ? (
-          <View style={styles.turnAttachmentList}>
-            {turn.attachments.map((attachment) => (
-              <AttachmentChip key={attachment.id} attachment={attachment} />
-            ))}
-          </View>
-        ) : null}
-      </View>
-
-      {turn.items.length === 0 ? (
-        <View style={styles.turnEmptyState}>
-          <Text style={styles.turnEmptyText}>Waiting for events...</Text>
+        <Text style={styles.toolsAccordionLabel}>{label}</Text>
+      </TouchableOpacity>
+      {isExpanded ? (
+        <View style={styles.toolsAccordionBody}>
+          {items.map((item) => (
+            <TimelineItemView
+              key={item.id}
+              item={item}
+              onOpenContent={onOpenContent}
+            />
+          ))}
         </View>
-      ) : (
-        turn.items.map((item) => (
-          <TimelineItemView
-            key={`${turn.id}-${item.id}`}
-            item={item}
-            onOpenContent={onOpenContent}
-          />
-        ))
-      )}
+      ) : null}
     </View>
   );
 }
@@ -458,9 +520,6 @@ function TurnSectionView({
 function AttachmentChip({ attachment }: { attachment: RunImageAttachment }): React.JSX.Element {
   return (
     <View style={styles.attachmentChip}>
-      <Text style={styles.attachmentChipTitle} numberOfLines={1}>
-        Image
-      </Text>
       <Text style={styles.attachmentChipName} numberOfLines={1}>
         {attachment.name}
       </Text>
@@ -480,20 +539,13 @@ function TimelineItemView({
 }): React.JSX.Element {
   if (item.type === 'message') {
     return (
-      <View style={styles.messageCard}>
-        <Text style={styles.messageEyebrow}>
+      <View style={styles.inlineMessage}>
+        <Text style={styles.inlineMessageRole}>
           {item.role === 'assistant' ? 'Assistant' : item.role === 'user' ? 'User' : 'System'}
         </Text>
-        <PreviewableMarkdownCard
-          style={styles.messageContent}
-          content={item.text}
-          lineLimit={7}
-          charLimit={320}
-          openLabel="Open full message"
-          previewTextStyle={styles.messagePreviewText}
-          measureTextStyle={styles.messageMeasureText}
-          onOpenContent={() => onOpenContent('Message', item.text)}
-        />
+        <Text style={styles.inlineMessageText} numberOfLines={3}>
+          {item.text}
+        </Text>
       </View>
     );
   }
@@ -510,7 +562,7 @@ function TimelineItemView({
       <View style={styles.commandCard}>
         <View style={styles.commandHeader}>
           <Text style={[styles.commandEyebrow, { color: commandColor }]}>
-            {item.status === 'started' ? 'Command running' : 'Command'}
+            {item.status === 'started' ? 'Running' : 'Command'}
           </Text>
           {item.exitCode !== null ? (
             <Text style={styles.commandExit}>exit {item.exitCode}</Text>
@@ -660,171 +712,124 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+
+  // Compact header
   header: {
     backgroundColor: colors.surface,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerLeft: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
-    marginRight: 12,
+    gap: 6,
   },
-  toolBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  toolBadgeText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  headerInfo: {
-    flex: 1,
-  },
-  repoName: {
+  headerRepo: {
     color: colors.text,
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
+    flexShrink: 1,
   },
-  branch: {
+  headerSep: {
     color: colors.textSecondary,
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: 12,
   },
-  statusBadge: {
+  headerTool: {
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
+  headerStatusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginLeft: 'auto',
   },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
+  headerStatusDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginRight: 5,
   },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  summaryLabel: {
-    color: colors.textSecondary,
-    fontSize: 12,
+  headerStatusText: {
+    fontSize: 10,
     fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 14,
   },
-  summaryText: {
+  headerBranch: {
     color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    fontFamily: fonts.mono,
+    marginTop: 3,
   },
-  summaryMeasureText: {
-    position: 'absolute',
-    opacity: 0,
-    zIndex: -1,
-    left: 12,
-    right: 12,
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  summaryCard: {
-    marginTop: 6,
-    backgroundColor: colors.surfaceLight,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  timeline: {
+
+  // Chat area
+  chatArea: {
     flex: 1,
   },
-  timelineContent: {
+  chatContent: {
     padding: 14,
-    gap: 14,
+    gap: 10,
   },
   emptyState: {
     paddingVertical: 48,
     alignItems: 'center',
   },
   emptyTitle: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  emptyHint: {
     color: colors.textSecondary,
-    fontSize: 13,
-    textAlign: 'center',
-    lineHeight: 18,
-    marginTop: 10,
-    maxWidth: 280,
-  },
-  turnSection: {
-    gap: 10,
-  },
-  turnHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  turnTitle: {
-    color: colors.text,
     fontSize: 14,
-    fontWeight: '700',
+    textAlign: 'center',
   },
-  turnStatus: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  turnEmptyState: {
-    paddingHorizontal: 4,
-    paddingVertical: 8,
-  },
-  turnEmptyText: {
-    color: colors.textSecondary,
-    fontSize: 12,
-  },
-  messageCard: {
+
+  // Chat bubbles
+  bubbleUser: {
     backgroundColor: colors.surface,
     borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.accent,
   },
-  messageEyebrow: {
+  bubbleRole: {
     color: colors.accent,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
+    marginBottom: 4,
   },
-  messageContent: {
-    marginTop: 8,
+  bubbleUserText: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
   },
-  messagePreviewText: {
+  bubbleAssistant: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.green,
+  },
+  bubbleRoleAssistant: {
+    color: colors.green,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  bubbleContent: {
+    // wrapper for markdown
+  },
+  bubbleAssistantText: {
     color: colors.text,
     fontSize: 14,
     lineHeight: 21,
   },
-  messageMeasureText: {
+  bubbleMeasureText: {
     position: 'absolute',
     opacity: 0,
     zIndex: -1,
@@ -834,51 +839,99 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
   },
-  messagePlaceholder: {
+
+  // System line
+  systemLine: {
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  systemText: {
     color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 8,
+    fontSize: 12,
     fontStyle: 'italic',
   },
-  turnAttachmentList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 10,
-  },
-  attachmentChip: {
-    minWidth: 110,
-    backgroundColor: colors.background,
+
+  // Tools accordion
+  toolsAccordion: {
+    backgroundColor: colors.surface,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 10,
+    overflow: 'hidden',
+  },
+  toolsAccordionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  attachmentChipTitle: {
+  toolsAccordionChevron: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+    width: 12,
+    textAlign: 'center',
+  },
+  toolsAccordionLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  toolsAccordionBody: {
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    gap: 8,
+  },
+
+  // Inline items (inside tools accordion)
+  inlineMessage: {
+    paddingVertical: 4,
+  },
+  inlineMessageRole: {
     color: colors.accent,
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
+  },
+  inlineMessageText: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+
+  // Attachment
+  attachmentRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  attachmentChip: {
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   attachmentChipName: {
-    marginTop: 4,
     color: colors.text,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   attachmentChipMeta: {
-    marginTop: 4,
     color: colors.textSecondary,
-    fontSize: 11,
+    fontSize: 10,
+    marginTop: 2,
   },
+
+  // Command card
   commandCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   commandHeader: {
     flexDirection: 'row',
@@ -887,14 +940,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   commandEyebrow: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
   commandExit: {
     color: colors.textSecondary,
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: fonts.mono,
   },
   commandText: {
@@ -902,77 +955,80 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.mono,
     lineHeight: 18,
-    marginTop: 8,
+    marginTop: 6,
   },
   commandOutputBox: {
-    backgroundColor: colors.background,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginTop: 10,
+    backgroundColor: colors.surfaceLight,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 8,
   },
   commandOutputHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   commandOutputLabel: {
     color: colors.textSecondary,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
   commandOutputToggle: {
     color: colors.accent,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   commandOutputText: {
     color: colors.textSecondary,
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: fonts.mono,
-    lineHeight: 18,
+    lineHeight: 16,
   },
+
   previewToggle: {
     alignSelf: 'flex-start',
-    marginTop: 10,
+    marginTop: 8,
   },
   previewToggleText: {
     color: colors.accent,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
+
   activityRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
   activityDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginTop: 6,
-    marginRight: 10,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginTop: 5,
+    marginRight: 8,
   },
   activityTextArea: {
     flex: 1,
   },
   activityLabel: {
     color: colors.text,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   activityDetail: {
     color: colors.textSecondary,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
     fontFamily: fonts.mono,
   },
+
+  // Footer / composer
   footer: {
     backgroundColor: colors.surface,
     borderTopWidth: 1,
