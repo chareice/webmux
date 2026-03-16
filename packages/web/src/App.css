@@ -2469,92 +2469,12 @@
   margin: 0;
 }
 
-.turn-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.turn-section.collapsed {
-  gap: 0;
-}
-
-.turn-header {
-  all: unset;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.55rem 0.75rem;
-  background: var(--surface);
-  transition: background 120ms ease;
-  flex-wrap: wrap;
-}
-
-.turn-header:hover {
-  background: rgba(122, 162, 247, 0.04);
-}
-
-.turn-header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  flex-shrink: 0;
-  color: var(--muted);
-}
-
-.turn-title {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.turn-prompt-preview {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.82rem;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.turn-item-count {
-  font-size: 0.72rem;
-  color: var(--muted);
-  flex-shrink: 0;
-  padding: 0.15rem 0.45rem;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.turn-section.open > .turn-header {
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.turn-section.open > .timeline-card,
-.turn-section.open > .timeline-activity,
-.turn-section.open > .turn-empty {
-  margin: 0 0.55rem;
-}
-
-.turn-section.open > .timeline-card:first-of-type {
-  margin-top: 0.55rem;
-}
-
-.turn-section.open > .timeline-card:last-child,
-.turn-section.open > .timeline-activity:last-child,
-.turn-section.open > .turn-empty:last-child {
-  margin-bottom: 0.55rem;
-}
-
 .turn-empty {
   padding: 0.5rem;
   color: var(--muted);
   font-size: 0.82rem;
+  text-align: center;
+  font-style: italic;
 }
 
 /* ── Timeline cards ──────────────────────────────── */
@@ -3120,18 +3040,6 @@
 .chat-bubble.user .chat-role { color: var(--accent); }
 .chat-bubble.assistant .chat-role { color: var(--success); }
 
-/* First chat bubble after turn header needs top spacing */
-.turn-section.open > .chat-bubble:first-of-type {
-  margin-top: 0.55rem;
-}
-
-/* Last element in open turn needs bottom spacing */
-.turn-section.open > .chat-bubble:last-child,
-.turn-section.open > .chat-tools-group:last-child,
-.turn-section.open > .chat-system:last-child {
-  margin-bottom: 0.55rem;
-}
-
 .chat-bubble .chat-content {
   font-size: 0.88rem;
   line-height: 1.6;
@@ -3139,6 +3047,12 @@
 }
 
 /* Reuse .message-text for markdown rendering inside .chat-content */
+
+.chat-divider {
+  height: 1px;
+  background: var(--border-soft);
+  margin: 0.75rem 0.55rem;
+}
 
 .chat-system {
   text-align: center;

@@ -470,10 +470,10 @@ export function ThreadDetailPage() {
               </div>
             ) : (
               turns.map((turn, i) => (
-                <TurnSection
+                <TurnMessages
                   key={turn.id}
                   turn={turn}
-                  defaultOpen={i === turns.length - 1}
+                  showDivider={i > 0}
                 />
               ))
             )}
@@ -569,86 +569,55 @@ export function ThreadDetailPage() {
   )
 }
 
-function TurnSection({ turn, defaultOpen }: { turn: RunTurnDetail; defaultOpen: boolean }) {
-  const [open, setOpen] = useState(defaultOpen)
+function TurnMessages({ turn, showDivider }: { turn: RunTurnDetail; showDivider: boolean }) {
   const hasAttachments = turn.attachments && turn.attachments.length > 0
-  const sc = statusClass(turn.status)
-  const promptPreview = turn.prompt.length > 100 ? turn.prompt.slice(0, 100) + '...' : turn.prompt
-  const itemCount = turn.items.length
-
   const segments = groupIntoSegments(turn.items)
 
   return (
-    <div className={`turn-section ${open ? 'open' : 'collapsed'}`}>
-      <button
-        className="turn-header"
-        onClick={() => setOpen(!open)}
-        type="button"
-      >
-        <div className="turn-header-left">
-          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <span className="turn-title">Turn {turn.index}</span>
-          <span className={`thread-status-badge ${sc}`}>
-            <span className={`thread-status-dot ${sc}`} />
-            {statusLabel(turn.status)}
-          </span>
-        </div>
-        {!open ? (
-          <span className="turn-prompt-preview">{promptPreview}</span>
-        ) : null}
-        {!open && itemCount > 0 ? (
-          <span className="turn-item-count">{itemCount} event{itemCount > 1 ? 's' : ''}</span>
-        ) : null}
-      </button>
+    <>
+      {showDivider ? <div className="chat-divider" /> : null}
 
-      {open ? (
-        <>
-          {/* User prompt as chat bubble */}
-          <div className="chat-bubble user">
-            <div className="chat-role">You</div>
-            <div className="chat-content">{turn.prompt}</div>
-            {hasAttachments ? (
-              <div className="turn-attachments-indicator">
-                <Paperclip size={12} />
-                <span>{turn.attachments.length} image{turn.attachments.length > 1 ? 's' : ''} attached</span>
-              </div>
-            ) : null}
+      {/* User prompt */}
+      <div className="chat-bubble user">
+        <div className="chat-role">You</div>
+        <div className="chat-content">{turn.prompt}</div>
+        {hasAttachments ? (
+          <div className="turn-attachments-indicator">
+            <Paperclip size={12} />
+            <span>{turn.attachments.length} image{turn.attachments.length > 1 ? 's' : ''} attached</span>
           </div>
+        ) : null}
+      </div>
 
-          {itemCount === 0 ? (
-            <div className="turn-empty">
-              <span>Waiting for events...</span>
-            </div>
-          ) : (
-            segments.map((seg, idx) => {
-              if (seg.type === 'assistant') {
-                return (
-                  <div key={`assistant-${seg.id}`} className="chat-bubble assistant">
-                    <div className="chat-role">Assistant</div>
-                    <div className="chat-content message-text">
-                      <Markdown>{seg.text}</Markdown>
-                    </div>
-                  </div>
-                )
-              }
+      {turn.items.length === 0 ? (
+        <div className="turn-empty">
+          <span>Waiting for events...</span>
+        </div>
+      ) : (
+        segments.map((seg, idx) => {
+          if (seg.type === 'assistant') {
+            return (
+              <div key={`assistant-${seg.id}`} className="chat-bubble assistant">
+                <div className="chat-role">Assistant</div>
+                <div className="chat-content message-text">
+                  <Markdown>{seg.text}</Markdown>
+                </div>
+              </div>
+            )
+          }
 
-              if (seg.type === 'system') {
-                return (
-                  <div key={`system-${seg.id}`} className="chat-system">
-                    {seg.text}
-                  </div>
-                )
-              }
+          if (seg.type === 'system') {
+            return (
+              <div key={`system-${seg.id}`} className="chat-system">
+                {seg.text}
+              </div>
+            )
+          }
 
-              // tools group
-              return (
-                <ToolsGroup key={`tools-${idx}`} items={seg.items} />
-              )
-            })
-          )}
-        </>
-      ) : null}
-    </div>
+          return <ToolsGroup key={`tools-${idx}`} items={seg.items} />
+        })
+      )}
+    </>
   )
 }
 
