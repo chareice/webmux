@@ -29,9 +29,6 @@ jobs:
 
   mobile:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/mobile
 
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +43,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: packages/mobile/pnpm-lock.yaml
 
-      - run: pnpm install --frozen-lockfile --ignore-workspace
-      - run: pnpm test
-      - run: pnpm lint
-      - run: pnpm exec tsc --noEmit
+      - run: pnpm install --frozen-lockfile
+      - run: cd packages/mobile && pnpm install --frozen-lockfile --ignore-workspace
+      - run: cd packages/mobile && pnpm test
+      - run: cd packages/mobile && pnpm lint
+      - run: cd packages/mobile && pnpm exec tsc --noEmit

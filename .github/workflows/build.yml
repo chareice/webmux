@@ -24,6 +24,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - run: pnpm --filter @webmux/shared build
       - run: pnpm --filter @webmux/web build
       - run: pnpm --filter @webmux/server build
       - run: pnpm --filter @webmux/agent build

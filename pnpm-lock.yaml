@@ -32,6 +32,25 @@ importers:
       typescript-eslint:
         specifier: ^8.56.1
         version: 8.57.0(eslint@9.39.4)(typescript@5.9.3)
+    optionalDependencies:
+      '@rolldown/binding-darwin-arm64':
+        specifier: 1.0.0-rc.9
+        version: 1.0.0-rc.9
+      '@rolldown/binding-darwin-x64':
+        specifier: 1.0.0-rc.9
+        version: 1.0.0-rc.9
+      '@rolldown/binding-linux-arm64-gnu':
+        specifier: 1.0.0-rc.9
+        version: 1.0.0-rc.9
+      '@rolldown/binding-linux-x64-gnu':
+        specifier: 1.0.0-rc.9
+        version: 1.0.0-rc.9
+      '@rolldown/binding-win32-arm64-msvc':
+        specifier: 1.0.0-rc.9
+        version: 1.0.0-rc.9
+      '@rolldown/binding-win32-x64-msvc':
+        specifier: 1.0.0-rc.9
+        version: 1.0.0-rc.9
 
   packages/agent:
     dependencies:
