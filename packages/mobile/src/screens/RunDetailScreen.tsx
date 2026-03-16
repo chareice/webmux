@@ -38,7 +38,7 @@ import {
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ThreadDetail'>;
 
-export default function RunDetailScreen({ route }: Props): React.JSX.Element {
+export default function RunDetailScreen({ navigation, route }: Props): React.JSX.Element {
   const { agentId, runId } = route.params;
   const insets = useSafeAreaInsets();
 
@@ -46,7 +46,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   const [turns, setTurns] = useState<RunTurnDetail[]>([]);
   const [followUpPrompt, setFollowUpPrompt] = useState('');
   const [followUpAttachments, setFollowUpAttachments] = useState<DraftImageAttachment[]>([]);
-  const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
+  const [summaryNeedsToggle, setSummaryNeedsToggle] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isContinuing, setIsContinuing] = useState(false);
   const [error, setError] = useState('');
@@ -73,7 +73,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
     setError('');
     setFollowUpPrompt('');
     setFollowUpAttachments([]);
-    setIsSummaryExpanded(false);
+    setSummaryNeedsToggle(false);
     setIsLoading(true);
     void fetchThreadDetail();
   }, [fetchThreadDetail, runId]);
@@ -129,6 +129,12 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   const latestTurn = latestRunTurn(turns);
   const initialTurn = turns[0] ?? null;
   const isActive = latestTurn ? isRunActive(latestTurn.status) : run ? isRunActive(run.status) : false;
+  const handleOpenContent = useCallback(
+    (title: string, content: string, mono = false) => {
+      navigation.navigate('ThreadContent', { title, content, mono });
+    },
+    [navigation],
+  );
 
   const handleInterrupt = async () => {
     try {
@@ -265,21 +271,35 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
         {run.summary ? (
           <>
             <Text style={styles.summaryLabel}>Latest Summary</Text>
-            <View style={styles.summaryCard}>
+            <TouchableOpacity
+              style={styles.summaryCard}
+              activeOpacity={summaryNeedsToggle ? 0.78 : 1}
+              disabled={!summaryNeedsToggle}
+              onPress={() => handleOpenContent('Latest Summary', run.summary ?? '')}>
               <Text
-                style={styles.summaryText}
-                numberOfLines={isSummaryExpanded ? undefined : 5}>
+                style={styles.summaryMeasureText}
+                onTextLayout={(event) => {
+                  const nextNeedsToggle = event.nativeEvent.lines.length > 5;
+                  setSummaryNeedsToggle((current) =>
+                    current === nextNeedsToggle ? current : nextNeedsToggle,
+                  );
+                }}>
                 {run.summary}
               </Text>
-              <TouchableOpacity
-                style={styles.summaryToggle}
-                onPress={() => setIsSummaryExpanded((prev) => !prev)}
-                activeOpacity={0.7}>
-                <Text style={styles.summaryToggleText}>
-                  {isSummaryExpanded ? 'Show less' : 'Show more'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+              <Text
+                style={styles.summaryText}
+                numberOfLines={summaryNeedsToggle ? 5 : undefined}>
+                {run.summary}
+              </Text>
+              {summaryNeedsToggle ? (
+                <TouchableOpacity
+                  style={styles.summaryToggle}
+                  onPress={() => handleOpenContent('Latest Summary', run.summary ?? '')}
+                  activeOpacity={0.7}>
+                  <Text style={styles.summaryToggleText}>Open full summary</Text>
+                </TouchableOpacity>
+              ) : null}
+            </TouchableOpacity>
           </>
         ) : null}
       </View>
@@ -298,7 +318,9 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
             </Text>
           </View>
         ) : (
-          turns.map((turn) => <TurnSectionView key={turn.id} turn={turn} />)
+          turns.map((turn) => (
+            <TurnSectionView key={turn.id} turn={turn} onOpenContent={handleOpenContent} />
+          ))
         )}
       </ScrollView>
 
@@ -319,84 +341,78 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
           </>
         ) : canContinueRun(latestTurn) ? (
           <>
-            <TextInput
-              style={[commonStyles.input, styles.followUpInput]}
-              placeholder="Continue this thread with a follow-up prompt"
-              placeholderTextColor={colors.textSecondary}
-              value={followUpPrompt}
-              onChangeText={setFollowUpPrompt}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
-            {run.tool === 'codex' ? (
-              <>
-                <View style={styles.attachmentHeader}>
-                  <Text style={styles.attachmentLabel}>Images</Text>
+            <View style={styles.composerCard}>
+              {followUpAttachments.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.composerAttachmentRow}>
+                  {followUpAttachments.map((attachment) => (
+                    <View key={attachment.id} style={styles.composerAttachmentThumb}>
+                      <Image source={{ uri: attachment.uri }} style={styles.composerAttachmentPreview} />
+                      <TouchableOpacity
+                        style={styles.composerAttachmentRemove}
+                        onPress={() =>
+                          setFollowUpAttachments((current) =>
+                            current.filter((item) => item.id !== attachment.id),
+                          )
+                        }
+                        activeOpacity={0.7}>
+                        <Text style={styles.composerAttachmentRemoveText}>X</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.composerAttachmentMeta}>
+                        {formatAttachmentSize(attachment.sizeBytes)}
+                      </Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : null}
+
+              <View style={styles.composerInputRow}>
+                {run.tool === 'codex' ? (
                   <TouchableOpacity
                     style={[
-                      styles.attachButton,
-                      followUpAttachments.length >= 4 && styles.attachButtonDisabled,
+                      styles.composerIconButton,
+                      followUpAttachments.length >= 4 && styles.composerIconButtonDisabled,
                     ]}
+                    accessibilityLabel="Add image"
                     disabled={followUpAttachments.length >= 4}
                     onPress={() => {
                       void handlePickAttachments();
                     }}
                     activeOpacity={0.7}>
-                    <Text style={styles.attachButtonText}>
-                      {followUpAttachments.length >= 4 ? 'Limit reached' : 'Add Images'}
-                    </Text>
+                    <AddImageIcon />
                   </TouchableOpacity>
-                </View>
-                {followUpAttachments.length > 0 ? (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.selectedAttachmentList}>
-                    {followUpAttachments.map((attachment) => (
-                      <View key={attachment.id} style={styles.selectedAttachmentCard}>
-                        <Image source={{ uri: attachment.uri }} style={styles.selectedAttachmentPreview} />
-                        <Text style={styles.selectedAttachmentName} numberOfLines={1}>
-                          {attachment.name}
-                        </Text>
-                        <Text style={styles.selectedAttachmentMeta}>
-                          {formatAttachmentSize(attachment.sizeBytes)}
-                        </Text>
-                        <TouchableOpacity
-                          style={styles.selectedAttachmentRemove}
-                          onPress={() =>
-                            setFollowUpAttachments((current) =>
-                              current.filter((item) => item.id !== attachment.id),
-                            )
-                          }
-                          activeOpacity={0.7}>
-                          <Text style={styles.selectedAttachmentRemoveText}>Remove</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </ScrollView>
                 ) : null}
-              </>
-            ) : null}
+
+                <TextInput
+                  style={styles.followUpInput}
+                  placeholder="Message this thread"
+                  placeholderTextColor={colors.textSecondary}
+                  value={followUpPrompt}
+                  onChangeText={setFollowUpPrompt}
+                  multiline
+                  textAlignVertical="top"
+                />
+
+                <TouchableOpacity
+                  style={[
+                    styles.sendButton,
+                    (isContinuing || (!followUpPrompt.trim() && followUpAttachments.length === 0)) &&
+                      styles.sendButtonDisabled,
+                  ]}
+                  onPress={handleContinue}
+                  disabled={isContinuing || (!followUpPrompt.trim() && followUpAttachments.length === 0)}
+                  activeOpacity={0.7}>
+                  {isContinuing ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <Text style={styles.sendButtonText}>Send</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
             {error ? <Text style={styles.errorTextInline}>{error}</Text> : null}
-            <TouchableOpacity
-              style={[
-                commonStyles.button,
-                styles.continueButton,
-                (isContinuing || (!followUpPrompt.trim() && followUpAttachments.length === 0)) && styles.buttonDisabled,
-              ]}
-              onPress={handleContinue}
-              disabled={isContinuing || (!followUpPrompt.trim() && followUpAttachments.length === 0)}
-              activeOpacity={0.7}>
-              {isContinuing ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={commonStyles.buttonText}>Send Follow-up</Text>
-              )}
-            </TouchableOpacity>
-            <Text style={styles.footerHint}>
-              This starts the next turn in the same thread. The page stays here.
-            </Text>
           </>
         ) : (
           <Text style={styles.footerHint}>
@@ -408,7 +424,13 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   );
 }
 
-function TurnSectionView({ turn }: { turn: RunTurnDetail }): React.JSX.Element {
+function TurnSectionView({
+  turn,
+  onOpenContent,
+}: {
+  turn: RunTurnDetail;
+  onOpenContent: (title: string, content: string, mono?: boolean) => void;
+}): React.JSX.Element {
   return (
     <View style={styles.turnSection}>
       <View style={styles.turnHeader}>
@@ -440,7 +462,11 @@ function TurnSectionView({ turn }: { turn: RunTurnDetail }): React.JSX.Element {
         </View>
       ) : (
         turn.items.map((item) => (
-          <TimelineItemView key={`${turn.id}-${item.id}`} item={item} />
+          <TimelineItemView
+            key={`${turn.id}-${item.id}`}
+            item={item}
+            onOpenContent={onOpenContent}
+          />
         ))
       )}
     </View>
@@ -463,7 +489,13 @@ function AttachmentChip({ attachment }: { attachment: RunImageAttachment }): Rea
   );
 }
 
-function TimelineItemView({ item }: { item: RunTimelineEvent }): React.JSX.Element {
+function TimelineItemView({
+  item,
+  onOpenContent,
+}: {
+  item: RunTimelineEvent;
+  onOpenContent: (title: string, content: string, mono?: boolean) => void;
+}): React.JSX.Element {
   if (item.type === 'message') {
     return (
       <View style={styles.messageCard}>
@@ -495,9 +527,10 @@ function TimelineItemView({ item }: { item: RunTimelineEvent }): React.JSX.Eleme
         </View>
         <Text style={styles.commandText}>{item.command}</Text>
         {item.output ? (
-          <View style={styles.commandOutputBox}>
-            <Text style={styles.commandOutputText}>{item.output.trimEnd()}</Text>
-          </View>
+          <CommandOutputView
+            output={item.output.trimEnd()}
+            onOpen={() => onOpenContent('Command Output', item.output.trimEnd(), true)}
+          />
         ) : null}
       </View>
     );
@@ -523,6 +556,52 @@ function TimelineItemView({ item }: { item: RunTimelineEvent }): React.JSX.Eleme
       <View style={styles.activityTextArea}>
         <Text style={styles.activityLabel}>{item.label}</Text>
         {item.detail ? <Text style={styles.activityDetail}>{item.detail}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+function CommandOutputView({
+  output,
+  onOpen,
+}: {
+  output: string;
+  onOpen: () => void;
+}): React.JSX.Element {
+  const isCollapsible = output.length > 200 || output.split('\n').length > 4;
+
+  return (
+    <TouchableOpacity
+      style={styles.commandOutputBox}
+      activeOpacity={isCollapsible ? 0.78 : 1}
+      disabled={!isCollapsible}
+      onPress={onOpen}>
+      <View style={styles.commandOutputHeader}>
+        <Text style={styles.commandOutputLabel}>Output</Text>
+        {isCollapsible ? (
+          <TouchableOpacity onPress={onOpen} activeOpacity={0.7}>
+            <Text style={styles.commandOutputToggle}>Open full output</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      <Text style={styles.commandOutputText} numberOfLines={isCollapsible ? 4 : undefined}>
+        {output}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function AddImageIcon(): React.JSX.Element {
+  return (
+    <View style={styles.addImageIcon}>
+      <View style={styles.addImageIconFrame}>
+        <View style={styles.addImageIconSun} />
+        <View style={styles.addImageIconMountainLeft} />
+        <View style={styles.addImageIconMountainRight} />
+      </View>
+      <View style={styles.addImageIconBadge}>
+        <View style={styles.addImageIconPlusHorizontal} />
+        <View style={styles.addImageIconPlusVertical} />
       </View>
     </View>
   );
@@ -616,6 +695,16 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   summaryText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  summaryMeasureText: {
+    position: 'absolute',
+    opacity: 0,
+    zIndex: -1,
+    left: 12,
+    right: 12,
     color: colors.textSecondary,
     fontSize: 13,
     lineHeight: 18,
@@ -785,6 +874,25 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginTop: 10,
   },
+  commandOutputHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  commandOutputLabel: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  commandOutputToggle: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   commandOutputText: {
     color: colors.textSecondary,
     fontSize: 12,
@@ -840,82 +948,166 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   followUpInput: {
-    minHeight: 96,
-    marginBottom: 10,
-  },
-  attachmentHeader: {
-    marginBottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  attachmentLabel: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  attachButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: `${colors.accent}20`,
-    borderWidth: 1,
-    borderColor: `${colors.accent}55`,
-  },
-  attachButtonDisabled: {
-    opacity: 0.5,
-  },
-  attachButtonText: {
-    color: colors.accent,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  selectedAttachmentList: {
-    gap: 10,
-    paddingBottom: 10,
-  },
-  selectedAttachmentCard: {
-    width: 132,
-    backgroundColor: colors.background,
-    borderRadius: 14,
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 120,
+    backgroundColor: colors.surfaceLight,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 10,
-    marginBottom: 10,
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
-  selectedAttachmentPreview: {
-    width: '100%',
-    height: 88,
-    borderRadius: 10,
+  composerCard: {
+    backgroundColor: colors.background,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  composerAttachmentRow: {
+    gap: 10,
+    paddingBottom: 10,
+    paddingRight: 2,
+  },
+  composerAttachmentThumb: {
+    width: 72,
+    alignItems: 'center',
+  },
+  composerAttachmentPreview: {
+    width: 72,
+    height: 72,
+    borderRadius: 14,
     backgroundColor: colors.surfaceLight,
   },
-  selectedAttachmentName: {
-    marginTop: 10,
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '600',
+  composerAttachmentRemove: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#00000099',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  selectedAttachmentMeta: {
-    marginTop: 4,
+  composerAttachmentRemoveText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  composerAttachmentMeta: {
+    marginTop: 6,
     color: colors.textSecondary,
-    fontSize: 12,
+    fontSize: 11,
   },
-  selectedAttachmentRemove: {
-    marginTop: 10,
-    alignSelf: 'flex-start',
+  composerInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
   },
-  selectedAttachmentRemoveText: {
-    color: colors.red,
-    fontSize: 12,
-    fontWeight: '600',
+  composerIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: colors.surfaceLight,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  continueButton: {
-    marginBottom: 10,
+  composerIconButtonDisabled: {
+    opacity: 0.45,
   },
-  buttonDisabled: {
-    opacity: 0.5,
+  addImageIcon: {
+    width: 20,
+    height: 20,
+  },
+  addImageIconFrame: {
+    width: 16,
+    height: 14,
+    borderRadius: 4,
+    borderWidth: 1.4,
+    borderColor: colors.accent,
+    position: 'absolute',
+    left: 1,
+    top: 3,
+  },
+  addImageIconSun: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: colors.accent,
+    position: 'absolute',
+    top: 2,
+    right: 2,
+  },
+  addImageIconMountainLeft: {
+    position: 'absolute',
+    left: 2,
+    bottom: 2,
+    width: 7,
+    height: 2,
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    transform: [{ rotate: '-35deg' }],
+  },
+  addImageIconMountainRight: {
+    position: 'absolute',
+    left: 6,
+    bottom: 3,
+    width: 6,
+    height: 2,
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    transform: [{ rotate: '36deg' }],
+  },
+  addImageIconBadge: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: colors.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addImageIconPlusHorizontal: {
+    position: 'absolute',
+    width: 5,
+    height: 1.4,
+    borderRadius: 999,
+    backgroundColor: colors.background,
+  },
+  addImageIconPlusVertical: {
+    position: 'absolute',
+    width: 1.4,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: colors.background,
+  },
+  sendButton: {
+    height: 42,
+    minWidth: 68,
+    borderRadius: 14,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  sendButtonDisabled: {
+    opacity: 0.45,
+  },
+  sendButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   footerHint: {
     color: colors.textSecondary,

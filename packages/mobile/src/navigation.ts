@@ -4,6 +4,7 @@ export type RootStackParamList = {
   Agents: undefined;
   NewThread: { agentId?: string } | undefined;
   ThreadDetail: { agentId: string; runId: string };
+  ThreadContent: { title: string; content: string; mono?: boolean };
   Terminal: { agentId: string; sessionName?: string };
 };
 

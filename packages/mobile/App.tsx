@@ -11,6 +11,7 @@ import ThreadsScreen from './src/screens/RunsScreen';
 import AgentsScreen from './src/screens/AgentsScreen';
 import NewThreadScreen from './src/screens/NewRunScreen';
 import ThreadDetailScreen from './src/screens/RunDetailScreen';
+import ThreadContentScreen from './src/screens/ThreadContentScreen';
 import TerminalScreen from './src/screens/TerminalScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -63,6 +64,11 @@ function AppNavigator(): React.JSX.Element {
             name="ThreadDetail"
             component={ThreadDetailScreen}
             options={{ title: 'Thread Detail' }}
+          />
+          <Stack.Screen
+            name="ThreadContent"
+            component={ThreadContentScreen}
+            options={({ route }) => ({ title: route.params.title })}
           />
           <Stack.Screen
             name="Terminal"
