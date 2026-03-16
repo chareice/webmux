@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, FolderGit2, Folder, LoaderCircle, ArrowUp } from 'lucide-react'
+import { ArrowLeft, ChevronRight, FolderGit2, Folder, LoaderCircle, ArrowUp, ImagePlus, X } from 'lucide-react'
 import { fetchApi } from '../auth.tsx'
 import type {
   AgentInfo,
@@ -12,12 +12,22 @@ import type {
   RunListResponse,
   RunTool,
   StartRunRequest,
+  RunImageAttachmentUpload,
 } from '@webmux/shared'
 
 const TOOLS: { value: RunTool; label: string; description: string }[] = [
   { value: 'claude', label: 'Claude Code', description: 'Anthropic Claude Code CLI' },
   { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
 ]
+
+const MAX_ATTACHMENTS = 4
+
+interface DraftAttachment {
+  id: string
+  file: File
+  previewUrl: string
+  base64: string
+}
 
 function extractRecentRepositories(runs: Run[]): string[] {
   const seen = new Set<string>()
@@ -37,6 +47,26 @@ function repositoryName(repoPath: string): string {
   return parts[parts.length - 1] ?? repoPath
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      // result is "data:<mime>;base64,<data>" - extract <data>
+      const result = reader.result as string
+      const base64 = result.split(',')[1] ?? ''
+      resolve(base64)
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
 export function NewThreadPage() {
   const { agentId } = useParams<{ agentId: string }>()
   const navigate = useNavigate()
@@ -47,6 +77,7 @@ export function NewThreadPage() {
   const [repoPath, setRepoPath] = useState('')
   const [prompt, setPrompt] = useState('')
   const [recentRepos, setRecentRepos] = useState<string[]>([])
+  const [attachments, setAttachments] = useState<DraftAttachment[]>([])
 
   const [repoBrowser, setRepoBrowser] = useState<RepositoryBrowseResponse | null>(null)
   const [isRepoBrowserOpen, setIsRepoBrowserOpen] = useState(false)
@@ -57,6 +88,9 @@ export function NewThreadPage() {
   const [error, setError] = useState<string | null>(null)
 
   const previousAgentRef = useRef('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const isCodex = selectedTool === 'codex'
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -150,23 +184,74 @@ export function NewThreadPage() {
     return () => { cancelled = true }
   }, [selectedAgent])
 
+  // Clear attachments when switching away from codex
+  useEffect(() => {
+    if (!isCodex && attachments.length > 0) {
+      for (const a of attachments) {
+        URL.revokeObjectURL(a.previewUrl)
+      }
+      setAttachments([])
+    }
+  }, [isCodex]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const selectedAgentInfo = useMemo(
     () => agents.find((a) => a.id === selectedAgent) ?? null,
     [agents, selectedAgent],
   )
 
+  const handleFilesSelected = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+
+    const remaining = MAX_ATTACHMENTS - attachments.length
+    const toAdd = Array.from(files).slice(0, remaining)
+
+    const newAttachments: DraftAttachment[] = []
+    for (const file of toAdd) {
+      const base64 = await fileToBase64(file)
+      newAttachments.push({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        base64,
+      })
+    }
+
+    setAttachments((prev) => [...prev, ...newAttachments])
+    // Reset file input so same file can be re-selected
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => {
+      const removed = prev.find((a) => a.id === id)
+      if (removed) URL.revokeObjectURL(removed.previewUrl)
+      return prev.filter((a) => a.id !== id)
+    })
+  }
+
+  const hasContent = prompt.trim().length > 0 || (isCodex && attachments.length > 0)
+
   const handleSubmit = async () => {
     setError(null)
     if (!selectedAgent) { setError('Please select an agent'); return }
     if (!repoPath.trim()) { setError('Please choose a repository'); return }
-    if (!prompt.trim()) { setError('Please enter a prompt'); return }
+    if (!hasContent) { setError('Please enter a prompt or attach images'); return }
 
     setIsSubmitting(true)
     try {
+      const uploadAttachments: RunImageAttachmentUpload[] = attachments.map((a) => ({
+        id: a.id,
+        name: a.file.name,
+        mimeType: a.file.type,
+        sizeBytes: a.file.size,
+        base64: a.base64,
+      }))
+
       const body: StartRunRequest = {
         tool: selectedTool,
         repoPath: repoPath.trim(),
         prompt: prompt.trim(),
+        ...(uploadAttachments.length > 0 ? { attachments: uploadAttachments } : {}),
       }
       const res = await fetchApi(`/api/agents/${selectedAgent}/threads`, {
         method: 'POST',
@@ -178,6 +263,8 @@ export function NewThreadPage() {
         throw new Error((errData as any)?.error || 'Failed to start thread')
       }
       const data = (await res.json()) as RunDetailResponse
+      // Clean up object URLs before navigating
+      for (const a of attachments) URL.revokeObjectURL(a.previewUrl)
       navigate(`/agents/${selectedAgent}/threads/${data.run.id}`, { replace: true })
     } catch (err) {
       setError((err as Error).message)
@@ -316,11 +403,64 @@ export function NewThreadPage() {
           />
         </div>
 
+        {/* Image Attachments (codex only) */}
+        {isCodex ? (
+          <div className="form-section">
+            <label className="form-label">Image Attachments</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="visually-hidden"
+              onChange={(e) => void handleFilesSelected(e.target.files)}
+            />
+
+            {attachments.length > 0 ? (
+              <div className="attachment-thumbnails">
+                {attachments.map((a) => (
+                  <div key={a.id} className="attachment-thumb">
+                    <img src={a.previewUrl} alt={a.file.name} className="attachment-thumb-img" />
+                    <button
+                      className="attachment-thumb-remove"
+                      onClick={() => removeAttachment(a.id)}
+                      title="Remove"
+                      type="button"
+                    >
+                      <X size={12} />
+                    </button>
+                    <div className="attachment-thumb-info">
+                      <span className="attachment-thumb-name">{a.file.name}</span>
+                      <span className="attachment-thumb-size">{formatFileSize(a.file.size)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {attachments.length < MAX_ATTACHMENTS ? (
+              <button
+                className="secondary-button attachment-add-button"
+                onClick={() => fileInputRef.current?.click()}
+                type="button"
+              >
+                <ImagePlus size={14} />
+                {attachments.length === 0 ? 'Add Images' : 'Add More'}
+                <span className="attachment-count-hint">
+                  ({attachments.length}/{MAX_ATTACHMENTS})
+                </span>
+              </button>
+            ) : (
+              <p className="form-hint">Maximum {MAX_ATTACHMENTS} images reached.</p>
+            )}
+          </div>
+        ) : null}
+
         {error ? <p className="error-banner">{error}</p> : null}
 
         <button
           className="primary-button new-thread-submit"
-          disabled={isSubmitting || !selectedAgent || !repoPath.trim() || !prompt.trim()}
+          disabled={isSubmitting || !selectedAgent || !repoPath.trim() || !hasContent}
           onClick={() => void handleSubmit()}
           type="button"
         >

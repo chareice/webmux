@@ -4,9 +4,13 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
+  ImagePlus,
   LoaderCircle,
+  Paperclip,
   Send,
   StopCircle,
+  Trash2,
+  X,
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
@@ -15,12 +19,21 @@ import type {
   Run,
   RunDetailResponse,
   RunEvent,
+  RunImageAttachmentUpload,
   RunStatus,
   RunTimelineEvent,
-  RunTimelineEventPayload,
   RunTurn,
   RunTurnDetail,
 } from '@webmux/shared'
+
+const MAX_ATTACHMENTS = 4
+
+interface DraftAttachment {
+  id: string
+  file: File
+  previewUrl: string
+  base64: string
+}
 
 function statusLabel(status: RunStatus): string {
   switch (status) {
@@ -55,6 +68,10 @@ function toolIcon(tool: string): string {
   return tool === 'codex' ? 'CX' : 'CC'
 }
 
+function toolLabel(tool: string): string {
+  return tool === 'codex' ? 'Codex' : 'Claude Code'
+}
+
 function timeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000)
   if (seconds < 60) return `${seconds}s ago`
@@ -65,6 +82,30 @@ function timeAgo(timestamp: number): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
+function repoName(repoPath: string): string {
+  const parts = repoPath.split('/')
+  return parts[parts.length - 1] || repoPath
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      const base64 = result.split(',')[1] ?? ''
+      resolve(base64)
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
 export function ThreadDetailPage() {
   const { agentId, threadId } = useParams<{ agentId: string; threadId: string }>()
   const navigate = useNavigate()
@@ -73,11 +114,15 @@ export function ThreadDetailPage() {
   const [run, setRun] = useState<Run | null>(null)
   const [turns, setTurns] = useState<RunTurnDetail[]>([])
   const [followUp, setFollowUp] = useState('')
+  const [attachments, setAttachments] = useState<DraftAttachment[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isContinuing, setIsContinuing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const timelineRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const isCodex = run?.tool === 'codex'
 
   const fetchDetail = useCallback(async () => {
     try {
@@ -99,6 +144,7 @@ export function ThreadDetailPage() {
     setTurns([])
     setError(null)
     setFollowUp('')
+    setAttachments([])
     setIsLoading(true)
     void fetchDetail()
   }, [fetchDetail])
@@ -159,15 +205,75 @@ export function ThreadDetailPage() {
     }
   }
 
+  const handleDelete = async () => {
+    const label =
+      run && isRunActive(run.status)
+        ? 'This will stop the running task and remove it.'
+        : 'This will remove the thread.'
+    if (!confirm(label)) return
+
+    try {
+      const res = await fetchApi(`/api/agents/${agentId}/threads/${threadId}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error('Failed to delete thread')
+      navigate('/threads', { replace: true })
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  const handleFilesSelected = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+
+    const remaining = MAX_ATTACHMENTS - attachments.length
+    const toAdd = Array.from(files).slice(0, remaining)
+
+    const newAttachments: DraftAttachment[] = []
+    for (const file of toAdd) {
+      const base64 = await fileToBase64(file)
+      newAttachments.push({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        base64,
+      })
+    }
+
+    setAttachments((prev) => [...prev, ...newAttachments])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => {
+      const removed = prev.find((a) => a.id === id)
+      if (removed) URL.revokeObjectURL(removed.previewUrl)
+      return prev.filter((a) => a.id !== id)
+    })
+  }
+
+  const hasContent = followUp.trim().length > 0 || (isCodex && attachments.length > 0)
+
   const handleContinue = async () => {
-    if (!followUp.trim()) {
-      setError('Please enter a follow-up message')
+    if (!hasContent) {
+      setError('Please enter a follow-up message or attach images')
       return
     }
 
     setIsContinuing(true)
     try {
-      const body: ContinueRunRequest = { prompt: followUp.trim() }
+      const uploadAttachments: RunImageAttachmentUpload[] = attachments.map((a) => ({
+        id: a.id,
+        name: a.file.name,
+        mimeType: a.file.type,
+        sizeBytes: a.file.size,
+        base64: a.base64,
+      }))
+
+      const body: ContinueRunRequest = {
+        prompt: followUp.trim(),
+        ...(uploadAttachments.length > 0 ? { attachments: uploadAttachments } : {}),
+      }
       const res = await fetchApi(`/api/agents/${agentId}/threads/${threadId}/turns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -181,6 +287,9 @@ export function ThreadDetailPage() {
       setRun(data.run)
       setTurns(data.turns)
       setFollowUp('')
+      // Clean up object URLs
+      for (const a of attachments) URL.revokeObjectURL(a.previewUrl)
+      setAttachments([])
       setError(null)
     } catch (err) {
       setError((err as Error).message)
@@ -211,10 +320,12 @@ export function ThreadDetailPage() {
     )
   }
 
+  const sc = statusClass(run.status)
+
   return (
     <div className="thread-detail-page">
-      {/* Header */}
-      <div className="thread-detail-header">
+      {/* Mobile header */}
+      <div className="thread-detail-header thread-detail-header--mobile">
         <div className="thread-detail-header-left">
           <button
             className="secondary-button"
@@ -230,83 +341,198 @@ export function ThreadDetailPage() {
             {run.branch ? <span className="thread-detail-branch">{run.branch}</span> : null}
           </div>
         </div>
-        <span className={`thread-status-badge ${statusClass(run.status)}`}>
-          <span className={`thread-status-dot ${statusClass(run.status)}`} />
+        <span className={`thread-status-badge ${sc}`}>
+          <span className={`thread-status-dot ${sc}`} />
           {statusLabel(run.status)}
         </span>
       </div>
 
-      {/* Summary */}
-      {run.summary ? (
-        <div className="thread-detail-summary">
-          <span className="thread-detail-summary-label">Latest Summary</span>
-          <p className="thread-detail-summary-text">{run.summary}</p>
-        </div>
-      ) : null}
-
-      {/* Timeline */}
-      <div className="thread-detail-timeline" ref={timelineRef}>
-        {turns.length === 0 ? (
-          <div className="thread-detail-empty">
-            <p>{active ? 'Thread started. Waiting for timeline events...' : 'No timeline recorded.'}</p>
+      {/* Desktop two-column layout */}
+      <div className="thread-detail-body">
+        {/* Left sidebar (desktop only) */}
+        <aside className="thread-sidebar">
+          <div className="thread-sidebar-section">
+            <span className="thread-sidebar-label">Tool</span>
+            <div className="thread-sidebar-row">
+              <span className={`thread-tool-badge ${run.tool}`}>{toolIcon(run.tool)}</span>
+              <span className="thread-sidebar-value">{toolLabel(run.tool)}</span>
+            </div>
           </div>
-        ) : (
-          turns.map((turn) => <TurnSection key={turn.id} turn={turn} />)
-        )}
-      </div>
 
-      {/* Footer */}
-      <div className="thread-detail-footer">
-        {active ? (
-          <>
-            <button
-              className="secondary-button thread-interrupt-button"
-              onClick={() => void handleInterrupt()}
-              type="button"
-            >
-              <StopCircle size={14} />
-              Interrupt
-            </button>
-            <span className="thread-footer-hint">
-              Follow-up input becomes available after the current turn finishes.
+          <div className="thread-sidebar-section">
+            <span className="thread-sidebar-label">Repository</span>
+            <span className="thread-sidebar-value thread-sidebar-repo" title={run.repoPath}>
+              {repoName(run.repoPath)}
             </span>
-          </>
-        ) : canContinue(latestTurn) ? (
-          <>
-            <div className="thread-composer">
-              <textarea
-                className="thread-composer-input"
-                placeholder="Message this thread..."
-                rows={2}
-                value={followUp}
-                onChange={(e) => setFollowUp(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault()
-                    void handleContinue()
-                  }
-                }}
-              />
+            <span className="thread-sidebar-detail">{run.repoPath}</span>
+          </div>
+
+          {run.branch ? (
+            <div className="thread-sidebar-section">
+              <span className="thread-sidebar-label">Branch</span>
+              <span className="thread-sidebar-value mono">{run.branch}</span>
+            </div>
+          ) : null}
+
+          <div className="thread-sidebar-section">
+            <span className="thread-sidebar-label">Status</span>
+            <span className={`thread-status-badge ${sc}`}>
+              <span className={`thread-status-dot ${sc}`} />
+              {statusLabel(run.status)}
+            </span>
+          </div>
+
+          <div className="thread-sidebar-section">
+            <span className="thread-sidebar-label">Updated</span>
+            <span className="thread-sidebar-detail">{timeAgo(run.updatedAt)}</span>
+          </div>
+
+          {run.summary ? (
+            <div className="thread-sidebar-section">
+              <span className="thread-sidebar-label">Summary</span>
+              <p className="thread-sidebar-summary">{run.summary}</p>
+            </div>
+          ) : null}
+
+          <div className="thread-sidebar-actions">
+            {active ? (
               <button
-                className="primary-button thread-send-button"
-                disabled={isContinuing || !followUp.trim()}
-                onClick={() => void handleContinue()}
+                className="secondary-button thread-interrupt-button"
+                onClick={() => void handleInterrupt()}
                 type="button"
               >
-                {isContinuing ? <LoaderCircle className="spin" size={14} /> : <Send size={14} />}
+                <StopCircle size={14} />
+                Interrupt
               </button>
+            ) : null}
+            <button
+              className="secondary-button thread-delete-button"
+              onClick={() => void handleDelete()}
+              type="button"
+            >
+              <Trash2 size={14} />
+              Delete
+            </button>
+          </div>
+        </aside>
+
+        {/* Main content */}
+        <div className="thread-detail-main">
+          {/* Mobile summary */}
+          {run.summary ? (
+            <div className="thread-detail-summary thread-detail-summary--mobile">
+              <span className="thread-detail-summary-label">Latest Summary</span>
+              <p className="thread-detail-summary-text">{run.summary}</p>
             </div>
-            {error ? <p className="error-banner thread-error">{error}</p> : null}
-          </>
-        ) : (
-          <span className="thread-footer-hint">Thread ended.</span>
-        )}
+          ) : null}
+
+          {/* Timeline */}
+          <div className="thread-detail-timeline" ref={timelineRef}>
+            {turns.length === 0 ? (
+              <div className="thread-detail-empty">
+                <p>{active ? 'Thread started. Waiting for timeline events...' : 'No timeline recorded.'}</p>
+              </div>
+            ) : (
+              turns.map((turn) => <TurnSection key={turn.id} turn={turn} />)
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="thread-detail-footer">
+            {active ? (
+              <>
+                <button
+                  className="secondary-button thread-interrupt-button thread-interrupt-button--mobile"
+                  onClick={() => void handleInterrupt()}
+                  type="button"
+                >
+                  <StopCircle size={14} />
+                  Interrupt
+                </button>
+                <span className="thread-footer-hint">
+                  Follow-up input becomes available after the current turn finishes.
+                </span>
+              </>
+            ) : canContinue(latestTurn) ? (
+              <>
+                {/* Attachment thumbnails */}
+                {isCodex && attachments.length > 0 ? (
+                  <div className="composer-attachments">
+                    {attachments.map((a) => (
+                      <div key={a.id} className="attachment-thumb attachment-thumb--small">
+                        <img src={a.previewUrl} alt={a.file.name} className="attachment-thumb-img" />
+                        <button
+                          className="attachment-thumb-remove"
+                          onClick={() => removeAttachment(a.id)}
+                          title="Remove"
+                          type="button"
+                        >
+                          <X size={10} />
+                        </button>
+                        <span className="attachment-thumb-name">{a.file.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="thread-composer">
+                  {isCodex ? (
+                    <>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="visually-hidden"
+                        onChange={(e) => void handleFilesSelected(e.target.files)}
+                      />
+                      <button
+                        className="icon-button composer-attach-button"
+                        disabled={attachments.length >= MAX_ATTACHMENTS}
+                        onClick={() => fileInputRef.current?.click()}
+                        title={`Attach images (${attachments.length}/${MAX_ATTACHMENTS})`}
+                        type="button"
+                      >
+                        <ImagePlus size={16} />
+                      </button>
+                    </>
+                  ) : null}
+                  <textarea
+                    className="thread-composer-input"
+                    placeholder="Message this thread..."
+                    rows={2}
+                    value={followUp}
+                    onChange={(e) => setFollowUp(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault()
+                        void handleContinue()
+                      }
+                    }}
+                  />
+                  <button
+                    className="primary-button thread-send-button"
+                    disabled={isContinuing || !hasContent}
+                    onClick={() => void handleContinue()}
+                    type="button"
+                  >
+                    {isContinuing ? <LoaderCircle className="spin" size={14} /> : <Send size={14} />}
+                  </button>
+                </div>
+                {error ? <p className="error-banner thread-error">{error}</p> : null}
+              </>
+            ) : (
+              <span className="thread-footer-hint">Thread ended.</span>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
 }
 
 function TurnSection({ turn }: { turn: RunTurnDetail }) {
+  const hasAttachments = turn.attachments && turn.attachments.length > 0
   return (
     <div className="turn-section">
       <div className="turn-header">
@@ -320,6 +546,12 @@ function TurnSection({ turn }: { turn: RunTurnDetail }) {
       <div className="timeline-card message-card user">
         <span className="timeline-eyebrow">User</span>
         <p className="timeline-text">{turn.prompt}</p>
+        {hasAttachments ? (
+          <div className="turn-attachments-indicator">
+            <Paperclip size={12} />
+            <span>{turn.attachments.length} image{turn.attachments.length > 1 ? 's' : ''} attached</span>
+          </div>
+        ) : null}
       </div>
 
       {turn.items.length === 0 ? (

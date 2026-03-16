@@ -47,6 +47,10 @@ function toolIcon(tool: string): string {
   return tool === 'codex' ? 'CX' : 'CC'
 }
 
+function toolLabel(tool: string): string {
+  return tool === 'codex' ? 'Codex' : 'Claude'
+}
+
 export function ThreadsPage() {
   const navigate = useNavigate()
   const [runs, setRuns] = useState<Run[]>([])
@@ -183,9 +187,18 @@ export function ThreadsPage() {
       {activeRuns.length > 0 ? (
         <div className="threads-section">
           <h2 className="threads-section-title">Active</h2>
+          {/* Desktop table header */}
+          <div className="threads-table-header">
+            <span className="th-tool">Tool</span>
+            <span className="th-info">Repository</span>
+            <span className="th-prompt">Prompt</span>
+            <span className="th-status">Status</span>
+            <span className="th-time">Updated</span>
+            <span className="th-actions" />
+          </div>
           <div className="threads-list">
             {activeRuns.map((run) => (
-              <ThreadCard
+              <ThreadRow
                 key={run.id}
                 run={run}
                 agentName={agents.get(run.agentId)?.name || undefined}
@@ -201,9 +214,18 @@ export function ThreadsPage() {
       {completedRuns.length > 0 ? (
         <div className="threads-section">
           <h2 className="threads-section-title">Completed</h2>
+          {/* Desktop table header (only show if no active section already) */}
+          <div className="threads-table-header">
+            <span className="th-tool">Tool</span>
+            <span className="th-info">Repository</span>
+            <span className="th-prompt">Prompt</span>
+            <span className="th-status">Status</span>
+            <span className="th-time">Updated</span>
+            <span className="th-actions" />
+          </div>
           <div className="threads-list">
             {completedRuns.map((run) => (
-              <ThreadCard
+              <ThreadRow
                 key={run.id}
                 run={run}
                 agentName={agents.get(run.agentId)?.name || undefined}
@@ -219,7 +241,7 @@ export function ThreadsPage() {
   )
 }
 
-function ThreadCard({
+function ThreadRow({
   run,
   agentName,
   isDeleting,
@@ -234,24 +256,36 @@ function ThreadCard({
 }) {
   const sc = statusClass(run.status)
   return (
-    <div className="thread-card" onClick={onClick} role="button" tabIndex={0}>
-      <div className="thread-card-header">
-        <div className="thread-card-left">
-          <span className={`thread-tool-badge ${run.tool}`}>{toolIcon(run.tool)}</span>
-          <div className="thread-card-info">
-            <span className="thread-repo-name">{repoName(run.repoPath)}</span>
-            {run.branch ? <span className="thread-branch">{run.branch}</span> : null}
-            {agentName ? <span className="thread-agent-name">{agentName}</span> : null}
-          </div>
-        </div>
+    <div className="thread-row" onClick={onClick} role="button" tabIndex={0}>
+      {/* Tool badge */}
+      <div className="thread-row-tool">
+        <span className={`thread-tool-badge ${run.tool}`}>{toolIcon(run.tool)}</span>
+        <span className="thread-tool-label">{toolLabel(run.tool)}</span>
+      </div>
+
+      {/* Repo + branch + agent */}
+      <div className="thread-row-info">
+        <span className="thread-repo-name" title={run.repoPath}>{repoName(run.repoPath)}</span>
+        {run.branch ? <span className="thread-branch">{run.branch}</span> : null}
+        {agentName ? <span className="thread-agent-name">{agentName}</span> : null}
+      </div>
+
+      {/* Prompt preview */}
+      <p className="thread-row-prompt">{run.prompt}</p>
+
+      {/* Status badge */}
+      <div className="thread-row-status">
         <span className={`thread-status-badge ${sc}`}>
           <span className={`thread-status-dot ${sc}`} />
           {statusLabel(run.status)}
         </span>
       </div>
-      <p className="thread-prompt">{run.prompt}</p>
-      <div className="thread-card-footer">
-        <span className="thread-time">{timeAgo(run.updatedAt)}</span>
+
+      {/* Updated time */}
+      <span className="thread-row-time">{timeAgo(run.updatedAt)}</span>
+
+      {/* Actions */}
+      <div className="thread-row-actions">
         <button
           className="icon-button kill-button"
           disabled={isDeleting}
