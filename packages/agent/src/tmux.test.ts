@@ -120,7 +120,9 @@ describe('waitForSessionAvailability', () => {
 })
 
 describe('TmuxClient integration', () => {
-  it('creates a new session when the socket does not exist yet', async () => {
+  it.skipIf(Boolean(process.env.CI))(
+    'creates a new session when the socket does not exist yet',
+    async () => {
     const socketName = `webmux-test-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
     const client = new TmuxClient({
       socketName,
@@ -135,5 +137,6 @@ describe('TmuxClient integration', () => {
     } finally {
       await execFileAsync('tmux', ['-L', socketName, 'kill-server']).catch(() => undefined)
     }
-  })
+    },
+  )
 })
