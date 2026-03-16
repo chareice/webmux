@@ -151,8 +151,13 @@ pnpm dlx @webmux/agent service upgrade --to 0.1.5
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm test:mobile
 pnpm build
 ```
+
+GitHub Actions now runs the workspace checks and the mobile checks in separate
+jobs, because `packages/mobile` intentionally uses its own install flow outside
+the root pnpm workspace.
 
 ## Notes
 

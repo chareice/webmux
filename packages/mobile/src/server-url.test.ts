@@ -1,4 +1,4 @@
-import { normalizeServerUrl } from './server-url';
+import { normalizeServerUrl } from './server-url.ts';
 
 function expectEqual(actual: string, expected: string): void {
   if (actual !== expected) {

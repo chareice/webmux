@@ -36,6 +36,7 @@ import {
   pickImageAttachments,
   toUploadAttachments,
 } from '../image-attachments';
+import { normalizePreviewText, shouldForcePreviewText } from '../thread-detail-preview';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ThreadDetail'>;
 
@@ -47,7 +48,6 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
   const [turns, setTurns] = useState<RunTurnDetail[]>([]);
   const [followUpPrompt, setFollowUpPrompt] = useState('');
   const [followUpAttachments, setFollowUpAttachments] = useState<DraftImageAttachment[]>([]);
-  const [summaryNeedsToggle, setSummaryNeedsToggle] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isContinuing, setIsContinuing] = useState(false);
   const [error, setError] = useState('');
@@ -74,7 +74,6 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
     setError('');
     setFollowUpPrompt('');
     setFollowUpAttachments([]);
-    setSummaryNeedsToggle(false);
     setIsLoading(true);
     void fetchThreadDetail();
   }, [fetchThreadDetail, runId]);
@@ -128,7 +127,6 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
   }, [turns]);
 
   const latestTurn = latestRunTurn(turns);
-  const initialTurn = turns[0] ?? null;
   const isActive = latestTurn ? isRunActive(latestTurn.status) : run ? isRunActive(run.status) : false;
   const handleOpenContent = useCallback(
     (title: string, content: string, mono = false) => {
@@ -264,43 +262,19 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
           </View>
         </View>
 
-        <Text style={styles.promptLabel}>Started With</Text>
-        <Text style={styles.promptText}>
-          {run.prompt || (initialTurn?.attachments.length ? 'Started with image attachments' : 'No text prompt')}
-        </Text>
-
         {run.summary ? (
           <>
             <Text style={styles.summaryLabel}>Latest Summary</Text>
-            <TouchableOpacity
+            <PreviewableMarkdownCard
               style={styles.summaryCard}
-              activeOpacity={summaryNeedsToggle ? 0.78 : 1}
-              disabled={!summaryNeedsToggle}
-              onPress={() => handleOpenContent('Latest Summary', run.summary ?? '')}>
-              <Text
-                style={styles.summaryMeasureText}
-                onTextLayout={(event) => {
-                  const nextNeedsToggle = event.nativeEvent.lines.length > 5;
-                  setSummaryNeedsToggle((current) =>
-                    current === nextNeedsToggle ? current : nextNeedsToggle,
-                  );
-                }}>
-                {run.summary}
-              </Text>
-              <Text
-                style={styles.summaryText}
-                numberOfLines={summaryNeedsToggle ? 5 : undefined}>
-                {run.summary}
-              </Text>
-              {summaryNeedsToggle ? (
-                <TouchableOpacity
-                  style={styles.summaryToggle}
-                  onPress={() => handleOpenContent('Latest Summary', run.summary ?? '')}
-                  activeOpacity={0.7}>
-                  <Text style={styles.summaryToggleText}>Open full summary</Text>
-                </TouchableOpacity>
-              ) : null}
-            </TouchableOpacity>
+              content={run.summary}
+              lineLimit={4}
+              charLimit={200}
+              openLabel="Open full summary"
+              previewTextStyle={styles.summaryText}
+              measureTextStyle={styles.summaryMeasureText}
+              onOpenContent={() => handleOpenContent('Latest Summary', run.summary ?? '')}
+            />
           </>
         ) : null}
       </View>
@@ -444,9 +418,16 @@ function TurnSectionView({
       <View style={styles.messageCard}>
         <Text style={styles.messageEyebrow}>User</Text>
         {turn.prompt ? (
-          <View style={styles.messageContent}>
-            <MarkdownContent content={turn.prompt} compact />
-          </View>
+          <PreviewableMarkdownCard
+            style={styles.messageContent}
+            content={turn.prompt}
+            lineLimit={6}
+            charLimit={280}
+            openLabel="Open full prompt"
+            previewTextStyle={styles.messagePreviewText}
+            measureTextStyle={styles.messageMeasureText}
+            onOpenContent={() => onOpenContent(`Turn ${turn.index} Prompt`, turn.prompt)}
+          />
         ) : (
           <Text style={styles.messagePlaceholder}>Sent image attachment</Text>
         )}
@@ -505,9 +486,16 @@ function TimelineItemView({
         <Text style={styles.messageEyebrow}>
           {item.role === 'assistant' ? 'Assistant' : item.role === 'user' ? 'User' : 'System'}
         </Text>
-        <View style={styles.messageContent}>
-          <MarkdownContent content={item.text} compact />
-        </View>
+        <PreviewableMarkdownCard
+          style={styles.messageContent}
+          content={item.text}
+          lineLimit={7}
+          charLimit={320}
+          openLabel="Open full message"
+          previewTextStyle={styles.messagePreviewText}
+          measureTextStyle={styles.messageMeasureText}
+          onOpenContent={() => onOpenContent('Message', item.text)}
+        />
       </View>
     );
   }
@@ -596,6 +584,63 @@ function CommandOutputView({
   );
 }
 
+function PreviewableMarkdownCard({
+  content,
+  lineLimit,
+  charLimit,
+  openLabel,
+  previewTextStyle,
+  measureTextStyle,
+  style,
+  onOpenContent,
+}: {
+  content: string;
+  lineLimit: number;
+  charLimit: number;
+  openLabel: string;
+  previewTextStyle: object;
+  measureTextStyle: object;
+  style?: object;
+  onOpenContent: () => void;
+}): React.JSX.Element {
+  const previewText = normalizePreviewText(content);
+  const [needsPreview, setNeedsPreview] = useState(
+    shouldForcePreviewText(previewText, { charLimit, lineLimit }),
+  );
+
+  return (
+    <TouchableOpacity
+      style={style}
+      activeOpacity={needsPreview ? 0.78 : 1}
+      disabled={!needsPreview}
+      onPress={onOpenContent}>
+      <Text
+        style={measureTextStyle}
+        onTextLayout={(event) => {
+          const nextNeedsPreview = event.nativeEvent.lines.length > lineLimit;
+          setNeedsPreview((current) => (current === nextNeedsPreview ? current : nextNeedsPreview));
+        }}>
+        {previewText}
+      </Text>
+      {needsPreview ? (
+        <>
+          <Text style={previewTextStyle} numberOfLines={lineLimit}>
+            {previewText}
+          </Text>
+          <TouchableOpacity
+            style={styles.previewToggle}
+            onPress={onOpenContent}
+            activeOpacity={0.7}>
+            <Text style={styles.previewToggleText}>{openLabel}</Text>
+          </TouchableOpacity>
+        </>
+      ) : (
+        <MarkdownContent content={content} compact />
+      )}
+    </TouchableOpacity>
+  );
+}
+
 function AddImageIcon(): React.JSX.Element {
   return (
     <View style={styles.addImageIcon}>
@@ -677,20 +722,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  promptLabel: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 12,
-  },
-  promptText: {
-    color: colors.text,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 6,
-  },
   summaryLabel: {
     color: colors.textSecondary,
     fontSize: 12,
@@ -722,15 +753,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderWidth: 1,
     borderColor: colors.border,
-  },
-  summaryToggle: {
-    alignSelf: 'flex-start',
-    marginTop: 10,
-  },
-  summaryToggleText: {
-    color: colors.accent,
-    fontSize: 13,
-    fontWeight: '600',
   },
   timeline: {
     flex: 1,
@@ -798,6 +820,21 @@ const styles = StyleSheet.create({
   },
   messageContent: {
     marginTop: 8,
+  },
+  messagePreviewText: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  messageMeasureText: {
+    position: 'absolute',
+    opacity: 0,
+    zIndex: -1,
+    left: 0,
+    right: 0,
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 21,
   },
   messagePlaceholder: {
     color: colors.textSecondary,
@@ -900,6 +937,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.mono,
     lineHeight: 18,
+  },
+  previewToggle: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  previewToggleText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
   },
   activityRow: {
     flexDirection: 'row',

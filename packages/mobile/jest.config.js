@@ -1,3 +1,7 @@
+const reactNativePreset = require('react-native/jest-preset');
+
 module.exports = {
-  preset: 'react-native',
+  ...reactNativePreset,
+  setupFiles: ['<rootDir>/jest.setup.cjs'],
+  testMatch: ['<rootDir>/__tests__/**/*.test.ts?(x)'],
 };

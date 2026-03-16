@@ -8,6 +8,7 @@
     "start": "pnpm --filter @webmux/server start",
     "build": "pnpm -r build",
     "e2e": "pnpm build && bash scripts/e2e.sh",
+    "test:mobile": "cd packages/mobile && pnpm test",
     "typecheck": "tsc -b",
     "lint": "eslint packages/",
     "test": "pnpm -r test"

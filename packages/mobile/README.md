@@ -73,6 +73,25 @@ bundle exec pod install
 pnpm ios
 ```
 
+## Testing
+
+Run the full mobile test flow:
+
+```sh
+pnpm test
+```
+
+This now runs:
+
+- `pnpm test:unit` for pure TypeScript helpers via `node --test`
+- `pnpm test:app` for a lightweight React Native app smoke test via Jest
+
+For quick local verification without the app smoke layer:
+
+```sh
+pnpm test:unit
+```
+
 ## Android Release Artifacts
 
 Android release builds expect Java 17. The repository includes a root
