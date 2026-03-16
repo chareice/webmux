@@ -38,7 +38,15 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - uses: android-actions/setup-android@v3
+      - name: Prepare Android SDK
+        run: |
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
+          echo "$sdk_root/platform-tools" >> "$GITHUB_PATH"
+          echo "$sdk_root/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          yes | "$sdk_root/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$sdk_root/cmdline-tools/latest/bin/sdkmanager" platform-tools
 
       - name: Install mobile dependencies
         run: pnpm install --frozen-lockfile --ignore-workspace
