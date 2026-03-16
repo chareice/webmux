@@ -61,9 +61,9 @@ async function toggleFavoriteRepo(path: string): Promise<string[]> {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type NewRunRouteProp = RouteProp<RootStackParamList, 'NewThread'>;
 
-const TOOLS: { value: RunTool; label: string; description: string }[] = [
-  { value: 'claude', label: 'Claude Code', description: 'Anthropic Claude Code CLI' },
-  { value: 'codex', label: 'Codex', description: 'OpenAI Codex CLI' },
+const TOOLS: { value: RunTool; label: string }[] = [
+  { value: 'claude', label: 'Claude Code' },
+  { value: 'codex', label: 'Codex' },
 ];
 
 function extractRecentRepositories(runs: Run[]): string[] {
@@ -299,59 +299,60 @@ export default function NewRunScreen(): React.JSX.Element {
         style={commonStyles.screen}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
-        <Text style={styles.label}>Agent</Text>
         {agents.length === 0 ? (
           <View style={styles.emptyStateCard}>
             <Text style={styles.noAgents}>No agents online right now</Text>
             <TouchableOpacity
               style={styles.secondaryButton}
               activeOpacity={0.7}
-              onPress={() => navigation.navigate('Agents')}>
+              onPress={() => navigation.navigate('Main')}>
               <Text style={styles.secondaryButtonText}>View agents</Text>
             </TouchableOpacity>
           </View>
-        ) : (
-          <View style={styles.optionsRow}>
-            {agents.map((agent) => (
-              <TouchableOpacity
-                key={agent.id}
-                style={[
-                  styles.optionChip,
-                  selectedAgent === agent.id && styles.optionChipSelected,
-                ]}
-                onPress={() => setSelectedAgent(agent.id)}
-                activeOpacity={0.7}>
-                <Text
+        ) : agents.length > 1 ? (
+          <>
+            <Text style={styles.label}>Agent</Text>
+            <View style={styles.optionsRow}>
+              {agents.map((agent) => (
+                <TouchableOpacity
+                  key={agent.id}
                   style={[
-                    styles.optionChipText,
-                    selectedAgent === agent.id && styles.optionChipTextSelected,
-                  ]}>
-                  {agent.name || agent.id}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
+                    styles.optionChip,
+                    selectedAgent === agent.id && styles.optionChipSelected,
+                  ]}
+                  onPress={() => setSelectedAgent(agent.id)}
+                  activeOpacity={0.7}>
+                  <Text
+                    style={[
+                      styles.optionChipText,
+                      selectedAgent === agent.id && styles.optionChipTextSelected,
+                    ]}>
+                    {agent.name || agent.id}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        ) : null}
 
         <Text style={styles.label}>Tool</Text>
-        <View style={styles.optionsRow}>
+        <View style={styles.segmentRow}>
           {TOOLS.map((tool) => (
             <TouchableOpacity
               key={tool.value}
               style={[
-                styles.toolCard,
-                selectedTool === tool.value && styles.toolCardSelected,
+                styles.segmentItem,
+                selectedTool === tool.value && styles.segmentItemSelected,
               ]}
               onPress={() => setSelectedTool(tool.value)}
               activeOpacity={0.7}>
               <Text
                 style={[
-                  styles.toolCardTitle,
-                  selectedTool === tool.value && styles.toolCardTitleSelected,
+                  styles.segmentText,
+                  selectedTool === tool.value && styles.segmentTextSelected,
                 ]}>
                 {tool.label}
               </Text>
-              <Text style={styles.toolCardDesc}>{tool.description}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -632,32 +633,28 @@ const styles = StyleSheet.create({
   optionChipTextSelected: {
     color: colors.accent,
   },
-  toolCard: {
-    flex: 1,
-    minWidth: '47%',
+  segmentRow: {
+    flexDirection: 'row',
     backgroundColor: colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
+    borderRadius: 10,
+    padding: 3,
   },
-  toolCardSelected: {
-    borderColor: colors.accent,
-    backgroundColor: `${colors.accent}14`,
+  segmentItem: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
   },
-  toolCardTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '700',
+  segmentItemSelected: {
+    backgroundColor: colors.accent,
   },
-  toolCardTitleSelected: {
-    color: colors.accent,
-  },
-  toolCardDesc: {
-    marginTop: 6,
+  segmentText: {
     color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  segmentTextSelected: {
+    color: '#ffffff',
   },
   repositoryCard: {
     backgroundColor: colors.surface,

@@ -12,7 +12,7 @@ export const colors = {
   orange: '#ff9e64',
   yellow: '#e0af68',
   purple: '#bb9af7',
-  border: '#292e42',
+  border: '#343a52',
 } as const;
 
 export const fonts = {

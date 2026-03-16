@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,7 +12,6 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { deleteThread, listAllThreads } from '../api';
-import { useAuth } from '../store';
 import { Run, RunStatus } from '../types';
 import { colors, commonStyles, statusColor, statusLabel } from '../theme';
 import type { RootStackParamList } from '../navigation';
@@ -93,12 +92,10 @@ function groupByProject(runs: Run[]): ProjectGroup[] {
 
 export default function ThreadsScreen(): React.JSX.Element {
   const navigation = useNavigation<NavigationProp>();
-  const { logout } = useAuth();
   const [runs, setRuns] = useState<Run[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [deletingRunId, setDeletingRunId] = useState('');
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -165,50 +162,27 @@ export default function ThreadsScreen(): React.JSX.Element {
     });
   }, []);
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Agents')}
-            activeOpacity={0.7}>
-            <Text style={styles.headerActionText}>Agents</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={logout} activeOpacity={0.7}>
-            <Text style={styles.headerActionText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
-      ),
-    });
-  }, [logout, navigation]);
-
-  const handleDelete = useCallback((run: Run) => {
+  const handleLongPress = useCallback((run: Run) => {
     const actionLabel =
       run.status === 'starting' || run.status === 'running'
-        ? 'This will stop the running task and remove it from the list.'
-        : 'This will remove the thread from the list.';
+        ? 'This will stop the running task and remove it.'
+        : 'This will remove the thread.';
 
     Alert.alert(
       'Remove thread?',
       actionLabel,
       [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
+        { text: 'Cancel', style: 'cancel' },
         {
           text: 'Remove',
           style: 'destructive',
           onPress: async () => {
             try {
-              setDeletingRunId(run.id);
               await deleteThread(run.agentId, run.id);
               setRuns(prev => prev.filter(item => item.id !== run.id));
             } catch (e: unknown) {
               const msg = e instanceof Error ? e.message : 'Failed to remove thread';
               setError(msg);
-            } finally {
-              setDeletingRunId('');
             }
           },
         },
@@ -220,61 +194,45 @@ export default function ThreadsScreen(): React.JSX.Element {
     const sc = statusColor(run.status);
     const toolName = run.tool === 'codex' ? 'Codex' : 'Claude';
     return (
-      <View key={run.id} style={styles.threadCard}>
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() =>
-            navigation.navigate('ThreadDetail', {
-              agentId: run.agentId,
-              runId: run.id,
-            })
-          }>
-          {/* Meta row: tool · status · time */}
-          <View style={styles.metaRow}>
-            <Text style={styles.metaTool}>{toolName}</Text>
-            <View style={[styles.statusBadge, { backgroundColor: sc + '22' }]}>
-              <View style={[styles.statusDot, { backgroundColor: sc }]} />
-              <Text style={[styles.statusText, { color: sc }]}>
-                {statusLabel(run.status)}
-              </Text>
-            </View>
-            <Text style={styles.metaTime}>{timeAgo(run.updatedAt)}</Text>
-          </View>
-
-          {/* Conversation preview */}
-          <View style={styles.convoPreview}>
-            <View style={styles.convoLine}>
-              <Text style={styles.convoRoleUser}>You:</Text>
-              <Text style={styles.convoText} numberOfLines={1}>
-                {truncate(run.prompt, 80)}
-              </Text>
-            </View>
-            <View style={styles.convoLine}>
-              <Text style={styles.convoRoleAssistant}>AI:</Text>
-              <Text style={styles.convoText} numberOfLines={1}>
-                {aiPreview(run)}
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Delete button */}
-        <View style={styles.cardFooter}>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            disabled={deletingRunId === run.id}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            onPress={() => handleDelete(run)}>
-            <Text
-              style={[
-                styles.deleteText,
-                deletingRunId === run.id && styles.deleteTextDisabled,
-              ]}>
-              {deletingRunId === run.id ? 'Removing...' : 'Remove'}
+      <TouchableOpacity
+        key={run.id}
+        style={styles.threadCard}
+        activeOpacity={0.7}
+        onPress={() =>
+          navigation.navigate('ThreadDetail', {
+            agentId: run.agentId,
+            runId: run.id,
+          })
+        }
+        onLongPress={() => handleLongPress(run)}>
+        {/* Meta row: tool · status · time */}
+        <View style={styles.metaRow}>
+          <Text style={styles.metaTool}>{toolName}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: sc + '22' }]}>
+            <View style={[styles.statusDot, { backgroundColor: sc }]} />
+            <Text style={[styles.statusText, { color: sc }]}>
+              {statusLabel(run.status)}
             </Text>
-          </TouchableOpacity>
+          </View>
+          <Text style={styles.metaTime}>{timeAgo(run.updatedAt)}</Text>
         </View>
-      </View>
+
+        {/* Conversation preview */}
+        <View style={styles.convoPreview}>
+          <View style={styles.convoLine}>
+            <Text style={styles.convoRoleUser}>You:</Text>
+            <Text style={styles.convoText} numberOfLines={1}>
+              {truncate(run.prompt, 80)}
+            </Text>
+          </View>
+          <View style={styles.convoLine}>
+            <Text style={styles.convoRoleAssistant}>AI:</Text>
+            <Text style={styles.convoText} numberOfLines={1}>
+              {aiPreview(run)}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -330,9 +288,8 @@ export default function ThreadsScreen(): React.JSX.Element {
                 <Text style={styles.projectChevron}>
                   {isCollapsed ? '›' : '⌄'}
                 </Text>
-                <Text style={styles.projectName}>{group.repoName}</Text>
-                <Text style={styles.projectPath} numberOfLines={1}>
-                  {group.repoPath}
+                <Text style={styles.projectName} numberOfLines={1}>
+                  {group.repoName}
                 </Text>
                 <View style={styles.projectBadges}>
                   {activeCount > 0 ? (
@@ -342,9 +299,7 @@ export default function ThreadsScreen(): React.JSX.Element {
                       </Text>
                     </View>
                   ) : null}
-                  <View style={styles.countBadge}>
-                    <Text style={styles.countBadgeText}>{group.runs.length}</Text>
-                  </View>
+                  <Text style={styles.countText}>{group.runs.length}</Text>
                 </View>
               </TouchableOpacity>
 
@@ -379,68 +334,55 @@ const styles = StyleSheet.create({
 
   // Project group header
   projectSection: {
-    marginTop: 12,
+    marginTop: 8,
   },
   projectHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginHorizontal: 16,
-    marginBottom: 2,
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
   projectChevron: {
     color: colors.textSecondary,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
-    width: 12,
+    width: 14,
     textAlign: 'center',
   },
   projectName: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  projectPath: {
     flex: 1,
-    color: colors.textSecondary,
-    fontSize: 10,
-    marginLeft: 4,
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
   },
   projectBadges: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 8,
   },
   activeBadge: {
     backgroundColor: colors.accent + '22',
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
   },
   activeBadgeText: {
     color: colors.accent,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '700',
   },
-  countBadge: {
-    backgroundColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-  },
-  countBadgeText: {
+  countText: {
     color: colors.textSecondary,
-    fontSize: 9,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '600',
   },
 
-  // Thread card (compact, no border)
+  // Thread card
   threadCard: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginHorizontal: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    marginHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
@@ -452,12 +394,12 @@ const styles = StyleSheet.create({
   },
   metaTool: {
     color: colors.textSecondary,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
   },
   metaTime: {
     color: colors.textSecondary,
-    fontSize: 10,
+    fontSize: 11,
     marginLeft: 'auto',
   },
   statusBadge: {
@@ -465,7 +407,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   statusDot: {
     width: 5,
@@ -474,7 +416,7 @@ const styles = StyleSheet.create({
     marginRight: 5,
   },
   statusText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
   },
 
@@ -489,35 +431,23 @@ const styles = StyleSheet.create({
   },
   convoRoleUser: {
     color: colors.accent,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    width: 28,
+    width: 30,
   },
   convoRoleAssistant: {
     color: colors.green,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    width: 28,
+    width: 30,
   },
   convoText: {
     flex: 1,
     color: colors.textSecondary,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 18,
   },
 
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 4,
-  },
-  deleteText: {
-    color: colors.textSecondary,
-    fontSize: 11,
-  },
-  deleteTextDisabled: {
-    opacity: 0.4,
-  },
   errorContainer: {
     alignItems: 'center',
     padding: 32,
@@ -570,14 +500,5 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '300',
     marginTop: -2,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  headerActionText: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '600',
   },
 });

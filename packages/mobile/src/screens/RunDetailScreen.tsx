@@ -36,7 +36,7 @@ import {
   pickImageAttachments,
   toUploadAttachments,
 } from '../image-attachments';
-import { normalizePreviewText, shouldForcePreviewText } from '../thread-detail-preview';
+// PreviewableMarkdownCard is unused — assistant messages render MarkdownContent directly
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ThreadDetail'>;
 
@@ -627,63 +627,6 @@ function CommandOutputView({
   );
 }
 
-function PreviewableMarkdownCard({
-  content,
-  lineLimit,
-  charLimit,
-  openLabel,
-  previewTextStyle,
-  measureTextStyle,
-  style,
-  onOpenContent,
-}: {
-  content: string;
-  lineLimit: number;
-  charLimit: number;
-  openLabel: string;
-  previewTextStyle: object;
-  measureTextStyle: object;
-  style?: object;
-  onOpenContent: () => void;
-}): React.JSX.Element {
-  const previewText = normalizePreviewText(content);
-  const [needsPreview, setNeedsPreview] = useState(
-    shouldForcePreviewText(previewText, { charLimit, lineLimit }),
-  );
-
-  return (
-    <TouchableOpacity
-      style={style}
-      activeOpacity={needsPreview ? 0.78 : 1}
-      disabled={!needsPreview}
-      onPress={onOpenContent}>
-      <Text
-        style={measureTextStyle}
-        onTextLayout={(event) => {
-          const nextNeedsPreview = event.nativeEvent.lines.length > lineLimit;
-          setNeedsPreview((current) => (current === nextNeedsPreview ? current : nextNeedsPreview));
-        }}>
-        {previewText}
-      </Text>
-      {needsPreview ? (
-        <>
-          <Text style={previewTextStyle} numberOfLines={lineLimit}>
-            {previewText}
-          </Text>
-          <TouchableOpacity
-            style={styles.previewToggle}
-            onPress={onOpenContent}
-            activeOpacity={0.7}>
-            <Text style={styles.previewToggleText}>{openLabel}</Text>
-          </TouchableOpacity>
-        </>
-      ) : (
-        <MarkdownContent content={content} compact />
-      )}
-    </TouchableOpacity>
-  );
-}
-
 function AddImageIcon(): React.JSX.Element {
   return (
     <View style={styles.addImageIcon}>
@@ -821,21 +764,6 @@ const styles = StyleSheet.create({
   bubbleContent: {
     // wrapper for markdown
   },
-  bubbleAssistantText: {
-    color: colors.text,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  bubbleMeasureText: {
-    position: 'absolute',
-    opacity: 0,
-    zIndex: -1,
-    left: 0,
-    right: 0,
-    color: colors.text,
-    fontSize: 14,
-    lineHeight: 21,
-  },
 
   // System line
   systemLine: {
@@ -851,7 +779,7 @@ const styles = StyleSheet.create({
   // Tools accordion
   toolsAccordion: {
     backgroundColor: colors.surface,
-    borderRadius: 10,
+    borderRadius: 8,
     overflow: 'hidden',
   },
   toolsAccordionHeader: {
@@ -926,7 +854,7 @@ const styles = StyleSheet.create({
   // Command card
   commandCard: {
     backgroundColor: colors.background,
-    borderRadius: 10,
+    borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -985,16 +913,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: fonts.mono,
     lineHeight: 16,
-  },
-
-  previewToggle: {
-    alignSelf: 'flex-start',
-    marginTop: 8,
-  },
-  previewToggleText: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: '600',
   },
 
   activityRow: {

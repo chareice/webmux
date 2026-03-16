@@ -43,11 +43,45 @@ Run on Android:
 pnpm android
 ```
 
-For a local Android emulator on this machine:
+## Start The Local Android Emulator
+
+Use this flow on the current development machine.
+
+1. Install the toolchain and mobile dependencies:
+
+```sh
+mise install
+pnpm install --frozen-lockfile --ignore-workspace
+```
+
+2. Start Metro in one terminal and keep it running:
+
+```sh
+pnpm start
+```
+
+3. Start the Android emulator in another terminal:
 
 ```sh
 pnpm android:emulator
+```
+
+The helper script will:
+
+- create the `webmux-api36` AVD if it does not exist yet
+- use the `system-images;android-36;google_apis;x86_64` system image
+- enable the hardware keyboard and GPU host mode
+- reuse an already running emulator instead of spawning another one
+
+4. Build the emulator debug APK:
+
+```sh
 pnpm android:build-debug:emulator
+```
+
+5. Install the APK into the emulator:
+
+```sh
 pnpm android:install-debug
 ```
 
@@ -57,6 +91,22 @@ The emulator helper uses:
 - System image: `system-images;android-36;google_apis;x86_64`
 - Metro reverse tunnel: `tcp:8082 -> tcp:8082`
 
+### Fast Iteration
+
+If you only changed JavaScript or TypeScript:
+
+- keep Metro running
+- reload the app in the emulator
+- do not rebuild the APK
+
+If you changed native Android code, Gradle config, dependencies, or Firebase
+files:
+
+- rebuild with `pnpm android:build-debug:emulator`
+- reinstall with `pnpm android:install-debug`
+
+### Real Device vs Emulator
+
 Debug APK builds are architecture-specific:
 
 - `pnpm android:build-debug:device` builds an `arm64-v8a` APK for a real phone
@@ -64,6 +114,17 @@ Debug APK builds are architecture-specific:
 
 If Metro is already running on this machine, the installed debug app can talk
 to it without manually typing the host every time.
+
+### Troubleshooting
+
+- If the app shows `Unable to load script`, Metro is usually not running on
+  port `8082`.
+- `pnpm android:install-debug` already runs `adb reverse tcp:8082 tcp:8082`, so
+  you normally do not need to do that manually.
+- If the emulator APK install fails with an ABI error, rebuild the emulator APK
+  instead of the device APK.
+- If Firebase is not configured locally, the app still boots, but push
+  notifications stay disabled for that build.
 
 Run on iOS:
 
