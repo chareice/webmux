@@ -10,6 +10,21 @@ export type RunStatus =
   | 'failed'
   | 'interrupted';
 
+export interface RunImageAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export interface RunImageAttachmentUpload extends RunImageAttachment {
+  base64: string;
+}
+
+export interface DraftImageAttachment extends RunImageAttachmentUpload {
+  uri: string;
+}
+
 export interface Run {
   id: string;
   agentId: string;
@@ -30,6 +45,7 @@ export interface RunTurn {
   runId: string;
   index: number;
   prompt: string;
+  attachments: RunImageAttachment[];
   status: RunStatus;
   createdAt: number;
   updatedAt: number;
@@ -91,6 +107,7 @@ export interface StartRunRequest {
   tool: RunTool;
   repoPath: string;
   prompt: string;
+  attachments?: RunImageAttachmentUpload[];
 }
 
 export interface RunListResponse {
@@ -112,6 +129,7 @@ export interface LoginResponse {
 
 export interface ContinueRunRequest {
   prompt: string;
+  attachments?: RunImageAttachmentUpload[];
 }
 
 // Server -> Browser (run WebSocket events)

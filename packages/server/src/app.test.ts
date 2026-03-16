@@ -357,6 +357,109 @@ describe('buildApp', () => {
     await app.close()
   })
 
+  it('starts a thread with image attachments for Codex and stores attachment metadata on the turn', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'u-1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'nas',
+      agentSecretHash: 'hash',
+    })
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+
+    const messages: Array<{
+      type: string
+      runId?: string
+      turnId?: string
+      prompt?: string
+      attachments?: Array<{ id: string; name: string; mimeType: string; sizeBytes: number; base64: string }>
+    }> = []
+    const hub = {
+      getAgent: () => ({ id: agent.id }),
+      sendToAgent: (_agentId: string, message: {
+        type: string
+        runId?: string
+        turnId?: string
+        prompt?: string
+        attachments?: Array<{ id: string; name: string; mimeType: string; sizeBytes: number; base64: string }>
+      }) => {
+        messages.push(message)
+        return true
+      },
+      removeAgent() {},
+      getAgentSessions: () => [],
+      requestSessionCreate: async () => createSession('unused'),
+      requestSessionKill: async () => undefined,
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/agents/${agent.id}/threads`,
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        tool: 'codex',
+        repoPath: '/tmp/project',
+        prompt: 'Describe this screenshot',
+        attachments: [
+          {
+            id: 'image-1',
+            name: 'screen.png',
+            mimeType: 'image/png',
+            sizeBytes: 16,
+            base64: Buffer.from('fake-image').toString('base64'),
+          },
+        ],
+      },
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(messages[0]).toMatchObject({
+      type: 'run-turn-start',
+      prompt: 'Describe this screenshot',
+      attachments: [
+        {
+          id: 'image-1',
+          name: 'screen.png',
+          mimeType: 'image/png',
+          sizeBytes: 10,
+        },
+      ],
+    })
+    expect(response.json()).toMatchObject({
+      turns: [
+        {
+          prompt: 'Describe this screenshot',
+          attachments: [
+            {
+              id: 'image-1',
+              name: 'screen.png',
+              mimeType: 'image/png',
+              sizeBytes: 10,
+            },
+          ],
+        },
+      ],
+    })
+
+    await app.close()
+  })
+
   it('does not expose the legacy interactive run routes', async () => {
     const db = initDb(':memory:')
     const user = createUser(db, {

@@ -10,6 +10,7 @@ import type {
   ListSessionsResponse,
   RepositoryBrowseResponse,
   ContinueRunRequest,
+  RunImageAttachmentUpload,
   StartRunRequest,
   RunListResponse,
   RunDetailResponse,
@@ -78,6 +79,9 @@ export function registerRoutes(
   hub: AgentHub,
   config: ServerConfig
 ): void {
+  const MAX_IMAGE_ATTACHMENTS = 4
+  const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024
+
   const redirectAfterAuth = (jwt: string, state?: string): string => {
     const redirectTo = decodeOAuthState(state).redirectTo
     if (!redirectTo) {
@@ -102,6 +106,59 @@ export function registerRoutes(
 
     void reply.status(503).send({ error: 'Agent became unavailable before the command could be delivered' })
     return false
+  }
+
+  const normalizeAttachments = (value: unknown): RunImageAttachmentUpload[] => {
+    if (value == null) {
+      return []
+    }
+
+    if (!Array.isArray(value)) {
+      throw new Error('Attachments must be an array')
+    }
+
+    if (value.length > MAX_IMAGE_ATTACHMENTS) {
+      throw new Error(`At most ${MAX_IMAGE_ATTACHMENTS} images can be attached`)
+    }
+
+    return value.map((entry, index) => {
+      if (!entry || typeof entry !== 'object') {
+        throw new Error('Invalid image attachment')
+      }
+
+      const candidate = entry as Partial<RunImageAttachmentUpload>
+      const mimeType = candidate.mimeType?.trim()
+      if (!mimeType || !mimeType.startsWith('image/')) {
+        throw new Error('Only image attachments are supported')
+      }
+
+      const rawBase64 = candidate.base64?.trim()
+      if (!rawBase64) {
+        throw new Error('Image attachment is missing base64 data')
+      }
+
+      const base64 = rawBase64.replace(/^data:[^;]+;base64,/, '')
+      const bytes = Buffer.from(base64, 'base64')
+      if (bytes.length === 0) {
+        throw new Error('Image attachment is empty')
+      }
+
+      if (bytes.length > MAX_IMAGE_ATTACHMENT_BYTES) {
+        throw new Error('Each image must be 5MB or smaller')
+      }
+
+      return {
+        id: candidate.id?.trim() || crypto.randomUUID(),
+        name: candidate.name?.trim() || `image-${index + 1}`,
+        mimeType,
+        sizeBytes: bytes.length,
+        base64,
+      }
+    })
+  }
+
+  const hasPromptContent = (value: unknown): value is string => {
+    return typeof value === 'string' && value.trim().length > 0
   }
 
   // --- JWT auth middleware ---
@@ -482,9 +539,21 @@ export function registerRoutes(
   app.post('/api/agents/:id/threads', { preHandler: authPreHandler }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const body = request.body as StartRunRequest | undefined
+    let attachments: RunImageAttachmentUpload[] = []
 
-    if (!body?.tool || !body?.repoPath || !body?.prompt) {
-      return reply.status(400).send({ error: 'Missing required fields: tool, repoPath, prompt' })
+    try {
+      attachments = normalizeAttachments(body?.attachments)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid image attachments'
+      return reply.status(400).send({ error: message })
+    }
+
+    if (!body?.tool || !body?.repoPath || (!hasPromptContent(body.prompt) && attachments.length === 0)) {
+      return reply.status(400).send({ error: 'Missing required fields: tool, repoPath, and prompt or attachments' })
+    }
+
+    if (attachments.length > 0 && body.tool !== 'codex') {
+      return reply.status(400).send({ error: 'Image attachments are currently supported for Codex only' })
     }
 
     const agent = findAgentById(db, id)
@@ -510,7 +579,8 @@ export function registerRoutes(
       userId: request.user!.userId,
       tool: body.tool,
       repoPath: body.repoPath,
-      prompt: body.prompt,
+      prompt: body.prompt?.trim() ?? '',
+      attachments,
     })
 
     // Send run-turn-start to agent
@@ -520,8 +590,9 @@ export function registerRoutes(
       turnId,
       tool: body.tool,
       repoPath: body.repoPath,
-      prompt: body.prompt,
+      prompt: body.prompt?.trim() ?? '',
       toolThreadId: runRow.tool_thread_id ?? undefined,
+      attachments,
     }
     if (!hub.sendToAgent(id, msg)) {
       deleteRun(db, runId)
@@ -590,9 +661,17 @@ export function registerRoutes(
   app.post('/api/agents/:id/threads/:threadId/turns', { preHandler: authPreHandler }, async (request, reply) => {
     const { id, threadId } = request.params as { id: string; threadId: string }
     const body = request.body as ContinueRunRequest | undefined
+    let attachments: RunImageAttachmentUpload[] = []
 
-    if (!body?.prompt?.trim()) {
-      return reply.status(400).send({ error: 'Missing prompt' })
+    try {
+      attachments = normalizeAttachments(body?.attachments)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid image attachments'
+      return reply.status(400).send({ error: message })
+    }
+
+    if (!hasPromptContent(body?.prompt) && attachments.length === 0) {
+      return reply.status(400).send({ error: 'Missing prompt or attachments' })
     }
 
     const agent = findAgentById(db, id)
@@ -609,6 +688,10 @@ export function registerRoutes(
       return reply.status(404).send({ error: 'Thread not found' })
     }
 
+    if (attachments.length > 0 && runRow.tool !== 'codex') {
+      return reply.status(400).send({ error: 'Image attachments are currently supported for Codex only' })
+    }
+
     if (findActiveRunTurnByRunId(db, threadId)) {
       return reply.status(409).send({ error: 'Thread is still active' })
     }
@@ -618,11 +701,13 @@ export function registerRoutes(
       return reply.status(400).send({ error: 'Agent is offline' })
     }
 
+    const trimmedPrompt = body?.prompt?.trim() ?? ''
     const turnId = crypto.randomUUID()
     createRunTurn(db, {
       id: turnId,
       runId: threadId,
-      prompt: body.prompt.trim(),
+      prompt: trimmedPrompt,
+      attachments,
     })
 
     const msg: ServerToAgentMessage = {
@@ -631,8 +716,9 @@ export function registerRoutes(
       turnId,
       tool: runRow.tool as StartRunRequest['tool'],
       repoPath: runRow.repo_path,
-      prompt: body.prompt.trim(),
+      prompt: trimmedPrompt,
       toolThreadId: runRow.tool_thread_id ?? undefined,
+      attachments,
     }
 
     if (!hub.sendToAgent(id, msg)) {

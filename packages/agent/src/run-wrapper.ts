@@ -3,8 +3,10 @@ import { promisify } from 'node:util'
 
 import type { RunStatus, RunTimelineEventPayload, RunTool } from '@webmux/shared'
 import { createCodexClient, type CodexClient } from './codex-client.js'
+import { prepareCodexInput } from './codex-input.js'
 import { parseCodexThreadEvent } from './codex-event.js'
 import { createRunAdapter } from './run-adapter.js'
+import type { RunImageAttachmentUpload } from '@webmux/shared'
 
 const execFileAsync = promisify(execFile)
 
@@ -14,6 +16,7 @@ export interface RunWrapperOptions {
   toolThreadId?: string
   repoPath: string
   prompt: string
+  attachments?: RunImageAttachmentUpload[]
   onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => void
   onFinish: (status: RunStatus) => void
   onItem: (item: RunTimelineEventPayload) => void
@@ -26,6 +29,7 @@ export class RunWrapper {
   private readonly toolThreadId?: string
   private readonly repoPath: string
   private readonly prompt: string
+  private readonly attachments: RunImageAttachmentUpload[]
   private readonly onEvent: RunWrapperOptions['onEvent']
   private readonly onFinish: RunWrapperOptions['onFinish']
   private readonly onItem: RunWrapperOptions['onItem']
@@ -48,6 +52,7 @@ export class RunWrapper {
     this.toolThreadId = options.toolThreadId
     this.repoPath = options.repoPath
     this.prompt = options.prompt
+    this.attachments = options.attachments ?? []
     this.onEvent = options.onEvent
     this.onFinish = options.onFinish
     this.onItem = options.onItem
@@ -64,6 +69,10 @@ export class RunWrapper {
     if (this.tool === 'codex') {
       await this.startCodexThread()
       return
+    }
+
+    if (this.attachments.length > 0) {
+      throw new Error('Image attachments are currently supported for Codex only')
     }
 
     this.emitStatus('starting')
@@ -268,6 +277,7 @@ export class RunWrapper {
     const thread = this.toolThreadId
       ? client.resumeThread(this.toolThreadId, threadOptions)
       : client.startThread(threadOptions)
+    const preparedInput = await prepareCodexInput(this.prompt, this.attachments)
 
     this.abortController = new AbortController()
     this.emitStatus('running')
@@ -276,7 +286,7 @@ export class RunWrapper {
     let announcedThreadId = this.toolThreadId ?? undefined
 
     try {
-      const streamedTurn = await thread.runStreamed(this.prompt, {
+      const streamedTurn = await thread.runStreamed(preparedInput.input, {
         signal: this.abortController.signal,
       })
 
@@ -339,6 +349,8 @@ export class RunWrapper {
         detail: message,
       })
       this.finalize('failed', false, message)
+    } finally {
+      await preparedInput.cleanup()
     }
   }
 }

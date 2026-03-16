@@ -102,6 +102,8 @@ The mobile app currently includes:
 - an `Agents` screen for browsing online and offline agents
 - a `New Thread` flow with recent repository shortcuts and an agent-backed
   repository picker, so repository paths no longer need to be typed manually
+- Codex thread prompts and follow-up turns can include image attachments from the phone
+- image attachments are currently supported for `Codex` threads only
 - a `Thread Detail` screen that renders a structured coding thread made of multiple turns
 - completed thread turns can be continued in place with a follow-up prompt, while
   active turns still expose `Interrupt`

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Keyboard,
   ScrollView,
   StyleSheet,
@@ -23,10 +24,16 @@ import RepositoryBrowserModal from '../components/RepositoryBrowserModal';
 import type { RootStackParamList } from '../navigation';
 import {
   AgentInfo,
+  DraftImageAttachment,
   RepositoryBrowseResponse,
   Run,
   RunTool,
 } from '../types';
+import {
+  formatAttachmentSize,
+  pickImageAttachments,
+  toUploadAttachments,
+} from '../image-attachments';
 import { colors, commonStyles, fonts } from '../theme';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -68,6 +75,7 @@ export default function NewRunScreen(): React.JSX.Element {
   const [selectedTool, setSelectedTool] = useState<RunTool>('claude');
   const [repoPath, setRepoPath] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [attachments, setAttachments] = useState<DraftImageAttachment[]>([]);
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [repositoryBrowser, setRepositoryBrowser] = useState<RepositoryBrowseResponse | null>(null);
   const [isRepositoryModalVisible, setIsRepositoryModalVisible] = useState(false);
@@ -132,6 +140,14 @@ export default function NewRunScreen(): React.JSX.Element {
       setSelectedAgent(preferredAgentId);
     }
   }, [agents, preferredAgentId]);
+
+  useEffect(() => {
+    if (selectedTool === 'codex') {
+      return;
+    }
+
+    setAttachments([]);
+  }, [selectedTool]);
 
   useEffect(() => {
     if (!selectedAgent) {
@@ -207,8 +223,8 @@ export default function NewRunScreen(): React.JSX.Element {
       return;
     }
 
-    if (!prompt.trim()) {
-      setError('Please enter a prompt');
+    if (!prompt.trim() && attachments.length === 0) {
+      setError('Please enter a prompt or attach an image');
       return;
     }
 
@@ -218,6 +234,7 @@ export default function NewRunScreen(): React.JSX.Element {
         tool: selectedTool,
         repoPath: repoPath.trim(),
         prompt: prompt.trim(),
+        attachments: toUploadAttachments(attachments),
       });
 
       navigation.replace('ThreadDetail', {
@@ -229,6 +246,21 @@ export default function NewRunScreen(): React.JSX.Element {
       setError(msg);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handlePickAttachments = async () => {
+    try {
+      const nextAttachments = await pickImageAttachments(attachments.length);
+      if (nextAttachments.length === 0) {
+        return;
+      }
+
+      setAttachments((current) => [...current, ...nextAttachments]);
+      setError('');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to pick images';
+      setError(msg);
     }
   };
 
@@ -386,17 +418,68 @@ export default function NewRunScreen(): React.JSX.Element {
           textAlignVertical="top"
         />
 
+        <View style={styles.attachmentHeader}>
+          <Text style={styles.helperLabel}>Images</Text>
+          <TouchableOpacity
+            style={[
+              styles.attachButton,
+              (selectedTool !== 'codex' || attachments.length >= 4) && styles.attachButtonDisabled,
+            ]}
+            activeOpacity={0.7}
+            disabled={selectedTool !== 'codex' || attachments.length >= 4}
+            onPress={() => {
+              void handlePickAttachments();
+            }}>
+            <Text style={styles.attachButtonText}>
+              {attachments.length >= 4 ? 'Limit reached' : 'Add Images'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {selectedTool !== 'codex' ? (
+          <Text style={styles.helperText}>
+            Image attachments are currently available for Codex threads only.
+          </Text>
+        ) : null}
+
+        {attachments.length > 0 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.attachmentList}>
+            {attachments.map((attachment) => (
+              <View key={attachment.id} style={styles.attachmentCard}>
+                <Image source={{ uri: attachment.uri }} style={styles.attachmentPreview} />
+                <Text style={styles.attachmentName} numberOfLines={1}>
+                  {attachment.name}
+                </Text>
+                <Text style={styles.attachmentMeta}>{formatAttachmentSize(attachment.sizeBytes)}</Text>
+                <TouchableOpacity
+                  style={styles.attachmentRemove}
+                  onPress={() =>
+                    setAttachments((current) =>
+                      current.filter((item) => item.id !== attachment.id),
+                    )
+                  }
+                  activeOpacity={0.7}>
+                  <Text style={styles.attachmentRemoveText}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        ) : null}
+
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity
           style={[
             commonStyles.button,
             styles.submitButton,
-            (isSubmitting || !selectedAgent || !repoPath.trim() || !prompt.trim()) &&
+            (isSubmitting || !selectedAgent || !repoPath.trim() || (!prompt.trim() && attachments.length === 0)) &&
               styles.buttonDisabled,
           ]}
           onPress={handleSubmit}
-          disabled={isSubmitting || !selectedAgent || !repoPath.trim() || !prompt.trim()}
+          disabled={isSubmitting || !selectedAgent || !repoPath.trim() || (!prompt.trim() && attachments.length === 0)}
           activeOpacity={0.7}>
           {isSubmitting ? (
             <ActivityIndicator color="#ffffff" />
@@ -567,6 +650,66 @@ const styles = StyleSheet.create({
   },
   promptInput: {
     minHeight: 140,
+  },
+  attachmentHeader: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  attachButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: `${colors.accent}20`,
+    borderWidth: 1,
+    borderColor: `${colors.accent}55`,
+  },
+  attachButtonDisabled: {
+    opacity: 0.5,
+  },
+  attachButtonText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  attachmentList: {
+    gap: 10,
+    paddingVertical: 6,
+  },
+  attachmentCard: {
+    width: 132,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 10,
+  },
+  attachmentPreview: {
+    width: '100%',
+    height: 88,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceLight,
+  },
+  attachmentName: {
+    marginTop: 10,
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  attachmentMeta: {
+    marginTop: 4,
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
+  attachmentRemove: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+  },
+  attachmentRemoveText: {
+    color: colors.red,
+    fontSize: 12,
+    fontWeight: '600',
   },
   error: {
     color: colors.red,

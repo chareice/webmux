@@ -34,6 +34,17 @@ export interface RepositoryBrowseResponse {
   entries: RepositoryEntry[]
 }
 
+export interface RunImageAttachment {
+  id: string
+  name: string
+  mimeType: string
+  sizeBytes: number
+}
+
+export interface RunImageAttachmentUpload extends RunImageAttachment {
+  base64: string
+}
+
 // Agent → Server
 export type AgentMessage =
   | { type: 'auth'; agentId: string; agentSecret: string; version?: string }
@@ -62,7 +73,16 @@ export type ServerToAgentMessage =
   | { type: 'session-create'; requestId: string; name: string }
   | { type: 'session-kill'; requestId: string; name: string }
   | { type: 'repository-browse'; requestId: string; path?: string }
-  | { type: 'run-turn-start'; runId: string; turnId: string; tool: RunTool; repoPath: string; prompt: string; toolThreadId?: string }
+  | {
+      type: 'run-turn-start'
+      runId: string
+      turnId: string
+      tool: RunTool
+      repoPath: string
+      prompt: string
+      toolThreadId?: string
+      attachments?: RunImageAttachmentUpload[]
+    }
   | { type: 'run-turn-interrupt'; runId: string; turnId: string }
   | { type: 'run-turn-kill'; runId: string; turnId: string }
 
@@ -158,6 +178,7 @@ export interface RunTurn {
   runId: string
   index: number
   prompt: string
+  attachments: RunImageAttachment[]
   status: RunStatus
   createdAt: number
   updatedAt: number
@@ -202,6 +223,7 @@ export interface StartRunRequest {
   tool: RunTool
   repoPath: string
   prompt: string
+  attachments?: RunImageAttachmentUpload[]
 }
 
 export interface RunListResponse {
@@ -215,6 +237,7 @@ export interface RunDetailResponse {
 
 export interface ContinueRunRequest {
   prompt: string
+  attachments?: RunImageAttachmentUpload[]
 }
 
 // --- Run WebSocket event (Server → Browser) ---

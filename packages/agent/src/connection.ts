@@ -4,6 +4,7 @@ import {
   compareSemanticVersions,
   type AgentMessage,
   type AgentUpgradePolicy,
+  type RunImageAttachmentUpload,
   type RunStatus,
   type ServerToAgentMessage,
   type SessionSummary,
@@ -194,7 +195,7 @@ export class AgentConnection {
         break
 
       case 'run-turn-start':
-        this.handleRunStart(msg.runId, msg.turnId, msg.tool, msg.repoPath, msg.prompt, msg.toolThreadId)
+        this.handleRunStart(msg.runId, msg.turnId, msg.tool, msg.repoPath, msg.prompt, msg.toolThreadId, msg.attachments)
         break
 
       case 'run-turn-interrupt':
@@ -432,6 +433,7 @@ export class AgentConnection {
     repoPath: string,
     prompt: string,
     toolThreadId?: string,
+    attachments?: RunImageAttachmentUpload[],
   ): void {
     // Dispose existing run with the same id if any
     const existing = this.runs.get(runId)
@@ -446,6 +448,7 @@ export class AgentConnection {
       toolThreadId,
       repoPath,
       prompt,
+      attachments,
       onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => {
         this.sendMessage({ type: 'run-status', runId, turnId, status, summary, hasDiff })
       },

@@ -1,9 +1,11 @@
-import { Codex, type ThreadEvent, type ThreadOptions } from '@openai/codex-sdk'
+import { Codex, type Input, type ThreadEvent, type ThreadOptions } from '@openai/codex-sdk'
+
+export type CodexInput = Input
 
 export interface CodexThreadHandle {
   readonly id: string | null
   runStreamed(
-    input: string,
+    input: CodexInput,
     options?: { signal?: AbortSignal },
   ): Promise<{ events: AsyncGenerator<ThreadEvent> }>
 }

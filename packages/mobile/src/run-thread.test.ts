@@ -9,6 +9,7 @@ const turnOne: RunTurnDetail = {
   runId: 'run-1',
   index: 1,
   prompt: 'Inspect the repo',
+  attachments: [],
   status: 'success',
   createdAt: 1,
   updatedAt: 2,

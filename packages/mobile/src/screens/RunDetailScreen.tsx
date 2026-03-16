@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Keyboard,
   ScrollView,
   StyleSheet,
@@ -16,12 +17,24 @@ import {
   getThreadDetail,
   interruptThread,
 } from '../api';
-import { Run, RunEvent, RunTimelineEvent, RunTurnDetail } from '../types';
+import {
+  DraftImageAttachment,
+  Run,
+  RunEvent,
+  RunImageAttachment,
+  RunTimelineEvent,
+  RunTurnDetail,
+} from '../types';
 import { colors, commonStyles, fonts, statusColor, statusLabel, toolIcon } from '../theme';
 import type { RootStackParamList } from '../navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isRunTimelineEvent, isRunTurn } from '../run-detail-response';
 import { appendTurnItem, canContinueRun, isRunActive, latestRunTurn, upsertRunTurn } from '../run-thread';
+import {
+  formatAttachmentSize,
+  pickImageAttachments,
+  toUploadAttachments,
+} from '../image-attachments';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ThreadDetail'>;
 
@@ -32,6 +45,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   const [run, setRun] = useState<Run | null>(null);
   const [turns, setTurns] = useState<RunTurnDetail[]>([]);
   const [followUpPrompt, setFollowUpPrompt] = useState('');
+  const [followUpAttachments, setFollowUpAttachments] = useState<DraftImageAttachment[]>([]);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isContinuing, setIsContinuing] = useState(false);
@@ -58,6 +72,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
     setTurns([]);
     setError('');
     setFollowUpPrompt('');
+    setFollowUpAttachments([]);
     setIsSummaryExpanded(false);
     setIsLoading(true);
     void fetchThreadDetail();
@@ -112,6 +127,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   }, [turns]);
 
   const latestTurn = latestRunTurn(turns);
+  const initialTurn = turns[0] ?? null;
   const isActive = latestTurn ? isRunActive(latestTurn.status) : run ? isRunActive(run.status) : false;
 
   const handleInterrupt = async () => {
@@ -125,8 +141,8 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   const handleContinue = async () => {
     Keyboard.dismiss();
 
-    if (!followUpPrompt.trim()) {
-      setError('Please enter a follow-up prompt');
+    if (!followUpPrompt.trim() && followUpAttachments.length === 0) {
+      setError('Please enter a follow-up prompt or attach an image');
       return;
     }
 
@@ -134,16 +150,33 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
     try {
       const result = await continueThread(agentId, runId, {
         prompt: followUpPrompt.trim(),
+        attachments: toUploadAttachments(followUpAttachments),
       });
       setRun(result.run);
       setTurns(result.turns);
       setFollowUpPrompt('');
+      setFollowUpAttachments([]);
       setError('');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to continue thread';
       setError(msg);
     } finally {
       setIsContinuing(false);
+    }
+  };
+
+  const handlePickAttachments = async () => {
+    try {
+      const nextAttachments = await pickImageAttachments(followUpAttachments.length);
+      if (nextAttachments.length === 0) {
+        return;
+      }
+
+      setFollowUpAttachments((current) => [...current, ...nextAttachments]);
+      setError('');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to pick images';
+      setError(msg);
     }
   };
 
@@ -225,7 +258,9 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
         </View>
 
         <Text style={styles.promptLabel}>Started With</Text>
-        <Text style={styles.promptText}>{run.prompt}</Text>
+        <Text style={styles.promptText}>
+          {run.prompt || (initialTurn?.attachments.length ? 'Started with image attachments' : 'No text prompt')}
+        </Text>
 
         {run.summary ? (
           <>
@@ -294,15 +329,64 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
               numberOfLines={4}
               textAlignVertical="top"
             />
+            {run.tool === 'codex' ? (
+              <>
+                <View style={styles.attachmentHeader}>
+                  <Text style={styles.attachmentLabel}>Images</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.attachButton,
+                      followUpAttachments.length >= 4 && styles.attachButtonDisabled,
+                    ]}
+                    disabled={followUpAttachments.length >= 4}
+                    onPress={() => {
+                      void handlePickAttachments();
+                    }}
+                    activeOpacity={0.7}>
+                    <Text style={styles.attachButtonText}>
+                      {followUpAttachments.length >= 4 ? 'Limit reached' : 'Add Images'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {followUpAttachments.length > 0 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.selectedAttachmentList}>
+                    {followUpAttachments.map((attachment) => (
+                      <View key={attachment.id} style={styles.selectedAttachmentCard}>
+                        <Image source={{ uri: attachment.uri }} style={styles.selectedAttachmentPreview} />
+                        <Text style={styles.selectedAttachmentName} numberOfLines={1}>
+                          {attachment.name}
+                        </Text>
+                        <Text style={styles.selectedAttachmentMeta}>
+                          {formatAttachmentSize(attachment.sizeBytes)}
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.selectedAttachmentRemove}
+                          onPress={() =>
+                            setFollowUpAttachments((current) =>
+                              current.filter((item) => item.id !== attachment.id),
+                            )
+                          }
+                          activeOpacity={0.7}>
+                          <Text style={styles.selectedAttachmentRemoveText}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : null}
+              </>
+            ) : null}
             {error ? <Text style={styles.errorTextInline}>{error}</Text> : null}
             <TouchableOpacity
               style={[
                 commonStyles.button,
                 styles.continueButton,
-                (isContinuing || !followUpPrompt.trim()) && styles.buttonDisabled,
+                (isContinuing || (!followUpPrompt.trim() && followUpAttachments.length === 0)) && styles.buttonDisabled,
               ]}
               onPress={handleContinue}
-              disabled={isContinuing || !followUpPrompt.trim()}
+              disabled={isContinuing || (!followUpPrompt.trim() && followUpAttachments.length === 0)}
               activeOpacity={0.7}>
               {isContinuing ? (
                 <ActivityIndicator color="#ffffff" />
@@ -336,7 +420,18 @@ function TurnSectionView({ turn }: { turn: RunTurnDetail }): React.JSX.Element {
 
       <View style={styles.messageCard}>
         <Text style={styles.messageEyebrow}>User</Text>
-        <Text style={styles.messageText}>{turn.prompt}</Text>
+        {turn.prompt ? (
+          <Text style={styles.messageText}>{turn.prompt}</Text>
+        ) : (
+          <Text style={styles.messagePlaceholder}>Sent image attachment</Text>
+        )}
+        {turn.attachments.length > 0 ? (
+          <View style={styles.turnAttachmentList}>
+            {turn.attachments.map((attachment) => (
+              <AttachmentChip key={attachment.id} attachment={attachment} />
+            ))}
+          </View>
+        ) : null}
       </View>
 
       {turn.items.length === 0 ? (
@@ -348,6 +443,22 @@ function TurnSectionView({ turn }: { turn: RunTurnDetail }): React.JSX.Element {
           <TimelineItemView key={`${turn.id}-${item.id}`} item={item} />
         ))
       )}
+    </View>
+  );
+}
+
+function AttachmentChip({ attachment }: { attachment: RunImageAttachment }): React.JSX.Element {
+  return (
+    <View style={styles.attachmentChip}>
+      <Text style={styles.attachmentChipTitle} numberOfLines={1}>
+        Image
+      </Text>
+      <Text style={styles.attachmentChipName} numberOfLines={1}>
+        {attachment.name}
+      </Text>
+      <Text style={styles.attachmentChipMeta}>
+        {formatAttachmentSize(attachment.sizeBytes)}
+      </Text>
     </View>
   );
 }
@@ -597,6 +708,46 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 8,
   },
+  messagePlaceholder: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  turnAttachmentList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  attachmentChip: {
+    minWidth: 110,
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  attachmentChipTitle: {
+    color: colors.accent,
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  attachmentChipName: {
+    marginTop: 4,
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  attachmentChipMeta: {
+    marginTop: 4,
+    color: colors.textSecondary,
+    fontSize: 11,
+  },
   commandCard: {
     backgroundColor: colors.surface,
     borderRadius: 14,
@@ -691,6 +842,74 @@ const styles = StyleSheet.create({
   followUpInput: {
     minHeight: 96,
     marginBottom: 10,
+  },
+  attachmentHeader: {
+    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  attachmentLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  attachButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: `${colors.accent}20`,
+    borderWidth: 1,
+    borderColor: `${colors.accent}55`,
+  },
+  attachButtonDisabled: {
+    opacity: 0.5,
+  },
+  attachButtonText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  selectedAttachmentList: {
+    gap: 10,
+    paddingBottom: 10,
+  },
+  selectedAttachmentCard: {
+    width: 132,
+    backgroundColor: colors.background,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 10,
+    marginBottom: 10,
+  },
+  selectedAttachmentPreview: {
+    width: '100%',
+    height: 88,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceLight,
+  },
+  selectedAttachmentName: {
+    marginTop: 10,
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  selectedAttachmentMeta: {
+    marginTop: 4,
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
+  selectedAttachmentRemove: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+  },
+  selectedAttachmentRemoveText: {
+    color: colors.red,
+    fontSize: 12,
+    fontWeight: '600',
   },
   continueButton: {
     marginBottom: 10,

@@ -1,4 +1,5 @@
 import type {
+  RunImageAttachment,
   Run,
   RunDetailResponse,
   RunTimelineEvent,
@@ -10,6 +11,7 @@ type RunDetailResponseLike = {
   run?: Run;
   turns?: Array<{
     items?: RunTimelineEvent[] | null;
+    attachments?: RunImageAttachment[] | null;
   } & Partial<RunTurn>> | null;
 };
 
@@ -23,6 +25,7 @@ export function normalizeRunDetailResponse(
           .filter(isRunTurn)
           .map((turn) => ({
             ...turn,
+            attachments: Array.isArray(turn.attachments) ? turn.attachments : [],
             items: Array.isArray(turn.items) ? turn.items : [],
           }))
       : [],

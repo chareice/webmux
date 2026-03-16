@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import crypto from 'node:crypto'
 
 import type {
+  RunImageAttachment,
   RunTimelineEvent,
   RunTimelineEventPayload,
   RunTurn,
@@ -104,6 +105,7 @@ export function initDb(dbPath: string): Database.Database {
 
   migrateRunsTableIfNeeded(db)
   ensureRunTurnsTable(db)
+  ensureRunTurnAttachmentsTable(db)
   migrateRunTurnsTableIfNeeded(db)
   migrateRunTurnsIfNeeded(db)
   migrateRunEventsIfNeeded(db)
@@ -262,6 +264,14 @@ export interface RunTurnRow {
   has_diff: number
 }
 
+export interface RunTurnAttachmentRow {
+  id: string
+  turn_id: string
+  name: string
+  mime_type: string
+  size_bytes: number
+}
+
 export function createRun(
   db: Database.Database,
   opts: {
@@ -311,6 +321,7 @@ export function createRunWithInitialTurn(
     repoPath: string
     prompt: string
     branch?: string
+    attachments?: RunImageAttachment[]
   },
 ): { run: RunRow; turn: RunTurnRow } {
   const create = db.transaction(() => {
@@ -327,6 +338,7 @@ export function createRunWithInitialTurn(
       id: opts.turnId,
       runId: opts.runId,
       prompt: opts.prompt,
+      attachments: opts.attachments,
     })
     return { run, turn }
   })
@@ -387,6 +399,7 @@ export function createRunTurn(
     id: string
     runId: string
     prompt: string
+    attachments?: RunImageAttachment[]
   },
 ): RunTurnRow {
   const now = Date.now()
@@ -411,6 +424,10 @@ export function createRunTurn(
     'UPDATE runs SET status = ?, summary = NULL, unread = 1, updated_at = ? WHERE id = ?',
   ).run('starting', now, opts.runId)
 
+  if (opts.attachments?.length) {
+    createRunTurnAttachments(db, opts.id, opts.attachments)
+  }
+
   return {
     id: opts.id,
     run_id: opts.runId,
@@ -421,6 +438,32 @@ export function createRunTurn(
     updated_at: now,
     summary: null,
     has_diff: 0,
+  }
+}
+
+function createRunTurnAttachments(
+  db: Database.Database,
+  turnId: string,
+  attachments: RunImageAttachment[],
+): void {
+  const insert = db.prepare(
+    `INSERT INTO run_turn_attachments (
+      id,
+      turn_id,
+      name,
+      mime_type,
+      size_bytes
+    ) VALUES (?, ?, ?, ?, ?)`,
+  )
+
+  for (const attachment of attachments) {
+    insert.run(
+      attachment.id,
+      turnId,
+      attachment.name,
+      attachment.mimeType,
+      attachment.sizeBytes,
+    )
   }
 }
 
@@ -542,8 +585,29 @@ export function findRunTurnDetails(db: Database.Database, runId: string): RunTur
     itemsByTurnId.set(row.turn_id, items)
   }
 
+  const attachmentRows = db.prepare(
+    `SELECT id, turn_id, name, mime_type, size_bytes
+     FROM run_turn_attachments
+     WHERE turn_id IN (
+       SELECT id FROM run_turns WHERE run_id = ?
+     )
+     ORDER BY rowid ASC`,
+  ).all(runId) as RunTurnAttachmentRow[]
+
+  const attachmentsByTurnId = new Map<string, RunImageAttachment[]>()
+  for (const row of attachmentRows) {
+    const attachments = attachmentsByTurnId.get(row.turn_id) ?? []
+    attachments.push({
+      id: row.id,
+      name: row.name,
+      mimeType: row.mime_type,
+      sizeBytes: row.size_bytes,
+    })
+    attachmentsByTurnId.set(row.turn_id, attachments)
+  }
+
   return turns.map((turn) => ({
-    ...runTurnRowToRunTurn(turn),
+    ...runTurnRowToRunTurn(turn, attachmentsByTurnId.get(turn.id) ?? []),
     items: itemsByTurnId.get(turn.id) ?? [],
   }))
 }
@@ -587,12 +651,16 @@ export function deleteRunTurn(db: Database.Database, turnId: string): void {
   remove()
 }
 
-export function runTurnRowToRunTurn(row: RunTurnRow): RunTurn {
+export function runTurnRowToRunTurn(
+  row: RunTurnRow,
+  attachments: RunImageAttachment[] = [],
+): RunTurn {
   return {
     id: row.id,
     runId: row.run_id,
     index: row.turn_index,
     prompt: row.prompt,
+    attachments,
     status: row.status as RunTurn['status'],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -704,6 +772,21 @@ function ensureRunTurnsTable(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_run_turns_run_id_turn_index
       ON run_turns(run_id, turn_index);
+  `)
+}
+
+function ensureRunTurnAttachmentsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS run_turn_attachments (
+      id          TEXT PRIMARY KEY,
+      turn_id     TEXT NOT NULL REFERENCES run_turns(id) ON DELETE CASCADE,
+      name        TEXT NOT NULL,
+      mime_type   TEXT NOT NULL,
+      size_bytes  INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_run_turn_attachments_turn_id
+      ON run_turn_attachments(turn_id);
   `)
 }
 
