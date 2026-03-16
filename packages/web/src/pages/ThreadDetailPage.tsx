@@ -419,6 +419,15 @@ export function ThreadDetailPage() {
 
   const sc = statusClass(run.status)
 
+  // Tool detail full-page view
+  if (drawerItems) {
+    return (
+      <div className="thread-detail-page">
+        <ToolDrawer items={drawerItems} onClose={() => setDrawerItems(null)} />
+      </div>
+    )
+  }
+
   return (
     <div className="thread-detail-page">
       {/* Mobile header — single compact row */}
@@ -712,10 +721,6 @@ export function ThreadDetailPage() {
             )}
           </div>
         </div>
-      {/* Tool detail drawer */}
-      {drawerItems ? (
-        <ToolDrawer items={drawerItems} onClose={() => setDrawerItems(null)} />
-      ) : null}
       </div>
     </div>
   )
@@ -899,25 +904,24 @@ function ToolDrawer({ items, onClose }: { items: RunTimelineEvent[]; onClose: ()
   }, [onClose])
 
   return (
-    <div className="tool-drawer-overlay" onClick={onClose}>
-      <div className="tool-drawer" onClick={(e) => e.stopPropagation()}>
-        <div className="tool-drawer-header">
-          <h3>Tool Details</h3>
-          <button className="icon-button" onClick={onClose} type="button">
-            <X size={16} />
-          </button>
-        </div>
-        <div className="tool-drawer-body">
-          {items.map((item) => {
-            if (item.type === 'command') {
-              return <CommandItem key={item.id} item={item} />
-            }
-            if (item.type === 'activity') {
-              return <ActivityItem key={item.id} item={item} />
-            }
-            return null
-          })}
-        </div>
+    <div className="tool-drawer-page">
+      <div className="tool-drawer-page-header">
+        <button className="secondary-button" onClick={onClose} type="button">
+          <ArrowLeft size={16} />
+          Back
+        </button>
+        <h3>Tool Details</h3>
+      </div>
+      <div className="tool-drawer-page-body">
+        {items.map((item) => {
+          if (item.type === 'command') {
+            return <CommandItem key={item.id} item={item} />
+          }
+          if (item.type === 'activity') {
+            return <ActivityItem key={item.id} item={item} />
+          }
+          return null
+        })}
       </div>
     </div>
   )
