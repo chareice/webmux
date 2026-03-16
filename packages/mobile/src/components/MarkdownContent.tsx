@@ -1,6 +1,6 @@
-import React from 'react';
-import { Linking, StyleSheet } from 'react-native';
-import Markdown, { MarkdownIt } from 'react-native-markdown-display';
+import React, { useMemo } from 'react';
+import { Linking, StyleSheet, Text } from 'react-native';
+import Markdown, { MarkdownIt, RenderRules } from 'react-native-markdown-display';
 
 import { colors, fonts } from '../theme';
 
@@ -9,19 +9,53 @@ const markdownIt = MarkdownIt({
   breaks: true,
 });
 
+const selectableRules: RenderRules = {
+  textgroup: (node, children, _parent, styles) => (
+    <Text key={node.key} style={styles.textgroup} selectable>
+      {children}
+    </Text>
+  ),
+  text: (node, _children, _parent, styles, inheritedStyles = {}) => (
+    <Text key={node.key} style={[inheritedStyles, styles.text]} selectable>
+      {node.content}
+    </Text>
+  ),
+  code_inline: (node, _children, _parent, styles, inheritedStyles = {}) => (
+    <Text key={node.key} style={[inheritedStyles, styles.code_inline]} selectable>
+      {node.content}
+    </Text>
+  ),
+  fence: (node, _children, _parent, styles, inheritedStyles = {}) => (
+    <Text key={node.key} style={[inheritedStyles, styles.fence]} selectable>
+      {node.content}
+    </Text>
+  ),
+  code_block: (node, _children, _parent, styles, inheritedStyles = {}) => (
+    <Text key={node.key} style={[inheritedStyles, styles.code_block]} selectable>
+      {node.content}
+    </Text>
+  ),
+};
+
 type Props = {
   content: string;
   compact?: boolean;
+  selectable?: boolean;
 };
 
 export default function MarkdownContent({
   content,
   compact = false,
+  selectable = false,
 }: Props): React.JSX.Element {
+  const style = compact ? compactMarkdownStyles : markdownStyles;
+  const rules = useMemo(() => (selectable ? selectableRules : undefined), [selectable]);
+
   return (
     <Markdown
       markdownit={markdownIt}
-      style={compact ? compactMarkdownStyles : markdownStyles}
+      style={style}
+      rules={rules}
       onLinkPress={(url) => {
         void Linking.openURL(url);
         return false;

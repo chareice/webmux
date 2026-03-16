@@ -1,12 +1,26 @@
-import React from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import DeviceInfo from 'react-native-device-info';
 import { useAuth } from '../store';
 import { getServerUrl } from '../api';
+import { checkForUpdate } from '../app-update';
 import { colors, commonStyles } from '../theme';
 
 export default function SettingsScreen(): React.JSX.Element {
   const { logout } = useAuth();
   const serverUrl = getServerUrl();
+  const appVersion = DeviceInfo.getVersion();
+  const buildNumber = DeviceInfo.getBuildNumber();
+  const [isChecking, setIsChecking] = useState(false);
+
+  const handleCheckUpdate = async () => {
+    setIsChecking(true);
+    try {
+      await checkForUpdate();
+    } finally {
+      setIsChecking(false);
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [
@@ -29,6 +43,27 @@ export default function SettingsScreen(): React.JSX.Element {
             {serverUrl || 'Not configured'}
           </Text>
         </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>App</Text>
+        <View style={styles.row}>
+          <Text style={styles.rowLabel}>Version</Text>
+          <Text style={styles.rowValue}>
+            {appVersion} ({buildNumber})
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={styles.checkUpdateButton}
+          onPress={() => void handleCheckUpdate()}
+          disabled={isChecking}
+          activeOpacity={0.7}>
+          {isChecking ? (
+            <ActivityIndicator size="small" color={colors.accent} />
+          ) : (
+            <Text style={styles.checkUpdateText}>检查更新</Text>
+          )}
+        </TouchableOpacity>
       </View>
 
       <View style={styles.section}>
@@ -76,6 +111,18 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
     marginLeft: 12,
+  },
+  checkUpdateButton: {
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  checkUpdateText: {
+    color: colors.accent,
+    fontSize: 16,
+    fontWeight: '600',
   },
   logoutButton: {
     backgroundColor: colors.surface,

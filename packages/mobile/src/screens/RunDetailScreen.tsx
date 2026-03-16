@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Clipboard,
   Image,
   Keyboard,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  ToastAndroid,
   TouchableOpacity,
+  Platform,
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -112,6 +115,13 @@ function groupIntoSegments(turns: RunTurnDetail[]): ConversationSegment[] {
   }
 
   return segments;
+}
+
+function copyToClipboard(text: string) {
+  Clipboard.setString(text);
+  if (Platform.OS === 'android') {
+    ToastAndroid.show('已复制', ToastAndroid.SHORT);
+  }
 }
 
 export default function RunDetailScreen({ navigation, route }: Props): React.JSX.Element {
@@ -324,10 +334,14 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
           segments.map((segment) => {
             if (segment.type === 'user') {
               return (
-                <View key={segment.id} style={styles.bubbleUser}>
+                <TouchableOpacity
+                  key={segment.id}
+                  style={styles.bubbleUser}
+                  activeOpacity={0.8}
+                  onLongPress={() => segment.text && copyToClipboard(segment.text)}>
                   <Text style={styles.bubbleRole}>You</Text>
                   {segment.text ? (
-                    <Text style={styles.bubbleUserText}>{segment.text}</Text>
+                    <Text selectable style={styles.bubbleUserText}>{segment.text}</Text>
                   ) : null}
                   {segment.attachments.length > 0 ? (
                     <View style={styles.attachmentRow}>
@@ -336,18 +350,22 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
                       ))}
                     </View>
                   ) : null}
-                </View>
+                </TouchableOpacity>
               );
             }
 
             if (segment.type === 'assistant') {
               return (
-                <View key={segment.id} style={styles.bubbleAssistant}>
+                <TouchableOpacity
+                  key={segment.id}
+                  style={styles.bubbleAssistant}
+                  activeOpacity={0.8}
+                  onLongPress={() => copyToClipboard(segment.text)}>
                   <Text style={styles.bubbleRoleAssistant}>Assistant</Text>
                   <View style={styles.bubbleContent}>
-                    <MarkdownContent content={segment.text} compact />
+                    <MarkdownContent content={segment.text} compact selectable />
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             }
 

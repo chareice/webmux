@@ -23,6 +23,11 @@ const DEV_MODE = process.env.WEBMUX_DEV_MODE === 'true'
 const DATABASE_PATH = process.env.DATABASE_PATH ?? './webmux.db'
 const FIREBASE_SERVICE_ACCOUNT_BASE64 =
   process.env.WEBMUX_FIREBASE_SERVICE_ACCOUNT_BASE64 ?? ''
+const GITHUB_REPO = process.env.WEBMUX_GITHUB_REPO ?? 'chareice/webmux'
+const MOBILE_LATEST_VERSION = process.env.WEBMUX_MOBILE_LATEST_VERSION ?? ''
+const MOBILE_DOWNLOAD_URL = process.env.WEBMUX_MOBILE_DOWNLOAD_URL ?? ''
+const MOBILE_MIN_VERSION = process.env.WEBMUX_MOBILE_MIN_VERSION ?? ''
+
 const AGENT_UPGRADE_POLICY = buildAgentUpgradePolicy({
   packageName: process.env.WEBMUX_AGENT_PACKAGE_NAME,
   targetVersion: process.env.WEBMUX_AGENT_TARGET_VERSION,
@@ -55,6 +60,12 @@ const { app, db, hub } = buildApp({
     devMode: DEV_MODE,
     agentUpgradePolicy: AGENT_UPGRADE_POLICY,
     firebaseServiceAccountBase64: FIREBASE_SERVICE_ACCOUNT_BASE64,
+    githubRepo: GITHUB_REPO || undefined,
+    mobileVersion: {
+      latestVersion: MOBILE_LATEST_VERSION || undefined,
+      downloadUrl: MOBILE_DOWNLOAD_URL || undefined,
+      minVersion: MOBILE_MIN_VERSION || undefined,
+    },
   },
 })
 

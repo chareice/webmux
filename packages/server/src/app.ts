@@ -9,8 +9,15 @@ import type { AgentUpgradePolicy } from '@webmux/shared'
 
 import { AgentHub } from './agent-hub.js'
 import { initDb } from './db.js'
+import { createMobileVersionResolver } from './mobile-version.js'
 import { createNotificationService } from './notification-service.js'
 import { registerRoutes } from './router.js'
+
+export interface MobileVersionConfig {
+  latestVersion?: string
+  downloadUrl?: string
+  minVersion?: string
+}
 
 export interface ServerConfig {
   jwtSecret: string
@@ -22,6 +29,8 @@ export interface ServerConfig {
   devMode: boolean
   agentUpgradePolicy: AgentUpgradePolicy | null
   firebaseServiceAccountBase64?: string
+  mobileVersion?: MobileVersionConfig
+  githubRepo?: string
 }
 
 interface BuildAppOptions {
@@ -48,6 +57,13 @@ export function buildApp(options: BuildAppOptions) {
   })
 
   app.get('/api/health', async () => ({ ok: true }))
+
+  // Mobile version check (no auth required)
+  const resolveMobileVersion = createMobileVersionResolver(
+    options.config.githubRepo,
+    options.config.mobileVersion,
+  )
+  app.get('/api/mobile/version', async () => resolveMobileVersion())
 
   registerRoutes(app, db, hub, options.config)
 
