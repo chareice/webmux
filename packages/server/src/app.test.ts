@@ -15,6 +15,7 @@ import {
   createRun,
   createRunWithInitialTurn,
   createUser,
+  findNotificationDevicesByUserId,
   findAgentById,
   findRunById,
   findRunTurnDetails,
@@ -353,6 +354,63 @@ describe('buildApp', () => {
 
     expect(response.statusCode).toBe(503)
     expect(findRunsByAgentId(db, agent.id)).toEqual([])
+
+    await app.close()
+  })
+
+  it('registers and unregisters an Android push device for the current user', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'push-user',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+
+    const { app } = buildApp({
+      db,
+      hub: new AgentHub(),
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const registerResponse = await app.inject({
+      method: 'POST',
+      url: '/api/mobile/push-devices',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        installationId: 'device-1',
+        platform: 'android',
+        provider: 'fcm',
+        pushToken: 'fcm-token-1',
+        deviceName: 'Pixel 9',
+      },
+    })
+
+    expect(registerResponse.statusCode).toBe(200)
+    expect(findNotificationDevicesByUserId(db, user.id)).toEqual([
+      expect.objectContaining({
+        installation_id: 'device-1',
+        push_token: 'fcm-token-1',
+        device_name: 'Pixel 9',
+      }),
+    ])
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: '/api/mobile/push-devices/device-1',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    })
+
+    expect(deleteResponse.statusCode).toBe(200)
+    expect(findNotificationDevicesByUserId(db, user.id)).toEqual([])
 
     await app.close()
   })

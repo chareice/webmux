@@ -6,6 +6,7 @@ TARGET="${1:-device}"
 APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ANDROID_DIR="$APP_ROOT/android"
 GRADLEW="$ANDROID_DIR/gradlew"
+PREPARE_GOOGLE_SERVICES="$APP_ROOT/scripts/prepare-google-services.sh"
 ARCHITECTURES=""
 
 case "$TARGET" in
@@ -28,6 +29,8 @@ if [[ ! -x "$GRADLEW" ]]; then
   echo "Gradle wrapper not found at $GRADLEW" >&2
   exit 1
 fi
+
+"$PREPARE_GOOGLE_SERVICES"
 
 cd "$ANDROID_DIR"
 

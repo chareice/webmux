@@ -1,11 +1,12 @@
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 import type { RunStatus, RunTimelineEventPayload, RunTool } from '@webmux/shared'
+import { createClaudeClient, type ClaudeClient } from './claude-client.js'
+import { ClaudeMessageParser } from './claude-event.js'
 import { createCodexClient, type CodexClient } from './codex-client.js'
 import { prepareCodexInput } from './codex-input.js'
 import { parseCodexThreadEvent } from './codex-event.js'
-import { createRunAdapter } from './run-adapter.js'
 import type { RunImageAttachmentUpload } from '@webmux/shared'
 
 const execFileAsync = promisify(execFile)
@@ -22,6 +23,7 @@ export interface RunWrapperOptions {
   onItem: (item: RunTimelineEventPayload) => void
   onThreadReady?: (toolThreadId: string) => void
   codexClientFactory?: () => CodexClient
+  claudeClientFactory?: () => ClaudeClient
 }
 
 export class RunWrapper {
@@ -35,15 +37,12 @@ export class RunWrapper {
   private readonly onItem: RunWrapperOptions['onItem']
   private readonly onThreadReady?: RunWrapperOptions['onThreadReady']
   private readonly codexClientFactory: () => CodexClient
-
-  private readonly adapter
-  private child: ChildProcessWithoutNullStreams | null = null
+  private readonly claudeClientFactory: () => ClaudeClient
   private abortController: AbortController | null = null
+  private claudeQuery: ReturnType<ClaudeClient['query']> | null = null
   private currentStatus: RunStatus = 'starting'
   private disposed = false
   private interrupted = false
-  private stdoutBuffer = ''
-  private stderrBuffer = ''
   private latestSummary: string | undefined
   private finished = false
 
@@ -58,7 +57,7 @@ export class RunWrapper {
     this.onItem = options.onItem
     this.onThreadReady = options.onThreadReady
     this.codexClientFactory = options.codexClientFactory ?? createCodexClient
-    this.adapter = createRunAdapter(this.tool)
+    this.claudeClientFactory = options.claudeClientFactory ?? createClaudeClient
   }
 
   async start(): Promise<void> {
@@ -71,75 +70,11 @@ export class RunWrapper {
       return
     }
 
-    if (this.attachments.length > 0) {
-      throw new Error('Image attachments are currently supported for Codex only')
-    }
-
-    this.emitStatus('starting')
-    this.onItem({
-      type: 'activity',
-      status: 'info',
-      label: 'Starting Claude',
-      detail: this.repoPath,
-    })
-
-    const command = this.adapter.buildCommand()
-    const child = spawn(command.command, command.args, {
-      cwd: this.repoPath,
-      env: {
-        ...process.env,
-        FORCE_COLOR: '0',
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-    this.child = child
-
-    child.stdout.setEncoding('utf8')
-    child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      this.handleChunk('stdout', chunk)
-    })
-    child.stderr.on('data', (chunk: string) => {
-      this.handleChunk('stderr', chunk)
-    })
-
-    child.on('error', (error) => {
-      if (this.disposed || this.finished) {
-        return
-      }
-
-      this.onItem({
-        type: 'activity',
-        status: 'error',
-        label: 'Run failed to start',
-        detail: error.message,
-      })
-      this.finalize('failed', false, `Failed to start: ${error.message}`)
-    })
-
-    child.on('close', (exitCode) => {
-      if (this.disposed || this.finished) {
-        return
-      }
-
-      this.flushBufferedLines()
-      const finalStatus =
-        this.interrupted ? 'interrupted' : exitCode === 0 ? 'success' : 'failed'
-
-      void this.complete(finalStatus)
-    })
-
-    if (command.readPromptFromStdin) {
-      child.stdin.end(this.prompt)
-    } else {
-      child.stdin.end()
-    }
-
-    this.emitStatus('running')
+    await this.startClaudeThread()
   }
 
   interrupt(): void {
-    if ((this.tool === 'codex' && !this.abortController) || (this.tool !== 'codex' && !this.child) || this.disposed || this.finished) {
+    if ((this.tool === 'codex' && !this.abortController) || (this.tool !== 'codex' && !this.claudeQuery) || this.disposed || this.finished) {
       return
     }
 
@@ -155,7 +90,19 @@ export class RunWrapper {
       return
     }
 
-    this.child?.kill('SIGINT')
+    void this.claudeQuery?.interrupt().catch((error) => {
+      if (this.disposed || this.finished) {
+        return
+      }
+
+      const detail = error instanceof Error ? error.message : String(error)
+      this.onItem({
+        type: 'activity',
+        status: 'warning',
+        label: 'Interrupt request failed',
+        detail,
+      })
+    })
   }
 
   dispose(): void {
@@ -170,50 +117,10 @@ export class RunWrapper {
       this.abortController = null
     }
 
-    if (this.child) {
-      this.child.kill('SIGKILL')
-      this.child = null
+    if (this.claudeQuery) {
+      this.claudeQuery.close()
+      this.claudeQuery = null
     }
-  }
-
-  private handleChunk(source: 'stdout' | 'stderr', chunk: string): void {
-    if (this.disposed || this.finished) {
-      return
-    }
-
-    const key = source === 'stdout' ? 'stdoutBuffer' : 'stderrBuffer'
-    let buffer = this[key] + chunk
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    this[key] = buffer
-
-    for (const line of lines) {
-      this.processLine(line)
-    }
-  }
-
-  private processLine(line: string): void {
-    const result = this.adapter.parseLine(line)
-    if (result.summary) {
-      this.latestSummary = result.summary
-      this.emitStatus(this.currentStatus, result.summary)
-    }
-
-    for (const item of result.items) {
-      this.onItem(item)
-    }
-  }
-
-  private flushBufferedLines(): void {
-    if (this.stdoutBuffer.trim()) {
-      this.processLine(this.stdoutBuffer)
-    }
-    if (this.stderrBuffer.trim()) {
-      this.processLine(this.stderrBuffer)
-    }
-
-    this.stdoutBuffer = ''
-    this.stderrBuffer = ''
   }
 
   private async complete(finalStatus: RunStatus): Promise<void> {
@@ -246,8 +153,8 @@ export class RunWrapper {
     }
 
     this.finished = true
-    this.child = null
     this.abortController = null
+    this.claudeQuery = null
     this.emitStatus(finalStatus, summary, hasDiff)
     this.onFinish(finalStatus)
   }
@@ -351,6 +258,88 @@ export class RunWrapper {
       this.finalize('failed', false, message)
     } finally {
       await preparedInput.cleanup()
+    }
+  }
+
+  private async startClaudeThread(): Promise<void> {
+    if (this.attachments.length > 0) {
+      throw new Error('Image attachments are currently supported for Codex only')
+    }
+
+    this.emitStatus('starting')
+    this.onItem({
+      type: 'activity',
+      status: 'info',
+      label: 'Starting Claude',
+      detail: this.repoPath,
+    })
+
+    const client = this.claudeClientFactory()
+    const parser = new ClaudeMessageParser()
+    const query = client.query(this.prompt, {
+      cwd: this.repoPath,
+      resume: this.toolThreadId,
+      persistSession: true,
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+    })
+
+    this.claudeQuery = query
+    this.emitStatus('running')
+
+    let announcedThreadId = this.toolThreadId ?? undefined
+
+    try {
+      for await (const message of query) {
+        if (this.disposed || this.finished) {
+          return
+        }
+
+        const nextThreadId = message.session_id
+        if (nextThreadId && nextThreadId !== announcedThreadId) {
+          announcedThreadId = nextThreadId
+          this.onThreadReady?.(nextThreadId)
+        }
+
+        const result = parser.parse(message)
+        if (result.summary) {
+          this.latestSummary = result.summary
+          this.emitStatus(this.currentStatus, result.summary)
+        }
+
+        for (const item of result.items) {
+          this.onItem(item)
+        }
+
+        if (result.finalStatus) {
+          await this.complete(this.interrupted ? 'interrupted' : result.finalStatus)
+          return
+        }
+      }
+
+      if (this.finished) {
+        return
+      }
+
+      await this.complete(this.interrupted ? 'interrupted' : 'failed')
+    } catch (error) {
+      if (this.disposed || this.finished) {
+        return
+      }
+
+      if (this.interrupted || isAbortError(error)) {
+        await this.complete('interrupted')
+        return
+      }
+
+      const message = error instanceof Error ? error.message : String(error)
+      this.onItem({
+        type: 'activity',
+        status: 'error',
+        label: 'Run failed',
+        detail: message,
+      })
+      this.finalize('failed', false, message)
     }
   }
 }

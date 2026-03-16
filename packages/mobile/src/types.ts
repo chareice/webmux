@@ -132,6 +132,17 @@ export interface ContinueRunRequest {
   attachments?: RunImageAttachmentUpload[];
 }
 
+export type PushPlatform = 'android';
+export type PushProvider = 'fcm';
+
+export interface RegisterPushDeviceRequest {
+  installationId: string;
+  platform: PushPlatform;
+  provider: PushProvider;
+  pushToken: string;
+  deviceName?: string;
+}
+
 // Server -> Browser (run WebSocket events)
 export type RunEvent =
   | { type: 'run-status'; run: Run }

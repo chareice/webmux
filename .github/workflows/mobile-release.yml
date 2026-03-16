@@ -15,6 +15,7 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
 
     defaults:
       run:
@@ -80,6 +81,9 @@ jobs:
         run: |
           sdk_path="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           echo "sdk.dir=$sdk_path" > android/local.properties
+
+      - name: Prepare Firebase config
+        run: bash scripts/prepare-google-services.sh
 
       - name: Prepare release signing
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}

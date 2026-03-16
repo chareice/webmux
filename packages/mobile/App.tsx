@@ -4,6 +4,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthContext, useAuthProvider } from './src/store';
+import { flushPendingThreadDetail, navigationRef } from './src/navigation-ref';
+import { usePushNotifications } from './src/push-notifications';
 import { colors } from './src/theme';
 import type { RootStackParamList } from './src/navigation';
 import LoginScreen from './src/screens/LoginScreen';
@@ -83,12 +85,21 @@ function AppNavigator(): React.JSX.Element {
 
 function App(): React.JSX.Element {
   const auth = useAuthProvider();
+  usePushNotifications(auth.isLoggedIn);
+
+  React.useEffect(() => {
+    flushPendingThreadDetail(auth.isLoggedIn);
+  }, [auth.isLoggedIn]);
 
   return (
     <AuthContext.Provider value={auth}>
       <SafeAreaProvider>
         <StatusBar barStyle="light-content" backgroundColor={colors.background} />
         <NavigationContainer
+          ref={navigationRef}
+          onReady={() => {
+            flushPendingThreadDetail(auth.isLoggedIn);
+          }}
           theme={{
             dark: true,
             colors: {

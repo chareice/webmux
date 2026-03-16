@@ -9,6 +9,7 @@ import type { AgentUpgradePolicy } from '@webmux/shared'
 
 import { AgentHub } from './agent-hub.js'
 import { initDb } from './db.js'
+import { createNotificationService } from './notification-service.js'
 import { registerRoutes } from './router.js'
 
 export interface ServerConfig {
@@ -20,6 +21,7 @@ export interface ServerConfig {
   baseUrl: string
   devMode: boolean
   agentUpgradePolicy: AgentUpgradePolicy | null
+  firebaseServiceAccountBase64?: string
 }
 
 interface BuildAppOptions {
@@ -32,7 +34,13 @@ interface BuildAppOptions {
 
 export function buildApp(options: BuildAppOptions) {
   const db = options.db ?? initDb(options.dbPath ?? './webmux.db')
-  const hub = options.hub ?? new AgentHub({ upgradePolicy: options.config.agentUpgradePolicy })
+  const notificationService = createNotificationService(db, {
+    firebaseServiceAccountBase64: options.config.firebaseServiceAccountBase64,
+  })
+  const hub = options.hub ?? new AgentHub({
+    upgradePolicy: options.config.agentUpgradePolicy,
+    notificationService,
+  })
   hub.upgradePolicy = options.config.agentUpgradePolicy
   const app = Fastify({
     logger: true,

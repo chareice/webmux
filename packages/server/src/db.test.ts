@@ -8,6 +8,7 @@ import {
   appendRunTimelineEvent,
   createRunTurn,
   createRunWithInitialTurn,
+  deleteNotificationDevice,
   initDb,
   findUserByProvider,
   findUserById,
@@ -26,7 +27,9 @@ import {
   updateAgentLastSeen,
   createRegistrationToken,
   consumeRegistrationToken,
+  findNotificationDevicesByUserId,
   updateRunToolThreadId,
+  upsertNotificationDevice,
 } from './db.js'
 import type Database from 'better-sqlite3'
 
@@ -215,6 +218,67 @@ describe('runs', () => {
     updateRunToolThreadId(db, run.id, 'codex-thread-1')
 
     expect(findRunById(db, run.id)?.tool_thread_id).toBe('codex-thread-1')
+  })
+})
+
+describe('notification devices', () => {
+  it('upserts a device token for a user installation', () => {
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'push-owner',
+      displayName: 'owner',
+      avatarUrl: null,
+    })
+
+    upsertNotificationDevice(db, {
+      installationId: 'device-1',
+      userId: user.id,
+      platform: 'android',
+      provider: 'fcm',
+      pushToken: 'token-1',
+      deviceName: 'Pixel',
+    })
+
+    upsertNotificationDevice(db, {
+      installationId: 'device-1',
+      userId: user.id,
+      platform: 'android',
+      provider: 'fcm',
+      pushToken: 'token-2',
+      deviceName: 'Pixel',
+    })
+
+    expect(findNotificationDevicesByUserId(db, user.id)).toEqual([
+      expect.objectContaining({
+        installation_id: 'device-1',
+        user_id: user.id,
+        platform: 'android',
+        provider: 'fcm',
+        push_token: 'token-2',
+        device_name: 'Pixel',
+      }),
+    ])
+  })
+
+  it('deletes a stored device token for the owning user', () => {
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'push-owner',
+      displayName: 'owner',
+      avatarUrl: null,
+    })
+
+    upsertNotificationDevice(db, {
+      installationId: 'device-1',
+      userId: user.id,
+      platform: 'android',
+      provider: 'fcm',
+      pushToken: 'token-1',
+    })
+
+    deleteNotificationDevice(db, user.id, 'device-1')
+
+    expect(findNotificationDevicesByUserId(db, user.id)).toEqual([])
   })
 })
 

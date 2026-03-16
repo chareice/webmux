@@ -90,11 +90,15 @@ GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+WEBMUX_FIREBASE_SERVICE_ACCOUNT_BASE64=
 ```
 
 `WEBMUX_AGENT_TARGET_VERSION` is the recommended agent release for managed upgrades.
 `WEBMUX_AGENT_MIN_VERSION` is the oldest agent version the server will accept.
 If both are empty, the server does not advertise or enforce agent upgrades.
+`WEBMUX_FIREBASE_SERVICE_ACCOUNT_BASE64` is an optional base64-encoded Firebase
+service account JSON used to send Android push notifications when a thread turn
+finishes. If it is empty, the server skips push delivery.
 
 ## Managed Agent Service
 
@@ -128,6 +132,8 @@ pnpm dlx @webmux/agent service upgrade --to 0.1.5
 - `GET /api/auth/google`
 - `GET /api/auth/dev` (dev only)
 - `GET /api/agents`
+- `POST /api/mobile/push-devices`
+- `DELETE /api/mobile/push-devices/:installationId`
 - `POST /api/agents/register-token`
 - `POST /api/agents/register`
 - `PATCH /api/agents/:id`
@@ -154,5 +160,8 @@ pnpm build
 - Session names are intentionally constrained to a small safe charset.
 - Session list updates are pushed immediately on create, kill, attach, and detach, with periodic agent refresh to keep previews and activity markers current.
 - Agent upgrades are server-owned policy, not npm `latest`. Set `WEBMUX_AGENT_TARGET_VERSION` and `WEBMUX_AGENT_MIN_VERSION` during server deploys when you want to roll out or enforce a new agent release.
+- Android completion notifications need both mobile Firebase config and
+  `WEBMUX_FIREBASE_SERVICE_ACCOUNT_BASE64` on the server. Without those
+  credentials, the app still works but push delivery stays disabled.
 - The container publish workflow pushes `ghcr.io/chareice/webmux-server:main`, `:latest`, and `:sha-<commit>` on every `main` push.
 - The current UI is optimized for single-pane attach flows. Multi-pane map views, thumbnails, auth policies, and ACLs are still future work.

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setServerUrl, setToken } from './api';
+import { unregisterCurrentPushDevice } from './push-notifications';
 import { normalizeServerUrl } from './server-url';
 
 const STORAGE_KEY_SERVER_URL = '@webmux/server_url';
@@ -56,6 +57,7 @@ export function useAuthProvider(): AuthContextType {
   }, []);
 
   const logout = useCallback(async () => {
+    await unregisterCurrentPushDevice();
     setServerUrlState('');
     setTokenState('');
     setServerUrl('');

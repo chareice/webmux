@@ -36,8 +36,10 @@ import {
   createUser,
   countUsers,
   findUserById,
+  deleteNotificationDevice,
   findAgentsByUserId,
   findAgentById,
+  findNotificationDevicesByUserId,
   deleteAgent,
   createAgent,
   renameAgent,
@@ -53,6 +55,7 @@ import {
   markRunRead,
   deleteRun,
   deleteRunTurn,
+  upsertNotificationDevice,
 } from './db.js'
 import type { AgentHub } from './agent-hub.js'
 import { runRowToRun } from './agent-hub.js'
@@ -321,6 +324,57 @@ export function registerRoutes(
       avatarUrl: user.avatar_url,
       role: user.role,
     }
+  })
+
+  // --- Mobile push devices ---
+
+  app.post('/api/mobile/push-devices', { preHandler: authPreHandler }, async (request, reply) => {
+    const body = (request.body as {
+      installationId?: string
+      platform?: string
+      provider?: string
+      pushToken?: string
+      deviceName?: string
+    } | undefined) ?? {}
+
+    const installationId = body.installationId?.trim()
+    const platform = body.platform?.trim()
+    const provider = body.provider?.trim()
+    const pushToken = body.pushToken?.trim()
+
+    if (!installationId || !platform || !provider || !pushToken) {
+      return reply.status(400).send({
+        error: 'Missing required fields: installationId, platform, provider, pushToken',
+      })
+    }
+
+    if (platform !== 'android') {
+      return reply.status(400).send({ error: 'Only Android push devices are currently supported' })
+    }
+
+    if (provider !== 'fcm') {
+      return reply.status(400).send({ error: 'Only the FCM push provider is currently supported' })
+    }
+
+    upsertNotificationDevice(db, {
+      installationId,
+      userId: request.user!.userId,
+      platform,
+      provider,
+      pushToken,
+      deviceName: body.deviceName?.trim(),
+    })
+
+    return {
+      ok: true,
+      devices: findNotificationDevicesByUserId(db, request.user!.userId).length,
+    }
+  })
+
+  app.delete('/api/mobile/push-devices/:installationId', { preHandler: authPreHandler }, async (request) => {
+    const { installationId } = request.params as { installationId: string }
+    deleteNotificationDevice(db, request.user!.userId, installationId)
+    return { ok: true }
   })
 
   // --- Agent routes ---

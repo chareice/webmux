@@ -28,6 +28,15 @@ pnpm start
 The local development port is fixed to `8082` so it does not clash with other
 React Native or Expo projects that still use the default `8081`.
 
+Android push notifications use Firebase Cloud Messaging. For a local build that
+can actually receive pushes, either:
+
+- put `google-services.json` at `packages/mobile/android/app/google-services.json`, or
+- export `ANDROID_GOOGLE_SERVICES_JSON_BASE64` before running the build scripts
+
+If the file is missing, the app still builds and runs, but push notifications
+stay disabled for that build.
+
 Run on Android:
 
 ```sh
@@ -120,6 +129,7 @@ Configure these repository secrets before publishing a real production release:
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
+- `ANDROID_GOOGLE_SERVICES_JSON_BASE64`
 
 ## Production Release Checklist
 
@@ -127,9 +137,10 @@ Before shipping to users, make sure all of these are in place:
 
 1. Create a real Android release keystore and store the four signing secrets in GitHub.
 2. Publish a GitHub Release with a semantic version tag such as `v1.0.0`.
-3. Download the generated APK for direct installs, or upload the generated AAB to Google Play.
-4. Replace the default app icons and screenshots with production assets.
-5. Fill in any store metadata, privacy disclosures, and support URLs before submitting to app stores.
+3. Configure `WEBMUX_FIREBASE_SERVICE_ACCOUNT_BASE64` on the server if you want Android thread completion pushes.
+4. Download the generated APK for direct installs, or upload the generated AAB to Google Play.
+5. Replace the default app icons and screenshots with production assets.
+6. Fill in any store metadata, privacy disclosures, and support URLs before submitting to app stores.
 
 ## iOS Production Status
 

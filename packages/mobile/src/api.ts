@@ -1,6 +1,7 @@
 import {
   AgentListResponse,
   ContinueRunRequest,
+  RegisterPushDeviceRequest,
   RepositoryBrowseResponse,
   Run,
   RunDetailResponse,
@@ -152,6 +153,23 @@ export async function deleteThread(
   threadId: string,
 ): Promise<void> {
   await fetchApi(`/api/agents/${agentId}/threads/${threadId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function registerPushDevice(
+  request: RegisterPushDeviceRequest,
+): Promise<void> {
+  await fetchApi('/api/mobile/push-devices', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function unregisterPushDevice(
+  installationId: string,
+): Promise<void> {
+  await fetchApi(`/api/mobile/push-devices/${encodeURIComponent(installationId)}`, {
     method: 'DELETE',
   });
 }

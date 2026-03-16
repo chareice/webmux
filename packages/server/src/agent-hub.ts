@@ -34,6 +34,22 @@ import {
 } from './db.js'
 import type { RunRow } from './db.js'
 
+export interface TurnCompletionNotification {
+  userId: string
+  agentId: string
+  runId: string
+  turnId: string
+  repoPath: string
+  tool: Run['tool']
+  status: Run['status']
+  summary?: string
+  turnIndex: number
+}
+
+export interface NotificationService {
+  notifyTurnCompleted(notification: TurnCompletionNotification): Promise<void>
+}
+
 interface OnlineAgent {
   socket: WebSocket
   userId: string
@@ -62,6 +78,7 @@ interface PendingCommand<T> {
 
 export class AgentHub {
   upgradePolicy: AgentUpgradePolicy | null
+  private notificationService: NotificationService | null
   private agents = new Map<string, OnlineAgent>()
   private browsers = new Map<string, BrowserConnection>()
   private eventClients: EventClient[] = []
@@ -69,8 +86,14 @@ export class AgentHub {
   private pendingCommands = new Map<string, PendingCommand<unknown>>()
   private runClients = new Map<string, Set<WebSocket>>()
 
-  constructor(options: { upgradePolicy?: AgentUpgradePolicy | null } = {}) {
+  constructor(
+    options: {
+      upgradePolicy?: AgentUpgradePolicy | null
+      notificationService?: NotificationService | null
+    } = {},
+  ) {
     this.upgradePolicy = options.upgradePolicy ?? null
+    this.notificationService = options.notificationService ?? null
   }
 
   handleConnection(socket: WebSocket, db: Database): void {
@@ -414,12 +437,14 @@ export class AgentHub {
     for (const run of findActiveRunsByAgentId(db, agentId)) {
       const activeTurn = findActiveRunTurnByRunId(db, run.id)
       if (activeTurn) {
+        const summary = 'Agent disconnected before the run completed.'
         updateRunTurnStatus(
           db,
           activeTurn.id,
           'failed',
-          'Agent disconnected before the run completed.',
+          summary,
         )
+        this.notifyTurnCompleted(run, activeTurn, 'failed', summary)
       } else {
         updateRunStatus(
           db,
@@ -552,8 +577,18 @@ export class AgentHub {
       updateRunToolThreadId(db, message.runId, message.toolThreadId)
     }
 
+    const wasActive = isActiveRunStatus(turnRow.status)
+    const nextSummary = message.summary ?? turnRow.summary ?? undefined
     updateRunTurnStatus(db, message.turnId, message.status, message.summary, message.hasDiff)
     this.broadcastRunSnapshot(db, message.runId, message.turnId)
+    if (wasActive && isTerminalRunStatus(message.status)) {
+      this.notifyTurnCompleted(
+        runRow,
+        turnRow,
+        message.status as Run['status'],
+        nextSummary,
+      )
+    }
   }
 
   private handleRunItem(
@@ -647,6 +682,29 @@ export class AgentHub {
       // Ignore send errors on closed sockets
     }
   }
+
+  private notifyTurnCompleted(
+    runRow: RunRow,
+    turnRow: { id: string; turn_index: number },
+    status: Run['status'],
+    summary?: string,
+  ): void {
+    if (!this.notificationService || status === 'interrupted') {
+      return
+    }
+
+    void this.notificationService.notifyTurnCompleted({
+      userId: runRow.user_id,
+      agentId: runRow.agent_id,
+      runId: runRow.id,
+      turnId: turnRow.id,
+      repoPath: runRow.repo_path,
+      tool: runRow.tool as Run['tool'],
+      status,
+      summary,
+      turnIndex: turnRow.turn_index,
+    })
+  }
 }
 
 export function runRowToRun(row: RunRow): Run {
@@ -684,4 +742,12 @@ function isAgentBelowMinimumVersion(
   } catch {
     return true
   }
+}
+
+function isActiveRunStatus(status: string): boolean {
+  return status === 'starting' || status === 'running'
+}
+
+function isTerminalRunStatus(status: string): boolean {
+  return status === 'success' || status === 'failed' || status === 'interrupted'
 }

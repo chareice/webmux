@@ -38,6 +38,17 @@ export interface RegistrationTokenRow {
   used: number
 }
 
+export interface NotificationDeviceRow {
+  installation_id: string
+  user_id: string
+  platform: string
+  provider: string
+  push_token: string
+  device_name: string | null
+  created_at: number
+  updated_at: number
+}
+
 export function initDb(dbPath: string): Database.Database {
   const db = new Database(dbPath)
 
@@ -101,6 +112,20 @@ export function initDb(dbPath: string): Database.Database {
       has_diff      INTEGER NOT NULL DEFAULT 0,
       unread        INTEGER NOT NULL DEFAULT 1
     );
+
+    CREATE TABLE IF NOT EXISTS notification_devices (
+      installation_id TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      platform        TEXT NOT NULL,
+      provider        TEXT NOT NULL,
+      push_token      TEXT NOT NULL,
+      device_name     TEXT,
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_notification_devices_user_id
+      ON notification_devices(user_id);
   `)
 
   migrateRunsTableIfNeeded(db)
@@ -231,6 +256,77 @@ export function consumeRegistrationToken(
   db.prepare('UPDATE registration_tokens SET used = 1 WHERE id = ?').run(token.id)
 
   return token
+}
+
+// --- Notification Devices ---
+
+export function upsertNotificationDevice(
+  db: Database.Database,
+  opts: {
+    installationId: string
+    userId: string
+    platform: string
+    provider: string
+    pushToken: string
+    deviceName?: string
+  },
+): NotificationDeviceRow {
+  const now = Date.now()
+  const existing = db.prepare(
+    'SELECT created_at FROM notification_devices WHERE installation_id = ?',
+  ).get(opts.installationId) as { created_at: number } | undefined
+
+  db.prepare(
+    `INSERT INTO notification_devices (
+      installation_id,
+      user_id,
+      platform,
+      provider,
+      push_token,
+      device_name,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(installation_id) DO UPDATE SET
+      user_id = excluded.user_id,
+      platform = excluded.platform,
+      provider = excluded.provider,
+      push_token = excluded.push_token,
+      device_name = excluded.device_name,
+      updated_at = excluded.updated_at`,
+  ).run(
+    opts.installationId,
+    opts.userId,
+    opts.platform,
+    opts.provider,
+    opts.pushToken,
+    opts.deviceName ?? null,
+    existing?.created_at ?? now,
+    now,
+  )
+
+  return db.prepare(
+    'SELECT * FROM notification_devices WHERE installation_id = ?',
+  ).get(opts.installationId) as NotificationDeviceRow
+}
+
+export function findNotificationDevicesByUserId(
+  db: Database.Database,
+  userId: string,
+): NotificationDeviceRow[] {
+  return db.prepare(
+    'SELECT * FROM notification_devices WHERE user_id = ? ORDER BY updated_at DESC',
+  ).all(userId) as NotificationDeviceRow[]
+}
+
+export function deleteNotificationDevice(
+  db: Database.Database,
+  userId: string,
+  installationId: string,
+): void {
+  db.prepare(
+    'DELETE FROM notification_devices WHERE installation_id = ? AND user_id = ?',
+  ).run(installationId, userId)
 }
 
 // --- Runs ---

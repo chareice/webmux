@@ -21,6 +21,8 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? ''
 const WEBMUX_BASE_URL = process.env.WEBMUX_BASE_URL ?? `http://localhost:${PORT}`
 const DEV_MODE = process.env.WEBMUX_DEV_MODE === 'true'
 const DATABASE_PATH = process.env.DATABASE_PATH ?? './webmux.db'
+const FIREBASE_SERVICE_ACCOUNT_BASE64 =
+  process.env.WEBMUX_FIREBASE_SERVICE_ACCOUNT_BASE64 ?? ''
 const AGENT_UPGRADE_POLICY = buildAgentUpgradePolicy({
   packageName: process.env.WEBMUX_AGENT_PACKAGE_NAME,
   targetVersion: process.env.WEBMUX_AGENT_TARGET_VERSION,
@@ -52,6 +54,7 @@ const { app, db, hub } = buildApp({
     baseUrl: WEBMUX_BASE_URL,
     devMode: DEV_MODE,
     agentUpgradePolicy: AGENT_UPGRADE_POLICY,
+    firebaseServiceAccountBase64: FIREBASE_SERVICE_ACCOUNT_BASE64,
   },
 })
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import MarkdownContent from '../components/MarkdownContent';
 import type { RootStackParamList } from '../navigation';
 import { colors, commonStyles, fonts } from '../theme';
 
@@ -16,9 +17,13 @@ export default function ThreadContentScreen({ route }: Props): React.JSX.Element
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
-          <Text selectable style={[styles.body, mono && styles.bodyMono]}>
-            {content}
-          </Text>
+          {mono ? (
+            <Text selectable style={[styles.body, styles.bodyMono]}>
+              {content}
+            </Text>
+          ) : (
+            <MarkdownContent content={content} />
+          )}
         </View>
       </ScrollView>
     </View>

@@ -17,6 +17,7 @@ import {
   getThreadDetail,
   interruptThread,
 } from '../api';
+import MarkdownContent from '../components/MarkdownContent';
 import {
   DraftImageAttachment,
   Run,
@@ -443,7 +444,9 @@ function TurnSectionView({
       <View style={styles.messageCard}>
         <Text style={styles.messageEyebrow}>User</Text>
         {turn.prompt ? (
-          <Text style={styles.messageText}>{turn.prompt}</Text>
+          <View style={styles.messageContent}>
+            <MarkdownContent content={turn.prompt} compact />
+          </View>
         ) : (
           <Text style={styles.messagePlaceholder}>Sent image attachment</Text>
         )}
@@ -502,7 +505,9 @@ function TimelineItemView({
         <Text style={styles.messageEyebrow}>
           {item.role === 'assistant' ? 'Assistant' : item.role === 'user' ? 'User' : 'System'}
         </Text>
-        <Text style={styles.messageText}>{item.text}</Text>
+        <View style={styles.messageContent}>
+          <MarkdownContent content={item.text} compact />
+        </View>
       </View>
     );
   }
@@ -791,10 +796,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
-  messageText: {
-    color: colors.text,
-    fontSize: 14,
-    lineHeight: 20,
+  messageContent: {
     marginTop: 8,
   },
   messagePlaceholder: {

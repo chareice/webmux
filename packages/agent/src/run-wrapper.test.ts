@@ -1,14 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync } from 'node:fs'
 
-const { execFileMock, spawnMock } = vi.hoisted(() => ({
+const { execFileMock } = vi.hoisted(() => ({
   execFileMock: vi.fn(),
-  spawnMock: vi.fn(),
 }))
 
 vi.mock('node:child_process', () => ({
   execFile: execFileMock,
-  spawn: spawnMock,
 }))
 
 import { RunWrapper } from './run-wrapper.js'
@@ -18,61 +16,8 @@ async function flushMicrotasks() {
   await Promise.resolve()
 }
 
-function createChildProcess() {
-  let closeHandler: ((exitCode: number | null) => void) | undefined
-  let errorHandler: ((error: Error) => void) | undefined
-  let stdoutHandler: ((chunk: string) => void) | undefined
-  let stderrHandler: ((chunk: string) => void) | undefined
-
-  const child = {
-    stdout: {
-      setEncoding: vi.fn(),
-      on: vi.fn((event: string, handler: (chunk: string) => void) => {
-        if (event === 'data') {
-          stdoutHandler = handler
-        }
-      }),
-    },
-    stderr: {
-      setEncoding: vi.fn(),
-      on: vi.fn((event: string, handler: (chunk: string) => void) => {
-        if (event === 'data') {
-          stderrHandler = handler
-        }
-      }),
-    },
-    stdin: {
-      end: vi.fn(),
-    },
-    on: vi.fn((event: string, handler: (...args: any[]) => void) => {
-      if (event === 'close') {
-        closeHandler = handler as (exitCode: number | null) => void
-      }
-      if (event === 'error') {
-        errorHandler = handler as (error: Error) => void
-      }
-    }),
-    kill: vi.fn(),
-    emitStdout(data: string) {
-      stdoutHandler?.(data)
-    },
-    emitStderr(data: string) {
-      stderrHandler?.(data)
-    },
-    emitClose(exitCode: number | null) {
-      closeHandler?.(exitCode)
-    },
-    emitError(error: Error) {
-      errorHandler?.(error)
-    },
-  }
-
-  return child
-}
-
 describe('RunWrapper', () => {
   beforeEach(() => {
-    spawnMock.mockReset()
     execFileMock.mockReset()
     execFileMock.mockImplementation(
       (
@@ -90,13 +35,72 @@ describe('RunWrapper', () => {
     vi.restoreAllMocks()
   })
 
-  it('emits structured timeline items from Claude adapter output', async () => {
-    const child = createChildProcess()
-    spawnMock.mockReturnValue(child)
-
+  it('emits structured timeline items from Claude SDK output and persists the session id', async () => {
     const onEvent = vi.fn()
     const onItem = vi.fn()
     const onFinish = vi.fn()
+    const onThreadReady = vi.fn()
+    const queryMock = vi.fn().mockReturnValue({
+      interrupt: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: 'system',
+          subtype: 'init',
+          session_id: 'claude-session-1',
+        }
+        yield {
+          type: 'assistant',
+          session_id: 'claude-session-1',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'toolu_1',
+                name: 'Bash',
+                input: {
+                  command: 'pwd',
+                  description: 'Print working directory',
+                },
+              },
+            ],
+          },
+        }
+        yield {
+          type: 'user',
+          session_id: 'claude-session-1',
+          message: {
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'toolu_1',
+                content: '/tmp/project',
+                is_error: false,
+              },
+            ],
+          },
+          tool_use_result: {
+            stdout: '/tmp/project',
+            stderr: '',
+            interrupted: false,
+          },
+        }
+        yield {
+          type: 'assistant',
+          session_id: 'claude-session-1',
+          message: {
+            content: [{ type: 'text', text: 'I found the repository root.' }],
+          },
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          session_id: 'claude-session-1',
+          result: 'I found the repository root.',
+        }
+      },
+    })
+
     const wrapper = new RunWrapper({
       runId: '12345678-abcd-efgh-ijkl-1234567890ab',
       tool: 'claude',
@@ -105,20 +109,25 @@ describe('RunWrapper', () => {
       onEvent,
       onFinish,
       onItem,
+      onThreadReady,
+      claudeClientFactory: () => ({
+        query: queryMock,
+      }) as any,
     })
 
     await wrapper.start()
-    child.emitStdout(
-      `${JSON.stringify({
-        type: 'assistant',
-        message: {
-          content: [{ type: 'text', text: 'I will inspect the repository first.' }],
-        },
-      })}\n`,
-    )
-    child.emitClose(0)
     await flushMicrotasks()
 
+    expect(queryMock).toHaveBeenCalledWith(
+      'Count files',
+      expect.objectContaining({
+        cwd: '/tmp/project',
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        persistSession: true,
+      }),
+    )
+    expect(onThreadReady).toHaveBeenCalledWith('claude-session-1')
     expect(onItem).toHaveBeenCalledWith({
       type: 'activity',
       status: 'info',
@@ -126,16 +135,80 @@ describe('RunWrapper', () => {
       detail: '/tmp/project',
     })
     expect(onItem).toHaveBeenCalledWith({
+      type: 'command',
+      status: 'started',
+      command: 'pwd',
+      output: '',
+      exitCode: null,
+    })
+    expect(onItem).toHaveBeenCalledWith({
+      type: 'command',
+      status: 'completed',
+      command: 'pwd',
+      output: '/tmp/project',
+      exitCode: 0,
+    })
+    expect(onItem).toHaveBeenCalledWith({
       type: 'message',
       role: 'assistant',
-      text: 'I will inspect the repository first.',
+      text: 'I found the repository root.',
     })
     expect(onEvent).toHaveBeenLastCalledWith(
       'success',
-      'I will inspect the repository first.',
+      'I found the repository root.',
       false,
     )
     expect(onFinish).toHaveBeenCalledWith('success')
+  })
+
+  it('resumes an existing Claude session for follow-up turns', async () => {
+    const onThreadReady = vi.fn()
+    const queryMock = vi.fn().mockReturnValue({
+      interrupt: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: 'assistant',
+          session_id: 'claude-session-1',
+          message: {
+            content: [{ type: 'text', text: 'Follow-up complete.' }],
+          },
+        }
+        yield {
+          type: 'result',
+          subtype: 'success',
+          session_id: 'claude-session-1',
+          result: 'Follow-up complete.',
+        }
+      },
+    })
+
+    const wrapper = new RunWrapper({
+      runId: 'run-1',
+      tool: 'claude',
+      toolThreadId: 'claude-session-1',
+      repoPath: '/tmp/project',
+      prompt: 'Continue working',
+      onEvent: vi.fn(),
+      onFinish: vi.fn(),
+      onItem: vi.fn(),
+      onThreadReady,
+      claudeClientFactory: () => ({
+        query: queryMock,
+      }) as any,
+    })
+
+    await wrapper.start()
+    await flushMicrotasks()
+
+    expect(queryMock).toHaveBeenCalledWith(
+      'Continue working',
+      expect.objectContaining({
+        cwd: '/tmp/project',
+        resume: 'claude-session-1',
+      }),
+    )
+    expect(onThreadReady).not.toHaveBeenCalled()
   })
 
   it('resumes an existing Codex thread for follow-up turns', async () => {
@@ -313,12 +386,13 @@ describe('RunWrapper', () => {
     expect(existsSync(localImageInput.path)).toBe(false)
   })
 
-  it('preserves the interrupted terminal state when the process exits non-zero', async () => {
-    const child = createChildProcess()
-    spawnMock.mockReturnValue(child)
-
+  it('preserves the interrupted Claude session state', async () => {
     const onEvent = vi.fn()
     const onFinish = vi.fn()
+    let releaseRun: (() => void) | undefined
+    const interrupt = vi.fn().mockImplementation(async () => {
+      releaseRun?.()
+    })
     const wrapper = new RunWrapper({
       runId: '12345678-abcd-efgh-ijkl-1234567890ab',
       tool: 'claude',
@@ -327,14 +401,30 @@ describe('RunWrapper', () => {
       onEvent,
       onFinish,
       onItem: vi.fn(),
+      claudeClientFactory: () => ({
+        query: () => ({
+          interrupt,
+          close: vi.fn(),
+          async *[Symbol.asyncIterator]() {
+            yield {
+              type: 'system',
+              subtype: 'init',
+              session_id: 'claude-session-2',
+            }
+            await new Promise<void>((resolve) => {
+              releaseRun = resolve
+            })
+          },
+        }),
+      }) as any,
     })
 
-    await wrapper.start()
-    wrapper.interrupt()
-    child.emitClose(130)
+    const startPromise = wrapper.start()
     await flushMicrotasks()
+    wrapper.interrupt()
+    await startPromise
 
-    expect(child.kill).toHaveBeenCalledWith('SIGINT')
+    expect(interrupt).toHaveBeenCalledOnce()
     expect(onEvent).toHaveBeenLastCalledWith('interrupted', undefined, false)
     expect(onFinish).toHaveBeenCalledWith('interrupted')
   })

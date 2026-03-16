@@ -164,6 +164,61 @@ describe('AgentHub run lifecycle', () => {
     expect(findRunById(db, run.id)?.tool_thread_id).toBe('codex-thread-1')
   })
 
+  it('notifies the user when a running turn completes', () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, { userId: user.id, name: 'owner', agentSecretHash: 'hash' })
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-notify',
+      turnId: 'run-notify:turn:1',
+      agentId: agent.id,
+      userId: user.id,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Fix it',
+    })
+    db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('running', run.id)
+    db.prepare('UPDATE run_turns SET status = ? WHERE id = ?').run('running', turn.id)
+
+    const notifyTurnCompleted = vi.fn().mockResolvedValue(undefined)
+    const hub = new AgentHub({
+      notificationService: {
+        notifyTurnCompleted,
+      },
+    })
+
+    hub.handleAgentMessage(
+      agent.id,
+      {
+        type: 'run-status',
+        runId: run.id,
+        turnId: turn.id,
+        status: 'success',
+        summary: 'All done',
+      },
+      db,
+    )
+
+    expect(notifyTurnCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: user.id,
+        agentId: agent.id,
+        runId: run.id,
+        turnId: turn.id,
+        repoPath: '/tmp/project',
+        tool: 'codex',
+        status: 'success',
+        summary: 'All done',
+        turnIndex: 1,
+      }),
+    )
+  })
+
   it('marks active runs as failed when an agent disconnects unexpectedly', () => {
     const db = initDb(':memory:')
     const user = createUser(db, {
