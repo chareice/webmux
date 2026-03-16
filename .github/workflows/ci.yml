@@ -23,6 +23,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm add -Dw @rolldown/binding-linux-x64-gnu@1.0.0-rc.9
+      - run: pnpm --filter @webmux/shared build
       - run: pnpm test
       - run: pnpm lint
       - run: pnpm typecheck
