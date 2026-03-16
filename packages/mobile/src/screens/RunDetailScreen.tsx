@@ -32,6 +32,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   const [run, setRun] = useState<Run | null>(null);
   const [turns, setTurns] = useState<RunTurnDetail[]>([]);
   const [followUpPrompt, setFollowUpPrompt] = useState('');
+  const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isContinuing, setIsContinuing] = useState(false);
   const [error, setError] = useState('');
@@ -57,6 +58,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
     setTurns([]);
     setError('');
     setFollowUpPrompt('');
+    setIsSummaryExpanded(false);
     setIsLoading(true);
     void fetchThreadDetail();
   }, [fetchThreadDetail, runId]);
@@ -228,7 +230,21 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
         {run.summary ? (
           <>
             <Text style={styles.summaryLabel}>Latest Summary</Text>
-            <Text style={styles.summaryText}>{run.summary}</Text>
+            <View style={styles.summaryCard}>
+              <Text
+                style={styles.summaryText}
+                numberOfLines={isSummaryExpanded ? undefined : 5}>
+                {run.summary}
+              </Text>
+              <TouchableOpacity
+                style={styles.summaryToggle}
+                onPress={() => setIsSummaryExpanded((prev) => !prev)}
+                activeOpacity={0.7}>
+                <Text style={styles.summaryToggleText}>
+                  {isSummaryExpanded ? 'Show less' : 'Show more'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </>
         ) : null}
       </View>
@@ -492,7 +508,24 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 13,
     lineHeight: 18,
+  },
+  summaryCard: {
     marginTop: 6,
+    backgroundColor: colors.surfaceLight,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  summaryToggle: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  summaryToggleText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
   },
   timeline: {
     flex: 1,

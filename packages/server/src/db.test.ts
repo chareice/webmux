@@ -524,4 +524,128 @@ describe('run timeline events', () => {
     migratedDb.close()
     rmSync(tempDir, { recursive: true, force: true })
   })
+
+  it('rewires legacy turn and event foreign keys after renaming runs', () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'webmux-db-'))
+    const dbPath = path.join(tempDir, 'legacy-turns.sqlite')
+    const legacyDb = new BetterSqlite3(dbPath)
+
+    legacyDb.exec(`
+      PRAGMA foreign_keys = ON;
+
+      CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        avatar_url TEXT,
+        role TEXT NOT NULL DEFAULT 'user',
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        name TEXT NOT NULL,
+        agent_secret_hash TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'offline',
+        last_seen_at INTEGER,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL REFERENCES agents(id),
+        user_id TEXT NOT NULL REFERENCES users(id),
+        tool TEXT NOT NULL,
+        repo_path TEXT NOT NULL,
+        branch TEXT NOT NULL DEFAULT '',
+        prompt TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'starting',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        summary TEXT,
+        has_diff INTEGER NOT NULL DEFAULT 0,
+        unread INTEGER NOT NULL DEFAULT 1,
+        tmux_session TEXT NOT NULL
+      );
+
+      CREATE TABLE run_turns (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        turn_index INTEGER NOT NULL,
+        prompt TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'starting',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        summary TEXT,
+        has_diff INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(run_id, turn_index)
+      );
+
+      CREATE TABLE run_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        turn_id TEXT NOT NULL REFERENCES run_turns(id) ON DELETE CASCADE,
+        event_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    `)
+
+    legacyDb
+      .prepare('INSERT INTO users (id, provider, provider_id, display_name, avatar_url, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('user-1', 'github', '1', 'owner', null, 'user', 1)
+    legacyDb
+      .prepare('INSERT INTO agents (id, user_id, name, agent_secret_hash, status, last_seen_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run('agent-1', 'user-1', 'runner', 'hash', 'online', 1, 1)
+    legacyDb
+      .prepare('INSERT INTO runs (id, agent_id, user_id, tool, repo_path, branch, prompt, status, created_at, updated_at, summary, has_diff, unread, tmux_session) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('run-legacy', 'agent-1', 'user-1', 'codex', '/tmp/project', 'main', 'Fix it', 'success', 1, 2, 'done', 1, 0, 'run-legacy')
+    legacyDb
+      .prepare('INSERT INTO run_turns (id, run_id, turn_index, prompt, status, created_at, updated_at, summary, has_diff) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('run-legacy:turn:1', 'run-legacy', 1, 'Fix it', 'success', 1, 2, 'done', 1)
+    legacyDb
+      .prepare('INSERT INTO run_events (run_id, turn_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run('run-legacy', 'run-legacy:turn:1', 'message', JSON.stringify({
+        type: 'message',
+        role: 'assistant',
+        text: 'done',
+      }), 2)
+    legacyDb.close()
+
+    const migratedDb = initDb(dbPath)
+    const turnForeignKeys = migratedDb.pragma('foreign_key_list(run_turns)') as Array<{ table: string }>
+    const eventForeignKeys = migratedDb.pragma('foreign_key_list(run_events)') as Array<{ table: string }>
+
+    expect(turnForeignKeys.map((fk) => fk.table)).toContain('runs')
+    expect(turnForeignKeys.map((fk) => fk.table)).not.toContain('runs_legacy')
+    expect(eventForeignKeys.map((fk) => fk.table)).toContain('runs')
+    expect(eventForeignKeys.map((fk) => fk.table)).toContain('run_turns')
+    expect(eventForeignKeys.map((fk) => fk.table)).not.toContain('runs_legacy')
+    expect(eventForeignKeys.map((fk) => fk.table)).not.toContain('run_turns_legacy')
+
+    expect(() =>
+      createRunWithInitialTurn(migratedDb, {
+        runId: 'run-new',
+        turnId: 'run-new:turn:1',
+        agentId: 'agent-1',
+        userId: 'user-1',
+        tool: 'codex',
+        repoPath: '/tmp/new-project',
+        prompt: 'Continue',
+      }),
+    ).not.toThrow()
+
+    expect(() =>
+      appendRunTimelineEvent(migratedDb, 'run-new', 'run-new:turn:1', {
+        type: 'message',
+        role: 'assistant',
+        text: 'still works',
+      }),
+    ).not.toThrow()
+
+    migratedDb.close()
+    rmSync(tempDir, { recursive: true, force: true })
+  })
 })

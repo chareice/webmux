@@ -104,6 +104,7 @@ export function initDb(dbPath: string): Database.Database {
 
   migrateRunsTableIfNeeded(db)
   ensureRunTurnsTable(db)
+  migrateRunTurnsTableIfNeeded(db)
   migrateRunTurnsIfNeeded(db)
   migrateRunEventsIfNeeded(db)
   ensureRunEventsTable(db)
@@ -706,6 +707,78 @@ function ensureRunTurnsTable(db: Database.Database): void {
   `)
 }
 
+function migrateRunTurnsTableIfNeeded(db: Database.Database): void {
+  const hasRunTurnsTable = db.prepare(
+    `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'run_turns'`,
+  ).get()
+
+  if (!hasRunTurnsTable) {
+    return
+  }
+
+  const columns = db.pragma('table_info(run_turns)') as Array<{ name: string }>
+  const foreignKeys = db.pragma('foreign_key_list(run_turns)') as Array<{
+    table: string
+    on_delete: string
+  }>
+  const hasRunIdColumn = columns.some((column) => column.name === 'run_id')
+  const hasRunCascadeFk = foreignKeys.some(
+    (fk) => fk.table === 'runs' && fk.on_delete.toUpperCase() === 'CASCADE',
+  )
+
+  if (hasRunIdColumn && hasRunCascadeFk) {
+    return
+  }
+
+  db.pragma('foreign_keys = OFF')
+  db.exec(`
+    ALTER TABLE run_turns RENAME TO run_turns_legacy;
+    DROP INDEX IF EXISTS idx_run_turns_run_id_turn_index;
+
+    CREATE TABLE run_turns (
+      id          TEXT PRIMARY KEY,
+      run_id      TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      turn_index  INTEGER NOT NULL,
+      prompt      TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'starting',
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL,
+      summary     TEXT,
+      has_diff    INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(run_id, turn_index)
+    );
+
+    CREATE INDEX idx_run_turns_run_id_turn_index
+      ON run_turns(run_id, turn_index);
+
+    INSERT INTO run_turns (
+      id,
+      run_id,
+      turn_index,
+      prompt,
+      status,
+      created_at,
+      updated_at,
+      summary,
+      has_diff
+    )
+    SELECT
+      id,
+      run_id,
+      turn_index,
+      prompt,
+      status,
+      created_at,
+      updated_at,
+      summary,
+      has_diff
+    FROM run_turns_legacy;
+
+    DROP TABLE run_turns_legacy;
+  `)
+  db.pragma('foreign_keys = ON')
+}
+
 function migrateRunTurnsIfNeeded(db: Database.Database): void {
   const turnCountRow = db.prepare('SELECT COUNT(*) AS cnt FROM run_turns').get() as { cnt: number }
   if (turnCountRow.cnt > 0) {
@@ -783,13 +856,25 @@ function migrateRunEventsIfNeeded(db: Database.Database): void {
 
   const columns = db.pragma('table_info(run_events)') as Array<{ name: string }>
   const hasTurnId = columns.some((column) => column.name === 'turn_id')
-  if (hasTurnId) {
+  const foreignKeys = db.pragma('foreign_key_list(run_events)') as Array<{
+    table: string
+    on_delete: string
+  }>
+  const hasRunCascadeFk = foreignKeys.some(
+    (fk) => fk.table === 'runs' && fk.on_delete.toUpperCase() === 'CASCADE',
+  )
+  const hasTurnCascadeFk = foreignKeys.some(
+    (fk) => fk.table === 'run_turns' && fk.on_delete.toUpperCase() === 'CASCADE',
+  )
+
+  if (hasTurnId && hasRunCascadeFk && hasTurnCascadeFk) {
     return
   }
 
   db.pragma('foreign_keys = OFF')
   db.exec(`
     ALTER TABLE run_events RENAME TO run_events_legacy;
+    DROP INDEX IF EXISTS idx_run_events_run_turn_id_id;
 
     CREATE TABLE run_events (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -804,19 +889,42 @@ function migrateRunEventsIfNeeded(db: Database.Database): void {
       ON run_events(run_id, turn_id, id);
   `)
 
-  const legacyRows = db.prepare(
-    'SELECT run_id, event_type, payload_json, created_at FROM run_events_legacy ORDER BY id ASC',
-  ).all() as Array<{
-    run_id: string
-    event_type: string
-    payload_json: string
-    created_at: number
-  }>
-
   const insertEvent = db.prepare(
     'INSERT INTO run_events (run_id, turn_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)',
   )
   const migrate = db.transaction(() => {
+    if (hasTurnId) {
+      const legacyRows = db.prepare(
+        'SELECT run_id, turn_id, event_type, payload_json, created_at FROM run_events_legacy ORDER BY id ASC',
+      ).all() as Array<{
+        run_id: string
+        turn_id: string
+        event_type: string
+        payload_json: string
+        created_at: number
+      }>
+
+      for (const row of legacyRows) {
+        insertEvent.run(
+          row.run_id,
+          row.turn_id,
+          row.event_type,
+          row.payload_json,
+          row.created_at,
+        )
+      }
+      return
+    }
+
+    const legacyRows = db.prepare(
+      'SELECT run_id, event_type, payload_json, created_at FROM run_events_legacy ORDER BY id ASC',
+    ).all() as Array<{
+      run_id: string
+      event_type: string
+      payload_json: string
+      created_at: number
+    }>
+
     for (const row of legacyRows) {
       insertEvent.run(
         row.run_id,
