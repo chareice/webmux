@@ -77,6 +77,13 @@ jest.mock('@react-navigation/native-stack', () => ({
   }),
 }));
 
+jest.mock('@react-navigation/bottom-tabs', () => ({
+  createBottomTabNavigator: () => ({
+    Navigator: ({ children }: { children: React.ReactNode }) => children,
+    Screen: ({ component: Component }: { component: React.ComponentType }) => <Component />,
+  }),
+}));
+
 function mockCreateScreen(label: string) {
   return () => {
     const { Text } = require('react-native');
@@ -91,6 +98,7 @@ jest.mock('../src/screens/NewRunScreen', () => mockCreateScreen('NewThreadScreen
 jest.mock('../src/screens/RunDetailScreen', () => mockCreateScreen('ThreadDetailScreen'));
 jest.mock('../src/screens/ThreadContentScreen', () => mockCreateScreen('ThreadContentScreen'));
 jest.mock('../src/screens/TerminalScreen', () => mockCreateScreen('TerminalScreen'));
+jest.mock('../src/screens/SettingsScreen', () => mockCreateScreen('SettingsScreen'));
 
 test('renders correctly', async () => {
   await ReactTestRenderer.act(() => {
