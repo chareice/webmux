@@ -45,6 +45,9 @@ importers:
       '@rolldown/binding-linux-x64-gnu':
         specifier: 1.0.0-rc.9
         version: 1.0.0-rc.9
+      '@rolldown/binding-wasm32-wasi':
+        specifier: 1.0.0-rc.9
+        version: 1.0.0-rc.9
       '@rolldown/binding-win32-arm64-msvc':
         specifier: 1.0.0-rc.9
         version: 1.0.0-rc.9
