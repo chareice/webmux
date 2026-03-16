@@ -11,6 +11,7 @@ import {
   Send,
   StopCircle,
   Trash2,
+  Wrench,
   X,
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
@@ -88,12 +89,6 @@ function repoName(repoPath: string): string {
   return parts[parts.length - 1] || repoPath
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -105,6 +100,47 @@ function fileToBase64(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error)
     reader.readAsDataURL(file)
   })
+}
+
+// --- Conversation segment grouping ---
+
+type ConversationSegment =
+  | { type: 'tools'; items: RunTimelineEvent[] }
+  | { type: 'assistant'; text: string; id: number }
+  | { type: 'system'; text: string; id: number }
+
+function groupIntoSegments(items: RunTimelineEvent[]): ConversationSegment[] {
+  const segments: ConversationSegment[] = []
+  let pendingTools: RunTimelineEvent[] = []
+
+  const flushTools = () => {
+    if (pendingTools.length > 0) {
+      segments.push({ type: 'tools', items: pendingTools })
+      pendingTools = []
+    }
+  }
+
+  for (const item of items) {
+    if (item.type === 'message') {
+      if (item.role === 'assistant') {
+        flushTools()
+        segments.push({ type: 'assistant', text: item.text, id: item.id })
+      } else if (item.role === 'system') {
+        flushTools()
+        segments.push({ type: 'system', text: item.text, id: item.id })
+      } else {
+        // user messages inside a turn are unusual but treat like system
+        flushTools()
+        segments.push({ type: 'system', text: item.text, id: item.id })
+      }
+    } else {
+      // activity or command -> accumulate into tools group
+      pendingTools.push(item)
+    }
+  }
+
+  flushTools()
+  return segments
 }
 
 export function ThreadDetailPage() {
@@ -540,6 +576,8 @@ function TurnSection({ turn, defaultOpen }: { turn: RunTurnDetail; defaultOpen: 
   const promptPreview = turn.prompt.length > 100 ? turn.prompt.slice(0, 100) + '...' : turn.prompt
   const itemCount = turn.items.length
 
+  const segments = groupIntoSegments(turn.items)
+
   return (
     <div className={`turn-section ${open ? 'open' : 'collapsed'}`}>
       <button
@@ -565,10 +603,10 @@ function TurnSection({ turn, defaultOpen }: { turn: RunTurnDetail; defaultOpen: 
 
       {open ? (
         <>
-          {/* User prompt */}
-          <div className="timeline-card message-card user">
-            <span className="timeline-eyebrow">User</span>
-            <p className="timeline-text">{turn.prompt}</p>
+          {/* User prompt as chat bubble */}
+          <div className="chat-bubble user">
+            <div className="chat-role">You</div>
+            <div className="chat-content">{turn.prompt}</div>
             {hasAttachments ? (
               <div className="turn-attachments-indicator">
                 <Paperclip size={12} />
@@ -582,7 +620,31 @@ function TurnSection({ turn, defaultOpen }: { turn: RunTurnDetail; defaultOpen: 
               <span>Waiting for events...</span>
             </div>
           ) : (
-            turn.items.map((item) => <TimelineItem key={item.id} item={item} />)
+            segments.map((seg, idx) => {
+              if (seg.type === 'assistant') {
+                return (
+                  <div key={`assistant-${seg.id}`} className="chat-bubble assistant">
+                    <div className="chat-role">Assistant</div>
+                    <div className="chat-content message-text">
+                      <Markdown>{seg.text}</Markdown>
+                    </div>
+                  </div>
+                )
+              }
+
+              if (seg.type === 'system') {
+                return (
+                  <div key={`system-${seg.id}`} className="chat-system">
+                    {seg.text}
+                  </div>
+                )
+              }
+
+              // tools group
+              return (
+                <ToolsGroup key={`tools-${idx}`} items={seg.items} />
+              )
+            })
           )}
         </>
       ) : null}
@@ -590,25 +652,36 @@ function TurnSection({ turn, defaultOpen }: { turn: RunTurnDetail; defaultOpen: 
   )
 }
 
-function TimelineItem({ item }: { item: RunTimelineEvent }) {
-  if (item.type === 'message') {
-    const roleLabel = item.role === 'assistant' ? 'Assistant' : item.role === 'user' ? 'User' : 'System'
-    return (
-      <div className={`timeline-card message-card ${item.role}`}>
-        <span className="timeline-eyebrow">{roleLabel}</span>
-        <div className="timeline-text message-text">
-          <Markdown>{item.text}</Markdown>
+function ToolsGroup({ items }: { items: RunTimelineEvent[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const count = items.length
+
+  return (
+    <div className="chat-tools-group">
+      <button
+        className="chat-tools-header"
+        onClick={() => setExpanded(!expanded)}
+        type="button"
+      >
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <Wrench size={12} />
+        <span className="chat-tools-count">{count} tool call{count > 1 ? 's' : ''}</span>
+      </button>
+      {expanded ? (
+        <div className="chat-tools-body">
+          {items.map((item) => {
+            if (item.type === 'command') {
+              return <CommandItem key={item.id} item={item} />
+            }
+            if (item.type === 'activity') {
+              return <ActivityItem key={item.id} item={item} />
+            }
+            return null
+          })}
         </div>
-      </div>
-    )
-  }
-
-  if (item.type === 'command') {
-    return <CommandItem item={item} />
-  }
-
-  // activity
-  return <ActivityItem item={item} />
+      ) : null}
+    </div>
+  )
 }
 
 function ActivityItem({

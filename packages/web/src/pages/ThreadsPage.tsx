@@ -47,8 +47,15 @@ function toolIcon(tool: string): string {
   return tool === 'codex' ? 'CX' : 'CC'
 }
 
-function toolLabel(tool: string): string {
-  return tool === 'codex' ? 'Codex' : 'Claude'
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text
+  return text.slice(0, max) + '...'
+}
+
+function aiPreview(run: Run): string {
+  if (run.summary) return truncate(run.summary, 120)
+  if (run.status === 'running' || run.status === 'starting') return 'Running...'
+  return 'No summary'
 }
 
 export function ThreadsPage() {
@@ -260,18 +267,26 @@ function ThreadRow({
       {/* Tool badge */}
       <div className="thread-row-tool">
         <span className={`thread-tool-badge ${run.tool}`}>{toolIcon(run.tool)}</span>
-        <span className="thread-tool-label">{toolLabel(run.tool)}</span>
       </div>
 
-      {/* Repo + branch + agent */}
+      {/* Repo + agent */}
       <div className="thread-row-info">
         <span className="thread-repo-name" title={run.repoPath}>{repoName(run.repoPath)}</span>
         {run.branch ? <span className="thread-branch">{run.branch}</span> : null}
         {agentName ? <span className="thread-agent-name">{agentName}</span> : null}
       </div>
 
-      {/* Prompt preview */}
-      <p className="thread-row-prompt">{run.prompt}</p>
+      {/* Conversation preview (replaces plain prompt) */}
+      <div className="thread-row-conversation">
+        <div className="thread-convo-line">
+          <span className="thread-convo-role user">You:</span>
+          <span className="thread-convo-text">{truncate(run.prompt, 100)}</span>
+        </div>
+        <div className="thread-convo-line">
+          <span className="thread-convo-role assistant">AI:</span>
+          <span className="thread-convo-text">{aiPreview(run)}</span>
+        </div>
+      </div>
 
       {/* Status badge */}
       <div className="thread-row-status">

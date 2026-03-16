@@ -3090,3 +3090,148 @@
     max-width: 56rem;
   }
 }
+
+/* ── Chat conversation styles ───────────────────── */
+
+.chat-bubble {
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  margin: 0 0.55rem;
+}
+
+.chat-bubble.user {
+  background: rgba(122, 162, 247, 0.08);
+  border-left: 3px solid var(--accent);
+}
+
+.chat-bubble.assistant {
+  background: var(--surface);
+  border-left: 3px solid var(--success);
+}
+
+.chat-bubble .chat-role {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.35rem;
+}
+
+.chat-bubble.user .chat-role { color: var(--accent); }
+.chat-bubble.assistant .chat-role { color: var(--success); }
+
+/* First chat bubble after turn header needs top spacing */
+.turn-section.open > .chat-bubble:first-of-type {
+  margin-top: 0.55rem;
+}
+
+/* Last element in open turn needs bottom spacing */
+.turn-section.open > .chat-bubble:last-child,
+.turn-section.open > .chat-tools-group:last-child,
+.turn-section.open > .chat-system:last-child {
+  margin-bottom: 0.55rem;
+}
+
+.chat-bubble .chat-content {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+/* Reuse .message-text for markdown rendering inside .chat-content */
+
+.chat-system {
+  text-align: center;
+  padding: 0.25rem 0.55rem;
+  margin: 0 0.55rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.chat-tools-group {
+  margin: 0 0.55rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.chat-tools-header {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.65rem;
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+  transition: background 120ms ease;
+}
+
+.chat-tools-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.chat-tools-count {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.chat-tools-body {
+  padding: 0.35rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* Override: timeline cards inside tools group should not have extra margin */
+.chat-tools-body .timeline-card {
+  margin: 0;
+}
+
+.chat-tools-body .timeline-activity {
+  margin: 0;
+  padding: 0.2rem 0;
+}
+
+/* ── Thread row conversation preview ────────────── */
+
+.thread-row-conversation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.thread-convo-line {
+  display: flex;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.thread-convo-role {
+  font-weight: 700;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.thread-convo-role.user { color: var(--accent); }
+.thread-convo-role.assistant { color: var(--success); }
+
+.thread-convo-text {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
