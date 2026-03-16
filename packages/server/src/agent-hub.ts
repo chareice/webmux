@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 
 import type { WebSocket } from 'ws'
-import type { Database } from 'better-sqlite3'
+import type { Database } from 'libsql'
 import type {
   AgentMessage,
   AgentUpgradePolicy,

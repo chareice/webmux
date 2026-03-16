@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import type { Database } from 'better-sqlite3'
+import type { Database } from 'libsql'
 import type {
   AgentListResponse,
   CreateRegistrationTokenResponse,

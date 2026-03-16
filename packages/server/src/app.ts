@@ -4,7 +4,7 @@ import url from 'node:url'
 
 import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
-import type Database from 'better-sqlite3'
+import type Database from 'libsql'
 import type { AgentUpgradePolicy } from '@webmux/shared'
 
 import { AgentHub } from './agent-hub.js'

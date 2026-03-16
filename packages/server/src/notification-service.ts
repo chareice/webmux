@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-import type Database from 'better-sqlite3'
+import type Database from 'libsql'
 import jwt from 'jsonwebtoken'
 
 import type { NotificationService, TurnCompletionNotification } from './agent-hub.js'

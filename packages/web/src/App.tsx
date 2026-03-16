@@ -1,10 +1,13 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 
 import { AuthProvider, useAuth } from './auth.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { AgentsPage } from './pages/AgentsPage.tsx'
 import { SessionsPage } from './pages/SessionsPage.tsx'
+import { ThreadsPage } from './pages/ThreadsPage.tsx'
+import { NewThreadPage } from './pages/NewThreadPage.tsx'
+import { ThreadDetailPage } from './pages/ThreadDetailPage.tsx'
 import './App.css'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -27,6 +30,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth()
+  const location = useLocation()
 
   if (!user) return <>{children}</>
 
@@ -35,6 +39,20 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <nav className="top-bar">
         <div className="top-bar-left">
           <span className="top-bar-brand">webmux</span>
+          <div className="top-bar-nav">
+            <Link
+              className={`top-bar-nav-link ${location.pathname === '/' ? 'active' : ''}`}
+              to="/"
+            >
+              Agents
+            </Link>
+            <Link
+              className={`top-bar-nav-link ${location.pathname.startsWith('/threads') || location.pathname.includes('/threads') ? 'active' : ''}`}
+              to="/threads"
+            >
+              Threads
+            </Link>
+          </div>
         </div>
         <div className="top-bar-right">
           {user.avatarUrl ? (
@@ -80,6 +98,36 @@ function App() {
           element={
             <ProtectedRoute>
               <SessionsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/threads"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <ThreadsPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/agents/:agentId/threads/new"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <NewThreadPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/agents/:agentId/threads/:threadId"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <ThreadDetailPage />
+              </AppLayout>
             </ProtectedRoute>
           }
         />
