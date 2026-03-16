@@ -2533,9 +2533,117 @@
 }
 
 .message-text {
-  white-space: pre-wrap;
   word-wrap: break-word;
-  font-family: inherit;
+  overflow-wrap: break-word;
+}
+
+/* Markdown rendering inside message cards */
+.message-text p {
+  margin: 0 0 0.5rem;
+}
+
+.message-text p:last-child {
+  margin-bottom: 0;
+}
+
+.message-text h1,
+.message-text h2,
+.message-text h3,
+.message-text h4 {
+  margin: 0.75rem 0 0.35rem;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.message-text h1 { font-size: 1.15rem; }
+.message-text h2 { font-size: 1.05rem; }
+.message-text h3 { font-size: 0.95rem; }
+.message-text h4 { font-size: 0.88rem; }
+
+.message-text h1:first-child,
+.message-text h2:first-child,
+.message-text h3:first-child,
+.message-text h4:first-child {
+  margin-top: 0;
+}
+
+.message-text ul,
+.message-text ol {
+  margin: 0.35rem 0;
+  padding-left: 1.5rem;
+}
+
+.message-text li {
+  margin-bottom: 0.2rem;
+}
+
+.message-text code {
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.82rem;
+}
+
+.message-text pre {
+  margin: 0.45rem 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-soft) transparent;
+}
+
+.message-text pre code {
+  padding: 0;
+  background: none;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.message-text blockquote {
+  margin: 0.35rem 0;
+  padding: 0.35rem 0.75rem;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted);
+}
+
+.message-text a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.message-text a:hover {
+  text-decoration: underline;
+}
+
+.message-text table {
+  border-collapse: collapse;
+  margin: 0.45rem 0;
+  font-size: 0.82rem;
+}
+
+.message-text th,
+.message-text td {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border-soft);
+}
+
+.message-text th {
+  background: rgba(255, 255, 255, 0.04);
+  font-weight: 600;
+}
+
+.message-text hr {
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  margin: 0.65rem 0;
+}
+
+.message-text strong {
+  font-weight: 600;
+  color: var(--ink);
 }
 
 .message-card.user {
@@ -2659,6 +2767,15 @@
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .timeline-activity-label {
@@ -2667,11 +2784,37 @@
   color: var(--ink);
 }
 
+.activity-toggle {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.activity-toggle:hover {
+  text-decoration: underline;
+}
+
 .timeline-activity-detail {
+  margin: 0;
   font-size: 0.78rem;
   color: var(--muted);
   font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
   line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.timeline-activity-detail.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ── Thread detail footer ────────────────────────── */

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import Markdown from 'react-markdown'
 import {
   ArrowLeft,
   ChevronDown,
@@ -566,7 +567,9 @@ function TimelineItem({ item }: { item: RunTimelineEvent }) {
     return (
       <div className={`timeline-card message-card ${item.role}`}>
         <span className="timeline-eyebrow">{roleLabel}</span>
-        <pre className="timeline-text message-text">{item.text}</pre>
+        <div className="timeline-text message-text">
+          <Markdown>{item.text}</Markdown>
+        </div>
       </div>
     )
   }
@@ -576,6 +579,17 @@ function TimelineItem({ item }: { item: RunTimelineEvent }) {
   }
 
   // activity
+  return <ActivityItem item={item} />
+}
+
+function ActivityItem({
+  item,
+}: {
+  item: Extract<RunTimelineEvent, { type: 'activity' }>
+}) {
+  const hasLongDetail = !!item.detail && (item.detail.length > 150 || item.detail.split('\n').length > 3)
+  const [expanded, setExpanded] = useState(false)
+
   const dotClass =
     item.status === 'success' ? 'success'
     : item.status === 'warning' ? 'warning'
@@ -586,8 +600,24 @@ function TimelineItem({ item }: { item: RunTimelineEvent }) {
     <div className="timeline-activity">
       <span className={`timeline-activity-dot ${dotClass}`} />
       <div className="timeline-activity-text">
-        <span className="timeline-activity-label">{item.label}</span>
-        {item.detail ? <span className="timeline-activity-detail">{item.detail}</span> : null}
+        <div className="timeline-activity-header">
+          <span className="timeline-activity-label">{item.label}</span>
+          {hasLongDetail ? (
+            <button
+              className="activity-toggle"
+              onClick={() => setExpanded(!expanded)}
+              type="button"
+            >
+              {expanded ? 'Collapse' : 'Expand'}
+              {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </button>
+          ) : null}
+        </div>
+        {item.detail ? (
+          <pre className={`timeline-activity-detail ${hasLongDetail && !expanded ? 'clamped' : ''}`}>
+            {item.detail}
+          </pre>
+        ) : null}
       </div>
     </div>
   )
