@@ -340,13 +340,47 @@
 }
 
 .session-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+/* Inner wrapper that slides on swipe */
+.session-card-inner {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.35rem;
   padding: 0.55rem 0.5rem;
-  border-radius: 6px;
-  background: transparent;
-  border: 1px solid transparent;
+  background: var(--bg, #0f0f14);
+  position: relative;
+  z-index: 1;
+  will-change: transform;
+}
+
+/* Delete zone behind the card */
+.swipe-delete-zone {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--danger, #f7768e);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  z-index: 0;
+  border-radius: 0 6px 6px 0;
+}
+
+/* Hide swipe delete zone on desktop */
+@media (min-width: 961px) {
+  .swipe-delete-zone {
+    display: none;
+  }
 }
 
 .session-card:hover {
@@ -1245,17 +1279,11 @@
     display: flex;
   }
 
-  .session-card {
-    grid-template-columns: minmax(0, 1fr) 1.8rem;
-    align-items: start;
+  .session-card-inner {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .session-actions {
-    flex-direction: row;
-    gap: 0.2rem;
-  }
-
-  .session-actions .pin-button {
     display: none;
   }
 
