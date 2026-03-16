@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, FolderGit2, Folder, LoaderCircle, ArrowUp, ImagePlus, X } from 'lucide-react'
+import { ArrowLeft, ChevronRight, FolderGit2, Folder, LoaderCircle, ArrowUp, ImagePlus, Star, X } from 'lucide-react'
 import { fetchApi } from '../auth.tsx'
 import type {
   AgentInfo,
@@ -14,6 +14,31 @@ import type {
   StartRunRequest,
   RunImageAttachmentUpload,
 } from '@webmux/shared'
+
+const FAVORITES_KEY = 'webmux:favorite-repos'
+
+function getFavoriteRepos(): string[] {
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY)
+    if (!raw) return []
+    return JSON.parse(raw) as string[]
+  } catch {
+    return []
+  }
+}
+
+function setFavoriteRepos(paths: string[]) {
+  localStorage.setItem(FAVORITES_KEY, JSON.stringify(paths))
+}
+
+function toggleFavoriteRepo(path: string): string[] {
+  const current = getFavoriteRepos()
+  const next = current.includes(path)
+    ? current.filter((p) => p !== path)
+    : [...current, path]
+  setFavoriteRepos(next)
+  return next
+}
 
 const TOOLS: { value: RunTool; label: string; description: string }[] = [
   { value: 'claude', label: 'Claude Code', description: 'Anthropic Claude Code CLI' },
@@ -77,6 +102,7 @@ export function NewThreadPage() {
   const [repoPath, setRepoPath] = useState('')
   const [prompt, setPrompt] = useState('')
   const [recentRepos, setRecentRepos] = useState<string[]>([])
+  const [favorites, setFavorites] = useState<string[]>(() => getFavoriteRepos())
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
 
   const [repoBrowser, setRepoBrowser] = useState<RepositoryBrowseResponse | null>(null)
@@ -90,7 +116,10 @@ export function NewThreadPage() {
   const previousAgentRef = useRef('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Image attachments are supported for all tools
+  const handleToggleFavorite = (path: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    setFavorites(toggleFavoriteRepo(path))
+  }
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -358,24 +387,63 @@ export function NewThreadPage() {
             </div>
           ) : null}
 
-          {recentRepos.length > 0 ? (
+          {favorites.length > 0 ? (
             <>
-              <span className="form-hint-label">Recent repositories</span>
+              <span className="form-hint-label">Favorites</span>
               <div className="chip-group">
-                {recentRepos.map((rp) => (
+                {favorites.map((rp) => (
                   <button
                     key={rp}
                     className={`chip repo-chip ${repoPath === rp ? 'selected' : ''}`}
                     onClick={() => setRepoPath(rp)}
                     type="button"
                   >
-                    <span className="repo-chip-name">{repositoryName(rp)}</span>
+                    <span className="repo-chip-top">
+                      <span className="repo-chip-name">{repositoryName(rp)}</span>
+                      <span
+                        className="repo-chip-star favorited"
+                        onClick={(e) => handleToggleFavorite(rp, e)}
+                        role="button"
+                        title="Remove from favorites"
+                      >
+                        <Star size={12} />
+                      </span>
+                    </span>
                     <span className="repo-chip-path">{rp}</span>
                   </button>
                 ))}
               </div>
             </>
-          ) : selectedAgent && !isLoadingRepos ? (
+          ) : null}
+
+          {recentRepos.length > 0 ? (
+            <>
+              <span className="form-hint-label">Recent repositories</span>
+              <div className="chip-group">
+                {recentRepos.filter((rp) => !favorites.includes(rp)).map((rp) => (
+                  <button
+                    key={rp}
+                    className={`chip repo-chip ${repoPath === rp ? 'selected' : ''}`}
+                    onClick={() => setRepoPath(rp)}
+                    type="button"
+                  >
+                    <span className="repo-chip-top">
+                      <span className="repo-chip-name">{repositoryName(rp)}</span>
+                      <span
+                        className="repo-chip-star"
+                        onClick={(e) => handleToggleFavorite(rp, e)}
+                        role="button"
+                        title="Add to favorites"
+                      >
+                        <Star size={12} />
+                      </span>
+                    </span>
+                    <span className="repo-chip-path">{rp}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : selectedAgent && !isLoadingRepos && favorites.length === 0 ? (
             <p className="form-hint">No recent repositories. Use the picker above to browse.</p>
           ) : null}
 
@@ -464,6 +532,7 @@ export function NewThreadPage() {
           browser={repoBrowser}
           isLoading={isLoadingRepos}
           error={repoError}
+          favorites={favorites}
           onClose={() => setIsRepoBrowserOpen(false)}
           onNavigate={(path) => {
             if (selectedAgent) void loadRepoBrowser(selectedAgent, path)
@@ -472,6 +541,7 @@ export function NewThreadPage() {
             setRepoPath(path)
             setIsRepoBrowserOpen(false)
           }}
+          onToggleFavorite={handleToggleFavorite}
         />
       ) : null}
     </div>
@@ -482,16 +552,20 @@ function RepositoryBrowserModal({
   browser,
   isLoading,
   error,
+  favorites,
   onClose,
   onNavigate,
   onSelect,
+  onToggleFavorite,
 }: {
   browser: RepositoryBrowseResponse | null
   isLoading: boolean
   error: string | null
+  favorites: string[]
   onClose: () => void
   onNavigate: (path: string) => void
   onSelect: (path: string) => void
+  onToggleFavorite: (path: string, e?: React.MouseEvent) => void
 }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -533,8 +607,10 @@ function RepositoryBrowserModal({
                 <RepositoryEntryRow
                   key={entry.path}
                   entry={entry}
+                  isFavorited={favorites.includes(entry.path)}
                   onNavigate={onNavigate}
                   onSelect={onSelect}
+                  onToggleFavorite={onToggleFavorite}
                 />
               ))}
             </div>
@@ -550,12 +626,16 @@ function RepositoryBrowserModal({
 
 function RepositoryEntryRow({
   entry,
+  isFavorited,
   onNavigate,
   onSelect,
+  onToggleFavorite,
 }: {
   entry: RepositoryEntry
+  isFavorited: boolean
   onNavigate: (path: string) => void
   onSelect: (path: string) => void
+  onToggleFavorite: (path: string, e?: React.MouseEvent) => void
 }) {
   const isRepo = entry.kind === 'repository'
   return (
@@ -572,7 +652,20 @@ function RepositoryEntryRow({
         )}
         <span className="repo-browser-entry-name">{entry.name}</span>
         {isRepo ? (
-          <span className="repo-browser-entry-badge">Select</span>
+          <>
+            <span
+              className={`repo-browser-entry-star ${isFavorited ? 'favorited' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleFavorite(entry.path, e)
+              }}
+              role="button"
+              title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              <Star size={13} />
+            </span>
+            <span className="repo-browser-entry-badge">Select</span>
+          </>
         ) : (
           <ChevronRight size={14} className="repo-browser-entry-arrow" />
         )}

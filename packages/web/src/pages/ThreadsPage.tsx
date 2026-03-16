@@ -1,11 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { LoaderCircle, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, FolderGit2, LoaderCircle, Plus, Trash2 } from 'lucide-react'
 import { fetchApi } from '../auth.tsx'
 import type { AgentInfo, Run, RunListResponse, RunStatus } from '@webmux/shared'
 
 const ACTIVE_STATUSES: RunStatus[] = ['starting', 'running']
 const AUTO_REFRESH_INTERVAL = 5000
+
+interface ProjectGroup {
+  repoPath: string
+  repoName: string
+  runs: Run[]
+  hasActive: boolean
+  latestUpdate: number
+}
 
 function timeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000)
@@ -58,6 +66,35 @@ function aiPreview(run: Run): string {
   return 'No summary'
 }
 
+function groupByProject(runs: Run[]): ProjectGroup[] {
+  const map = new Map<string, Run[]>()
+  for (const run of runs) {
+    const key = run.repoPath
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(run)
+  }
+
+  const groups: ProjectGroup[] = []
+  for (const [path, groupRuns] of map) {
+    groupRuns.sort((a, b) => b.updatedAt - a.updatedAt)
+    groups.push({
+      repoPath: path,
+      repoName: repoName(path),
+      runs: groupRuns,
+      hasActive: groupRuns.some((r) => ACTIVE_STATUSES.includes(r.status)),
+      latestUpdate: groupRuns[0].updatedAt,
+    })
+  }
+
+  // Sort: groups with active runs first, then by most recent update
+  groups.sort((a, b) => {
+    if (a.hasActive !== b.hasActive) return a.hasActive ? -1 : 1
+    return b.latestUpdate - a.latestUpdate
+  })
+
+  return groups
+}
+
 export function ThreadsPage() {
   const navigate = useNavigate()
   const [runs, setRuns] = useState<Run[]>([])
@@ -65,6 +102,7 @@ export function ThreadsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const loadData = useCallback(async (showLoading = false) => {
@@ -129,8 +167,16 @@ export function ThreadsPage() {
     }
   }
 
-  const activeRuns = runs.filter((r) => ACTIVE_STATUSES.includes(r.status))
-  const completedRuns = runs.filter((r) => !ACTIVE_STATUSES.includes(r.status))
+  const projectGroups = useMemo(() => groupByProject(runs), [runs])
+
+  const toggleProject = (repoPath: string) => {
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev)
+      if (next.has(repoPath)) next.delete(repoPath)
+      else next.add(repoPath)
+      return next
+    })
+  }
 
   // Find online agents for the "New Thread" button
   const onlineAgents = [...agents.values()].filter((a) => a.status === 'online')
@@ -191,59 +237,52 @@ export function ThreadsPage() {
         </div>
       ) : null}
 
-      {activeRuns.length > 0 ? (
-        <div className="threads-section">
-          <h2 className="threads-section-title">Active</h2>
-          {/* Desktop table header */}
-          <div className="threads-table-header">
-            <span className="th-tool">Tool</span>
-            <span className="th-info">Repository</span>
-            <span className="th-prompt">Prompt</span>
-            <span className="th-status">Status</span>
-            <span className="th-time">Updated</span>
-            <span className="th-actions" />
+      {projectGroups.map((group) => {
+        const isCollapsed = collapsedProjects.has(group.repoPath)
+        const activeCount = group.runs.filter((r) => ACTIVE_STATUSES.includes(r.status)).length
+        return (
+          <div className="threads-section" key={group.repoPath}>
+            <button
+              className={`threads-project-header ${isCollapsed ? 'collapsed' : ''}`}
+              onClick={() => toggleProject(group.repoPath)}
+              type="button"
+            >
+              {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+              <FolderGit2 size={14} className="threads-project-icon" />
+              <span className="threads-project-name">{group.repoName}</span>
+              <span className="threads-project-path" title={group.repoPath}>{group.repoPath}</span>
+              <span className="threads-project-count">{group.runs.length}</span>
+              {activeCount > 0 ? (
+                <span className="threads-project-active-badge">{activeCount} active</span>
+              ) : null}
+            </button>
+            {!isCollapsed ? (
+              <>
+                <div className="threads-table-header">
+                  <span className="th-tool">Tool</span>
+                  <span className="th-info">Branch</span>
+                  <span className="th-prompt">Prompt</span>
+                  <span className="th-status">Status</span>
+                  <span className="th-time">Updated</span>
+                  <span className="th-actions" />
+                </div>
+                <div className="threads-list">
+                  {group.runs.map((run) => (
+                    <ThreadRow
+                      key={run.id}
+                      run={run}
+                      agentName={agents.get(run.agentId)?.name || undefined}
+                      isDeleting={deletingId === run.id}
+                      onDelete={() => void handleDelete(run)}
+                      onClick={() => navigate(`/agents/${run.agentId}/threads/${run.id}`)}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
           </div>
-          <div className="threads-list">
-            {activeRuns.map((run) => (
-              <ThreadRow
-                key={run.id}
-                run={run}
-                agentName={agents.get(run.agentId)?.name || undefined}
-                isDeleting={deletingId === run.id}
-                onDelete={() => void handleDelete(run)}
-                onClick={() => navigate(`/agents/${run.agentId}/threads/${run.id}`)}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {completedRuns.length > 0 ? (
-        <div className="threads-section">
-          <h2 className="threads-section-title">Completed</h2>
-          {/* Desktop table header (only show if no active section already) */}
-          <div className="threads-table-header">
-            <span className="th-tool">Tool</span>
-            <span className="th-info">Repository</span>
-            <span className="th-prompt">Prompt</span>
-            <span className="th-status">Status</span>
-            <span className="th-time">Updated</span>
-            <span className="th-actions" />
-          </div>
-          <div className="threads-list">
-            {completedRuns.map((run) => (
-              <ThreadRow
-                key={run.id}
-                run={run}
-                agentName={agents.get(run.agentId)?.name || undefined}
-                isDeleting={deletingId === run.id}
-                onDelete={() => void handleDelete(run)}
-                onClick={() => navigate(`/agents/${run.agentId}/threads/${run.id}`)}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
+        )
+      })}
     </div>
   )
 }
@@ -270,10 +309,9 @@ function ThreadRow({
         <span className={`thread-tool-badge ${run.tool}`}>{toolIcon(run.tool)}</span>
       </div>
 
-      {/* Desktop: repo column */}
+      {/* Desktop: branch column */}
       <div className="thread-row-info desktop-only">
-        <span className="thread-repo-name" title={run.repoPath}>{repoName(run.repoPath)}</span>
-        {run.branch ? <span className="thread-branch">{run.branch}</span> : null}
+        {run.branch ? <span className="thread-branch">{run.branch}</span> : <span className="thread-branch-empty">-</span>}
         {agentName ? <span className="thread-agent-name">{agentName}</span> : null}
       </div>
 

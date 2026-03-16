@@ -1573,7 +1573,7 @@
 }
 
 .threads-section {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .threads-section-title {
@@ -1583,6 +1583,74 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
+}
+
+/* ── Project group header ──────────────────────── */
+
+.threads-project-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px 8px 0 0;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.threads-project-header.collapsed {
+  border-radius: 8px;
+}
+
+.threads-project-header:hover {
+  background: rgba(122, 162, 247, 0.04);
+}
+
+.threads-project-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.threads-project-name {
+  white-space: nowrap;
+}
+
+.threads-project-path {
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.threads-project-count {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--border-soft);
+  border-radius: 10px;
+  padding: 0.1rem 0.45rem;
+  flex-shrink: 0;
+}
+
+.threads-project-active-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-radius: 10px;
+  padding: 0.1rem 0.5rem;
+  flex-shrink: 0;
 }
 
 .threads-list {
@@ -1715,6 +1783,11 @@
   font-size: 0.78rem;
   color: var(--muted);
   font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+}
+
+.thread-branch-empty {
+  font-size: 0.78rem;
+  color: var(--muted);
 }
 
 .thread-agent-name {
@@ -1895,9 +1968,43 @@
   max-width: 20rem;
 }
 
+.repo-chip-top {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+}
+
 .repo-chip-name {
   font-weight: 700;
   font-size: 0.88rem;
+}
+
+.repo-chip-star {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+  flex-shrink: 0;
+}
+
+.chip:hover .repo-chip-star {
+  opacity: 1;
+}
+
+.repo-chip-star:hover {
+  color: #f5a623;
+}
+
+.repo-chip-star.favorited {
+  opacity: 1;
+  color: #f5a623;
+}
+
+.repo-chip-star.favorited svg {
+  fill: #f5a623;
 }
 
 .repo-chip-path {
@@ -2248,6 +2355,32 @@
 
 .repo-browser-entry-name {
   flex: 1;
+}
+
+.repo-browser-entry-star {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  opacity: 0.3;
+  transition: opacity 120ms ease, color 120ms ease;
+  flex-shrink: 0;
+}
+
+.repo-browser-entry:hover .repo-browser-entry-star {
+  opacity: 1;
+}
+
+.repo-browser-entry-star:hover {
+  color: #f5a623;
+}
+
+.repo-browser-entry-star.favorited {
+  opacity: 1;
+  color: #f5a623;
+}
+
+.repo-browser-entry-star.favorited svg {
+  fill: #f5a623;
 }
 
 .repo-browser-entry-badge {
