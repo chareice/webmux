@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 import type { RunStatus, RunTimelineEventPayload, RunTool, RunTurnOptions } from '@webmux/shared'
-import { createClaudeClient, type ClaudeClient } from './claude-client.js'
+import { createClaudeClient, buildClaudePromptWithImages, type ClaudeClient, type ClaudePrompt } from './claude-client.js'
 import { ClaudeMessageParser } from './claude-event.js'
 import { createCodexClient, type CodexClient } from './codex-client.js'
 import { prepareCodexInput } from './codex-input.js'
@@ -268,10 +268,6 @@ export class RunWrapper {
   }
 
   private async startClaudeThread(): Promise<void> {
-    if (this.attachments.length > 0) {
-      throw new Error('Image attachments are currently supported for Codex only')
-    }
-
     this.emitStatus('starting')
     this.onItem({
       type: 'activity',
@@ -282,15 +278,26 @@ export class RunWrapper {
 
     const client = this.claudeClientFactory()
     const parser = new ClaudeMessageParser()
-    const query = client.query(this.prompt, {
+    const options = {
       cwd: this.repoPath,
       resume: this.turnOptions.clearSession ? undefined : this.toolThreadId,
       persistSession: true,
-      permissionMode: 'bypassPermissions',
+      permissionMode: 'bypassPermissions' as const,
       allowDangerouslySkipPermissions: true,
       ...(this.turnOptions.model ? { model: this.turnOptions.model } : {}),
       ...(this.turnOptions.claudeEffort ? { effort: this.turnOptions.claudeEffort } : {}),
-    })
+    }
+
+    // Build prompt: use multi-content message when images are attached
+    let prompt: ClaudePrompt = this.prompt
+    if (this.attachments.length > 0) {
+      // We need a session_id for SDKUserMessage; use toolThreadId or a placeholder
+      // that will be replaced once the session is established
+      const sessionId = this.toolThreadId ?? ''
+      prompt = buildClaudePromptWithImages(this.prompt, this.attachments, sessionId)
+    }
+
+    const query = client.query(prompt, options)
 
     this.claudeQuery = query
     this.emitStatus('running')

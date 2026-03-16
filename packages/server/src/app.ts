@@ -53,7 +53,7 @@ export function buildApp(options: BuildAppOptions) {
   hub.upgradePolicy = options.config.agentUpgradePolicy
   const app = Fastify({
     logger: true,
-    bodyLimit: 20 * 1024 * 1024,
+    bodyLimit: 30 * 1024 * 1024,
   })
 
   app.get('/api/health', async () => ({ ok: true }))

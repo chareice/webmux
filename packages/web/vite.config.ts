@@ -7,10 +7,16 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
-      '/api': 'http://127.0.0.1:4317',
+      '/api': {
+        target: process.env.WEBMUX_PROXY_TARGET || 'http://127.0.0.1:4317',
+        changeOrigin: true,
+        secure: true,
+      },
       '/ws': {
-        target: 'ws://127.0.0.1:4317',
+        target: (process.env.WEBMUX_PROXY_TARGET || 'http://127.0.0.1:4317').replace('https://', 'wss://').replace('http://', 'ws://'),
         ws: true,
+        changeOrigin: true,
+        secure: true,
       },
     },
   },
