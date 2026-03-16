@@ -115,7 +115,6 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
   const [connectionFlash, setConnectionFlash] = useState<'connect' | 'disconnect' | null>(null)
   const [reconnectAttempt, setReconnectAttempt] = useState(0)
   const mobileInputRef = useRef<HTMLInputElement | null>(null)
-  const isComposingRef = useRef(false)
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
 
@@ -483,8 +482,6 @@ function ActiveTerminal({ session, agentId, token, onBack, onOpenPalette, onNext
             autoComplete="off"
             autoCorrect="off"
             className="mobile-input"
-            onCompositionStart={() => { isComposingRef.current = true }}
-            onCompositionEnd={() => { isComposingRef.current = false }}
             placeholder="Type command..."
             spellCheck={false}
           />

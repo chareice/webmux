@@ -15,7 +15,9 @@ import type { SessionSummary } from '@webmux/shared'
 
 /* ── Swipe-to-delete hook ─────────────────────────── */
 
-function useSwipeToDelete(onDelete: () => void) {
+const SWIPE_DELETE_WIDTH = 72 // px: snap threshold and revealed width
+
+function useSwipeToDelete() {
   const innerRef = useRef<HTMLDivElement | null>(null)
   const startX = useRef(0)
   const startY = useRef(0)
@@ -23,14 +25,12 @@ function useSwipeToDelete(onDelete: () => void) {
   const swiping = useRef(false)
   const [revealed, setRevealed] = useState(false)
 
-  const THRESHOLD = 72 // px to snap open
-  const DELETE_WIDTH = 72
-
   const reset = useCallback(() => {
     const el = innerRef.current
     if (el) {
       el.style.transition = 'transform 0.25s ease'
       el.style.transform = 'translateX(0)'
+      el.style.willChange = ''
     }
     setRevealed(false)
   }, [])
@@ -42,7 +42,10 @@ function useSwipeToDelete(onDelete: () => void) {
     currentX.current = 0
     swiping.current = false
     const el = innerRef.current
-    if (el) el.style.transition = 'none'
+    if (el) {
+      el.style.transition = 'none'
+      el.style.willChange = 'transform'
+    }
   }, [])
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
@@ -56,7 +59,7 @@ function useSwipeToDelete(onDelete: () => void) {
     if (!swiping.current) return
 
     // Only allow swipe left (negative dx), clamp to delete width
-    const offset = Math.max(-DELETE_WIDTH, Math.min(0, dx))
+    const offset = Math.max(-SWIPE_DELETE_WIDTH, Math.min(0, dx))
     currentX.current = offset
     const el = innerRef.current
     if (el) el.style.transform = `translateX(${offset}px)`
@@ -67,19 +70,22 @@ function useSwipeToDelete(onDelete: () => void) {
     const el = innerRef.current
     if (el) el.style.transition = 'transform 0.25s ease'
 
-    if (currentX.current < -THRESHOLD) {
+    if (currentX.current < -SWIPE_DELETE_WIDTH) {
       // Snap open
-      if (el) el.style.transform = `translateX(-${DELETE_WIDTH}px)`
+      if (el) el.style.transform = `translateX(-${SWIPE_DELETE_WIDTH}px)`
       setRevealed(true)
     } else {
       // Snap closed
-      if (el) el.style.transform = 'translateX(0)'
+      if (el) {
+        el.style.transform = 'translateX(0)'
+        el.style.willChange = ''
+      }
       setRevealed(false)
     }
     swiping.current = false
   }, [])
 
-  return { innerRef, revealed, reset, onTouchStart, onTouchMove, onTouchEnd, onDelete, DELETE_WIDTH }
+  return { innerRef, revealed, reset, onTouchStart, onTouchMove, onTouchEnd }
 }
 
 interface SessionSidebarProps {
@@ -324,7 +330,7 @@ function SwipeableSessionCard({
   onKill,
   onTogglePin,
 }: SwipeableSessionCardProps) {
-  const swipe = useSwipeToDelete(() => onKill(session.name))
+  const swipe = useSwipeToDelete()
 
   return (
     <article
@@ -338,7 +344,7 @@ function SwipeableSessionCard({
           swipe.reset()
           onKill(session.name)
         }}
-        style={{ width: swipe.DELETE_WIDTH }}
+        style={{ width: SWIPE_DELETE_WIDTH }}
         type="button"
         aria-label={`Kill ${session.name}`}
       >
@@ -410,13 +416,15 @@ function SwipeableSessionCard({
   )
 }
 
+const timestampFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+})
+
 function formatTimestamp(timestamp: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(timestamp * 1000))
+  return timestampFormatter.format(new Date(timestamp * 1000))
 }
 
 function compactPath(path: string): string {
