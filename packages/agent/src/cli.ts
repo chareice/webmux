@@ -1,5 +1,6 @@
 import os from 'node:os'
 import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { Command } from 'commander'
 
@@ -275,7 +276,13 @@ function isDirectExecution(): boolean {
     return false
   }
 
-  return import.meta.url === pathToFileURL(entryPath).href
+  // Resolve symlinks so pnpm's node_modules structure doesn't break the check
+  try {
+    const realEntry = realpathSync(entryPath)
+    return import.meta.url === pathToFileURL(realEntry).href
+  } catch {
+    return import.meta.url === pathToFileURL(entryPath).href
+  }
 }
 
 if (isDirectExecution()) {
