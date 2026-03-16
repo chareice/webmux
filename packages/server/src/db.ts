@@ -465,11 +465,11 @@ export function findRunTurnById(db: Database.Database, turnId: string): RunTurnR
 }
 
 export function findRunsByAgentId(db: Database.Database, agentId: string): RunRow[] {
-  return db.prepare('SELECT * FROM runs WHERE agent_id = ? ORDER BY updated_at DESC').all(agentId) as RunRow[]
+  return db.prepare('SELECT * FROM runs WHERE agent_id = ? ORDER BY created_at DESC').all(agentId) as RunRow[]
 }
 
 export function findRunsByUserId(db: Database.Database, userId: string): RunRow[] {
-  return db.prepare('SELECT * FROM runs WHERE user_id = ? ORDER BY updated_at DESC').all(userId) as RunRow[]
+  return db.prepare('SELECT * FROM runs WHERE user_id = ? ORDER BY created_at DESC').all(userId) as RunRow[]
 }
 
 export function findActiveRunsByAgentId(db: Database.Database, agentId: string): RunRow[] {
