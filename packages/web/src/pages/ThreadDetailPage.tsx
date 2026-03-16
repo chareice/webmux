@@ -433,7 +433,13 @@ export function ThreadDetailPage() {
                 <p>{active ? 'Thread started. Waiting for timeline events...' : 'No timeline recorded.'}</p>
               </div>
             ) : (
-              turns.map((turn) => <TurnSection key={turn.id} turn={turn} />)
+              turns.map((turn, i) => (
+                <TurnSection
+                  key={turn.id}
+                  turn={turn}
+                  defaultOpen={i === turns.length - 1}
+                />
+              ))
             )}
           </div>
 
@@ -527,36 +533,59 @@ export function ThreadDetailPage() {
   )
 }
 
-function TurnSection({ turn }: { turn: RunTurnDetail }) {
+function TurnSection({ turn, defaultOpen }: { turn: RunTurnDetail; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
   const hasAttachments = turn.attachments && turn.attachments.length > 0
+  const sc = statusClass(turn.status)
+  const promptPreview = turn.prompt.length > 100 ? turn.prompt.slice(0, 100) + '...' : turn.prompt
+  const itemCount = turn.items.length
+
   return (
-    <div className="turn-section">
-      <div className="turn-header">
-        <span className="turn-title">Turn {turn.index}</span>
-        <span className={`turn-status ${statusClass(turn.status)}`}>
-          {statusLabel(turn.status)}
-        </span>
-      </div>
-
-      {/* User prompt */}
-      <div className="timeline-card message-card user">
-        <span className="timeline-eyebrow">User</span>
-        <p className="timeline-text">{turn.prompt}</p>
-        {hasAttachments ? (
-          <div className="turn-attachments-indicator">
-            <Paperclip size={12} />
-            <span>{turn.attachments.length} image{turn.attachments.length > 1 ? 's' : ''} attached</span>
-          </div>
-        ) : null}
-      </div>
-
-      {turn.items.length === 0 ? (
-        <div className="turn-empty">
-          <span>Waiting for events...</span>
+    <div className={`turn-section ${open ? 'open' : 'collapsed'}`}>
+      <button
+        className="turn-header"
+        onClick={() => setOpen(!open)}
+        type="button"
+      >
+        <div className="turn-header-left">
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <span className="turn-title">Turn {turn.index}</span>
+          <span className={`thread-status-badge ${sc}`}>
+            <span className={`thread-status-dot ${sc}`} />
+            {statusLabel(turn.status)}
+          </span>
         </div>
-      ) : (
-        turn.items.map((item) => <TimelineItem key={item.id} item={item} />)
-      )}
+        {!open ? (
+          <span className="turn-prompt-preview">{promptPreview}</span>
+        ) : null}
+        {!open && itemCount > 0 ? (
+          <span className="turn-item-count">{itemCount} event{itemCount > 1 ? 's' : ''}</span>
+        ) : null}
+      </button>
+
+      {open ? (
+        <>
+          {/* User prompt */}
+          <div className="timeline-card message-card user">
+            <span className="timeline-eyebrow">User</span>
+            <p className="timeline-text">{turn.prompt}</p>
+            {hasAttachments ? (
+              <div className="turn-attachments-indicator">
+                <Paperclip size={12} />
+                <span>{turn.attachments.length} image{turn.attachments.length > 1 ? 's' : ''} attached</span>
+              </div>
+            ) : null}
+          </div>
+
+          {itemCount === 0 ? (
+            <div className="turn-empty">
+              <span>Waiting for events...</span>
+            </div>
+          ) : (
+            turn.items.map((item) => <TimelineItem key={item.id} item={item} />)
+          )}
+        </>
+      ) : null}
     </div>
   )
 }
@@ -587,7 +616,8 @@ function ActivityItem({
 }: {
   item: Extract<RunTimelineEvent, { type: 'activity' }>
 }) {
-  const hasLongDetail = !!item.detail && (item.detail.length > 150 || item.detail.split('\n').length > 3)
+  // Only show Expand when content exceeds the CSS -webkit-line-clamp (3 lines)
+  const hasLongDetail = !!item.detail && item.detail.split('\n').length > 3
   const [expanded, setExpanded] = useState(false)
 
   const dotClass =
@@ -629,7 +659,8 @@ function CommandItem({
   item: Extract<RunTimelineEvent, { type: 'command' }>
 }) {
   const [expanded, setExpanded] = useState(false)
-  const isCollapsible = item.output.length > 200 || item.output.split('\n').length > 4
+  // Only show Expand when content exceeds the CSS -webkit-line-clamp (4 lines)
+  const isCollapsible = item.output.split('\n').length > 4
   const cmdClass =
     item.status === 'failed' ? 'danger'
     : item.status === 'completed' ? 'success'
