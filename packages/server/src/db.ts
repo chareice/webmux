@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import Database from 'libsql'
 import crypto from 'node:crypto'
 
 import type {

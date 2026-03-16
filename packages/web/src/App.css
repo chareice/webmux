@@ -1470,4 +1470,1427 @@
   .top-bar-logout .button-label {
     display: none;
   }
+
+  .top-bar-nav {
+    gap: 0.15rem;
+  }
+
+  .top-bar-nav-link {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+  }
+
+}
+
+/* ── Top bar navigation ──────────────────────────── */
+
+.top-bar-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.top-bar-nav-link {
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.top-bar-nav-link:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+}
+
+.top-bar-nav-link.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* ── Threads page ────────────────────────────────── */
+
+.threads-page {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  max-width: 80rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.threads-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.threads-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.threads-header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.threads-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  min-height: 50vh;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.threads-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 4rem 2rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+.threads-empty h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--ink);
+}
+
+.threads-empty p {
+  margin: 0;
+  max-width: 28rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.threads-section {
+  margin-bottom: 1.5rem;
+}
+
+.threads-section-title {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.threads-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Desktop table header ────────────────────────── */
+
+.threads-table-header {
+  display: none;
+}
+
+/* ── New thread dropdown ─────────────────────────── */
+
+.threads-new-dropdown {
+  position: relative;
+}
+
+.threads-new-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.35rem;
+  min-width: 12rem;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 50;
+  padding: 0.35rem;
+}
+
+.threads-new-dropdown:hover .threads-new-dropdown-menu,
+.threads-new-dropdown:focus-within .threads-new-dropdown-menu {
+  display: block;
+}
+
+.threads-new-dropdown-item {
+  display: block;
+  padding: 0.5rem 0.65rem;
+  border-radius: 4px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.88rem;
+}
+
+.threads-new-dropdown-item:hover {
+  background: var(--accent-dim);
+}
+
+/* ── Thread row (used on both mobile + desktop) ─── */
+
+.thread-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+  margin-bottom: 0.5rem;
+}
+
+.thread-row:last-child {
+  margin-bottom: 0;
+}
+
+.thread-row:hover {
+  border-color: var(--accent);
+  background: rgba(122, 162, 247, 0.04);
+}
+
+.thread-row-tool {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.thread-tool-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.thread-tool-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.thread-tool-badge.claude {
+  background: rgba(122, 162, 247, 0.15);
+  color: var(--accent);
+}
+
+.thread-tool-badge.codex {
+  background: rgba(158, 206, 106, 0.15);
+  color: var(--success);
+}
+
+.thread-row-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.thread-repo-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thread-branch {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+}
+
+.thread-agent-name {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.thread-row-prompt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.thread-row-status {
+  display: flex;
+  align-items: center;
+}
+
+.thread-row-time {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.thread-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.thread-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.thread-status-badge.accent {
+  background: rgba(122, 162, 247, 0.15);
+  color: var(--accent);
+}
+
+.thread-status-badge.success {
+  background: rgba(158, 206, 106, 0.15);
+  color: var(--success);
+}
+
+.thread-status-badge.danger {
+  background: rgba(247, 118, 142, 0.15);
+  color: var(--danger);
+}
+
+.thread-status-badge.warning {
+  background: rgba(224, 175, 104, 0.15);
+  color: var(--warning);
+}
+
+.thread-status-badge.muted {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.thread-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+}
+
+.thread-status-dot.accent { background: var(--accent); }
+.thread-status-dot.success { background: var(--success); }
+.thread-status-dot.danger { background: var(--danger); }
+.thread-status-dot.warning { background: var(--warning); }
+.thread-status-dot.muted { background: var(--muted); }
+
+/* ── New Thread page ─────────────────────────────── */
+
+.new-thread-page {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  max-width: 42rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.new-thread-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.new-thread-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.new-thread-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.form-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.form-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.form-hint-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-top: 0.35rem;
+}
+
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.chip {
+  padding: 0.5rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+}
+
+.chip.selected {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.repo-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 10rem;
+  flex: 1;
+  max-width: 20rem;
+}
+
+.repo-chip-name {
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+.repo-chip-path {
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip.selected .repo-chip-path {
+  color: var(--accent);
+}
+
+.tool-cards {
+  display: flex;
+  gap: 0.55rem;
+}
+
+.tool-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.tool-card:hover {
+  border-color: var(--accent);
+}
+
+.tool-card.selected {
+  border-color: var(--accent);
+  background: rgba(122, 162, 247, 0.08);
+}
+
+.tool-card-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.tool-card.selected .tool-card-title {
+  color: var(--accent);
+}
+
+.tool-card-desc {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.repo-picker-button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  transition: border-color 120ms ease;
+}
+
+.repo-picker-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.repo-picker-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.repo-picker-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.repo-picker-path {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+}
+
+.repo-picker-arrow {
+  position: absolute;
+  right: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+}
+
+.repo-loading {
+  padding: 0.5rem 0;
+}
+
+.prompt-textarea {
+  width: 100%;
+  min-height: 8rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.prompt-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.prompt-textarea::placeholder {
+  color: var(--muted);
+}
+
+.new-thread-submit {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+}
+
+.new-thread-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── Image attachments ───────────────────────────── */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.attachment-thumbnails {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.attachment-thumb {
+  position: relative;
+  width: 7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.attachment-thumb--small {
+  width: 5rem;
+}
+
+.attachment-thumb-img {
+  width: 100%;
+  height: 5rem;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.attachment-thumb--small .attachment-thumb-img {
+  height: 3.5rem;
+}
+
+.attachment-thumb-remove {
+  all: unset;
+  cursor: pointer;
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  z-index: 2;
+  transition: opacity 120ms ease;
+}
+
+.attachment-thumb-remove:hover {
+  opacity: 0.85;
+}
+
+.attachment-thumb-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.attachment-thumb-name {
+  font-size: 0.68rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-thumb-size {
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+
+.attachment-add-button {
+  align-self: flex-start;
+}
+
+.attachment-count-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-left: 0.15rem;
+}
+
+/* ── Composer attachments (thread detail footer) ─── */
+
+.composer-attachments {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.composer-attach-button {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.composer-attach-button:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.composer-attach-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Turn attachment indicator ───────────────────── */
+
+.turn-attachments-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* ── Repository browser modal ────────────────────── */
+
+.repo-browser-modal {
+  width: min(92vw, 32rem);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.repo-browser-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.repo-browser-path {
+  padding: 0.45rem 0.65rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.repo-browser-path code {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+}
+
+.repo-browser-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.repo-browser-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.repo-browser-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.repo-browser-entry-row {
+  display: flex;
+}
+
+.repo-browser-entry {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 0.88rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.repo-browser-entry:hover {
+  background: var(--accent-dim);
+}
+
+.repo-browser-entry-name {
+  flex: 1;
+}
+
+.repo-browser-entry-badge {
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(158, 206, 106, 0.15);
+  color: var(--success);
+}
+
+.repo-browser-entry-arrow {
+  color: var(--muted);
+}
+
+.repo-icon-git {
+  color: var(--success);
+}
+
+.repo-icon-dir {
+  color: var(--accent);
+}
+
+.repo-browser-footer {
+  padding: 0.55rem 0.85rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* ── Thread detail page ──────────────────────────── */
+
+.thread-detail-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Mobile header (visible on mobile, hidden on desktop) */
+.thread-detail-header--mobile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.65rem 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.thread-detail-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.thread-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.thread-detail-repo {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thread-detail-branch {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+}
+
+/* Two-column body (desktop) / single column (mobile) */
+.thread-detail-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Sidebar (hidden on mobile, shown on desktop) */
+.thread-sidebar {
+  display: none;
+}
+
+.thread-sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.thread-sidebar-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.thread-sidebar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.thread-sidebar-value {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.thread-sidebar-value.mono {
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.82rem;
+}
+
+.thread-sidebar-repo {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thread-sidebar-detail {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  word-break: break-all;
+}
+
+.thread-sidebar-summary {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.thread-sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: auto;
+  padding-top: 0.65rem;
+}
+
+.thread-delete-button {
+  color: var(--danger);
+  background: rgba(247, 118, 142, 0.08);
+}
+
+.thread-delete-button:hover {
+  background: rgba(247, 118, 142, 0.18);
+}
+
+/* Main content area */
+.thread-detail-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.thread-detail-summary {
+  padding: 0.65rem 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.thread-detail-summary-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.thread-detail-summary-text {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ── Timeline ────────────────────────────────────── */
+
+.thread-detail-timeline {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-soft) transparent;
+}
+
+.thread-detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20vh;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.thread-detail-empty p {
+  margin: 0;
+}
+
+.turn-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.turn-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.15rem;
+}
+
+.turn-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.turn-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.turn-status.accent { color: var(--accent); }
+.turn-status.success { color: var(--success); }
+.turn-status.danger { color: var(--danger); }
+.turn-status.warning { color: var(--warning); }
+.turn-status.muted { color: var(--muted); }
+
+.turn-empty {
+  padding: 0.5rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* ── Timeline cards ──────────────────────────────── */
+
+.timeline-card {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 0.75rem 0.85rem;
+}
+
+.timeline-eyebrow {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.timeline-eyebrow.success { color: var(--success); }
+.timeline-eyebrow.danger { color: var(--danger); }
+.timeline-eyebrow.accent { color: var(--accent); }
+
+.timeline-text {
+  margin: 0.35rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.message-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+}
+
+.message-card.user {
+  border-left: 2px solid var(--accent);
+}
+
+.message-card.assistant {
+  border-left: 2px solid var(--success);
+}
+
+.message-card.system {
+  border-left: 2px solid var(--muted);
+}
+
+/* ── Command card ────────────────────────────────── */
+
+.command-card {
+  border-left: 2px solid var(--muted);
+}
+
+.command-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.command-exit {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+}
+
+.command-text {
+  display: block;
+  margin-top: 0.45rem;
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.82rem;
+  color: var(--ink);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.command-output {
+  margin-top: 0.55rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+}
+
+.command-output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.45rem;
+}
+
+.command-output-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.command-output-toggle {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.command-output-toggle:hover {
+  text-decoration: underline;
+}
+
+.command-output-text {
+  margin: 0;
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.command-output-text.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Activity row ────────────────────────────────── */
+
+.timeline-activity {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.25rem 0.15rem;
+}
+
+.timeline-activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+}
+
+.timeline-activity-dot.accent { background: var(--accent); }
+.timeline-activity-dot.success { background: var(--success); }
+.timeline-activity-dot.warning { background: var(--warning); }
+.timeline-activity-dot.danger { background: var(--danger); }
+
+.timeline-activity-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.timeline-activity-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.timeline-activity-detail {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  line-height: 1.4;
+}
+
+/* ── Thread detail footer ────────────────────────── */
+
+.thread-detail-footer {
+  padding: 0.75rem 1.25rem;
+  background: var(--surface);
+  border-top: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.thread-interrupt-button {
+  color: var(--warning);
+  background: rgba(224, 175, 104, 0.12);
+}
+
+.thread-interrupt-button:hover {
+  background: rgba(224, 175, 104, 0.2);
+}
+
+.thread-footer-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.thread-composer {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.thread-composer-input {
+  flex: 1;
+  min-height: 2.5rem;
+  max-height: 8rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.thread-composer-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.thread-composer-input::placeholder {
+  color: var(--muted);
+}
+
+.thread-send-button {
+  flex-shrink: 0;
+  padding: 0.55rem 0.75rem;
+}
+
+.thread-send-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.thread-error {
+  margin-top: 0.5rem;
+}
+
+/* ── Mobile overrides: threads ───────────────────── */
+
+@media (max-width: 960px) {
+  .threads-page {
+    padding: 1rem;
+  }
+
+  .threads-header h1 {
+    font-size: 1.2rem;
+  }
+
+  .thread-detail-header--mobile {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .new-thread-page {
+    padding: 1rem;
+  }
+
+  .tool-cards {
+    flex-direction: column;
+  }
+
+  /* Mobile summary is visible */
+  .thread-detail-summary--mobile {
+    display: block;
+  }
+
+  /* Mobile interrupt button is visible */
+  .thread-interrupt-button--mobile {
+    display: inline-flex;
+  }
+}
+
+/* ── Desktop overrides: threads ──────────────────── */
+
+@media (min-width: 961px) {
+  /* ── Threads list: table layout ─── */
+
+  .threads-table-header {
+    display: grid;
+    grid-template-columns: 5.5rem 1fr 2fr 6rem 5.5rem 3rem;
+    gap: 0.5rem;
+    padding: 0.35rem 1rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 0;
+  }
+
+  .threads-list {
+    gap: 0;
+  }
+
+  .thread-row {
+    display: grid;
+    grid-template-columns: 5.5rem 1fr 2fr 6rem 5.5rem 3rem;
+    gap: 0.5rem;
+    align-items: center;
+    flex-direction: row;
+    padding: 0.55rem 1rem;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 0;
+    background: transparent;
+  }
+
+  .thread-row:first-child {
+    border-top: none;
+  }
+
+  .thread-row:hover {
+    background: rgba(122, 162, 247, 0.04);
+    border-color: var(--border-soft);
+  }
+
+  .thread-row-tool {
+    gap: 0.35rem;
+  }
+
+  .thread-tool-badge {
+    width: 1.6rem;
+    height: 1.6rem;
+    font-size: 0.65rem;
+  }
+
+  .thread-row-info {
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+    overflow: hidden;
+  }
+
+  .thread-repo-name {
+    font-size: 0.85rem;
+  }
+
+  .thread-row-prompt {
+    -webkit-line-clamp: 1;
+    font-size: 0.82rem;
+  }
+
+  .thread-row-time {
+    font-size: 0.72rem;
+  }
+
+  /* ── Thread detail: two-column layout ─── */
+
+  .thread-detail-header--mobile {
+    display: none;
+  }
+
+  .thread-detail-body {
+    flex-direction: row;
+  }
+
+  .thread-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 280px;
+    min-width: 280px;
+    padding: 1.25rem;
+    background: var(--surface);
+    border-right: 1px solid var(--border-soft);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-soft) transparent;
+  }
+
+  /* Hide mobile-only summary on desktop (sidebar has it) */
+  .thread-detail-summary--mobile {
+    display: none;
+  }
+
+  /* Hide mobile interrupt button (sidebar has it) */
+  .thread-interrupt-button--mobile {
+    display: none;
+  }
+
+  /* Wider timeline on desktop */
+  .thread-detail-timeline {
+    padding: 1.25rem 2rem;
+    max-width: 56rem;
+  }
 }

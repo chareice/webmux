@@ -27,7 +27,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "bcrypt",
-      "better-sqlite3",
+      "libsql",
       "esbuild",
       "node-pty"
     ]

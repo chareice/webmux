@@ -344,21 +344,19 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
               ) : null}
 
               <View style={styles.composerInputRow}>
-                {run.tool === 'codex' ? (
-                  <TouchableOpacity
-                    style={[
-                      styles.composerIconButton,
-                      followUpAttachments.length >= 4 && styles.composerIconButtonDisabled,
-                    ]}
-                    accessibilityLabel="Add image"
-                    disabled={followUpAttachments.length >= 4}
-                    onPress={() => {
-                      void handlePickAttachments();
-                    }}
-                    activeOpacity={0.7}>
-                    <AddImageIcon />
-                  </TouchableOpacity>
-                ) : null}
+                <TouchableOpacity
+                  style={[
+                    styles.composerIconButton,
+                    followUpAttachments.length >= 4 && styles.composerIconButtonDisabled,
+                  ]}
+                  accessibilityLabel="Add image"
+                  disabled={followUpAttachments.length >= 4}
+                  onPress={() => {
+                    void handlePickAttachments();
+                  }}
+                  activeOpacity={0.7}>
+                  <AddImageIcon />
+                </TouchableOpacity>
 
                 <TextInput
                   style={styles.followUpInput}

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import BetterSqlite3 from 'better-sqlite3'
+import BetterSqlite3 from 'libsql'
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
   appendRunTimelineEvent,
@@ -31,7 +31,7 @@ import {
   updateRunToolThreadId,
   upsertNotificationDevice,
 } from './db.js'
-import type Database from 'better-sqlite3'
+import type Database from 'libsql'
 
 let db: Database.Database
 

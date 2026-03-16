@@ -142,14 +142,6 @@ export default function NewRunScreen(): React.JSX.Element {
   }, [agents, preferredAgentId]);
 
   useEffect(() => {
-    if (selectedTool === 'codex') {
-      return;
-    }
-
-    setAttachments([]);
-  }, [selectedTool]);
-
-  useEffect(() => {
     if (!selectedAgent) {
       setRecentRepos([]);
       setRepositoryBrowser(null);
@@ -423,10 +415,10 @@ export default function NewRunScreen(): React.JSX.Element {
           <TouchableOpacity
             style={[
               styles.attachButton,
-              (selectedTool !== 'codex' || attachments.length >= 4) && styles.attachButtonDisabled,
+              attachments.length >= 4 && styles.attachButtonDisabled,
             ]}
             activeOpacity={0.7}
-            disabled={selectedTool !== 'codex' || attachments.length >= 4}
+            disabled={attachments.length >= 4}
             onPress={() => {
               void handlePickAttachments();
             }}>
@@ -435,12 +427,6 @@ export default function NewRunScreen(): React.JSX.Element {
             </Text>
           </TouchableOpacity>
         </View>
-
-        {selectedTool !== 'codex' ? (
-          <Text style={styles.helperText}>
-            Image attachments are currently available for Codex threads only.
-          </Text>
-        ) : null}
 
         {attachments.length > 0 ? (
           <ScrollView
