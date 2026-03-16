@@ -129,7 +129,7 @@ describe('TmuxClient integration', () => {
 
     try {
       await client.createSession('spec')
-      const session = await client.readSession('spec')
+      const session = await waitForSessionAvailability(() => client.readSession('spec'))
       expect(session?.name).toBe('spec')
       expect(session?.currentCommand).toBeTruthy()
     } finally {
