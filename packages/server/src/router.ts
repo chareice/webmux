@@ -643,6 +643,7 @@ export function registerRoutes(
       prompt: body.prompt?.trim() ?? '',
       toolThreadId: runRow.tool_thread_id ?? undefined,
       attachments,
+      options: body.options,
     }
     if (!hub.sendToAgent(id, msg)) {
       deleteRun(db, runId)
@@ -765,6 +766,7 @@ export function registerRoutes(
       prompt: trimmedPrompt,
       toolThreadId: runRow.tool_thread_id ?? undefined,
       attachments,
+      options: body?.options,
     }
 
     if (!hub.sendToAgent(id, msg)) {

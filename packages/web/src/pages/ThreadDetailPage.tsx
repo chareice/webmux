@@ -27,6 +27,7 @@ import type {
   RunTimelineEvent,
   RunTurn,
   RunTurnDetail,
+  RunTurnOptions,
 } from '@webmux/shared'
 
 const MAX_ATTACHMENTS = 4
@@ -153,6 +154,8 @@ export function ThreadDetailPage() {
   const [turns, setTurns] = useState<RunTurnDetail[]>([])
   const [followUp, setFollowUp] = useState('')
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
+  const [turnOptions, setTurnOptions] = useState<RunTurnOptions>({})
+  const [showOptions, setShowOptions] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isContinuing, setIsContinuing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -308,9 +311,11 @@ export function ThreadDetailPage() {
         base64: a.base64,
       }))
 
+      const opts = Object.keys(turnOptions).length > 0 ? turnOptions : undefined
       const body: ContinueRunRequest = {
         prompt: followUp.trim(),
         ...(uploadAttachments.length > 0 ? { attachments: uploadAttachments } : {}),
+        options: opts,
       }
       const res = await fetchApi(`/api/agents/${agentId}/threads/${threadId}/turns`, {
         method: 'POST',
@@ -502,6 +507,13 @@ export function ThreadDetailPage() {
                   </div>
                 ) : null}
 
+                <TurnOptionsPanel
+                  tool={run?.tool ?? 'claude'}
+                  options={turnOptions}
+                  onChange={setTurnOptions}
+                  expanded={showOptions}
+                  onToggle={() => setShowOptions(v => !v)}
+                />
                 <div className="thread-composer">
                   <input
                     ref={fileInputRef}
@@ -554,6 +566,79 @@ export function ThreadDetailPage() {
         <ToolDrawer items={drawerItems} onClose={() => setDrawerItems(null)} />
       ) : null}
       </div>
+    </div>
+  )
+}
+
+const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'max'] as const
+const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const
+
+function TurnOptionsPanel({ tool, options, onChange, expanded, onToggle }: {
+  tool: 'codex' | 'claude'
+  options: RunTurnOptions
+  onChange: (opts: RunTurnOptions) => void
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const efforts = tool === 'claude' ? CLAUDE_EFFORTS : CODEX_EFFORTS
+  const activeEffort = tool === 'claude' ? options.claudeEffort : options.codexEffort
+  const hasActive = !!options.model || !!activeEffort || !!options.clearSession
+
+  return (
+    <div className="turn-options-bar">
+      <button className="turn-options-toggle" onClick={onToggle} type="button">
+        <span className={hasActive ? 'turn-options-label active' : 'turn-options-label'}>
+          {expanded ? '▾' : '▸'} Options{hasActive ? ' ●' : ''}
+        </span>
+      </button>
+      {expanded ? (
+        <div className="turn-options-panel">
+          <div className="turn-option-row">
+            <label className="turn-option-label">Model</label>
+            <input
+              className="turn-option-input"
+              type="text"
+              placeholder={tool === 'claude' ? 'e.g. claude-sonnet-4-6' : 'e.g. o4-mini'}
+              value={options.model ?? ''}
+              onChange={(e) => onChange({ ...options, model: e.target.value || undefined })}
+            />
+          </div>
+          <div className="turn-option-row">
+            <label className="turn-option-label">Effort</label>
+            <div className="turn-option-chips">
+              {efforts.map((level) => {
+                const isActive = activeEffort === level
+                return (
+                  <button
+                    key={level}
+                    type="button"
+                    className={isActive ? 'turn-option-chip active' : 'turn-option-chip'}
+                    onClick={() => {
+                      if (tool === 'claude') {
+                        onChange({ ...options, claudeEffort: isActive ? undefined : level as RunTurnOptions['claudeEffort'] })
+                      } else {
+                        onChange({ ...options, codexEffort: isActive ? undefined : level as RunTurnOptions['codexEffort'] })
+                      }
+                    }}
+                  >
+                    {level}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="turn-option-row">
+            <label className="turn-option-label">
+              <input
+                type="checkbox"
+                checked={!!options.clearSession}
+                onChange={(e) => onChange({ ...options, clearSession: e.target.checked || undefined })}
+              />
+              {' '}Clear session
+            </label>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

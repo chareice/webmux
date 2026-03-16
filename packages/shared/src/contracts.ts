@@ -82,6 +82,7 @@ export type ServerToAgentMessage =
       prompt: string
       toolThreadId?: string
       attachments?: RunImageAttachmentUpload[]
+      options?: RunTurnOptions
     }
   | { type: 'run-turn-interrupt'; runId: string; turnId: string }
   | { type: 'run-turn-kill'; runId: string; turnId: string }
@@ -217,6 +218,22 @@ export interface RunTurnDetail extends RunTurn {
   items: RunTimelineEvent[]
 }
 
+// --- Run turn options (model / effort / session control) ---
+
+export type ClaudeEffort = 'low' | 'medium' | 'high' | 'max'
+export type CodexEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+
+export interface RunTurnOptions {
+  /** Model identifier (e.g. "claude-sonnet-4-6", "o4-mini"). */
+  model?: string
+  /** Effort level for Claude. */
+  claudeEffort?: ClaudeEffort
+  /** Reasoning effort level for Codex. */
+  codexEffort?: CodexEffort
+  /** If true, start a fresh session instead of resuming. Equivalent to /clear. */
+  clearSession?: boolean
+}
+
 // --- Run REST API types ---
 
 export interface StartRunRequest {
@@ -224,6 +241,7 @@ export interface StartRunRequest {
   repoPath: string
   prompt: string
   attachments?: RunImageAttachmentUpload[]
+  options?: RunTurnOptions
 }
 
 export interface RunListResponse {
@@ -238,6 +256,7 @@ export interface RunDetailResponse {
 export interface ContinueRunRequest {
   prompt: string
   attachments?: RunImageAttachmentUpload[]
+  options?: RunTurnOptions
 }
 
 // --- Run WebSocket event (Server → Browser) ---

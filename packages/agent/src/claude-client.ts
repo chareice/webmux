@@ -9,7 +9,7 @@ export type ClaudeMessage = SDKMessage
 
 export type ClaudeOptions = Pick<
   ClaudeQueryOptions,
-  'allowDangerouslySkipPermissions' | 'cwd' | 'model' | 'permissionMode' | 'persistSession' | 'resume'
+  'allowDangerouslySkipPermissions' | 'cwd' | 'effort' | 'model' | 'permissionMode' | 'persistSession' | 'resume'
 >
 
 export interface ClaudeQueryHandle extends AsyncIterable<ClaudeMessage> {

@@ -2979,6 +2979,90 @@
   color: var(--muted);
 }
 
+/* Turn options bar above composer */
+.turn-options-bar {
+  margin-bottom: 0.4rem;
+}
+.turn-options-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+}
+.turn-options-label {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+.turn-options-label.active {
+  color: var(--accent);
+}
+.turn-options-panel {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  margin-top: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.turn-option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.turn-option-label {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  font-weight: 600;
+  min-width: 80px;
+}
+.turn-option-input {
+  flex: 1;
+  height: 28px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 0.8rem;
+  padding: 0 0.5rem;
+  outline: none;
+}
+.turn-option-input:focus {
+  border-color: var(--accent);
+}
+.turn-option-input::placeholder {
+  color: var(--ink-muted);
+}
+.turn-option-chips {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+.turn-option-chip {
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.turn-option-chip:hover {
+  border-color: var(--accent);
+}
+.turn-option-chip.active {
+  background: rgba(122, 162, 247, 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.turn-option-row input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
 /* ChatGPT-style composer: [📎] [input...] [➤] in one container */
 .thread-composer {
   display: flex;

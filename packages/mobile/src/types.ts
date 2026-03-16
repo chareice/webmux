@@ -103,11 +103,22 @@ export interface RepositoryBrowseResponse {
   entries: RepositoryEntry[];
 }
 
+export type ClaudeEffort = 'low' | 'medium' | 'high' | 'max';
+export type CodexEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface RunTurnOptions {
+  model?: string;
+  claudeEffort?: ClaudeEffort;
+  codexEffort?: CodexEffort;
+  clearSession?: boolean;
+}
+
 export interface StartRunRequest {
   tool: RunTool;
   repoPath: string;
   prompt: string;
   attachments?: RunImageAttachmentUpload[];
+  options?: RunTurnOptions;
 }
 
 export interface RunListResponse {
@@ -130,6 +141,7 @@ export interface LoginResponse {
 export interface ContinueRunRequest {
   prompt: string;
   attachments?: RunImageAttachmentUpload[];
+  options?: RunTurnOptions;
 }
 
 export type PushPlatform = 'android';

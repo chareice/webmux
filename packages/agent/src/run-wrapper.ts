@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import type { RunStatus, RunTimelineEventPayload, RunTool } from '@webmux/shared'
+import type { RunStatus, RunTimelineEventPayload, RunTool, RunTurnOptions } from '@webmux/shared'
 import { createClaudeClient, type ClaudeClient } from './claude-client.js'
 import { ClaudeMessageParser } from './claude-event.js'
 import { createCodexClient, type CodexClient } from './codex-client.js'
@@ -18,6 +18,7 @@ export interface RunWrapperOptions {
   repoPath: string
   prompt: string
   attachments?: RunImageAttachmentUpload[]
+  options?: RunTurnOptions
   onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => void
   onFinish: (status: RunStatus) => void
   onItem: (item: RunTimelineEventPayload) => void
@@ -35,6 +36,7 @@ export class RunWrapper {
   private readonly onEvent: RunWrapperOptions['onEvent']
   private readonly onFinish: RunWrapperOptions['onFinish']
   private readonly onItem: RunWrapperOptions['onItem']
+  private readonly turnOptions: RunTurnOptions
   private readonly onThreadReady?: RunWrapperOptions['onThreadReady']
   private readonly codexClientFactory: () => CodexClient
   private readonly claudeClientFactory: () => ClaudeClient
@@ -52,6 +54,7 @@ export class RunWrapper {
     this.repoPath = options.repoPath
     this.prompt = options.prompt
     this.attachments = options.attachments ?? []
+    this.turnOptions = options.options ?? {}
     this.onEvent = options.onEvent
     this.onFinish = options.onFinish
     this.onItem = options.onItem
@@ -180,9 +183,12 @@ export class RunWrapper {
       sandboxMode: 'workspace-write' as const,
       approvalPolicy: 'never' as const,
       networkAccessEnabled: true,
+      ...(this.turnOptions.model ? { model: this.turnOptions.model } : {}),
+      ...(this.turnOptions.codexEffort ? { modelReasoningEffort: this.turnOptions.codexEffort } : {}),
     }
-    const thread = this.toolThreadId
-      ? client.resumeThread(this.toolThreadId, threadOptions)
+    const resumeId = this.turnOptions.clearSession ? undefined : this.toolThreadId
+    const thread = resumeId
+      ? client.resumeThread(resumeId, threadOptions)
       : client.startThread(threadOptions)
     const preparedInput = await prepareCodexInput(this.prompt, this.attachments)
 
@@ -278,10 +284,12 @@ export class RunWrapper {
     const parser = new ClaudeMessageParser()
     const query = client.query(this.prompt, {
       cwd: this.repoPath,
-      resume: this.toolThreadId,
+      resume: this.turnOptions.clearSession ? undefined : this.toolThreadId,
       persistSession: true,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
+      ...(this.turnOptions.model ? { model: this.turnOptions.model } : {}),
+      ...(this.turnOptions.claudeEffort ? { effort: this.turnOptions.claudeEffort } : {}),
     })
 
     this.claudeQuery = query

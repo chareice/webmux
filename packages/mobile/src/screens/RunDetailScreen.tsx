@@ -27,6 +27,7 @@ import {
   RunEvent,
   RunImageAttachment,
   RunTimelineEvent,
+  RunTurnOptions,
   RunTurnDetail,
 } from '../types';
 import { colors, commonStyles, fonts, statusColor, statusLabel } from '../theme';
@@ -132,6 +133,8 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
   const [turns, setTurns] = useState<RunTurnDetail[]>([]);
   const [followUpPrompt, setFollowUpPrompt] = useState('');
   const [followUpAttachments, setFollowUpAttachments] = useState<DraftImageAttachment[]>([]);
+  const [turnOptions, setTurnOptions] = useState<RunTurnOptions>({});
+  const [showOptions, setShowOptions] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isContinuing, setIsContinuing] = useState(false);
   const [error, setError] = useState('');
@@ -237,14 +240,20 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
 
     setIsContinuing(true);
     try {
+      const opts = Object.keys(turnOptions).length > 0 ? turnOptions : undefined;
       const result = await continueThread(agentId, runId, {
         prompt: followUpPrompt.trim(),
         attachments: toUploadAttachments(followUpAttachments),
+        options: opts,
       });
       setRun(result.run);
       setTurns(result.turns);
       setFollowUpPrompt('');
       setFollowUpAttachments([]);
+      // Reset clearSession after use but keep model/effort
+      if (turnOptions.clearSession) {
+        setTurnOptions((prev) => ({ ...prev, clearSession: false }));
+      }
       setError('');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to continue thread';
@@ -434,6 +443,15 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
                 </ScrollView>
               ) : null}
 
+              {/* Options toggle + panel */}
+              <TurnOptionsBar
+                tool={run.tool}
+                options={turnOptions}
+                onChange={setTurnOptions}
+                expanded={showOptions}
+                onToggle={() => setShowOptions((v) => !v)}
+              />
+
               <View style={styles.composerInputRow}>
                 <TouchableOpacity
                   style={[
@@ -484,6 +502,103 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
           </Text>
         )}
       </View>
+    </View>
+  );
+}
+
+const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'max'] as const;
+const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+
+function TurnOptionsBar({
+  tool,
+  options,
+  onChange,
+  expanded,
+  onToggle,
+}: {
+  tool: 'codex' | 'claude';
+  options: RunTurnOptions;
+  onChange: (opts: RunTurnOptions) => void;
+  expanded: boolean;
+  onToggle: () => void;
+}): React.JSX.Element {
+  const hasActiveOptions =
+    !!options.model || !!options.claudeEffort || !!options.codexEffort || !!options.clearSession;
+
+  return (
+    <View style={styles.turnOptionsContainer}>
+      <TouchableOpacity
+        style={styles.turnOptionsToggle}
+        onPress={onToggle}
+        activeOpacity={0.7}>
+        <Text style={[styles.turnOptionsToggleText, hasActiveOptions && styles.turnOptionsToggleActive]}>
+          {expanded ? '⌄' : '›'} Options{hasActiveOptions ? ' ●' : ''}
+        </Text>
+      </TouchableOpacity>
+
+      {expanded ? (
+        <View style={styles.turnOptionsPanel}>
+          {/* Model */}
+          <View style={styles.turnOptionRow}>
+            <Text style={styles.turnOptionLabel}>Model</Text>
+            <TextInput
+              style={styles.turnOptionInput}
+              placeholder={tool === 'claude' ? 'e.g. claude-sonnet-4-6' : 'e.g. o4-mini'}
+              placeholderTextColor={colors.textSecondary}
+              value={options.model ?? ''}
+              onChangeText={(text) => onChange({ ...options, model: text || undefined })}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+
+          {/* Effort */}
+          <View style={styles.turnOptionRow}>
+            <Text style={styles.turnOptionLabel}>Effort</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.turnOptionChips}>
+              {(tool === 'claude' ? CLAUDE_EFFORTS : CODEX_EFFORTS).map((level) => {
+                const isActive = tool === 'claude'
+                  ? options.claudeEffort === level
+                  : options.codexEffort === level;
+                return (
+                  <TouchableOpacity
+                    key={level}
+                    style={[styles.turnOptionChip, isActive && styles.turnOptionChipActive]}
+                    onPress={() => {
+                      if (tool === 'claude') {
+                        onChange({
+                          ...options,
+                          claudeEffort: isActive ? undefined : (level as typeof options.claudeEffort),
+                        });
+                      } else {
+                        onChange({
+                          ...options,
+                          codexEffort: isActive ? undefined : (level as typeof options.codexEffort),
+                        });
+                      }
+                    }}
+                    activeOpacity={0.7}>
+                    <Text style={[styles.turnOptionChipText, isActive && styles.turnOptionChipTextActive]}>
+                      {level}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* Clear session */}
+          <TouchableOpacity
+            style={[styles.turnOptionRow, styles.turnOptionRowTouchable]}
+            onPress={() => onChange({ ...options, clearSession: !options.clearSession })}
+            activeOpacity={0.7}>
+            <Text style={styles.turnOptionLabel}>Clear session</Text>
+            <Text style={styles.turnOptionCheckbox}>
+              {options.clearSession ? '☑' : '☐'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1158,5 +1273,82 @@ const styles = StyleSheet.create({
     color: colors.red,
     fontSize: 12,
     marginBottom: 10,
+  },
+
+  // Turn options
+  turnOptionsContainer: {
+    marginBottom: 8,
+  },
+  turnOptionsToggle: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+  turnOptionsToggleText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  turnOptionsToggleActive: {
+    color: colors.accent,
+  },
+  turnOptionsPanel: {
+    backgroundColor: colors.surfaceLight,
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 4,
+    gap: 10,
+  },
+  turnOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  turnOptionRowTouchable: {
+    paddingVertical: 2,
+  },
+  turnOptionLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+    width: 80,
+  },
+  turnOptionInput: {
+    flex: 1,
+    height: 32,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.text,
+    fontSize: 13,
+    paddingHorizontal: 10,
+  },
+  turnOptionChips: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  turnOptionChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  turnOptionChipActive: {
+    backgroundColor: colors.accent + '22',
+    borderColor: colors.accent,
+  },
+  turnOptionChipText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  turnOptionChipTextActive: {
+    color: colors.accent,
+  },
+  turnOptionCheckbox: {
+    color: colors.accent,
+    fontSize: 16,
   },
 });

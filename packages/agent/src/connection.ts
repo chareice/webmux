@@ -6,6 +6,7 @@ import {
   type AgentUpgradePolicy,
   type RunImageAttachmentUpload,
   type RunStatus,
+  type RunTurnOptions,
   type ServerToAgentMessage,
   type SessionSummary,
 } from '@webmux/shared'
@@ -195,7 +196,7 @@ export class AgentConnection {
         break
 
       case 'run-turn-start':
-        this.handleRunStart(msg.runId, msg.turnId, msg.tool, msg.repoPath, msg.prompt, msg.toolThreadId, msg.attachments)
+        this.handleRunStart(msg.runId, msg.turnId, msg.tool, msg.repoPath, msg.prompt, msg.toolThreadId, msg.attachments, msg.options)
         break
 
       case 'run-turn-interrupt':
@@ -434,6 +435,7 @@ export class AgentConnection {
     prompt: string,
     toolThreadId?: string,
     attachments?: RunImageAttachmentUpload[],
+    options?: RunTurnOptions,
   ): void {
     // Dispose existing run with the same id if any
     const existing = this.runs.get(runId)
@@ -449,6 +451,7 @@ export class AgentConnection {
       repoPath,
       prompt,
       attachments,
+      options,
       onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => {
         this.sendMessage({ type: 'run-status', runId, turnId, status, summary, hasDiff })
       },
