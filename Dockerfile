@@ -5,16 +5,14 @@ RUN corepack enable pnpm
 FROM base AS build
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/shared/package.json packages/shared/
-COPY packages/server/package.json packages/server/
-COPY packages/web/package.json packages/web/
 # Create a stub agent package.json without node-pty so pnpm workspace resolves
 RUN mkdir -p packages/agent && echo '{"name":"@webmux/agent","version":"0.0.0","private":true}' > packages/agent/package.json
-RUN pnpm install --no-frozen-lockfile --filter @webmux/server --filter @webmux/web --filter @webmux/shared
 
 COPY packages/shared packages/shared
 COPY packages/server packages/server
 COPY packages/web packages/web
+RUN pnpm install --no-frozen-lockfile
+RUN pnpm --filter @webmux/shared build
 RUN pnpm --filter @webmux/web build
 RUN pnpm --filter @webmux/server build
 
@@ -31,6 +29,7 @@ RUN mkdir -p packages/web && echo '{"name":"@webmux/web","version":"0.0.0","priv
 RUN pnpm install --no-frozen-lockfile --prod --filter @webmux/server
 
 COPY --from=build /app/packages/server/dist packages/server/dist
+COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/web/dist packages/web/dist
 
 EXPOSE 4317
