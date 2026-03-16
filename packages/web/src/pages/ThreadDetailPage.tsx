@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   ArrowLeft,
   ChevronDown,
@@ -155,6 +156,7 @@ export function ThreadDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isContinuing, setIsContinuing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [drawerItems, setDrawerItems] = useState<RunTimelineEvent[] | null>(null)
 
   const timelineRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -360,23 +362,20 @@ export function ThreadDetailPage() {
 
   return (
     <div className="thread-detail-page">
-      {/* Mobile header */}
+      {/* Mobile header — single compact row */}
       <div className="thread-detail-header thread-detail-header--mobile">
-        <div className="thread-detail-header-left">
-          <button
-            className="secondary-button"
-            onClick={() => navigate('/threads')}
-            type="button"
-          >
-            <ArrowLeft size={14} />
-            <span className="button-label">Back</span>
-          </button>
-          <span className={`thread-tool-badge ${run.tool}`}>{toolIcon(run.tool)}</span>
-          <div className="thread-detail-title">
-            <span className="thread-detail-repo">{run.repoPath}</span>
-            {run.branch ? <span className="thread-detail-branch">{run.branch}</span> : null}
-          </div>
-        </div>
+        <button
+          className="icon-button"
+          onClick={() => navigate('/threads')}
+          type="button"
+        >
+          <ArrowLeft size={16} />
+        </button>
+        <span className="thread-mobile-info">
+          <span className="thread-mobile-repo">{repoName(run.repoPath)}</span>
+          <span className="thread-mobile-sep">·</span>
+          <span className="thread-mobile-tool">{toolLabel(run.tool)}</span>
+        </span>
         <span className={`thread-status-badge ${sc}`}>
           <span className={`thread-status-dot ${sc}`} />
           {statusLabel(run.status)}
@@ -423,13 +422,6 @@ export function ThreadDetailPage() {
             <span className="thread-sidebar-detail">{timeAgo(run.updatedAt)}</span>
           </div>
 
-          {run.summary ? (
-            <div className="thread-sidebar-section">
-              <span className="thread-sidebar-label">Summary</span>
-              <p className="thread-sidebar-summary">{run.summary}</p>
-            </div>
-          ) : null}
-
           <div className="thread-sidebar-actions">
             {active ? (
               <button
@@ -454,14 +446,6 @@ export function ThreadDetailPage() {
 
         {/* Main content */}
         <div className="thread-detail-main">
-          {/* Mobile summary */}
-          {run.summary ? (
-            <div className="thread-detail-summary thread-detail-summary--mobile">
-              <span className="thread-detail-summary-label">Latest Summary</span>
-              <p className="thread-detail-summary-text">{run.summary}</p>
-            </div>
-          ) : null}
-
           {/* Timeline */}
           <div className="thread-detail-timeline" ref={timelineRef}>
             {turns.length === 0 ? (
@@ -474,6 +458,7 @@ export function ThreadDetailPage() {
                   key={turn.id}
                   turn={turn}
                   showDivider={i > 0}
+                  onOpenTools={setDrawerItems}
                 />
               ))
             )}
@@ -527,18 +512,18 @@ export function ThreadDetailPage() {
                     onChange={(e) => void handleFilesSelected(e.target.files)}
                   />
                   <button
-                    className="icon-button composer-attach-button"
+                    className="composer-icon-btn"
                     disabled={attachments.length >= MAX_ATTACHMENTS}
                     onClick={() => fileInputRef.current?.click()}
                     title={`Attach images (${attachments.length}/${MAX_ATTACHMENTS})`}
                     type="button"
                   >
-                    <ImagePlus size={16} />
+                    <ImagePlus size={18} />
                   </button>
                   <textarea
                     className="thread-composer-input"
                     placeholder="Message this thread..."
-                    rows={2}
+                    rows={1}
                     value={followUp}
                     onChange={(e) => setFollowUp(e.target.value)}
                     onKeyDown={(e) => {
@@ -549,12 +534,12 @@ export function ThreadDetailPage() {
                     }}
                   />
                   <button
-                    className="primary-button thread-send-button"
+                    className="composer-send-btn"
                     disabled={isContinuing || !hasContent}
                     onClick={() => void handleContinue()}
                     type="button"
                   >
-                    {isContinuing ? <LoaderCircle className="spin" size={14} /> : <Send size={14} />}
+                    {isContinuing ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
                   </button>
                 </div>
                 {error ? <p className="error-banner thread-error">{error}</p> : null}
@@ -564,12 +549,20 @@ export function ThreadDetailPage() {
             )}
           </div>
         </div>
+      {/* Tool detail drawer */}
+      {drawerItems ? (
+        <ToolDrawer items={drawerItems} onClose={() => setDrawerItems(null)} />
+      ) : null}
       </div>
     </div>
   )
 }
 
-function TurnMessages({ turn, showDivider }: { turn: RunTurnDetail; showDivider: boolean }) {
+function TurnMessages({ turn, showDivider, onOpenTools }: {
+  turn: RunTurnDetail
+  showDivider: boolean
+  onOpenTools: (items: RunTimelineEvent[]) => void
+}) {
   const hasAttachments = turn.attachments && turn.attachments.length > 0
   const segments = groupIntoSegments(turn.items)
 
@@ -600,7 +593,7 @@ function TurnMessages({ turn, showDivider }: { turn: RunTurnDetail; showDivider:
               <div key={`assistant-${seg.id}`} className="chat-bubble assistant">
                 <div className="chat-role">Assistant</div>
                 <div className="chat-content message-text">
-                  <Markdown>{seg.text}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]}>{seg.text}</Markdown>
                 </div>
               </div>
             )
@@ -614,30 +607,71 @@ function TurnMessages({ turn, showDivider }: { turn: RunTurnDetail; showDivider:
             )
           }
 
-          return <ToolsGroup key={`tools-${idx}`} items={seg.items} />
+          return <ToolsGroup key={`tools-${idx}`} items={seg.items} onOpen={onOpenTools} />
         })
       )}
     </>
   )
 }
 
-function ToolsGroup({ items }: { items: RunTimelineEvent[] }) {
-  const [expanded, setExpanded] = useState(false)
-  const count = items.length
+function ToolsGroup({ items, onOpen }: { items: RunTimelineEvent[]; onOpen: (items: RunTimelineEvent[]) => void }) {
+  // Single activity with short/no detail → show inline as system text
+  if (items.length === 1 && items[0].type === 'activity') {
+    const a = items[0]
+    const detail = a.detail && a.detail.length <= 80 ? `: ${a.detail}` : ''
+    return <div className="chat-system">{a.label}{detail}</div>
+  }
+
+  // Only trivial activities (no commands, all short) → show inline
+  const hasCommands = items.some((i) => i.type === 'command')
+  if (!hasCommands && items.length <= 3 && items.every((i) => i.type === 'activity' && (!i.detail || i.detail.length <= 80))) {
+    return (
+      <div className="chat-system">
+        {items.map((i) => i.type === 'activity' ? i.label : '').filter(Boolean).join(' → ')}
+      </div>
+    )
+  }
+
+  const commands = items.filter((i) => i.type === 'command').length
+  const activities = items.filter((i) => i.type === 'activity').length
+  const parts: string[] = []
+  if (commands > 0) parts.push(`${commands} command${commands > 1 ? 's' : ''}`)
+  if (activities > 0) parts.push(`${activities} activit${activities > 1 ? 'ies' : 'y'}`)
+  const summary = parts.join(', ')
 
   return (
-    <div className="chat-tools-group">
-      <button
-        className="chat-tools-header"
-        onClick={() => setExpanded(!expanded)}
-        type="button"
-      >
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <Wrench size={12} />
-        <span className="chat-tools-count">{count} tool call{count > 1 ? 's' : ''}</span>
-      </button>
-      {expanded ? (
-        <div className="chat-tools-body">
+    <button
+      className="chat-tools-inline"
+      onClick={() => onOpen(items)}
+      type="button"
+    >
+      <Wrench size={12} />
+      <span>{summary}</span>
+      <ChevronRight size={12} />
+    </button>
+  )
+}
+
+function ToolDrawer({ items, onClose }: { items: RunTimelineEvent[]; onClose: () => void }) {
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div className="tool-drawer-overlay" onClick={onClose}>
+      <div className="tool-drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="tool-drawer-header">
+          <h3>Tool Details</h3>
+          <button className="icon-button" onClick={onClose} type="button">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="tool-drawer-body">
           {items.map((item) => {
             if (item.type === 'command') {
               return <CommandItem key={item.id} item={item} />
@@ -648,7 +682,7 @@ function ToolsGroup({ items }: { items: RunTimelineEvent[] }) {
             return null
           })}
         </div>
-      ) : null}
+      </div>
     </div>
   )
 }

@@ -262,21 +262,34 @@ function ThreadRow({
   onClick: () => void
 }) {
   const sc = statusClass(run.status)
+  const tl = run.tool === 'codex' ? 'Codex' : 'Claude'
   return (
     <div className="thread-row" onClick={onClick} role="button" tabIndex={0}>
-      {/* Tool badge */}
-      <div className="thread-row-tool">
+      {/* Desktop: tool badge column */}
+      <div className="thread-row-tool desktop-only">
         <span className={`thread-tool-badge ${run.tool}`}>{toolIcon(run.tool)}</span>
       </div>
 
-      {/* Repo + agent */}
-      <div className="thread-row-info">
+      {/* Desktop: repo column */}
+      <div className="thread-row-info desktop-only">
         <span className="thread-repo-name" title={run.repoPath}>{repoName(run.repoPath)}</span>
         {run.branch ? <span className="thread-branch">{run.branch}</span> : null}
         {agentName ? <span className="thread-agent-name">{agentName}</span> : null}
       </div>
 
-      {/* Conversation preview (replaces plain prompt) */}
+      {/* Mobile: compact header with all meta on one line */}
+      <div className="thread-row-meta mobile-only">
+        <span className="thread-meta-repo">{repoName(run.repoPath)}</span>
+        <span className="thread-meta-sep">·</span>
+        <span className="thread-meta-tool">{tl}</span>
+        <span className={`thread-status-badge ${sc}`}>
+          <span className={`thread-status-dot ${sc}`} />
+          {statusLabel(run.status)}
+        </span>
+        <span className="thread-meta-time">{timeAgo(run.updatedAt)}</span>
+      </div>
+
+      {/* Conversation preview */}
       <div className="thread-row-conversation">
         <div className="thread-convo-line">
           <span className="thread-convo-role user">You:</span>
@@ -288,19 +301,19 @@ function ThreadRow({
         </div>
       </div>
 
-      {/* Status badge */}
-      <div className="thread-row-status">
+      {/* Desktop: status column */}
+      <div className="thread-row-status desktop-only">
         <span className={`thread-status-badge ${sc}`}>
           <span className={`thread-status-dot ${sc}`} />
           {statusLabel(run.status)}
         </span>
       </div>
 
-      {/* Updated time */}
-      <span className="thread-row-time">{timeAgo(run.updatedAt)}</span>
+      {/* Desktop: time column */}
+      <span className="thread-row-time desktop-only">{timeAgo(run.updatedAt)}</span>
 
-      {/* Actions */}
-      <div className="thread-row-actions">
+      {/* Desktop: actions column */}
+      <div className="thread-row-actions desktop-only">
         <button
           className="icon-button kill-button"
           disabled={isDeleting}
