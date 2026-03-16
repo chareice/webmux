@@ -25,6 +25,18 @@ export interface Run {
   unread: boolean;
 }
 
+export interface RunTurn {
+  id: string;
+  runId: string;
+  index: number;
+  prompt: string;
+  status: RunStatus;
+  createdAt: number;
+  updatedAt: number;
+  summary?: string;
+  hasDiff: boolean;
+}
+
 export type RunTimelineEventStatus = 'info' | 'success' | 'warning' | 'error';
 
 export type RunTimelineEventPayload =
@@ -51,6 +63,10 @@ export type RunTimelineEvent = RunTimelineEventPayload & {
   id: number;
   createdAt: number;
 };
+
+export interface RunTurnDetail extends RunTurn {
+  items: RunTimelineEvent[];
+}
 
 export interface AgentInfo {
   id: string;
@@ -83,7 +99,7 @@ export interface RunListResponse {
 
 export interface RunDetailResponse {
   run: Run;
-  items: RunTimelineEvent[];
+  turns: RunTurnDetail[];
 }
 
 export interface AgentListResponse {
@@ -94,7 +110,12 @@ export interface LoginResponse {
   token: string;
 }
 
+export interface ContinueRunRequest {
+  prompt: string;
+}
+
 // Server -> Browser (run WebSocket events)
 export type RunEvent =
   | { type: 'run-status'; run: Run }
-  | { type: 'run-item'; runId: string; item: RunTimelineEvent };
+  | { type: 'run-turn'; runId: string; turn: RunTurn }
+  | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEvent };

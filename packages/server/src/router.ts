@@ -9,6 +9,7 @@ import type {
   CreateSessionRequest,
   ListSessionsResponse,
   RepositoryBrowseResponse,
+  ContinueRunRequest,
   StartRunRequest,
   RunListResponse,
   RunDetailResponse,
@@ -41,13 +42,16 @@ import {
   renameAgent,
   createRegistrationToken,
   consumeRegistrationToken,
-  createRun,
+  createRunWithInitialTurn,
+  createRunTurn,
   findRunById,
-  findRunTimelineEvents,
+  findRunTurnDetails,
+  findActiveRunTurnByRunId,
   findRunsByAgentId,
   findRunsByUserId,
   markRunRead,
   deleteRun,
+  deleteRunTurn,
 } from './db.js'
 import type { AgentHub } from './agent-hub.js'
 import { runRowToRun } from './agent-hub.js'
@@ -498,8 +502,10 @@ export function registerRoutes(
     }
 
     const runId = crypto.randomUUID()
-    const runRow = createRun(db, {
-      id: runId,
+    const turnId = crypto.randomUUID()
+    const { run: runRow } = createRunWithInitialTurn(db, {
+      runId,
+      turnId,
       agentId: id,
       userId: request.user!.userId,
       tool: body.tool,
@@ -507,10 +513,11 @@ export function registerRoutes(
       prompt: body.prompt,
     })
 
-    // Send run-start to agent
+    // Send run-turn-start to agent
     const msg: ServerToAgentMessage = {
-      type: 'run-start',
+      type: 'run-turn-start',
       runId,
+      turnId,
       tool: body.tool,
       repoPath: body.repoPath,
       prompt: body.prompt,
@@ -522,7 +529,10 @@ export function registerRoutes(
       })
     }
 
-    const response: RunDetailResponse = { run: runRowToRun(runRow), items: [] }
+    const response: RunDetailResponse = {
+      run: runRowToRun(runRow),
+      turns: findRunTurnDetails(db, runId),
+    }
     return reply.status(201).send(response)
   })
 
@@ -571,9 +581,71 @@ export function registerRoutes(
 
     const response: RunDetailResponse = {
       run: runRowToRun(runRow),
-      items: findRunTimelineEvents(db, runId),
+      turns: findRunTurnDetails(db, runId),
     }
     return response
+  })
+
+  app.post('/api/agents/:id/runs/:runId/turns', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, runId } = request.params as { id: string; runId: string }
+    const body = request.body as ContinueRunRequest | undefined
+
+    if (!body?.prompt?.trim()) {
+      return reply.status(400).send({ error: 'Missing prompt' })
+    }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const runRow = findRunById(db, runId)
+    if (!runRow || runRow.agent_id !== id) {
+      return reply.status(404).send({ error: 'Run not found' })
+    }
+
+    if (findActiveRunTurnByRunId(db, runId)) {
+      return reply.status(409).send({ error: 'Run is still active' })
+    }
+
+    const online = hub.getAgent(id)
+    if (!online) {
+      return reply.status(400).send({ error: 'Agent is offline' })
+    }
+
+    const turnId = crypto.randomUUID()
+    createRunTurn(db, {
+      id: turnId,
+      runId,
+      prompt: body.prompt.trim(),
+    })
+
+    const msg: ServerToAgentMessage = {
+      type: 'run-turn-start',
+      runId,
+      turnId,
+      tool: runRow.tool as StartRunRequest['tool'],
+      repoPath: runRow.repo_path,
+      prompt: body.prompt.trim(),
+    }
+
+    if (!hub.sendToAgent(id, msg)) {
+      deleteRunTurn(db, turnId)
+      return reply.status(503).send({
+        error: 'Agent became unavailable before the run could continue',
+      })
+    }
+
+    hub.broadcastRunSnapshot(db, runId)
+
+    return {
+      run: runRowToRun(findRunById(db, runId)!),
+      turns: findRunTurnDetails(db, runId),
+    } satisfies RunDetailResponse
   })
 
   // Interrupt a run
@@ -599,7 +671,16 @@ export function registerRoutes(
       return reply.status(400).send({ error: 'Agent is offline' })
     }
 
-    const msg: ServerToAgentMessage = { type: 'run-interrupt', runId }
+    const activeTurn = findActiveRunTurnByRunId(db, runId)
+    if (!activeTurn) {
+      return reply.status(409).send({ error: 'Run is not active' })
+    }
+
+    const msg: ServerToAgentMessage = {
+      type: 'run-turn-interrupt',
+      runId,
+      turnId: activeTurn.id,
+    }
     if (!sendRunMessage(id, msg, reply)) {
       return
     }
@@ -650,7 +731,8 @@ export function registerRoutes(
 
     const online = hub.getAgent(id)
     if (online) {
-      if (!sendRunMessage(id, { type: 'run-kill', runId }, reply)) {
+      const activeTurn = findActiveRunTurnByRunId(db, runId)
+      if (activeTurn && !sendRunMessage(id, { type: 'run-turn-kill', runId, turnId: activeTurn.id }, reply)) {
         return
       }
     }

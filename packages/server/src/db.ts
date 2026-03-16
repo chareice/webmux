@@ -1,7 +1,12 @@
 import Database from 'better-sqlite3'
 import crypto from 'node:crypto'
 
-import type { RunTimelineEvent, RunTimelineEventPayload } from '@webmux/shared'
+import type {
+  RunTimelineEvent,
+  RunTimelineEventPayload,
+  RunTurn,
+  RunTurnDetail,
+} from '@webmux/shared'
 
 export interface UserRow {
   id: string
@@ -97,20 +102,11 @@ export function initDb(dbPath: string): Database.Database {
   `)
 
   migrateRunsTableIfNeeded(db)
-  db.exec(`
-    DROP TABLE IF EXISTS run_output_chunks;
-
-    CREATE TABLE IF NOT EXISTS run_events (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id      TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-      event_type  TEXT NOT NULL,
-      payload_json TEXT NOT NULL,
-      created_at  INTEGER NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_run_events_run_id_id
-      ON run_events(run_id, id);
-  `)
+  ensureRunTurnsTable(db)
+  migrateRunTurnsIfNeeded(db)
+  migrateRunEventsIfNeeded(db)
+  ensureRunEventsTable(db)
+  db.exec('DROP TABLE IF EXISTS run_output_chunks')
 
   return db
 }
@@ -251,6 +247,18 @@ export interface RunRow {
   unread: number
 }
 
+export interface RunTurnRow {
+  id: string
+  run_id: string
+  turn_index: number
+  prompt: string
+  status: string
+  created_at: number
+  updated_at: number
+  summary: string | null
+  has_diff: number
+}
+
 export function createRun(
   db: Database.Database,
   opts: {
@@ -288,8 +296,46 @@ export function createRun(
   }
 }
 
+export function createRunWithInitialTurn(
+  db: Database.Database,
+  opts: {
+    runId: string
+    turnId: string
+    agentId: string
+    userId: string
+    tool: string
+    repoPath: string
+    prompt: string
+    branch?: string
+  },
+): { run: RunRow; turn: RunTurnRow } {
+  const create = db.transaction(() => {
+    const run = createRun(db, {
+      id: opts.runId,
+      agentId: opts.agentId,
+      userId: opts.userId,
+      tool: opts.tool,
+      repoPath: opts.repoPath,
+      prompt: opts.prompt,
+      branch: opts.branch,
+    })
+    const turn = createRunTurn(db, {
+      id: opts.turnId,
+      runId: opts.runId,
+      prompt: opts.prompt,
+    })
+    return { run, turn }
+  })
+
+  return create()
+}
+
 export function findRunById(db: Database.Database, runId: string): RunRow | undefined {
   return db.prepare('SELECT * FROM runs WHERE id = ?').get(runId) as RunRow | undefined
+}
+
+export function findRunTurnById(db: Database.Database, turnId: string): RunTurnRow | undefined {
+  return db.prepare('SELECT * FROM run_turns WHERE id = ?').get(turnId) as RunTurnRow | undefined
 }
 
 export function findRunsByAgentId(db: Database.Database, agentId: string): RunRow[] {
@@ -307,6 +353,71 @@ export function findActiveRunsByAgentId(db: Database.Database, agentId: string):
        AND status IN ('starting', 'running')
      ORDER BY updated_at DESC`,
   ).all(agentId) as RunRow[]
+}
+
+export function findRunTurnsByRunId(db: Database.Database, runId: string): RunTurnRow[] {
+  return db.prepare(
+    'SELECT * FROM run_turns WHERE run_id = ? ORDER BY turn_index ASC',
+  ).all(runId) as RunTurnRow[]
+}
+
+export function findLatestRunTurnByRunId(db: Database.Database, runId: string): RunTurnRow | undefined {
+  return db.prepare(
+    'SELECT * FROM run_turns WHERE run_id = ? ORDER BY turn_index DESC LIMIT 1',
+  ).get(runId) as RunTurnRow | undefined
+}
+
+export function findActiveRunTurnByRunId(db: Database.Database, runId: string): RunTurnRow | undefined {
+  return db.prepare(
+    `SELECT * FROM run_turns
+     WHERE run_id = ?
+       AND status IN ('starting', 'running')
+     ORDER BY turn_index DESC
+     LIMIT 1`,
+  ).get(runId) as RunTurnRow | undefined
+}
+
+export function createRunTurn(
+  db: Database.Database,
+  opts: {
+    id: string
+    runId: string
+    prompt: string
+  },
+): RunTurnRow {
+  const now = Date.now()
+  const latest = findLatestRunTurnByRunId(db, opts.runId)
+  const turnIndex = latest ? latest.turn_index + 1 : 1
+
+  db.prepare(
+    `INSERT INTO run_turns (
+      id,
+      run_id,
+      turn_index,
+      prompt,
+      status,
+      created_at,
+      updated_at,
+      summary,
+      has_diff
+    ) VALUES (?, ?, ?, ?, 'starting', ?, ?, NULL, 0)`,
+  ).run(opts.id, opts.runId, turnIndex, opts.prompt, now, now)
+
+  db.prepare(
+    'UPDATE runs SET status = ?, summary = NULL, unread = 1, updated_at = ? WHERE id = ?',
+  ).run('starting', now, opts.runId)
+
+  return {
+    id: opts.id,
+    run_id: opts.runId,
+    turn_index: turnIndex,
+    prompt: opts.prompt,
+    status: 'starting',
+    created_at: now,
+    updated_at: now,
+    summary: null,
+    has_diff: 0,
+  }
 }
 
 export function updateRunStatus(
@@ -332,18 +443,45 @@ export function updateRunStatus(
   }
 }
 
+export function updateRunTurnStatus(
+  db: Database.Database,
+  turnId: string,
+  status: string,
+  summary?: string,
+  hasDiff?: boolean,
+): void {
+  const existingTurn = findRunTurnById(db, turnId)
+  if (!existingTurn) {
+    return
+  }
+
+  const now = Date.now()
+  const nextSummary = summary !== undefined ? summary : existingTurn.summary
+  const nextHasDiff = hasDiff !== undefined ? (hasDiff ? 1 : 0) : existingTurn.has_diff
+
+  db.prepare(
+    'UPDATE run_turns SET status = ?, summary = ?, has_diff = ?, updated_at = ? WHERE id = ?',
+  ).run(status, nextSummary ?? null, nextHasDiff, now, turnId)
+
+  db.prepare(
+    'UPDATE runs SET status = ?, summary = ?, has_diff = ?, unread = 1, updated_at = ? WHERE id = ?',
+  ).run(status, nextSummary ?? null, nextHasDiff, now, existingTurn.run_id)
+}
+
 export function appendRunTimelineEvent(
   db: Database.Database,
   runId: string,
+  turnId: string,
   event: RunTimelineEventPayload,
 ): RunTimelineEvent {
   const now = Date.now()
   const result = db.prepare(
-    'INSERT INTO run_events (run_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)',
-  ).run(runId, event.type, JSON.stringify(event), now)
+    'INSERT INTO run_events (run_id, turn_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)',
+  ).run(runId, turnId, event.type, JSON.stringify(event), now)
   const eventId = Number(result.lastInsertRowid)
 
   db.prepare('UPDATE runs SET unread = 1, updated_at = ? WHERE id = ?').run(now, runId)
+  db.prepare('UPDATE run_turns SET updated_at = ? WHERE id = ?').run(now, turnId)
 
   return {
     ...event,
@@ -352,15 +490,47 @@ export function appendRunTimelineEvent(
   }
 }
 
-export function findRunTimelineEvents(db: Database.Database, runId: string): RunTimelineEvent[] {
+export function findRunTimelineEventsByTurn(db: Database.Database, turnId: string): RunTimelineEvent[] {
   const rows = db.prepare(
-    'SELECT id, payload_json, created_at FROM run_events WHERE run_id = ? ORDER BY id ASC',
-  ).all(runId) as Array<{ id: number; payload_json: string; created_at: number }>
+    'SELECT id, payload_json, created_at FROM run_events WHERE turn_id = ? ORDER BY id ASC',
+  ).all(turnId) as Array<{ id: number; payload_json: string; created_at: number }>
 
   return rows.map((row) => ({
     ...(JSON.parse(row.payload_json) as RunTimelineEventPayload),
     id: row.id,
     createdAt: row.created_at,
+  }))
+}
+
+export function findRunTurnDetails(db: Database.Database, runId: string): RunTurnDetail[] {
+  const turns = findRunTurnsByRunId(db, runId)
+  if (turns.length === 0) {
+    return []
+  }
+
+  const eventRows = db.prepare(
+    'SELECT id, turn_id, payload_json, created_at FROM run_events WHERE run_id = ? ORDER BY id ASC',
+  ).all(runId) as Array<{
+    id: number
+    turn_id: string
+    payload_json: string
+    created_at: number
+  }>
+
+  const itemsByTurnId = new Map<string, RunTimelineEvent[]>()
+  for (const row of eventRows) {
+    const items = itemsByTurnId.get(row.turn_id) ?? []
+    items.push({
+      ...(JSON.parse(row.payload_json) as RunTimelineEventPayload),
+      id: row.id,
+      createdAt: row.created_at,
+    })
+    itemsByTurnId.set(row.turn_id, items)
+  }
+
+  return turns.map((turn) => ({
+    ...runTurnRowToRunTurn(turn),
+    items: itemsByTurnId.get(turn.id) ?? [],
   }))
 }
 
@@ -370,6 +540,51 @@ export function markRunRead(db: Database.Database, runId: string): void {
 
 export function deleteRun(db: Database.Database, runId: string): void {
   db.prepare('DELETE FROM runs WHERE id = ?').run(runId)
+}
+
+export function deleteRunTurn(db: Database.Database, turnId: string): void {
+  const turn = findRunTurnById(db, turnId)
+  if (!turn) {
+    return
+  }
+
+  const remove = db.transaction(() => {
+    db.prepare('DELETE FROM run_turns WHERE id = ?').run(turnId)
+    const latestRemainingTurn = findLatestRunTurnByRunId(db, turn.run_id)
+
+    if (!latestRemainingTurn) {
+      db.prepare('DELETE FROM runs WHERE id = ?').run(turn.run_id)
+      return
+    }
+
+    db.prepare(
+      `UPDATE runs
+       SET status = ?, summary = ?, has_diff = ?, unread = 1, updated_at = ?
+       WHERE id = ?`,
+    ).run(
+      latestRemainingTurn.status,
+      latestRemainingTurn.summary,
+      latestRemainingTurn.has_diff,
+      latestRemainingTurn.updated_at,
+      turn.run_id,
+    )
+  })
+
+  remove()
+}
+
+export function runTurnRowToRunTurn(row: RunTurnRow): RunTurn {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    index: row.turn_index,
+    prompt: row.prompt,
+    status: row.status as RunTurn['status'],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    summary: row.summary ?? undefined,
+    hasDiff: row.has_diff === 1,
+  }
 }
 
 function migrateRunsTableIfNeeded(db: Database.Database): void {
@@ -452,4 +667,155 @@ function migrateRunsTableIfNeeded(db: Database.Database): void {
     DROP TABLE runs_legacy;
   `)
   db.pragma('foreign_keys = ON')
+}
+
+function ensureRunTurnsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS run_turns (
+      id          TEXT PRIMARY KEY,
+      run_id      TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      turn_index  INTEGER NOT NULL,
+      prompt      TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'starting',
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL,
+      summary     TEXT,
+      has_diff    INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(run_id, turn_index)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_run_turns_run_id_turn_index
+      ON run_turns(run_id, turn_index);
+  `)
+}
+
+function migrateRunTurnsIfNeeded(db: Database.Database): void {
+  const turnCountRow = db.prepare('SELECT COUNT(*) AS cnt FROM run_turns').get() as { cnt: number }
+  if (turnCountRow.cnt > 0) {
+    return
+  }
+
+  const runs = db.prepare(
+    'SELECT id, prompt, status, created_at, updated_at, summary, has_diff FROM runs ORDER BY created_at ASC',
+  ).all() as Array<{
+    id: string
+    prompt: string
+    status: string
+    created_at: number
+    updated_at: number
+    summary: string | null
+    has_diff: number
+  }>
+
+  const insertTurn = db.prepare(
+    `INSERT INTO run_turns (
+      id,
+      run_id,
+      turn_index,
+      prompt,
+      status,
+      created_at,
+      updated_at,
+      summary,
+      has_diff
+    ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+  )
+
+  const seedTurns = db.transaction(() => {
+    for (const run of runs) {
+      insertTurn.run(
+        initialTurnIdForRun(run.id),
+        run.id,
+        run.prompt,
+        run.status,
+        run.created_at,
+        run.updated_at,
+        run.summary,
+        run.has_diff,
+      )
+    }
+  })
+
+  seedTurns()
+}
+
+function ensureRunEventsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS run_events (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id       TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      turn_id      TEXT NOT NULL REFERENCES run_turns(id) ON DELETE CASCADE,
+      event_type   TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at   INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_run_events_run_turn_id_id
+      ON run_events(run_id, turn_id, id);
+  `)
+}
+
+function migrateRunEventsIfNeeded(db: Database.Database): void {
+  const hasRunEventsTable = db.prepare(
+    `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'run_events'`,
+  ).get()
+
+  if (!hasRunEventsTable) {
+    return
+  }
+
+  const columns = db.pragma('table_info(run_events)') as Array<{ name: string }>
+  const hasTurnId = columns.some((column) => column.name === 'turn_id')
+  if (hasTurnId) {
+    return
+  }
+
+  db.pragma('foreign_keys = OFF')
+  db.exec(`
+    ALTER TABLE run_events RENAME TO run_events_legacy;
+
+    CREATE TABLE run_events (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id       TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      turn_id      TEXT NOT NULL REFERENCES run_turns(id) ON DELETE CASCADE,
+      event_type   TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at   INTEGER NOT NULL
+    );
+
+    CREATE INDEX idx_run_events_run_turn_id_id
+      ON run_events(run_id, turn_id, id);
+  `)
+
+  const legacyRows = db.prepare(
+    'SELECT run_id, event_type, payload_json, created_at FROM run_events_legacy ORDER BY id ASC',
+  ).all() as Array<{
+    run_id: string
+    event_type: string
+    payload_json: string
+    created_at: number
+  }>
+
+  const insertEvent = db.prepare(
+    'INSERT INTO run_events (run_id, turn_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)',
+  )
+  const migrate = db.transaction(() => {
+    for (const row of legacyRows) {
+      insertEvent.run(
+        row.run_id,
+        initialTurnIdForRun(row.run_id),
+        row.event_type,
+        row.payload_json,
+        row.created_at,
+      )
+    }
+  })
+
+  migrate()
+  db.exec('DROP TABLE run_events_legacy')
+  db.pragma('foreign_keys = ON')
+}
+
+function initialTurnIdForRun(runId: string): string {
+  return `${runId}:turn:1`
 }

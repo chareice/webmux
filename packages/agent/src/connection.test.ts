@@ -67,7 +67,7 @@ describe('AgentConnection', () => {
     connection.stop()
   })
 
-  it('ignores run-kill when the wrapper is already gone', async () => {
+  it('ignores run-turn-kill when the wrapper is already gone', async () => {
     const tmux = {
       listSessions: vi.fn().mockResolvedValue([]),
       createSession: vi.fn(),
@@ -82,8 +82,12 @@ describe('AgentConnection', () => {
     )
 
     ;(connection as unknown as {
-      handleMessage: (message: { type: 'run-kill'; runId: string }) => void
-    }).handleMessage({ type: 'run-kill', runId: '12345678-dead-beef-cafe-000000000000' })
+      handleMessage: (message: { type: 'run-turn-kill'; runId: string; turnId: string }) => void
+    }).handleMessage({
+      type: 'run-turn-kill',
+      runId: '12345678-dead-beef-cafe-000000000000',
+      turnId: '12345678-dead-beef-cafe-000000000001',
+    })
 
     await flushMicrotasks()
 

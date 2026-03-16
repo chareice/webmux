@@ -1,5 +1,6 @@
 import {
   AgentListResponse,
+  ContinueRunRequest,
   RepositoryBrowseResponse,
   Run,
   RunDetailResponse,
@@ -9,6 +10,7 @@ import {
 } from './types';
 import { normalizeServerUrl } from './server-url';
 import { normalizeRunDetailResponse } from './run-detail-response';
+import { buildApiHeaders } from './api-request';
 
 let _serverUrl = '';
 let _token = '';
@@ -37,14 +39,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   const url = `${_serverUrl}${path}`;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options?.headers as Record<string, string>),
-  };
-
-  if (_token) {
-    headers.Authorization = `Bearer ${_token}`;
-  }
+  const headers = buildApiHeaders(options, _token);
 
   const response = await fetch(url, {
     ...options,
@@ -124,6 +119,21 @@ export async function getRunDetail(
 ): Promise<RunDetailResponse> {
   const response = await fetchApi<RunDetailResponse>(
     `/api/agents/${agentId}/runs/${runId}`,
+  );
+  return normalizeRunDetailResponse(response);
+}
+
+export async function continueRun(
+  agentId: string,
+  runId: string,
+  request: ContinueRunRequest,
+): Promise<RunDetailResponse> {
+  const response = await fetchApi<RunDetailResponse>(
+    `/api/agents/${agentId}/runs/${runId}/turns`,
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
   );
   return normalizeRunDetailResponse(response);
 }

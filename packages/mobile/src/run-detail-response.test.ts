@@ -25,31 +25,55 @@ test('normalizeRunDetailResponse falls back to an empty items array', () => {
 
   assert.deepEqual(normalized, {
     run,
-    items: [],
+    turns: [],
   });
 });
 
-test('normalizeRunDetailResponse keeps timeline items when present', () => {
+test('normalizeRunDetailResponse keeps turns and timeline items when present', () => {
   const normalized = normalizeRunDetailResponse({
     run,
-    items: [
+    turns: [
       {
-        id: 1,
+        id: 'run-1:turn:1',
+        runId: 'run-1',
+        index: 1,
+        prompt: 'Fix it',
+        status: 'success',
         createdAt: 10,
-        type: 'message',
-        role: 'assistant',
-        text: 'Done',
+        updatedAt: 11,
+        hasDiff: false,
+        items: [
+          {
+            id: 1,
+            createdAt: 10,
+            type: 'message',
+            role: 'assistant',
+            text: 'Done',
+          },
+        ],
       },
     ],
   });
 
-  assert.deepEqual(normalized.items, [
+  assert.deepEqual(normalized.turns, [
     {
-      id: 1,
+      id: 'run-1:turn:1',
+      runId: 'run-1',
+      index: 1,
+      prompt: 'Fix it',
+      status: 'success',
       createdAt: 10,
-      type: 'message',
-      role: 'assistant',
-      text: 'Done',
+      updatedAt: 11,
+      hasDiff: false,
+      items: [
+        {
+          id: 1,
+          createdAt: 10,
+          type: 'message',
+          role: 'assistant',
+          text: 'Done',
+        },
+      ],
     },
   ]);
 });

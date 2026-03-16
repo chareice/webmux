@@ -47,8 +47,8 @@ export type AgentMessage =
   | { type: 'terminal-ready'; browserId: string; sessionName: string }
   | { type: 'terminal-exit'; browserId: string; exitCode: number }
   | { type: 'error'; browserId?: string; message: string }
-  | { type: 'run-status'; runId: string; status: RunStatus; summary?: string; hasDiff?: boolean }
-  | { type: 'run-item'; runId: string; item: RunTimelineEventPayload }
+  | { type: 'run-status'; runId: string; turnId: string; status: RunStatus; summary?: string; hasDiff?: boolean }
+  | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEventPayload }
 
 // Server → Agent
 export type ServerToAgentMessage =
@@ -62,9 +62,9 @@ export type ServerToAgentMessage =
   | { type: 'session-create'; requestId: string; name: string }
   | { type: 'session-kill'; requestId: string; name: string }
   | { type: 'repository-browse'; requestId: string; path?: string }
-  | { type: 'run-start'; runId: string; tool: RunTool; repoPath: string; prompt: string }
-  | { type: 'run-interrupt'; runId: string }
-  | { type: 'run-kill'; runId: string }
+  | { type: 'run-turn-start'; runId: string; turnId: string; tool: RunTool; repoPath: string; prompt: string }
+  | { type: 'run-turn-interrupt'; runId: string; turnId: string }
+  | { type: 'run-turn-kill'; runId: string; turnId: string }
 
 // Browser → Server
 export type TerminalClientMessage =
@@ -153,6 +153,18 @@ export interface Run {
   unread: boolean
 }
 
+export interface RunTurn {
+  id: string
+  runId: string
+  index: number
+  prompt: string
+  status: RunStatus
+  createdAt: number
+  updatedAt: number
+  summary?: string
+  hasDiff: boolean
+}
+
 export type RunTimelineEventStatus = 'info' | 'success' | 'warning' | 'error'
 
 export type RunTimelineEventPayload =
@@ -180,6 +192,10 @@ export type RunTimelineEvent = RunTimelineEventPayload & {
   createdAt: number
 }
 
+export interface RunTurnDetail extends RunTurn {
+  items: RunTimelineEvent[]
+}
+
 // --- Run REST API types ---
 
 export interface StartRunRequest {
@@ -194,11 +210,16 @@ export interface RunListResponse {
 
 export interface RunDetailResponse {
   run: Run
-  items: RunTimelineEvent[]
+  turns: RunTurnDetail[]
+}
+
+export interface ContinueRunRequest {
+  prompt: string
 }
 
 // --- Run WebSocket event (Server → Browser) ---
 
 export type RunEvent =
   | { type: 'run-status'; run: Run }
-  | { type: 'run-item'; runId: string; item: RunTimelineEvent }
+  | { type: 'run-turn'; runId: string; turn: RunTurn }
+  | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEvent }

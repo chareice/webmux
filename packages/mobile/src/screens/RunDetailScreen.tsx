@@ -1,12 +1,22 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Keyboard,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { interruptRun, connectRunWebSocket, getRunDetail } from '../api';
-import { Run, RunEvent, RunTimelineEvent } from '../types';
+import { continueRun, interruptRun, connectRunWebSocket, getRunDetail } from '../api';
+import { Run, RunEvent, RunTimelineEvent, RunTurnDetail } from '../types';
 import { colors, commonStyles, fonts, statusColor, statusLabel, toolIcon } from '../theme';
 import type { RootStackParamList } from '../navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { isRunTimelineEvent } from '../run-detail-response';
+import { isRunTimelineEvent, isRunTurn } from '../run-detail-response';
+import { appendTurnItem, canContinueRun, isRunActive, latestRunTurn, upsertRunTurn } from '../run-thread';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RunDetail'>;
 
@@ -15,8 +25,10 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   const insets = useSafeAreaInsets();
 
   const [run, setRun] = useState<Run | null>(null);
-  const [items, setItems] = useState<RunTimelineEvent[]>([]);
+  const [turns, setTurns] = useState<RunTurnDetail[]>([]);
+  const [followUpPrompt, setFollowUpPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isContinuing, setIsContinuing] = useState(false);
   const [error, setError] = useState('');
   const scrollViewRef = useRef<ScrollView>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -25,7 +37,8 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
     try {
       const result = await getRunDetail(agentId, runId);
       setRun(result.run);
-      setItems(result.items);
+      setTurns(result.turns);
+      setError('');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to load run';
       setError(msg);
@@ -35,8 +48,13 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
   }, [agentId, runId]);
 
   useEffect(() => {
-    fetchRunDetail();
-  }, [fetchRunDetail]);
+    setRun(null);
+    setTurns([]);
+    setError('');
+    setFollowUpPrompt('');
+    setIsLoading(true);
+    void fetchRunDetail();
+  }, [fetchRunDetail, runId]);
 
   useEffect(() => {
     const ws = connectRunWebSocket(
@@ -44,7 +62,18 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
       (event: unknown) => {
         const typedEvent = event as RunEvent;
         if (typedEvent.type === 'run-item' && isRunTimelineEvent(typedEvent.item)) {
-          setItems((prev) => [...prev, typedEvent.item]);
+          setTurns((prev) => {
+            const next = appendTurnItem(prev, typedEvent.turnId, typedEvent.item);
+            if (next === prev) {
+              void fetchRunDetail();
+            }
+            return next;
+          });
+          return;
+        }
+
+        if (typedEvent.type === 'run-turn' && isRunTurn(typedEvent.turn)) {
+          setTurns((prev) => upsertRunTurn(prev, typedEvent.turn));
           return;
         }
 
@@ -53,7 +82,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
         }
       },
       () => {
-        fetchRunDetail();
+        void fetchRunDetail();
       },
     );
 
@@ -73,13 +102,41 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 50);
-  }, [items]);
+  }, [turns]);
+
+  const latestTurn = latestRunTurn(turns);
+  const isActive = latestTurn ? isRunActive(latestTurn.status) : run ? isRunActive(run.status) : false;
 
   const handleInterrupt = async () => {
     try {
       await interruptRun(agentId, runId);
     } catch {
       // Ignore transient action failures here.
+    }
+  };
+
+  const handleContinue = async () => {
+    Keyboard.dismiss();
+
+    if (!followUpPrompt.trim()) {
+      setError('Please enter a follow-up prompt');
+      return;
+    }
+
+    setIsContinuing(true);
+    try {
+      const result = await continueRun(agentId, runId, {
+        prompt: followUpPrompt.trim(),
+      });
+      setRun(result.run);
+      setTurns(result.turns);
+      setFollowUpPrompt('');
+      setError('');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to continue run';
+      setError(msg);
+    } finally {
+      setIsContinuing(false);
     }
   };
 
@@ -106,8 +163,6 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
       </View>
     );
   }
-
-  const isActive = run.status === 'starting' || run.status === 'running';
 
   return (
     <View style={commonStyles.screen}>
@@ -162,7 +217,7 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
           </View>
         </View>
 
-        <Text style={styles.promptLabel}>Prompt</Text>
+        <Text style={styles.promptLabel}>Started With</Text>
         <Text style={styles.promptText}>{run.prompt}</Text>
 
         {run.summary ? (
@@ -177,35 +232,101 @@ export default function RunDetailScreen({ route }: Props): React.JSX.Element {
         ref={scrollViewRef}
         style={styles.timeline}
         contentContainerStyle={styles.timelineContent}>
-        {items.length === 0 ? (
+        {turns.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>
               {isActive ? 'Run started. Waiting for timeline events.' : 'No timeline recorded.'}
             </Text>
             <Text style={styles.emptyHint}>
-              Structured runs show messages, commands, and activity updates here.
+              Each completed run turn stays in this thread, so you can continue after it finishes.
             </Text>
           </View>
         ) : (
-          items.map((item) => <TimelineItemView key={`${item.id}`} item={item} />)
+          turns.map((turn) => <TurnSectionView key={turn.id} turn={turn} />)
         )}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: 12 + insets.bottom }]}>
         {isActive ? (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.interruptButton]}
-            onPress={handleInterrupt}
-            activeOpacity={0.7}>
-            <Text style={[styles.actionButtonText, { color: colors.orange }]}>
-              Interrupt
+          <>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.interruptButton]}
+              onPress={handleInterrupt}
+              activeOpacity={0.7}>
+              <Text style={[styles.actionButtonText, { color: colors.orange }]}>
+                Interrupt
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.footerHint}>
+              Follow-up input becomes available after the current turn finishes.
             </Text>
-          </TouchableOpacity>
-        ) : null}
-        <Text style={styles.footerHint}>
-          Need a full terminal? Open it from the agent page. Run detail is now a structured timeline.
+          </>
+        ) : canContinueRun(latestTurn) ? (
+          <>
+            <TextInput
+              style={[commonStyles.input, styles.followUpInput]}
+              placeholder="Continue this run with a follow-up prompt"
+              placeholderTextColor={colors.textSecondary}
+              value={followUpPrompt}
+              onChangeText={setFollowUpPrompt}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+            {error ? <Text style={styles.errorTextInline}>{error}</Text> : null}
+            <TouchableOpacity
+              style={[
+                commonStyles.button,
+                styles.continueButton,
+                (isContinuing || !followUpPrompt.trim()) && styles.buttonDisabled,
+              ]}
+              onPress={handleContinue}
+              disabled={isContinuing || !followUpPrompt.trim()}
+              activeOpacity={0.7}>
+              {isContinuing ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={commonStyles.buttonText}>Send Follow-up</Text>
+              )}
+            </TouchableOpacity>
+            <Text style={styles.footerHint}>
+              This starts the next turn in the same run thread. The page stays here.
+            </Text>
+          </>
+        ) : (
+          <Text style={styles.footerHint}>
+            Need a full terminal? Open it from the agent page. Run detail is a structured thread view.
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function TurnSectionView({ turn }: { turn: RunTurnDetail }): React.JSX.Element {
+  return (
+    <View style={styles.turnSection}>
+      <View style={styles.turnHeader}>
+        <Text style={styles.turnTitle}>Turn {turn.index}</Text>
+        <Text style={[styles.turnStatus, { color: statusColor(turn.status) }]}>
+          {statusLabel(turn.status)}
         </Text>
       </View>
+
+      <View style={styles.messageCard}>
+        <Text style={styles.messageEyebrow}>User</Text>
+        <Text style={styles.messageText}>{turn.prompt}</Text>
+      </View>
+
+      {turn.items.length === 0 ? (
+        <View style={styles.turnEmptyState}>
+          <Text style={styles.turnEmptyText}>Waiting for events...</Text>
+        </View>
+      ) : (
+        turn.items.map((item) => (
+          <TimelineItemView key={`${turn.id}-${item.id}`} item={item} />
+        ))
+      )}
     </View>
   );
 }
@@ -373,7 +494,7 @@ const styles = StyleSheet.create({
   },
   timelineContent: {
     padding: 14,
-    gap: 10,
+    gap: 14,
   },
   emptyState: {
     paddingVertical: 48,
@@ -392,6 +513,32 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 10,
     maxWidth: 280,
+  },
+  turnSection: {
+    gap: 10,
+  },
+  turnHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  turnTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  turnStatus: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  turnEmptyState: {
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  turnEmptyText: {
+    color: colors.textSecondary,
+    fontSize: 12,
   },
   messageCard: {
     backgroundColor: colors.surface,
@@ -503,6 +650,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  followUpInput: {
+    minHeight: 96,
+    marginBottom: 10,
+  },
+  continueButton: {
+    marginBottom: 10,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
   footerHint: {
     color: colors.textSecondary,
     fontSize: 12,
@@ -512,5 +669,10 @@ const styles = StyleSheet.create({
     color: colors.red,
     fontSize: 14,
     textAlign: 'center',
+  },
+  errorTextInline: {
+    color: colors.red,
+    fontSize: 12,
+    marginBottom: 10,
   },
 });

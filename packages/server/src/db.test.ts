@@ -6,6 +6,8 @@ import BetterSqlite3 from 'better-sqlite3'
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
   appendRunTimelineEvent,
+  createRunTurn,
+  createRunWithInitialTurn,
   initDb,
   findUserByProvider,
   findUserById,
@@ -14,10 +16,11 @@ import {
   findAgentsByUserId,
   findAgentById,
   createAgent,
-  createRun,
   deleteAgent,
   findRunById,
-  findRunTimelineEvents,
+  findRunTurnById,
+  findRunTurnDetails,
+  findRunTurnsByRunId,
   renameAgent,
   updateAgentStatus,
   updateAgentLastSeen,
@@ -142,15 +145,16 @@ describe('agents', () => {
 
   it('cascades runs and output when deleting an agent', () => {
     const agent = createAgent(db, { userId, name: 'temp', agentSecretHash: 'hash' })
-    const run = createRun(db, {
-      id: 'run-1',
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-1',
+      turnId: 'run-1:turn:1',
       agentId: agent.id,
       userId,
       tool: 'codex',
       repoPath: '/tmp/project',
       prompt: 'Fix it',
     })
-    appendRunTimelineEvent(db, run.id, {
+    appendRunTimelineEvent(db, run.id, turn.id, {
       type: 'message',
       role: 'assistant',
       text: 'hello',
@@ -160,7 +164,7 @@ describe('agents', () => {
 
     expect(findAgentById(db, agent.id)).toBeUndefined()
     expect(findRunById(db, run.id)).toBeUndefined()
-    expect(findRunTimelineEvents(db, run.id)).toEqual([])
+    expect(findRunTurnDetails(db, run.id)).toEqual([])
   })
 
   it('renames an agent', () => {
@@ -283,8 +287,9 @@ describe('run timeline events', () => {
   })
 
   it('stores timeline events in order and returns typed items', () => {
-    const run = createRun(db, {
-      id: 'run-output',
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-output',
+      turnId: 'run-output:turn:1',
       agentId,
       userId,
       tool: 'claude',
@@ -292,12 +297,12 @@ describe('run timeline events', () => {
       prompt: 'ship it',
     })
 
-    appendRunTimelineEvent(db, run.id, {
+    appendRunTimelineEvent(db, run.id, turn.id, {
       type: 'message',
       role: 'assistant',
       text: 'Planning the fix.',
     })
-    appendRunTimelineEvent(db, run.id, {
+    appendRunTimelineEvent(db, run.id, turn.id, {
       type: 'command',
       status: 'completed',
       command: '/usr/bin/bash -lc ls',
@@ -305,27 +310,69 @@ describe('run timeline events', () => {
       exitCode: 0,
     })
 
-    expect(findRunTimelineEvents(db, run.id)).toEqual([
+    expect(findRunTurnDetails(db, run.id)).toEqual([
       {
-        id: 1,
+        id: turn.id,
+        runId: run.id,
+        index: 1,
+        prompt: 'ship it',
+        status: 'starting',
         createdAt: expect.any(Number),
-        type: 'message',
-        role: 'assistant',
-        text: 'Planning the fix.',
-      },
-      {
-        id: 2,
-        createdAt: expect.any(Number),
-        type: 'command',
-        status: 'completed',
-        command: '/usr/bin/bash -lc ls',
-        output: 'README.md\nsrc\n',
-        exitCode: 0,
+        updatedAt: expect.any(Number),
+        hasDiff: false,
+        summary: undefined,
+        items: [
+          {
+            id: 1,
+            createdAt: expect.any(Number),
+            type: 'message',
+            role: 'assistant',
+            text: 'Planning the fix.',
+          },
+          {
+            id: 2,
+            createdAt: expect.any(Number),
+            type: 'command',
+            status: 'completed',
+            command: '/usr/bin/bash -lc ls',
+            output: 'README.md\nsrc\n',
+            exitCode: 0,
+          },
+        ],
       },
     ])
   })
 
-  it('migrates legacy run tables by dropping the tmux session column', () => {
+  it('creates follow-up turns under the same run in order', () => {
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-thread',
+      turnId: 'run-thread:turn:1',
+      agentId,
+      userId,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Inspect the repo',
+    })
+
+    const followUpTurn = createRunTurn(db, {
+      id: 'run-thread:turn:2',
+      runId: run.id,
+      prompt: 'Now apply the fix',
+    })
+
+    expect(findRunTurnsByRunId(db, run.id).map((item) => item.id)).toEqual([
+      turn.id,
+      followUpTurn.id,
+    ])
+    expect(findRunTurnById(db, followUpTurn.id)).toMatchObject({
+      run_id: run.id,
+      turn_index: 2,
+      prompt: 'Now apply the fix',
+      status: 'starting',
+    })
+  })
+
+  it('migrates legacy run tables by dropping the tmux session column and creating an initial turn', () => {
     const tempDir = mkdtempSync(path.join(os.tmpdir(), 'webmux-db-'))
     const dbPath = path.join(tempDir, 'webmux.db')
     const legacyDb = new BetterSqlite3(dbPath)
@@ -369,6 +416,14 @@ describe('run timeline events', () => {
         unread INTEGER NOT NULL DEFAULT 1,
         tmux_session TEXT NOT NULL
       );
+
+      CREATE TABLE run_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL REFERENCES runs(id),
+        event_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
     `)
 
     legacyDb
@@ -380,13 +435,24 @@ describe('run timeline events', () => {
     legacyDb
       .prepare('INSERT INTO runs (id, agent_id, user_id, tool, repo_path, branch, prompt, status, created_at, updated_at, summary, has_diff, unread, tmux_session) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run('run-legacy', 'agent-1', 'user-1', 'codex', '/tmp/project', 'main', 'Fix it', 'success', 1, 2, 'done', 1, 0, 'run-legacy')
+    legacyDb
+      .prepare('INSERT INTO run_events (run_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)')
+      .run('run-legacy', 'message', JSON.stringify({
+        type: 'message',
+        role: 'assistant',
+        text: 'done',
+      }), 2)
     legacyDb.close()
 
     const migratedDb = initDb(dbPath)
     const columns = migratedDb.pragma('table_info(runs)') as Array<{ name: string }>
+    const turnColumns = migratedDb.pragma('table_info(run_events)') as Array<{ name: string }>
     const migratedRun = findRunById(migratedDb, 'run-legacy')
+    const migratedTurns = findRunTurnsByRunId(migratedDb, 'run-legacy')
+    const migratedTurnDetails = findRunTurnDetails(migratedDb, 'run-legacy')
 
     expect(columns.map((column) => column.name)).not.toContain('tmux_session')
+    expect(turnColumns.map((column) => column.name)).toContain('turn_id')
     expect(migratedRun).toMatchObject({
       id: 'run-legacy',
       agent_id: 'agent-1',
@@ -396,6 +462,38 @@ describe('run timeline events', () => {
       has_diff: 1,
       unread: 0,
     })
+    expect(migratedTurns).toHaveLength(1)
+    expect(migratedTurns[0]).toMatchObject({
+      id: 'run-legacy:turn:1',
+      run_id: 'run-legacy',
+      turn_index: 1,
+      prompt: 'Fix it',
+      status: 'success',
+      summary: 'done',
+      has_diff: 1,
+    })
+    expect(migratedTurnDetails).toEqual([
+      {
+        id: 'run-legacy:turn:1',
+        runId: 'run-legacy',
+        index: 1,
+        prompt: 'Fix it',
+        status: 'success',
+        createdAt: 1,
+        updatedAt: 2,
+        summary: 'done',
+        hasDiff: true,
+        items: [
+          {
+            id: 1,
+            createdAt: 2,
+            type: 'message',
+            role: 'assistant',
+            text: 'done',
+          },
+        ],
+      },
+    ])
 
     migratedDb.close()
     rmSync(tempDir, { recursive: true, force: true })

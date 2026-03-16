@@ -244,7 +244,7 @@ run_detail_contains_marker() {
 
     (
       (.run.summary // "") + "\n" +
-      ([.items[]? | event_text] | join("\n"))
+      ([.turns[]?.items[]? | event_text] | join("\n"))
     ) | contains($marker)
   ' >/dev/null
 }
@@ -349,6 +349,25 @@ wait_for_run_status "${RUN_ID}" interrupted "${RUN_DETAIL_FILE}" 60
 run_detail_contains_marker "$(cat "${RUN_DETAIL_FILE}")" "${FIRST_MARKER}" || fail "Missing marker in persisted run timeline"
 api DELETE "/api/agents/${AGENT_ID}/runs/${RUN_ID}" >/dev/null
 [[ "$(api_status GET "/api/agents/${AGENT_ID}/runs/${RUN_ID}")" == "404" ]] || fail 'Deleted run is still accessible'
+
+log 'Verifying same-run follow-up turns'
+THREAD_MARKER="E2E_THREAD_${RANDOM}${RANDOM}"
+FOLLOW_UP_MARKER="E2E_FOLLOW_UP_${RANDOM}${RANDOM}"
+THREAD_DETAIL_FILE="${ARTIFACTS_DIR}/thread-run-detail.json"
+THREAD_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/runs" "$(jq -nc --arg tool 'codex' --arg repoPath "${ROOT_DIR}" --arg prompt "Run a shell command that prints exactly ${THREAD_MARKER} and then exits successfully." '{tool: $tool, repoPath: $repoPath, prompt: $prompt}')")"
+printf '%s\n' "${THREAD_RESPONSE}" > "${ARTIFACTS_DIR}/thread-run-start.json"
+THREAD_RUN_ID="$(printf '%s' "${THREAD_RESPONSE}" | jq -r '.run.id')"
+[[ -n "${THREAD_RUN_ID}" && "${THREAD_RUN_ID}" != "null" ]] || fail 'Failed to start the thread run'
+
+wait_for_run_output_marker "${THREAD_RUN_ID}" "${THREAD_MARKER}" "${THREAD_DETAIL_FILE}" 120
+wait_for_run_status "${THREAD_RUN_ID}" success "${THREAD_DETAIL_FILE}" 60
+
+FOLLOW_UP_RESPONSE="$(api POST "/api/agents/${AGENT_ID}/runs/${THREAD_RUN_ID}/turns" "$(jq -nc --arg prompt "Run a shell command that prints exactly ${FOLLOW_UP_MARKER} and then exits successfully." '{prompt: $prompt}')")"
+printf '%s\n' "${FOLLOW_UP_RESPONSE}" > "${ARTIFACTS_DIR}/thread-run-follow-up.json"
+
+wait_for_run_output_marker "${THREAD_RUN_ID}" "${FOLLOW_UP_MARKER}" "${THREAD_DETAIL_FILE}" 120
+wait_for_run_status "${THREAD_RUN_ID}" success "${THREAD_DETAIL_FILE}" 60
+[[ "$(jq -r '.turns | length' "${THREAD_DETAIL_FILE}")" == "2" ]] || fail 'Expected the follow-up run to create a second turn'
 
 log 'Verifying disconnect handling for an active run'
 DISCONNECT_MARKER="E2E_DISCONNECT_${RANDOM}${RANDOM}"

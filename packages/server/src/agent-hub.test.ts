@@ -5,7 +5,7 @@ import type { AgentUpgradePolicy, ServerToAgentMessage } from '@webmux/shared'
 
 import { hashSecret } from './auth.js'
 import { AgentHub } from './agent-hub.js'
-import { createAgent, createRun, createUser, findRunById, initDb } from './db.js'
+import { createAgent, createRunWithInitialTurn, createUser, findRunById, findRunTurnById, initDb } from './db.js'
 
 function createSocket() {
   const messages: ServerToAgentMessage[] = []
@@ -109,8 +109,9 @@ describe('AgentHub run lifecycle', () => {
     })
     const owner = createAgent(db, { userId: user.id, name: 'owner', agentSecretHash: 'hash' })
     const intruder = createAgent(db, { userId: user.id, name: 'intruder', agentSecretHash: 'hash' })
-    const run = createRun(db, {
-      id: 'run-1',
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-1',
+      turnId: 'run-1:turn:1',
       agentId: owner.id,
       userId: user.id,
       tool: 'codex',
@@ -121,7 +122,7 @@ describe('AgentHub run lifecycle', () => {
     const hub = new AgentHub()
     hub.handleAgentMessage(
       intruder.id,
-      { type: 'run-status', runId: run.id, status: 'success', summary: 'done' },
+      { type: 'run-status', runId: run.id, turnId: turn.id, status: 'success', summary: 'done' },
       db,
     )
 
@@ -137,8 +138,9 @@ describe('AgentHub run lifecycle', () => {
       avatarUrl: null,
     })
     const agent = createAgent(db, { userId: user.id, name: 'owner', agentSecretHash: 'hash' })
-    const run = createRun(db, {
-      id: 'run-1',
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-1',
+      turnId: 'run-1:turn:1',
       agentId: agent.id,
       userId: user.id,
       tool: 'codex',
@@ -146,6 +148,7 @@ describe('AgentHub run lifecycle', () => {
       prompt: 'Fix it',
     })
     db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('running', run.id)
+    db.prepare('UPDATE run_turns SET status = ? WHERE id = ?').run('running', turn.id)
 
     const hub = new AgentHub()
     ;(hub as unknown as {
@@ -168,6 +171,10 @@ describe('AgentHub run lifecycle', () => {
     hub.removeAgent(agent.id, db)
 
     expect(findRunById(db, run.id)).toMatchObject({
+      status: 'failed',
+      summary: 'Agent disconnected before the run completed.',
+    })
+    expect(findRunTurnById(db, turn.id)).toMatchObject({
       status: 'failed',
       summary: 'Agent disconnected before the run completed.',
     })

@@ -102,7 +102,9 @@ The mobile app currently includes:
 - an `Agents` screen for browsing online and offline agents
 - a `New Run` flow with recent repository shortcuts and an agent-backed
   repository picker, so repository paths no longer need to be typed manually
-- a `Run Detail` screen that renders a structured run timeline
+- a `Run Detail` screen that renders a structured run thread made of multiple turns
+- completed run turns can be continued in place with a follow-up prompt, while
+  active turns still expose `Interrupt`
 - a separate `Terminal` screen for full-fidelity shell access from the agent page
 
 ## Android Signing

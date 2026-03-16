@@ -57,7 +57,7 @@ export class AgentConnection {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = INITIAL_RECONNECT_DELAY_MS
   private bridges = new Map<string, TerminalBridge>()
-  private runs = new Map<string, RunWrapper>()
+  private runs = new Map<string, { turnId: string; wrapper: RunWrapper }>()
   private stopped = false
 
   constructor(
@@ -193,16 +193,16 @@ export class AgentConnection {
         this.handleRepositoryBrowse(msg.requestId, msg.path)
         break
 
-      case 'run-start':
-        this.handleRunStart(msg.runId, msg.tool, msg.repoPath, msg.prompt)
+      case 'run-turn-start':
+        this.handleRunStart(msg.runId, msg.turnId, msg.tool, msg.repoPath, msg.prompt)
         break
 
-      case 'run-interrupt':
-        this.handleRunInterrupt(msg.runId)
+      case 'run-turn-interrupt':
+        this.handleRunInterrupt(msg.runId, msg.turnId)
         break
 
-      case 'run-kill':
-        this.handleRunKill(msg.runId)
+      case 'run-turn-kill':
+        this.handleRunKill(msg.runId, msg.turnId)
         break
 
       default:
@@ -420,13 +420,14 @@ export class AgentConnection {
 
   private disposeAllRuns(): void {
     for (const [runId, run] of this.runs) {
-      run.dispose()
+      run.wrapper.dispose()
       this.runs.delete(runId)
     }
   }
 
   private handleRunStart(
     runId: string,
+    turnId: string,
     tool: 'codex' | 'claude',
     repoPath: string,
     prompt: string,
@@ -434,7 +435,7 @@ export class AgentConnection {
     // Dispose existing run with the same id if any
     const existing = this.runs.get(runId)
     if (existing) {
-      existing.dispose()
+      existing.wrapper.dispose()
       this.runs.delete(runId)
     }
 
@@ -444,17 +445,17 @@ export class AgentConnection {
       repoPath,
       prompt,
       onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => {
-        this.sendMessage({ type: 'run-status', runId, status, summary, hasDiff })
+        this.sendMessage({ type: 'run-status', runId, turnId, status, summary, hasDiff })
       },
       onFinish: () => {
         this.runs.delete(runId)
       },
       onItem: (item) => {
-        this.sendMessage({ type: 'run-item', runId, item })
+        this.sendMessage({ type: 'run-item', runId, turnId, item })
       },
     })
 
-    this.runs.set(runId, run)
+    this.runs.set(runId, { turnId, wrapper: run })
 
     run.start().catch((err) => {
       const message = err instanceof Error ? err.message : String(err)
@@ -462,6 +463,7 @@ export class AgentConnection {
       this.sendMessage({
         type: 'run-status',
         runId,
+        turnId,
         status: 'failed',
         summary: `Failed to start: ${message}`,
       })
@@ -469,19 +471,19 @@ export class AgentConnection {
     })
   }
 
-  private handleRunInterrupt(runId: string): void {
+  private handleRunInterrupt(runId: string, turnId: string): void {
     const run = this.runs.get(runId)
-    if (run) {
-      run.interrupt()
+    if (run && run.turnId === turnId) {
+      run.wrapper.interrupt()
     } else {
-      console.warn(`[agent] run-interrupt: no run found for ${runId}`)
+      console.warn(`[agent] run-turn-interrupt: no matching turn found for ${runId}/${turnId}`)
     }
   }
 
-  private handleRunKill(runId: string): void {
+  private handleRunKill(runId: string, turnId: string): void {
     const run = this.runs.get(runId)
-    if (run) {
-      run.dispose()
+    if (run && run.turnId === turnId) {
+      run.wrapper.dispose()
       this.runs.delete(runId)
     }
   }

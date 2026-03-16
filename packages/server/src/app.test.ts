@@ -13,10 +13,12 @@ import {
   appendRunTimelineEvent,
   createAgent,
   createRun,
+  createRunWithInitialTurn,
   createUser,
   findAgentById,
   findRunById,
-  findRunTimelineEvents,
+  findRunTurnDetails,
+  findRunTurnsByRunId,
   findRunsByAgentId,
   initDb,
   updateAgentLastSeen,
@@ -436,6 +438,81 @@ describe('buildApp', () => {
     await app.close()
   })
 
+  it('starts a follow-up turn under the same run', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'u-1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'nas',
+      agentSecretHash: 'hash',
+    })
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-1',
+      turnId: 'run-1:turn:1',
+      agentId: agent.id,
+      userId: user.id,
+      tool: 'codex',
+      repoPath: '/tmp/project',
+      prompt: 'Fix it',
+    })
+    db.prepare('UPDATE runs SET status = ?, summary = ? WHERE id = ?').run('success', 'done', run.id)
+    db.prepare('UPDATE run_turns SET status = ?, summary = ? WHERE id = ?').run('success', 'done', turn.id)
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+
+    const messages: Array<{ type: string; runId?: string; turnId?: string; prompt?: string }> = []
+    const hub = {
+      getAgent: () => ({ id: agent.id }),
+      sendToAgent: (_agentId: string, message: { type: string; runId?: string; turnId?: string; prompt?: string }) => {
+        messages.push(message)
+        return true
+      },
+      broadcastRunSnapshot() {},
+      removeAgent() {},
+      getAgentSessions: () => [],
+      requestSessionCreate: async () => createSession('unused'),
+      requestSessionKill: async () => undefined,
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/agents/${agent.id}/runs/${run.id}/turns`,
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        prompt: 'Continue with the implementation',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(messages[0]).toMatchObject({
+      type: 'run-turn-start',
+      runId: run.id,
+      prompt: 'Continue with the implementation',
+    })
+    expect(findRunById(db, run.id)).toMatchObject({
+      id: run.id,
+      status: 'starting',
+    })
+    expect(findRunTurnsByRunId(db, run.id)).toHaveLength(2)
+
+    await app.close()
+  })
+
   it('kills active runs before deleting them', async () => {
     const db = initDb(':memory:')
     const user = createUser(db, {
@@ -449,24 +526,26 @@ describe('buildApp', () => {
       name: 'nas',
       agentSecretHash: 'hash',
     })
-    const run = createRun(db, {
-      id: 'run-1',
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-2',
+      turnId: 'run-2:turn:1',
       agentId: agent.id,
       userId: user.id,
       tool: 'codex',
       repoPath: '/tmp/project',
       prompt: 'Fix it',
     })
-    db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('running', run.id)
+    db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('interrupted', run.id)
+    db.prepare('UPDATE run_turns SET status = ? WHERE id = ?').run('running', turn.id)
     const token = signJwt(
       { userId: user.id, displayName: user.display_name, role: user.role },
       TEST_SECRET,
     )
 
-    const messages: Array<{ type: string; runId?: string }> = []
+    const messages: Array<{ type: string; runId?: string; turnId?: string }> = []
     const hub = {
       getAgent: () => ({ id: agent.id }),
-      sendToAgent: (_agentId: string, message: { type: string; runId?: string }) => {
+      sendToAgent: (_agentId: string, message: { type: string; runId?: string; turnId?: string }) => {
         messages.push(message)
         return true
       },
@@ -492,15 +571,16 @@ describe('buildApp', () => {
 
     expect(response.statusCode).toBe(200)
     expect(messages).toContainEqual({
-      type: 'run-kill',
+      type: 'run-turn-kill',
       runId: run.id,
+      turnId: turn.id,
     })
     expect(findRunById(db, run.id)).toBeUndefined()
 
     await app.close()
   })
 
-  it('kills interrupted runs before deleting them', async () => {
+  it('does not send a kill command for completed turns when deleting a run', async () => {
     const db = initDb(':memory:')
     const user = createUser(db, {
       provider: 'github',
@@ -513,8 +593,9 @@ describe('buildApp', () => {
       name: 'nas',
       agentSecretHash: 'hash',
     })
-    const run = createRun(db, {
-      id: 'run-2',
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-3',
+      turnId: 'run-3:turn:1',
       agentId: agent.id,
       userId: user.id,
       tool: 'codex',
@@ -522,15 +603,16 @@ describe('buildApp', () => {
       prompt: 'Fix it',
     })
     db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('interrupted', run.id)
+    db.prepare('UPDATE run_turns SET status = ? WHERE id = ?').run('interrupted', turn.id)
     const token = signJwt(
       { userId: user.id, displayName: user.display_name, role: user.role },
       TEST_SECRET,
     )
 
-    const messages: Array<{ type: string; runId?: string }> = []
+    const messages: Array<{ type: string; runId?: string; turnId?: string }> = []
     const hub = {
       getAgent: () => ({ id: agent.id }),
-      sendToAgent: (_agentId: string, message: { type: string; runId?: string }) => {
+      sendToAgent: (_agentId: string, message: { type: string; runId?: string; turnId?: string }) => {
         messages.push(message)
         return true
       },
@@ -555,10 +637,7 @@ describe('buildApp', () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(messages).toContainEqual({
-      type: 'run-kill',
-      runId: run.id,
-    })
+    expect(messages).toEqual([])
     expect(findRunById(db, run.id)).toBeUndefined()
 
     await app.close()
@@ -577,8 +656,9 @@ describe('buildApp', () => {
       name: 'nas',
       agentSecretHash: 'hash',
     })
-    const run = createRun(db, {
-      id: 'run-1',
+    const { run, turn } = createRunWithInitialTurn(db, {
+      runId: 'run-1',
+      turnId: 'run-1:turn:1',
       agentId: agent.id,
       userId: user.id,
       tool: 'codex',
@@ -586,7 +666,7 @@ describe('buildApp', () => {
       prompt: 'Fix it',
     })
     db.prepare('UPDATE runs SET status = ? WHERE id = ?').run('running', run.id)
-    appendRunTimelineEvent(db, run.id, {
+    appendRunTimelineEvent(db, run.id, turn.id, {
       type: 'message',
       role: 'assistant',
       text: 'hello world',
@@ -615,16 +695,22 @@ describe('buildApp', () => {
       run: {
         id: run.id,
       },
-      items: [
+      turns: [
         {
-          type: 'message',
-          role: 'assistant',
-          text: 'hello world',
+          id: turn.id,
+          prompt: 'Fix it',
+          items: [
+            {
+              type: 'message',
+              role: 'assistant',
+              text: 'hello world',
+            },
+          ],
         },
       ],
     })
     expect(response.json().run).not.toHaveProperty('tmuxSession')
-    expect(findRunTimelineEvents(db, run.id)).toHaveLength(1)
+    expect(findRunTurnDetails(db, run.id)[0]?.items).toHaveLength(1)
 
     await app.close()
   })

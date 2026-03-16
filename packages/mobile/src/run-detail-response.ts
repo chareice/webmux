@@ -1,8 +1,16 @@
-import type { Run, RunDetailResponse, RunTimelineEvent } from './types';
+import type {
+  Run,
+  RunDetailResponse,
+  RunTimelineEvent,
+  RunTurn,
+  RunTurnDetail,
+} from './types';
 
 type RunDetailResponseLike = {
   run?: Run;
-  items?: RunTimelineEvent[] | null;
+  turns?: Array<{
+    items?: RunTimelineEvent[] | null;
+  } & Partial<RunTurn>> | null;
 };
 
 export function normalizeRunDetailResponse(
@@ -10,7 +18,14 @@ export function normalizeRunDetailResponse(
 ): RunDetailResponse {
   return {
     run: response.run as Run,
-    items: Array.isArray(response.items) ? response.items : [],
+    turns: Array.isArray(response.turns)
+      ? response.turns
+          .filter(isRunTurn)
+          .map((turn) => ({
+            ...turn,
+            items: Array.isArray(turn.items) ? turn.items : [],
+          }))
+      : [],
   };
 }
 
@@ -21,4 +36,22 @@ export function isRunTimelineEvent(value: unknown): value is RunTimelineEvent {
 
   const item = value as Partial<RunTimelineEvent>;
   return typeof item.id === 'number' && typeof item.createdAt === 'number' && typeof item.type === 'string';
+}
+
+export function isRunTurn(value: unknown): value is RunTurnDetail {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const turn = value as Partial<RunTurnDetail>;
+  return (
+    typeof turn.id === 'string' &&
+    typeof turn.runId === 'string' &&
+    typeof turn.index === 'number' &&
+    typeof turn.prompt === 'string' &&
+    typeof turn.status === 'string' &&
+    typeof turn.createdAt === 'number' &&
+    typeof turn.updatedAt === 'number' &&
+    typeof turn.hasDiff === 'boolean'
+  );
 }

@@ -22,9 +22,14 @@ import {
   findActiveRunsByAgentId,
   findAgentById,
   findRunById,
+  findActiveRunTurnByRunId,
+  findRunTurnById,
+  findLatestRunTurnByRunId,
+  runTurnRowToRunTurn,
   updateAgentLastSeen,
   updateAgentStatus,
   updateRunStatus,
+  updateRunTurnStatus,
 } from './db.js'
 import type { RunRow } from './db.js'
 
@@ -406,24 +411,23 @@ export class AgentHub {
     this.agents.delete(agentId)
     updateAgentStatus(db, agentId, 'offline')
     for (const run of findActiveRunsByAgentId(db, agentId)) {
-      updateRunStatus(
-        db,
-        run.id,
-        'failed',
-        'Agent disconnected before the run completed.',
-      )
-      const clients = this.runClients.get(run.id)
-      if (!clients) {
-        continue
+      const activeTurn = findActiveRunTurnByRunId(db, run.id)
+      if (activeTurn) {
+        updateRunTurnStatus(
+          db,
+          activeTurn.id,
+          'failed',
+          'Agent disconnected before the run completed.',
+        )
+      } else {
+        updateRunStatus(
+          db,
+          run.id,
+          'failed',
+          'Agent disconnected before the run completed.',
+        )
       }
-
-      const event: RunEvent = {
-        type: 'run-status',
-        run: runRowToRun(findRunById(db, run.id) ?? run),
-      }
-      for (const client of clients) {
-        this.safeSend(client, event)
-      }
+      this.broadcastRunSnapshot(db, run.id, activeTurn?.id)
     }
 
     // Notify event clients that sessions are gone
@@ -489,6 +493,39 @@ export class AgentHub {
     })
   }
 
+  broadcastRunSnapshot(db: Database, runId: string, turnId?: string): void {
+    const clients = this.runClients.get(runId)
+    if (!clients || clients.size === 0) {
+      return
+    }
+
+    const runRow = findRunById(db, runId)
+    if (!runRow) {
+      return
+    }
+
+    const statusEvent: RunEvent = { type: 'run-status', run: runRowToRun(runRow) }
+    for (const client of clients) {
+      this.safeSend(client, statusEvent)
+    }
+
+    const targetTurn = turnId
+      ? findRunTurnById(db, turnId)
+      : findLatestRunTurnByRunId(db, runId)
+    if (!targetTurn) {
+      return
+    }
+
+    const turnEvent: RunEvent = {
+      type: 'run-turn',
+      runId,
+      turn: runTurnRowToRunTurn(targetTurn),
+    }
+    for (const client of clients) {
+      this.safeSend(client, turnEvent)
+    }
+  }
+
   removeRunClient(runId: string, socket: WebSocket): void {
     const clients = this.runClients.get(runId)
     if (clients) {
@@ -501,45 +538,37 @@ export class AgentHub {
 
   private handleRunEvent(
     agentId: string,
-    message: { type: 'run-status'; runId: string; status: string; summary?: string; hasDiff?: boolean },
+    message: { type: 'run-status'; runId: string; turnId: string; status: string; summary?: string; hasDiff?: boolean },
     db: Database
   ): void {
     const runRow = findRunById(db, message.runId)
-    if (!runRow || runRow.agent_id !== agentId) {
+    const turnRow = findRunTurnById(db, message.turnId)
+    if (!runRow || !turnRow || runRow.agent_id !== agentId || turnRow.run_id !== message.runId) {
       return
     }
 
-    // Update run in DB
-    updateRunStatus(db, message.runId, message.status, message.summary, message.hasDiff)
-
-    // Load the updated run to broadcast
-    const updatedRunRow = findRunById(db, message.runId)
-    if (!updatedRunRow) return
-
-    const run = runRowToRun(updatedRunRow)
-    const event: RunEvent = { type: 'run-status', run }
-
-    // Broadcast to all WebSocket clients watching this run
-    const clients = this.runClients.get(message.runId)
-    if (clients) {
-      for (const client of clients) {
-        this.safeSend(client, event)
-      }
-    }
+    updateRunTurnStatus(db, message.turnId, message.status, message.summary, message.hasDiff)
+    this.broadcastRunSnapshot(db, message.runId, message.turnId)
   }
 
   private handleRunItem(
     agentId: string,
-    message: { type: 'run-item'; runId: string; item: RunTimelineEventPayload },
+    message: { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEventPayload },
     db: Database,
   ): void {
     const ownedRun = findRunById(db, message.runId)
-    if (!ownedRun || ownedRun.agent_id !== agentId) {
+    const turnRow = findRunTurnById(db, message.turnId)
+    if (!ownedRun || !turnRow || ownedRun.agent_id !== agentId || turnRow.run_id !== message.runId) {
       return
     }
 
-    const item = appendRunTimelineEvent(db, message.runId, message.item)
-    const event: RunEvent = { type: 'run-item', runId: message.runId, item }
+    const item = appendRunTimelineEvent(db, message.runId, message.turnId, message.item)
+    const event: RunEvent = {
+      type: 'run-item',
+      runId: message.runId,
+      turnId: message.turnId,
+      item,
+    }
 
     const clients = this.runClients.get(message.runId)
     if (clients) {
