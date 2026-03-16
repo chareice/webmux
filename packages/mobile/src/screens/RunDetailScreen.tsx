@@ -344,16 +344,9 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
               return (
                 <View key={segment.id} style={styles.bubbleAssistant}>
                   <Text style={styles.bubbleRoleAssistant}>Assistant</Text>
-                  <PreviewableMarkdownCard
-                    style={styles.bubbleContent}
-                    content={segment.text}
-                    lineLimit={10}
-                    charLimit={500}
-                    openLabel="Read more"
-                    previewTextStyle={styles.bubbleAssistantText}
-                    measureTextStyle={styles.bubbleMeasureText}
-                    onOpenContent={() => handleOpenContent('Message', segment.text)}
-                  />
+                  <View style={styles.bubbleContent}>
+                    <MarkdownContent content={segment.text} compact />
+                  </View>
                 </View>
               );
             }
@@ -786,7 +779,9 @@ const styles = StyleSheet.create({
   // Chat bubbles
   bubbleUser: {
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 4,
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderLeftWidth: 3,
@@ -807,7 +802,9 @@ const styles = StyleSheet.create({
   },
   bubbleAssistant: {
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 4,
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderLeftWidth: 3,

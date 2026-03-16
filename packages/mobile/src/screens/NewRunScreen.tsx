@@ -34,7 +34,29 @@ import {
   pickImageAttachments,
   toUploadAttachments,
 } from '../image-attachments';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, commonStyles, fonts } from '../theme';
+
+const FAVORITES_KEY = 'webmux:favorite-repos';
+
+async function getFavoriteRepos(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(FAVORITES_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as string[];
+  } catch {
+    return [];
+  }
+}
+
+async function toggleFavoriteRepo(path: string): Promise<string[]> {
+  const current = await getFavoriteRepos();
+  const next = current.includes(path)
+    ? current.filter((p) => p !== path)
+    : [...current, path];
+  await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(next));
+  return next;
+}
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type NewRunRouteProp = RouteProp<RootStackParamList, 'NewThread'>;
@@ -77,6 +99,7 @@ export default function NewRunScreen(): React.JSX.Element {
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<DraftImageAttachment[]>([]);
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
   const [repositoryBrowser, setRepositoryBrowser] = useState<RepositoryBrowseResponse | null>(null);
   const [isRepositoryModalVisible, setIsRepositoryModalVisible] = useState(false);
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
@@ -129,7 +152,13 @@ export default function NewRunScreen(): React.JSX.Element {
 
   useEffect(() => {
     fetchAgents();
+    void getFavoriteRepos().then(setFavorites);
   }, [fetchAgents]);
+
+  const handleToggleFavorite = useCallback(async (path: string) => {
+    const next = await toggleFavoriteRepo(path);
+    setFavorites(next);
+  }, []);
 
   useEffect(() => {
     if (!preferredAgentId || agents.length === 0) {
@@ -358,11 +387,53 @@ export default function NewRunScreen(): React.JSX.Element {
           </View>
         ) : null}
 
-        {recentRepos.length > 0 ? (
+        {favorites.length > 0 ? (
+          <>
+            <Text style={styles.helperLabel}>Favorites</Text>
+            <View style={styles.optionsRow}>
+              {favorites.map((fav) => (
+                <TouchableOpacity
+                  key={fav}
+                  style={[
+                    styles.repoChip,
+                    repoPath === fav && styles.repoChipSelected,
+                  ]}
+                  activeOpacity={0.7}
+                  onPress={() => setRepoPath(fav)}>
+                  <View style={styles.repoChipHeader}>
+                    <Text
+                      style={[
+                        styles.repoChipTitle,
+                        repoPath === fav && styles.repoChipTitleSelected,
+                      ]}>
+                      {repositoryName(fav)}
+                    </Text>
+                    <TouchableOpacity
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      onPress={() => void handleToggleFavorite(fav)}
+                      activeOpacity={0.7}>
+                      <Text style={styles.starFilled}>★</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text
+                    style={[
+                      styles.repoChipPath,
+                      repoPath === fav && styles.repoChipPathSelected,
+                    ]}
+                    numberOfLines={1}>
+                    {fav}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        {recentRepos.filter((r) => !favorites.includes(r)).length > 0 ? (
           <>
             <Text style={styles.helperLabel}>Recent repositories</Text>
             <View style={styles.optionsRow}>
-              {recentRepos.map((recentRepo) => (
+              {recentRepos.filter((r) => !favorites.includes(r)).map((recentRepo) => (
                 <TouchableOpacity
                   key={recentRepo}
                   style={[
@@ -371,13 +442,21 @@ export default function NewRunScreen(): React.JSX.Element {
                   ]}
                   activeOpacity={0.7}
                   onPress={() => setRepoPath(recentRepo)}>
-                  <Text
-                    style={[
-                      styles.repoChipTitle,
-                      repoPath === recentRepo && styles.repoChipTitleSelected,
-                    ]}>
-                    {repositoryName(recentRepo)}
-                  </Text>
+                  <View style={styles.repoChipHeader}>
+                    <Text
+                      style={[
+                        styles.repoChipTitle,
+                        repoPath === recentRepo && styles.repoChipTitleSelected,
+                      ]}>
+                      {repositoryName(recentRepo)}
+                    </Text>
+                    <TouchableOpacity
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      onPress={() => void handleToggleFavorite(recentRepo)}
+                      activeOpacity={0.7}>
+                      <Text style={styles.starEmpty}>☆</Text>
+                    </TouchableOpacity>
+                  </View>
                   <Text
                     style={[
                       styles.repoChipPath,
@@ -390,7 +469,7 @@ export default function NewRunScreen(): React.JSX.Element {
               ))}
             </View>
           </>
-        ) : selectedAgent ? (
+        ) : selectedAgent && favorites.length === 0 ? (
           <Text style={styles.helperText}>
             No recent repositories yet. Use the picker above to browse folders on this agent.
           </Text>
@@ -624,6 +703,19 @@ const styles = StyleSheet.create({
   },
   repoChipTitleSelected: {
     color: colors.green,
+  },
+  repoChipHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  starFilled: {
+    color: '#f5a623',
+    fontSize: 16,
+  },
+  starEmpty: {
+    color: colors.textSecondary,
+    fontSize: 16,
   },
   repoChipPath: {
     marginTop: 6,

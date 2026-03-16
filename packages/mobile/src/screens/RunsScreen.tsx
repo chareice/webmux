@@ -379,87 +379,85 @@ const styles = StyleSheet.create({
 
   // Project group header
   projectSection: {
-    marginTop: 8,
+    marginTop: 12,
   },
   projectHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
     marginHorizontal: 16,
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   projectChevron: {
     color: colors.textSecondary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    width: 14,
+    width: 12,
     textAlign: 'center',
   },
   projectName: {
     color: colors.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   projectPath: {
     flex: 1,
     color: colors.textSecondary,
-    fontSize: 11,
+    fontSize: 10,
     marginLeft: 4,
   },
   projectBadges: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
   },
   activeBadge: {
     backgroundColor: colors.accent + '22',
     borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
   },
   activeBadgeText: {
     color: colors.accent,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
   },
   countBadge: {
     backgroundColor: colors.border,
     borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
   },
   countBadgeText: {
     color: colors.textSecondary,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
   },
 
-  // Thread card (compact)
+  // Thread card (compact, no border)
   threadCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    padding: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     marginHorizontal: 16,
-    marginVertical: 3,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    gap: 6,
+    marginBottom: 6,
   },
   metaTool: {
     color: colors.textSecondary,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   metaTime: {
     color: colors.textSecondary,
-    fontSize: 11,
+    fontSize: 10,
     marginLeft: 'auto',
   },
   statusBadge: {
@@ -511,15 +509,14 @@ const styles = StyleSheet.create({
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: 6,
+    marginTop: 4,
   },
   deleteText: {
-    color: colors.red,
-    fontSize: 12,
-    fontWeight: '600',
+    color: colors.textSecondary,
+    fontSize: 11,
   },
   deleteTextDisabled: {
-    opacity: 0.6,
+    opacity: 0.4,
   },
   errorContainer: {
     alignItems: 'center',
