@@ -856,6 +856,11 @@ function TurnMessages({ turn, showDivider, onOpenTools }: {
 }
 
 function ToolsGroup({ items, onOpen }: { items: RunTimelineEvent[]; onOpen: (items: RunTimelineEvent[]) => void }) {
+  // Single todo → show inline as a todo card directly
+  if (items.length === 1 && items[0].type === 'todo') {
+    return <TodoCard item={items[0]} />
+  }
+
   // Single activity with short/no detail → show inline as system text
   if (items.length === 1 && items[0].type === 'activity') {
     const a = items[0]
@@ -863,9 +868,10 @@ function ToolsGroup({ items, onOpen }: { items: RunTimelineEvent[]; onOpen: (ite
     return <div className="chat-system">{a.label}{detail}</div>
   }
 
-  // Only trivial activities (no commands, all short) → show inline
+  // Only trivial activities (no commands, no todos, all short) → show inline
   const hasCommands = items.some((i) => i.type === 'command')
-  if (!hasCommands && items.length <= 3 && items.every((i) => i.type === 'activity' && (!i.detail || i.detail.length <= 80))) {
+  const hasTodos = items.some((i) => i.type === 'todo')
+  if (!hasCommands && !hasTodos && items.length <= 3 && items.every((i) => i.type === 'activity' && (!i.detail || i.detail.length <= 80))) {
     return (
       <div className="chat-system">
         {items.map((i) => i.type === 'activity' ? i.label : '').filter(Boolean).join(' → ')}
@@ -875,9 +881,11 @@ function ToolsGroup({ items, onOpen }: { items: RunTimelineEvent[]; onOpen: (ite
 
   const commands = items.filter((i) => i.type === 'command').length
   const activities = items.filter((i) => i.type === 'activity').length
+  const todos = items.filter((i) => i.type === 'todo').length
   const parts: string[] = []
   if (commands > 0) parts.push(`${commands} command${commands > 1 ? 's' : ''}`)
   if (activities > 0) parts.push(`${activities} activit${activities > 1 ? 'ies' : 'y'}`)
+  if (todos > 0) parts.push(`${todos} todo list${todos > 1 ? 's' : ''}`)
   const summary = parts.join(', ')
 
   return (
@@ -919,6 +927,9 @@ function ToolDrawer({ items, onClose }: { items: RunTimelineEvent[]; onClose: ()
           }
           if (item.type === 'activity') {
             return <ActivityItem key={item.id} item={item} />
+          }
+          if (item.type === 'todo') {
+            return <TodoCard key={item.id} item={item} />
           }
           return null
         })}
@@ -965,6 +976,30 @@ function ActivityItem({
           </pre>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+function TodoCard({ item }: { item: Extract<RunTimelineEvent, { type: 'todo' }> }) {
+  const completedCount = item.items.filter((e) => e.status === 'completed').length
+  const totalCount = item.items.length
+
+  return (
+    <div className="timeline-card todo-card">
+      <div className="todo-header">
+        <span className="timeline-eyebrow accent">Todo List</span>
+        <span className="todo-progress">{completedCount}/{totalCount}</span>
+      </div>
+      <ul className="todo-list">
+        {item.items.map((entry, i) => (
+          <li key={i} className={`todo-entry todo-entry--${entry.status}`}>
+            <span className="todo-icon">
+              {entry.status === 'completed' ? '✓' : entry.status === 'in_progress' ? '◉' : '○'}
+            </span>
+            <span className="todo-text">{entry.text}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

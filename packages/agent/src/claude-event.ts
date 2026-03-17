@@ -1,5 +1,5 @@
 import type { ClaudeMessage } from './claude-client.js'
-import type { RunStatus, RunTimelineEventPayload } from '@webmux/shared'
+import type { RunStatus, RunTimelineEventPayload, TodoEntryStatus } from '@webmux/shared'
 
 export interface ClaudeEventParseResult {
   items: RunTimelineEventPayload[]
@@ -108,6 +108,23 @@ export class ClaudeMessageParser {
         && typeof block.id === 'string'
         && typeof block.name === 'string'
       ) {
+        // TodoWrite — emit a dedicated todo timeline event
+        if (block.name === 'TodoWrite' && isRecord(block.input) && Array.isArray(block.input.todos)) {
+          this.pendingToolUses.set(block.id, { name: block.name })
+          items.push({
+            type: 'todo',
+            items: (block.input.todos as Array<Record<string, unknown>>).map((t) => ({
+              text: typeof t.content === 'string' ? t.content : String(t.content ?? ''),
+              status: (
+                t.status === 'completed' ? 'completed'
+                : t.status === 'in_progress' ? 'in_progress'
+                : 'pending'
+              ) as TodoEntryStatus,
+            })),
+          })
+          continue
+        }
+
         this.pendingToolUses.set(block.id, {
           name: block.name,
           command:
@@ -192,6 +209,11 @@ export class ClaudeMessageParser {
           output,
           exitCode: inferExitCode(block.content, message.tool_use_result, isError),
         })
+        continue
+      }
+
+      // TodoWrite result — already rendered as a todo card on tool_use, skip silently
+      if (pendingToolUse?.name === 'TodoWrite') {
         continue
       }
 

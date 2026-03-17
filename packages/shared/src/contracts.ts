@@ -190,6 +190,13 @@ export interface RunTurn {
 
 export type RunTimelineEventStatus = 'info' | 'success' | 'warning' | 'error'
 
+export type TodoEntryStatus = 'pending' | 'in_progress' | 'completed'
+
+export interface TodoEntry {
+  text: string
+  status: TodoEntryStatus
+}
+
 export type RunTimelineEventPayload =
   | {
       type: 'message'
@@ -208,6 +215,10 @@ export type RunTimelineEventPayload =
       status: RunTimelineEventStatus
       label: string
       detail?: string
+    }
+  | {
+      type: 'todo'
+      items: TodoEntry[]
     }
 
 export type RunTimelineEvent = RunTimelineEventPayload & {

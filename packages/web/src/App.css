@@ -2824,6 +2824,78 @@
   border-left: 2px solid var(--muted);
 }
 
+/* ── Todo card ───────────────────────────────────── */
+
+.todo-card {
+  border-left: 2px solid var(--accent);
+}
+
+.todo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.todo-progress {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+}
+
+.todo-list {
+  list-style: none;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.todo-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.todo-icon {
+  flex-shrink: 0;
+  width: 1.1em;
+  text-align: center;
+  font-size: 0.85em;
+}
+
+.todo-entry--completed .todo-icon {
+  color: var(--success);
+}
+
+.todo-entry--in_progress .todo-icon {
+  color: var(--accent);
+  animation: todo-pulse 1.5s ease-in-out infinite;
+}
+
+.todo-entry--pending .todo-icon {
+  color: var(--muted);
+}
+
+.todo-entry--completed .todo-text {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.todo-entry--in_progress .todo-text {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+@keyframes todo-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 /* ── Command card ────────────────────────────────── */
 
 .command-card {

@@ -183,10 +183,11 @@ function parseThreadItem(
       return {
         items: [
           {
-            type: 'activity',
-            status: 'info',
-            label: 'Updated todo list',
-            detail: item.items.map((entry) => `${entry.completed ? '[x]' : '[ ]'} ${entry.text}`).join('\n'),
+            type: 'todo',
+            items: item.items.map((entry) => ({
+              text: entry.text,
+              status: entry.completed ? 'completed' as const : 'pending' as const,
+            })),
           },
         ],
       }
