@@ -164,9 +164,38 @@ export function ThreadDetailPage() {
   const [isContinuing, setIsContinuing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [drawerItems, setDrawerItems] = useState<RunTimelineEvent[] | null>(null)
+  const drawerItemsRef = useRef<RunTimelineEvent[] | null>(null)
 
   const timelineRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Open tool drawer: push a history entry so mobile back gesture works
+  const openToolDrawer = useCallback((items: RunTimelineEvent[]) => {
+    setDrawerItems(items)
+    drawerItemsRef.current = items
+    window.history.pushState({ toolDrawer: true }, '')
+  }, [])
+
+  // Close tool drawer: go back in history if we pushed an entry
+  const closeToolDrawer = useCallback(() => {
+    setDrawerItems(null)
+    drawerItemsRef.current = null
+    // Pop the history entry we pushed
+    window.history.back()
+  }, [])
+
+  // Listen for popstate (browser back button / swipe gesture)
+  useEffect(() => {
+    const handler = (_e: PopStateEvent) => {
+      // If drawer is open and user navigated back, close it
+      if (drawerItemsRef.current) {
+        setDrawerItems(null)
+        drawerItemsRef.current = null
+      }
+    }
+    window.addEventListener('popstate', handler)
+    return () => window.removeEventListener('popstate', handler)
+  }, [])
 
 
   const fetchDetail = useCallback(async () => {
@@ -423,7 +452,7 @@ export function ThreadDetailPage() {
   if (drawerItems) {
     return (
       <div className="thread-detail-page">
-        <ToolDrawer items={drawerItems} onClose={() => setDrawerItems(null)} />
+        <ToolDrawer items={drawerItems} onClose={closeToolDrawer} />
       </div>
     )
   }
@@ -526,7 +555,7 @@ export function ThreadDetailPage() {
                   key={turn.id}
                   turn={turn}
                   showDivider={i > 0}
-                  onOpenTools={setDrawerItems}
+                  onOpenTools={openToolDrawer}
                 />
               ))
             )}
