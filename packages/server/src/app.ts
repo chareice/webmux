@@ -67,6 +67,9 @@ export function buildApp(options: BuildAppOptions) {
   app.get('/api/mobile/version', async () => resolveMobileVersion())
 
   const taskDispatcher = new TaskDispatcher(db, hub)
+  if (typeof hub.setTaskDispatcher === 'function') {
+    hub.setTaskDispatcher(taskDispatcher)
+  }
   registerRoutes(app, db, hub, options.config, taskDispatcher)
 
   const staticRoot = options.staticRoot ?? resolveWebDistPath()

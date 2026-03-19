@@ -11,6 +11,7 @@ import type {
   RunEvent,
   Run,
 } from '@webmux/shared'
+import type { TaskDispatcher } from './task-dispatcher.js'
 import { compareSemanticVersions } from '@webmux/shared'
 import { verifySecret } from './auth.js'
 import { describeMinimumVersionFailure } from './agent-upgrade.js'
@@ -70,6 +71,7 @@ interface PendingCommand<T> {
 export class AgentHub {
   upgradePolicy: AgentUpgradePolicy | null
   private notificationService: NotificationService | null
+  private taskDispatcher: TaskDispatcher | null
   private agents = new Map<string, OnlineAgent>()
   private heartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private pendingCommands = new Map<string, PendingCommand<unknown>>()
@@ -79,10 +81,12 @@ export class AgentHub {
     options: {
       upgradePolicy?: AgentUpgradePolicy | null
       notificationService?: NotificationService | null
+      taskDispatcher?: TaskDispatcher | null
     } = {},
   ) {
     this.upgradePolicy = options.upgradePolicy ?? null
     this.notificationService = options.notificationService ?? null
+    this.taskDispatcher = options.taskDispatcher ?? null
   }
 
   handleConnection(socket: WebSocket, db: Database): void {
@@ -204,6 +208,11 @@ export class AgentHub {
     }
     socket.send(JSON.stringify(msg))
 
+    // Dispatch pending tasks for this agent
+    if (this.taskDispatcher) {
+      this.taskDispatcher.dispatchPendingTasksForAgent(agentId)
+    }
+
     return true
   }
 
@@ -295,6 +304,10 @@ export class AgentHub {
       case 'auth':
         break
     }
+  }
+
+  setTaskDispatcher(dispatcher: TaskDispatcher): void {
+    this.taskDispatcher = dispatcher
   }
 
   getAgent(agentId: string): OnlineAgent | undefined {

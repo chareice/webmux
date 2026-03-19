@@ -5,7 +5,8 @@ import type { AgentUpgradePolicy, ServerToAgentMessage } from '@webmux/shared'
 
 import { hashSecret } from './auth.js'
 import { AgentHub } from './agent-hub.js'
-import { createAgent, createProject, createRunWithInitialTurn, createTask, createUser, findRunById, findRunTurnById, findTaskById, initDb } from './db.js'
+import { createAgent, createProject, createRunWithInitialTurn, createTask, createUser, findRunById, findRunTurnById, findTaskById, findPendingTasksByProjectId, initDb } from './db.js'
+import type { TaskDispatcher } from './task-dispatcher.js'
 
 function createSocket() {
   const messages: ServerToAgentMessage[] = []
@@ -497,5 +498,94 @@ describe('AgentHub task message handling', () => {
       { type: 'task-claimed', taskId: 'nonexistent-id', branchName: 'b', worktreePath: '/w' },
       db,
     )
+  })
+})
+
+describe('AgentHub dispatch on connect', () => {
+  it('calls dispatchPendingTasksForAgent when an agent authenticates', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const secret = 'agent-secret'
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'worker',
+      agentSecretHash: await hashSecret(secret),
+    })
+
+    const dispatchPendingTasksForAgent = vi.fn()
+    const mockTaskDispatcher = {
+      dispatchPendingTasksForAgent,
+    } as unknown as TaskDispatcher
+
+    const hub = new AgentHub({ taskDispatcher: mockTaskDispatcher })
+    const socket = createSocket()
+
+    const authenticated = await (hub as unknown as { authenticateAgent: AuthenticateAgent })
+      .authenticateAgent(socket, db, agent.id, secret, '0.1.0')
+
+    expect(authenticated).toBe(true)
+    expect(dispatchPendingTasksForAgent).toHaveBeenCalledWith(agent.id)
+    expect(dispatchPendingTasksForAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not dispatch when no taskDispatcher is configured', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const secret = 'agent-secret'
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'worker',
+      agentSecretHash: await hashSecret(secret),
+    })
+
+    const hub = new AgentHub()
+    const socket = createSocket()
+
+    // Should not throw even without a taskDispatcher
+    const authenticated = await (hub as unknown as { authenticateAgent: AuthenticateAgent })
+      .authenticateAgent(socket, db, agent.id, secret, '0.1.0')
+
+    expect(authenticated).toBe(true)
+  })
+
+  it('dispatches pending tasks via setTaskDispatcher', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const secret = 'agent-secret'
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'worker',
+      agentSecretHash: await hashSecret(secret),
+    })
+
+    const dispatchPendingTasksForAgent = vi.fn()
+    const mockTaskDispatcher = {
+      dispatchPendingTasksForAgent,
+    } as unknown as TaskDispatcher
+
+    const hub = new AgentHub()
+    hub.setTaskDispatcher(mockTaskDispatcher)
+    const socket = createSocket()
+
+    const authenticated = await (hub as unknown as { authenticateAgent: AuthenticateAgent })
+      .authenticateAgent(socket, db, agent.id, secret, '0.1.0')
+
+    expect(authenticated).toBe(true)
+    expect(dispatchPendingTasksForAgent).toHaveBeenCalledWith(agent.id)
   })
 })
