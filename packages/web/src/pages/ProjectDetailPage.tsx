@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Plus, LoaderCircle, RotateCcw, Trash2, ExternalLink } from 'lucide-react'
-import { fetchApi } from '../auth.tsx'
-import type { Project, Task, TaskStatus } from '@webmux/shared'
+import { fetchApi, useAuth } from '../auth.tsx'
+import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
+import type { Project, Task, TaskStatus, RunEvent } from '@webmux/shared'
 
 const ACTIVE_TASK_STATUSES: TaskStatus[] = ['dispatched', 'running']
 const AUTO_REFRESH_INTERVAL = 5000
@@ -41,6 +42,7 @@ function taskStatusClass(status: TaskStatus): string {
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
+  const { token } = useAuth()
 
   const [project, setProject] = useState<Project | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
@@ -79,7 +81,7 @@ export function ProjectDetailPage() {
     void loadData(true)
   }, [loadData])
 
-  // Auto-refresh when there are active tasks
+  // Auto-refresh when there are active tasks (fallback for missed WS events)
   useEffect(() => {
     const hasActive = tasks.some((t) => ACTIVE_TASK_STATUSES.includes(t.status))
     if (hasActive) {
@@ -94,6 +96,32 @@ export function ProjectDetailPage() {
       }
     }
   }, [tasks, loadData])
+
+  // WebSocket for real-time task status updates
+  useEffect(() => {
+    if (!projectId || !token) return
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const controller = createReconnectableSocket({
+      connect() {
+        return new WebSocket(
+          `${wsProtocol}//${window.location.host}/ws/project?projectId=${encodeURIComponent(projectId)}&token=${encodeURIComponent(token)}`,
+        )
+      },
+      onMessage(event) {
+        try {
+          const data = JSON.parse(event.data) as RunEvent
+          if (data.type === 'task-status') {
+            setTasks((prev) => prev.map((t) => (t.id === data.task.id ? data.task : t)))
+          }
+        } catch {
+          // ignore parse errors
+        }
+      },
+    })
+
+    return () => controller.dispose()
+  }, [projectId, token])
 
   const handleAddTask = async () => {
     setFormError(null)
