@@ -17,8 +17,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.76",
     "@openai/codex-sdk": "^0.114.0",
     "commander": "^14.0.0",
-    "node-pty": "^1.1.0",
-    "ws": "^8.19.0"
+"ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

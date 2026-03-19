@@ -16,7 +16,6 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import NewThreadScreen from './src/screens/NewRunScreen';
 import ThreadDetailScreen from './src/screens/RunDetailScreen';
 import ThreadContentScreen from './src/screens/ThreadContentScreen';
-import TerminalScreen from './src/screens/TerminalScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -160,11 +159,6 @@ function AppNavigator(): React.JSX.Element {
             name="ThreadContent"
             component={ThreadContentScreen}
             options={({ route }) => ({ title: route.params.title })}
-          />
-          <Stack.Screen
-            name="Terminal"
-            component={TerminalScreen}
-            options={{ title: 'Terminal' }}
           />
         </>
       )}

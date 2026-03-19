@@ -1,14 +1,3 @@
-export interface SessionSummary {
-  name: string
-  windows: number
-  attachedClients: number
-  createdAt: number
-  lastActivityAt: number
-  path: string
-  preview: string[]
-  currentCommand: string
-}
-
 export interface AgentInfo {
   id: string
   name: string
@@ -49,15 +38,9 @@ export interface RunImageAttachmentUpload extends RunImageAttachment {
 export type AgentMessage =
   | { type: 'auth'; agentId: string; agentSecret: string; version?: string }
   | { type: 'heartbeat' }
-  | { type: 'sessions-sync'; sessions: SessionSummary[] }
-  | { type: 'command-result'; requestId: string; ok: true; session?: SessionSummary }
-  | { type: 'command-result'; requestId: string; ok: false; error: string }
   | { type: 'repository-browse-result'; requestId: string; ok: true; currentPath: string; parentPath: string | null; entries: RepositoryEntry[] }
   | { type: 'repository-browse-result'; requestId: string; ok: false; error: string }
-  | { type: 'terminal-output'; browserId: string; data: string }
-  | { type: 'terminal-ready'; browserId: string; sessionName: string }
-  | { type: 'terminal-exit'; browserId: string; exitCode: number }
-  | { type: 'error'; browserId?: string; message: string }
+  | { type: 'error'; message: string }
   | { type: 'run-status'; runId: string; turnId: string; status: RunStatus; summary?: string; hasDiff?: boolean; toolThreadId?: string }
   | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEventPayload }
 
@@ -65,13 +48,6 @@ export type AgentMessage =
 export type ServerToAgentMessage =
   | { type: 'auth-ok'; upgradePolicy?: AgentUpgradePolicy }
   | { type: 'auth-fail'; message: string }
-  | { type: 'sessions-list' }
-  | { type: 'terminal-attach'; browserId: string; sessionName: string; cols: number; rows: number }
-  | { type: 'terminal-detach'; browserId: string }
-  | { type: 'terminal-input'; browserId: string; data: string }
-  | { type: 'terminal-resize'; browserId: string; cols: number; rows: number }
-  | { type: 'session-create'; requestId: string; name: string }
-  | { type: 'session-kill'; requestId: string; name: string }
   | { type: 'repository-browse'; requestId: string; path?: string }
   | {
       type: 'run-turn-start'
@@ -86,25 +62,6 @@ export type ServerToAgentMessage =
     }
   | { type: 'run-turn-interrupt'; runId: string; turnId: string }
   | { type: 'run-turn-kill'; runId: string; turnId: string }
-
-// Browser → Server
-export type TerminalClientMessage =
-  | { type: 'input'; data: string }
-  | { type: 'resize'; cols: number; rows: number }
-
-// Server → Browser
-export type TerminalServerMessage =
-  | { type: 'ready'; sessionName: string }
-  | { type: 'data'; data: string }
-  | { type: 'exit'; exitCode: number }
-  | { type: 'error'; message: string }
-
-// Server → Browser (events WebSocket)
-export type SessionEvent = {
-  type: 'sessions-sync'
-  agentId: string
-  sessions: SessionSummary[]
-}
 
 // REST API types
 
@@ -130,23 +87,6 @@ export interface RegisterAgentResponse {
   agentId: string
   agentSecret: string
 }
-
-export interface CreateSessionRequest {
-  name: string
-}
-
-export interface CreateSessionResponse {
-  session: SessionSummary
-}
-
-export interface ListSessionsResponse {
-  sessions: SessionSummary[]
-}
-
-export const DEFAULT_TERMINAL_SIZE = {
-  cols: 120,
-  rows: 36,
-} as const
 
 // --- Run types ---
 

@@ -4,7 +4,6 @@ import { LogOut } from 'lucide-react'
 import { AuthProvider, useAuth } from './auth.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { AgentsPage } from './pages/AgentsPage.tsx'
-import { SessionsPage } from './pages/SessionsPage.tsx'
 import { ThreadsPage } from './pages/ThreadsPage.tsx'
 import { NewThreadPage } from './pages/NewThreadPage.tsx'
 import { ThreadDetailPage } from './pages/ThreadDetailPage.tsx'
@@ -90,14 +89,6 @@ function App() {
               <AppLayout>
                 <AgentsPage />
               </AppLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/agents/:agentId"
-          element={
-            <ProtectedRoute>
-              <SessionsPage />
             </ProtectedRoute>
           }
         />

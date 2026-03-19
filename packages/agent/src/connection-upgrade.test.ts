@@ -21,13 +21,8 @@ describe('AgentConnection upgrade handling', () => {
     vi.useRealTimers()
   })
 
-  it('applies the recommended upgrade before starting session sync in service mode', async () => {
+  it('applies the recommended upgrade before starting heartbeat in service mode', async () => {
     vi.useFakeTimers()
-    const tmux = {
-      listSessions: vi.fn().mockResolvedValue([]),
-      createSession: vi.fn(),
-      killSession: vi.fn(),
-    }
     const fakeSocket = {
       readyState: 1,
       send: vi.fn(),
@@ -43,7 +38,7 @@ describe('AgentConnection upgrade handling', () => {
       'http://127.0.0.1:4317',
       'agent-1',
       'secret',
-      tmux as never,
+      '/home/user',
       runtime,
     )
 
@@ -67,7 +62,6 @@ describe('AgentConnection upgrade handling', () => {
       targetVersion: '0.1.5',
     })
     expect(runtime.exit).toHaveBeenCalledWith(0)
-    expect(tmux.listSessions).not.toHaveBeenCalled()
 
     connection.stop()
   })

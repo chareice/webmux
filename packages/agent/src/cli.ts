@@ -18,14 +18,9 @@ import { AGENT_PACKAGE_NAME, AGENT_VERSION } from './version.js'
 
 async function loadAgentRuntime(): Promise<{
   AgentConnection: typeof import('./connection.js').AgentConnection
-  TmuxClient: typeof import('./tmux.js').TmuxClient
 }> {
-  const [{ AgentConnection }, { TmuxClient }] = await Promise.all([
-    import('./connection.js'),
-    import('./tmux.js'),
-  ])
-
-  return { AgentConnection, TmuxClient }
+  const { AgentConnection } = await import('./connection.js')
+  return { AgentConnection }
 }
 
 export function createProgram(): Command {
@@ -109,22 +104,17 @@ export function createProgram(): Command {
         process.exit(1)
       }
 
-      const { AgentConnection, TmuxClient } = await loadAgentRuntime()
+      const { AgentConnection } = await loadAgentRuntime()
 
       console.log(`[agent] Starting agent "${creds.name}"...`)
       console.log(`[agent] Server: ${creds.serverUrl}`)
       console.log(`[agent] Agent ID: ${creds.agentId}`)
 
-      const tmux = new TmuxClient({
-        socketName: 'webmux',
-        workspaceRoot: os.homedir(),
-      })
-
       const connection = new AgentConnection(
         creds.serverUrl,
         creds.agentId,
         creds.agentSecret,
-        tmux,
+        os.homedir(),
       )
 
       const shutdown = () => {

@@ -181,7 +181,7 @@ export function AgentsPage() {
           <h2>No agents yet</h2>
           <p>
             Add an agent to connect a machine. Agents run on your servers and
-            provide terminal access through webmux.
+            provide AI-powered coding assistance through webmux.
           </p>
           <button className="primary-button" onClick={openModal} type="button">
             <Plus size={16} />
@@ -196,12 +196,12 @@ export function AgentsPage() {
               key={agent.id}
               onClick={() => {
                 if (renamingId) return
-                navigate(`/agents/${agent.id}`)
+                navigate(`/agents/${agent.id}/threads/new`)
               }}
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !renamingId) navigate(`/agents/${agent.id}`)
+                if (e.key === 'Enter' && !renamingId) navigate(`/agents/${agent.id}/threads/new`)
               }}
             >
               <div className="agent-card-header">

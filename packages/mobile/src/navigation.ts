@@ -10,7 +10,7 @@ export type RootStackParamList = {
   NewThread: { agentId?: string } | undefined;
   ThreadDetail: { agentId: string; runId: string };
   ThreadContent: { title: string; content: string; mono?: boolean };
-  Terminal: { agentId: string; sessionName?: string };
+
 };
 
 // Allow typing for useNavigation / useRoute

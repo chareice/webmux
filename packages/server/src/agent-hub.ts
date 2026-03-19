@@ -7,10 +7,7 @@ import type {
   AgentUpgradePolicy,
   RepositoryBrowseResponse,
   RunTimelineEventPayload,
-  SessionSummary,
   ServerToAgentMessage,
-  SessionEvent,
-  TerminalServerMessage,
   RunEvent,
   Run,
 } from '@webmux/shared'
@@ -56,18 +53,6 @@ interface OnlineAgent {
   socket: WebSocket
   userId: string
   name: string
-  sessions: SessionSummary[]
-}
-
-interface BrowserConnection {
-  browserSocket: WebSocket
-  agentId: string
-}
-
-// Event clients keyed by userId
-interface EventClient {
-  socket: WebSocket
-  userId: string
 }
 
 interface PendingCommand<T> {
@@ -75,15 +60,13 @@ interface PendingCommand<T> {
   timer: ReturnType<typeof setTimeout>
   resolve: (value: T) => void
   reject: (reason: Error) => void
-  type: 'session-create' | 'session-kill' | 'repository-browse'
+  type: 'repository-browse'
 }
 
 export class AgentHub {
   upgradePolicy: AgentUpgradePolicy | null
   private notificationService: NotificationService | null
   private agents = new Map<string, OnlineAgent>()
-  private browsers = new Map<string, BrowserConnection>()
-  private eventClients: EventClient[] = []
   private heartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private pendingCommands = new Map<string, PendingCommand<unknown>>()
   private runClients = new Map<string, Set<WebSocket>>()
@@ -133,9 +116,6 @@ export class AgentHub {
               authenticated = true
               agentId = message.agentId
               this.startHeartbeatMonitor(message.agentId, db)
-              // Request initial session list
-              const listMsg: ServerToAgentMessage = { type: 'sessions-list' }
-              socket.send(JSON.stringify(listMsg))
             }
           })
           .catch(() => {
@@ -209,7 +189,6 @@ export class AgentHub {
       socket,
       userId: agent.user_id,
       name: agent.name,
-      sessions: [],
     })
 
     updateAgentStatus(db, agentId, 'online')
@@ -255,43 +234,6 @@ export class AgentHub {
         break
       }
 
-      case 'sessions-sync': {
-        const agent = this.agents.get(agentId)
-        if (agent) {
-          agent.sessions = message.sessions
-          // Forward to all event clients for this user
-          this.broadcastSessionSync(agentId, agent.userId, message.sessions)
-        }
-        break
-      }
-
-      case 'command-result': {
-        const pending = this.pendingCommands.get(message.requestId)
-        if (!pending) {
-          break
-        }
-
-        this.pendingCommands.delete(message.requestId)
-        clearTimeout(pending.timer)
-
-        if (!message.ok) {
-          pending.reject(new Error(message.error))
-          break
-        }
-
-        if (pending.type === 'session-create') {
-          if (!message.session) {
-            pending.reject(new Error('Agent did not return the created session'))
-            break
-          }
-          pending.resolve(message.session)
-          break
-        }
-
-        pending.resolve(undefined)
-        break
-      }
-
       case 'repository-browse-result': {
         const pending = this.pendingCommands.get(message.requestId)
         if (!pending || pending.type !== 'repository-browse') {
@@ -314,43 +256,8 @@ export class AgentHub {
         break
       }
 
-      case 'terminal-output': {
-        const browser = this.browsers.get(message.browserId)
-        if (browser && browser.agentId === agentId) {
-          const outMsg: TerminalServerMessage = { type: 'data', data: message.data }
-          this.safeSend(browser.browserSocket, outMsg)
-        }
-        break
-      }
-
-      case 'terminal-ready': {
-        const browser = this.browsers.get(message.browserId)
-        if (browser && browser.agentId === agentId) {
-          const readyMsg: TerminalServerMessage = { type: 'ready', sessionName: message.sessionName }
-          this.safeSend(browser.browserSocket, readyMsg)
-        }
-        break
-      }
-
-      case 'terminal-exit': {
-        const browser = this.browsers.get(message.browserId)
-        if (browser && browser.agentId === agentId) {
-          const exitMsg: TerminalServerMessage = { type: 'exit', exitCode: message.exitCode }
-          this.safeSend(browser.browserSocket, exitMsg)
-          browser.browserSocket.close()
-          this.browsers.delete(message.browserId)
-        }
-        break
-      }
-
       case 'error': {
-        if (message.browserId) {
-          const browser = this.browsers.get(message.browserId)
-          if (browser && browser.agentId === agentId) {
-            const errMsg: TerminalServerMessage = { type: 'error', message: message.message }
-            this.safeSend(browser.browserSocket, errMsg)
-          }
-        }
+        console.error(`[agent-hub] Agent ${agentId} error: ${message.message}`)
         break
       }
 
@@ -372,18 +279,6 @@ export class AgentHub {
 
   getAgent(agentId: string): OnlineAgent | undefined {
     return this.agents.get(agentId)
-  }
-
-  getAgentSessions(agentId: string): SessionSummary[] {
-    return this.agents.get(agentId)?.sessions ?? []
-  }
-
-  async requestSessionCreate(agentId: string, name: string): Promise<SessionSummary> {
-    return this.requestCommand<SessionSummary>(agentId, 'session-create', { name })
-  }
-
-  async requestSessionKill(agentId: string, name: string): Promise<void> {
-    await this.requestCommand<void>(agentId, 'session-kill', { name })
   }
 
   async requestRepositoryBrowse(agentId: string, repositoryPath?: string): Promise<RepositoryBrowseResponse> {
@@ -417,16 +312,6 @@ export class AgentHub {
       pending.reject(new Error('Agent disconnected'))
     }
 
-    // Close all browser connections to this agent
-    for (const [browserId, browser] of this.browsers) {
-      if (browser.agentId === agentId) {
-        const errMsg: TerminalServerMessage = { type: 'error', message: 'Agent disconnected' }
-        this.safeSend(browser.browserSocket, errMsg)
-        browser.browserSocket.close()
-        this.browsers.delete(browserId)
-      }
-    }
-
     // Close agent socket
     try {
       agent.socket.close()
@@ -457,49 +342,6 @@ export class AgentHub {
       }
       this.broadcastRunSnapshot(db, run.id, activeTurn?.id)
     }
-
-    // Notify event clients that sessions are gone
-    this.broadcastSessionSync(agentId, agent.userId, [])
-  }
-
-  // --- Browser connection management ---
-
-  registerBrowser(browserId: string, browserSocket: WebSocket, agentId: string): void {
-    this.browsers.set(browserId, { browserSocket, agentId })
-  }
-
-  removeBrowser(browserId: string): void {
-    this.browsers.delete(browserId)
-  }
-
-  // --- Event clients ---
-
-  addEventClient(socket: WebSocket, userId: string): void {
-    this.eventClients.push({ socket, userId })
-
-    socket.on('close', () => {
-      this.removeEventClient(socket)
-    })
-
-    socket.on('error', () => {
-      this.removeEventClient(socket)
-    })
-
-    // Send current sessions for all user's agents
-    for (const [agentId, agent] of this.agents) {
-      if (agent.userId === userId) {
-        const event: SessionEvent = {
-          type: 'sessions-sync',
-          agentId,
-          sessions: agent.sessions,
-        }
-        this.safeSend(socket, event)
-      }
-    }
-  }
-
-  private removeEventClient(socket: WebSocket): void {
-    this.eventClients = this.eventClients.filter((c) => c.socket !== socket)
   }
 
   // --- Run client management ---
@@ -626,8 +468,8 @@ export class AgentHub {
 
   private requestCommand<TResult>(
     agentId: string,
-    type: 'session-create' | 'session-kill' | 'repository-browse',
-    payload: { name?: string; path?: string },
+    type: 'repository-browse',
+    payload: { path?: string },
   ): Promise<TResult> {
     const requestId = crypto.randomUUID()
 
@@ -645,18 +487,11 @@ export class AgentHub {
         type,
       })
 
-      const message: ServerToAgentMessage =
-        type === 'repository-browse'
-          ? {
-              type,
-              requestId,
-              path: payload.path,
-            }
-          : {
-              type,
-              requestId,
-              name: payload.name ?? '',
-            }
+      const message: ServerToAgentMessage = {
+        type,
+        requestId,
+        path: payload.path,
+      }
 
       const sent = this.sendToAgent(agentId, message)
 
@@ -668,15 +503,6 @@ export class AgentHub {
       this.pendingCommands.delete(requestId)
       reject(new Error('Failed to reach agent'))
     })
-  }
-
-  private broadcastSessionSync(agentId: string, userId: string, sessions: SessionSummary[]): void {
-    const event: SessionEvent = { type: 'sessions-sync', agentId, sessions }
-    for (const client of this.eventClients) {
-      if (client.userId === userId) {
-        this.safeSend(client.socket, event)
-      }
-    }
   }
 
   private safeSend(socket: WebSocket, message: unknown): void {
