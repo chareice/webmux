@@ -12,6 +12,7 @@ import { initDb } from './db.js'
 import { createMobileVersionResolver } from './mobile-version.js'
 import { createNotificationService } from './notification-service.js'
 import { registerRoutes } from './router.js'
+import { TaskDispatcher } from './task-dispatcher.js'
 
 export interface MobileVersionConfig {
   latestVersion?: string
@@ -65,7 +66,8 @@ export function buildApp(options: BuildAppOptions) {
   )
   app.get('/api/mobile/version', async () => resolveMobileVersion())
 
-  registerRoutes(app, db, hub, options.config)
+  const taskDispatcher = new TaskDispatcher(db, hub)
+  registerRoutes(app, db, hub, options.config, taskDispatcher)
 
   const staticRoot = options.staticRoot ?? resolveWebDistPath()
   const indexHtmlPath = staticRoot ? path.join(staticRoot, 'index.html') : null

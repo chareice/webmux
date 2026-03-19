@@ -23,6 +23,11 @@ import {
   initDb,
   updateRunToolThreadId,
   updateAgentLastSeen,
+  createProject,
+  createTask,
+  findTaskById,
+  findTasksByProjectId,
+  updateTaskStatus,
 } from './db.js'
 
 const TEST_SECRET = 'test-secret'
@@ -797,6 +802,303 @@ describe('buildApp', () => {
 
     expect(response.statusCode).toBe(200)
     expect(findAgentById(db, agent.id)).toBeUndefined()
+
+    await app.close()
+  })
+})
+
+describe('project and task routes', () => {
+  function setupUserAndAgent(db: ReturnType<typeof initDb>) {
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: 'proj-user',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'my-agent',
+      agentSecretHash: 'hash',
+    })
+    const token = signJwt(
+      { userId: user.id, displayName: user.display_name, role: user.role },
+      TEST_SECRET,
+    )
+    return { user, agent, token }
+  }
+
+  it('creates a project', async () => {
+    const db = initDb(':memory:')
+    const { agent, token } = setupUserAndAgent(db)
+
+    const hub = {
+      getAgent: () => null,
+      removeAgent() {},
+      sendToAgent: () => true,
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        name: 'My Project',
+        repoPath: '/home/user/project',
+        agentId: agent.id,
+      },
+    })
+
+    expect(response.statusCode).toBe(201)
+    const body = response.json()
+    expect(body.project.name).toBe('My Project')
+    expect(body.project.repoPath).toBe('/home/user/project')
+    expect(body.project.agentId).toBe(agent.id)
+    expect(body.project.defaultTool).toBe('claude')
+
+    await app.close()
+  })
+
+  it('lists projects', async () => {
+    const db = initDb(':memory:')
+    const { user, agent, token } = setupUserAndAgent(db)
+
+    createProject(db, {
+      userId: user.id,
+      agentId: agent.id,
+      name: 'Project A',
+      repoPath: '/tmp/a',
+    })
+    createProject(db, {
+      userId: user.id,
+      agentId: agent.id,
+      name: 'Project B',
+      repoPath: '/tmp/b',
+    })
+
+    const { app } = buildApp({
+      db,
+      hub: new AgentHub(),
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/projects',
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().projects).toHaveLength(2)
+
+    await app.close()
+  })
+
+  it('gets project detail with tasks', async () => {
+    const db = initDb(':memory:')
+    const { user, agent, token } = setupUserAndAgent(db)
+
+    const project = createProject(db, {
+      userId: user.id,
+      agentId: agent.id,
+      name: 'Detail Project',
+      repoPath: '/tmp/detail',
+    })
+    createTask(db, {
+      projectId: project.id,
+      title: 'Task 1',
+      prompt: 'Do something',
+    })
+    createTask(db, {
+      projectId: project.id,
+      title: 'Task 2',
+      prompt: 'Do something else',
+    })
+
+    const { app } = buildApp({
+      db,
+      hub: new AgentHub(),
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${project.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.project.name).toBe('Detail Project')
+    expect(body.tasks).toHaveLength(2)
+
+    await app.close()
+  })
+
+  it('creates a task and triggers dispatch', async () => {
+    const db = initDb(':memory:')
+    const { user, agent, token } = setupUserAndAgent(db)
+
+    const project = createProject(db, {
+      userId: user.id,
+      agentId: agent.id,
+      name: 'Task Project',
+      repoPath: '/tmp/task-proj',
+    })
+
+    const messages: Array<{ type: string }> = []
+    const hub = {
+      getAgent: () => ({ id: agent.id }),
+      removeAgent() {},
+      sendToAgent: (_agentId: string, message: { type: string }) => {
+        messages.push(message)
+        return true
+      },
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${project.id}/tasks`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        title: 'Fix bug',
+        prompt: 'Fix the login bug',
+        priority: 5,
+      },
+    })
+
+    expect(response.statusCode).toBe(201)
+    const body = response.json()
+    expect(body.task.title).toBe('Fix bug')
+    expect(body.task.prompt).toBe('Fix the login bug')
+    // TaskDispatcher should have tried to dispatch (agent is "online" in the hub mock)
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'task-dispatch' }))
+
+    await app.close()
+  })
+
+  it('retries a failed task', async () => {
+    const db = initDb(':memory:')
+    const { user, agent, token } = setupUserAndAgent(db)
+
+    const project = createProject(db, {
+      userId: user.id,
+      agentId: agent.id,
+      name: 'Retry Project',
+      repoPath: '/tmp/retry',
+    })
+    const task = createTask(db, {
+      projectId: project.id,
+      title: 'Failing task',
+      prompt: 'Do it',
+    })
+    updateTaskStatus(db, task.id, 'failed', 'Something went wrong')
+
+    const hub = {
+      getAgent: () => null,
+      removeAgent() {},
+      sendToAgent: () => true,
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${project.id}/tasks/${task.id}/retry`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { prompt: 'Try again with different approach' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.task.status).toBe('pending')
+    expect(body.task.errorMessage).toBeNull()
+
+    await app.close()
+  })
+
+  it('rejects editing non-pending tasks', async () => {
+    const db = initDb(':memory:')
+    const { user, agent, token } = setupUserAndAgent(db)
+
+    const project = createProject(db, {
+      userId: user.id,
+      agentId: agent.id,
+      name: 'Edit Project',
+      repoPath: '/tmp/edit',
+    })
+    const task = createTask(db, {
+      projectId: project.id,
+      title: 'Running task',
+      prompt: 'Do it',
+    })
+    updateTaskStatus(db, task.id, 'running')
+
+    const { app } = buildApp({
+      db,
+      hub: new AgentHub(),
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${project.id}/tasks/${task.id}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { title: 'Updated title' },
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error).toBe('Can only edit pending tasks')
+
+    await app.close()
+  })
+
+  it('rejects deleting non-pending tasks', async () => {
+    const db = initDb(':memory:')
+    const { user, agent, token } = setupUserAndAgent(db)
+
+    const project = createProject(db, {
+      userId: user.id,
+      agentId: agent.id,
+      name: 'Delete Project',
+      repoPath: '/tmp/delete',
+    })
+    const task = createTask(db, {
+      projectId: project.id,
+      title: 'Running task',
+      prompt: 'Do it',
+    })
+    updateTaskStatus(db, task.id, 'running')
+
+    const { app } = buildApp({
+      db,
+      hub: new AgentHub(),
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: `/api/projects/${project.id}/tasks/${task.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error).toBe('Can only delete pending tasks')
 
     await app.close()
   })

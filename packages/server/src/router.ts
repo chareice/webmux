@@ -14,6 +14,14 @@ import type {
   RunListResponse,
   RunDetailResponse,
   ServerToAgentMessage,
+  CreateProjectRequest,
+  UpdateProjectRequest,
+  CreateTaskRequest,
+  UpdateTaskRequest,
+  Project,
+  Task,
+  TaskStatus,
+  RunTool,
 } from '@webmux/shared'
 import {
   appendAuthTokenToRedirectTarget,
@@ -60,9 +68,22 @@ import {
   deleteRunTurn,
   updateQueuedTurnPrompt,
   upsertNotificationDevice,
+  createProject,
+  findProjectById,
+  findProjectsByUserId,
+  updateProject,
+  deleteProject,
+  createTask,
+  findTaskById,
+  findTasksByProjectId,
+  updateTaskPrompt,
+  deleteTask,
+  resetTaskToPending,
 } from './db.js'
+import type { ProjectRow, TaskRow } from './db.js'
 import type { AgentHub } from './agent-hub.js'
 import { runRowToRun } from './agent-hub.js'
+import type { TaskDispatcher } from './task-dispatcher.js'
 
 interface ServerConfig {
   jwtSecret: string
@@ -84,7 +105,8 @@ export function registerRoutes(
   app: FastifyInstance,
   db: Database,
   hub: AgentHub,
-  config: ServerConfig
+  config: ServerConfig,
+  taskDispatcher: TaskDispatcher,
 ): void {
   const MAX_IMAGE_ATTACHMENTS = 4
   const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024
@@ -916,5 +938,219 @@ export function registerRoutes(
     deleteRun(db, threadId)
 
     return { ok: true }
+  })
+
+  // --- Conversion helpers ---
+
+  function projectRowToProject(row: ProjectRow): Project {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      repoPath: row.repo_path,
+      agentId: row.agent_id,
+      defaultTool: row.default_tool as RunTool,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  function taskRowToTask(row: TaskRow): Task {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      title: row.title,
+      prompt: row.prompt,
+      status: row.status as TaskStatus,
+      priority: row.priority,
+      branchName: row.branch_name,
+      worktreePath: row.worktree_path,
+      runId: row.run_id,
+      errorMessage: row.error_message,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      claimedAt: row.claimed_at,
+      completedAt: row.completed_at,
+    }
+  }
+
+  // --- Project routes ---
+
+  app.post('/api/projects', { preHandler: authPreHandler }, async (request, reply) => {
+    const body = request.body as CreateProjectRequest | undefined
+    if (!body?.name?.trim() || !body?.repoPath?.trim() || !body?.agentId?.trim()) {
+      return reply.status(400).send({ error: 'Missing required fields: name, repoPath, agentId' })
+    }
+
+    const agent = findAgentById(db, body.agentId)
+    if (!agent || agent.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    const project = createProject(db, {
+      userId: request.user!.userId,
+      agentId: body.agentId,
+      name: body.name.trim(),
+      description: body.description?.trim() ?? '',
+      repoPath: body.repoPath.trim(),
+      defaultTool: body.defaultTool ?? 'claude',
+    })
+
+    return reply.status(201).send({ project: projectRowToProject(project) })
+  })
+
+  app.get('/api/projects', { preHandler: authPreHandler }, async (request) => {
+    const rows = findProjectsByUserId(db, request.user!.userId)
+    return { projects: rows.map(projectRowToProject) }
+  })
+
+  app.get('/api/projects/:id', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const tasks = findTasksByProjectId(db, id)
+    return { project: projectRowToProject(project), tasks: tasks.map(taskRowToTask) }
+  })
+
+  app.patch('/api/projects/:id', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const body = request.body as UpdateProjectRequest | undefined
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    updateProject(db, id, {
+      name: body?.name?.trim(),
+      description: body?.description?.trim(),
+      defaultTool: body?.defaultTool,
+    })
+
+    return { ok: true }
+  })
+
+  app.delete('/api/projects/:id', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    deleteProject(db, id)
+    return { ok: true }
+  })
+
+  // --- Task routes ---
+
+  app.post('/api/projects/:id/tasks', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const body = request.body as CreateTaskRequest | undefined
+
+    if (!body?.title?.trim() || !body?.prompt?.trim()) {
+      return reply.status(400).send({ error: 'Missing required fields: title, prompt' })
+    }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const task = createTask(db, {
+      projectId: id,
+      title: body.title.trim(),
+      prompt: body.prompt.trim(),
+      priority: body.priority ?? 0,
+    })
+
+    // Trigger dispatch for this project
+    taskDispatcher.dispatchPendingTasksForProject(id)
+
+    return reply.status(201).send({ task: taskRowToTask(task) })
+  })
+
+  app.get('/api/projects/:id/tasks', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const tasks = findTasksByProjectId(db, id)
+    return { tasks: tasks.map(taskRowToTask) }
+  })
+
+  app.patch('/api/projects/:id/tasks/:taskId', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, taskId } = request.params as { id: string; taskId: string }
+    const body = request.body as UpdateTaskRequest | undefined
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const task = findTaskById(db, taskId)
+    if (!task || task.project_id !== id) {
+      return reply.status(404).send({ error: 'Task not found' })
+    }
+
+    if (task.status !== 'pending') {
+      return reply.status(409).send({ error: 'Can only edit pending tasks' })
+    }
+
+    updateTaskPrompt(db, taskId, {
+      title: body?.title?.trim(),
+      prompt: body?.prompt?.trim(),
+      priority: body?.priority,
+    })
+
+    return { ok: true }
+  })
+
+  app.delete('/api/projects/:id/tasks/:taskId', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, taskId } = request.params as { id: string; taskId: string }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const task = findTaskById(db, taskId)
+    if (!task || task.project_id !== id) {
+      return reply.status(404).send({ error: 'Task not found' })
+    }
+
+    if (task.status !== 'pending') {
+      return reply.status(409).send({ error: 'Can only delete pending tasks' })
+    }
+
+    deleteTask(db, taskId)
+    return { ok: true }
+  })
+
+  app.post('/api/projects/:id/tasks/:taskId/retry', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, taskId } = request.params as { id: string; taskId: string }
+    const body = request.body as { prompt?: string } | undefined
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const task = findTaskById(db, taskId)
+    if (!task || task.project_id !== id) {
+      return reply.status(404).send({ error: 'Task not found' })
+    }
+
+    if (task.status !== 'failed') {
+      return reply.status(409).send({ error: 'Can only retry failed tasks' })
+    }
+
+    resetTaskToPending(db, taskId, body?.prompt?.trim())
+    taskDispatcher.dispatchPendingTasksForProject(id)
+
+    return { task: taskRowToTask(findTaskById(db, taskId)!) }
   })
 }
