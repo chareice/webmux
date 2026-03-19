@@ -24,12 +24,16 @@ import {
   findQueuedRunTurnsByRunId,
   findRunTurnById,
   findLatestRunTurnByRunId,
+  findTaskById,
   runTurnRowToRunTurn,
   updateAgentLastSeen,
   updateAgentStatus,
   updateRunStatus,
   updateRunToolThreadId,
   updateRunTurnStatus,
+  updateTaskStatus,
+  updateTaskRunInfo,
+  updateTaskWorktreeInfo,
 } from './db.js'
 import type { RunRow, RunTurnRow } from './db.js'
 
@@ -271,6 +275,22 @@ export class AgentHub {
         break
       }
 
+      case 'task-claimed':
+        this.handleTaskClaimed(message, db)
+        break
+
+      case 'task-running':
+        this.handleTaskRunning(message, db)
+        break
+
+      case 'task-completed':
+        this.handleTaskCompleted(message, db)
+        break
+
+      case 'task-failed':
+        this.handleTaskFailed(message, db)
+        break
+
       // auth is handled separately; ignore here
       case 'auth':
         break
@@ -341,6 +361,17 @@ export class AgentHub {
         )
       }
       this.broadcastRunSnapshot(db, run.id, activeTurn?.id)
+    }
+
+    // Fail any dispatched or running tasks for this agent
+    const activeTasks = db.prepare(
+      `SELECT t.id FROM tasks t
+       JOIN projects p ON t.project_id = p.id
+       WHERE p.agent_id = ? AND t.status IN ('dispatched', 'running')`,
+    ).all(agentId) as Array<{ id: string }>
+
+    for (const { id } of activeTasks) {
+      updateTaskStatus(db, id, 'failed', 'Agent disconnected')
     }
   }
 
@@ -464,6 +495,47 @@ export class AgentHub {
         this.safeSend(client, event)
       }
     }
+  }
+
+  private handleTaskClaimed(
+    message: { type: 'task-claimed'; taskId: string; branchName?: string; worktreePath?: string },
+    db: Database,
+  ): void {
+    const task = findTaskById(db, message.taskId)
+    if (!task) return
+
+    if (message.branchName && message.worktreePath) {
+      updateTaskWorktreeInfo(db, message.taskId, message.branchName, message.worktreePath)
+    }
+  }
+
+  private handleTaskRunning(
+    message: { type: 'task-running'; taskId: string; runId: string; turnId: string; branchName?: string; worktreePath?: string },
+    db: Database,
+  ): void {
+    const task = findTaskById(db, message.taskId)
+    if (!task) return
+
+    updateTaskStatus(db, message.taskId, 'running')
+    updateTaskRunInfo(db, message.taskId, message.runId)
+
+    if (message.branchName && message.worktreePath) {
+      updateTaskWorktreeInfo(db, message.taskId, message.branchName, message.worktreePath)
+    }
+  }
+
+  private handleTaskCompleted(
+    message: { type: 'task-completed'; taskId: string; summary?: string },
+    db: Database,
+  ): void {
+    updateTaskStatus(db, message.taskId, 'completed')
+  }
+
+  private handleTaskFailed(
+    message: { type: 'task-failed'; taskId: string; error: string },
+    db: Database,
+  ): void {
+    updateTaskStatus(db, message.taskId, 'failed', message.error)
   }
 
   private requestCommand<TResult>(
