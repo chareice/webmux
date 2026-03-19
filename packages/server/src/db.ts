@@ -213,6 +213,11 @@ export function initDb(dbPath: string): Database.Database {
     `UPDATE runs SET status = 'failed', summary = 'Server restarted while this task was running.', updated_at = ?
      WHERE status IN ('starting', 'running')`,
   ).run(now)
+  // 3. Fail any tasks that were dispatched/running when the server stopped
+  db.prepare(
+    `UPDATE tasks SET status = 'failed', error_message = 'Server restarted while this task was active.', updated_at = ?
+     WHERE status IN ('dispatched', 'running')`,
+  ).run(now)
 
   return db
 }
