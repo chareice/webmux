@@ -3669,3 +3669,309 @@
   text-overflow: ellipsis;
   min-width: 0;
 }
+
+/* ── Projects page ──────────────────────────────── */
+
+.projects-page {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  max-width: 80rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: 0.75rem;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 1rem 1.15rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.project-card:hover {
+  border-color: var(--accent);
+  background: rgba(122, 162, 247, 0.04);
+}
+
+.project-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.project-card-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.project-card-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-desc {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.project-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+}
+
+.project-card-sep {
+  color: var(--border-soft);
+}
+
+.project-card-tool {
+  font-family: inherit;
+}
+
+.project-card-repo {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+}
+
+.project-agent-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.project-agent-status.online {
+  color: var(--success);
+}
+
+.project-card-time {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* ── Project detail page ────────────────────────── */
+
+.project-detail-page {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  max-width: 60rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.project-info-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  margin-bottom: 1.5rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+}
+
+.project-info-sep {
+  color: var(--border-soft);
+}
+
+.project-info-desc {
+  font-family: inherit;
+  font-style: italic;
+}
+
+.project-tasks-section {
+  margin-bottom: 2rem;
+}
+
+.project-tasks-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.project-tasks-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.project-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.project-task-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.project-task-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.project-task-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.project-task-priority {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--warning);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(224, 175, 104, 0.12);
+}
+
+.project-task-details {
+  min-width: 0;
+}
+
+.project-task-prompt {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.project-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.project-task-branch {
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.72rem;
+  color: var(--accent);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(122, 162, 247, 0.1);
+}
+
+.project-task-error {
+  color: var(--danger);
+  font-size: 0.75rem;
+}
+
+.project-task-time {
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.project-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.15rem;
+}
+
+/* ── New project page ───────────────────────────── */
+
+.new-project-page {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  max-width: 42rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ── Project add task form ──────────────────────── */
+
+.project-add-task {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 1.5rem;
+}
+
+.project-add-task-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.project-priority-input {
+  max-width: 8rem;
+}
+
+/* ── Projects page responsive ───────────────────── */
+
+@media (max-width: 960px) {
+  .projects-page {
+    padding: 1rem;
+  }
+
+  .projects-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .project-detail-page {
+    padding: 1rem;
+  }
+
+  .new-project-page {
+    padding: 1rem;
+  }
+}

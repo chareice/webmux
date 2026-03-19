@@ -7,6 +7,9 @@ import { AgentsPage } from './pages/AgentsPage.tsx'
 import { ThreadsPage } from './pages/ThreadsPage.tsx'
 import { NewThreadPage } from './pages/NewThreadPage.tsx'
 import { ThreadDetailPage } from './pages/ThreadDetailPage.tsx'
+import { ProjectsPage } from './pages/ProjectsPage.tsx'
+import { ProjectDetailPage } from './pages/ProjectDetailPage.tsx'
+import { NewProjectPage } from './pages/NewProjectPage.tsx'
 import './App.css'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -50,6 +53,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               to="/threads"
             >
               Threads
+            </Link>
+            <Link
+              className={`top-bar-nav-link ${location.pathname.startsWith('/projects') ? 'active' : ''}`}
+              to="/projects"
+            >
+              Projects
             </Link>
           </div>
         </div>
@@ -118,6 +127,36 @@ function App() {
             <ProtectedRoute>
               <AppLayout>
                 <ThreadDetailPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/projects"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <ProjectsPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/projects/new"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <NewProjectPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/projects/:projectId"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <ProjectDetailPage />
               </AppLayout>
             </ProtectedRoute>
           }
