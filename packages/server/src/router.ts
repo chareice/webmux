@@ -6,8 +6,6 @@ import type {
   CreateRegistrationTokenResponse,
   RegisterAgentRequest,
   RegisterAgentResponse,
-  CreateSessionRequest,
-  ListSessionsResponse,
   RepositoryBrowseResponse,
   ContinueRunRequest,
   UpdateQueuedTurnRequest,
@@ -496,73 +494,6 @@ export function registerRoutes(
     }
 
     renameAgent(db, id, body.name.trim())
-    return { ok: true }
-  })
-
-  // --- Session routes ---
-
-  app.get('/api/agents/:id/sessions', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id } = request.params as { id: string }
-    const agent = findAgentById(db, id)
-
-    if (!agent) {
-      return reply.status(404).send({ error: 'Agent not found' })
-    }
-
-    if (agent.user_id !== request.user!.userId) {
-      return reply.status(403).send({ error: 'Not your agent' })
-    }
-
-    const sessions = hub.getAgentSessions(id)
-    const response: ListSessionsResponse = { sessions }
-    return response
-  })
-
-  app.post('/api/agents/:id/sessions', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id } = request.params as { id: string }
-    const body = request.body as CreateSessionRequest | undefined
-
-    if (!body?.name) {
-      return reply.status(400).send({ error: 'Missing session name' })
-    }
-
-    const agent = findAgentById(db, id)
-    if (!agent) {
-      return reply.status(404).send({ error: 'Agent not found' })
-    }
-
-    if (agent.user_id !== request.user!.userId) {
-      return reply.status(403).send({ error: 'Not your agent' })
-    }
-
-    const online = hub.getAgent(id)
-    if (!online) {
-      return reply.status(400).send({ error: 'Agent is offline' })
-    }
-
-    const session = await hub.requestSessionCreate(id, body.name)
-    return { session }
-  })
-
-  app.delete('/api/agents/:id/sessions/:name', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id, name } = request.params as { id: string; name: string }
-
-    const agent = findAgentById(db, id)
-    if (!agent) {
-      return reply.status(404).send({ error: 'Agent not found' })
-    }
-
-    if (agent.user_id !== request.user!.userId) {
-      return reply.status(403).send({ error: 'Not your agent' })
-    }
-
-    const online = hub.getAgent(id)
-    if (!online) {
-      return reply.status(400).send({ error: 'Agent is offline' })
-    }
-
-    await hub.requestSessionKill(id, name)
-
     return { ok: true }
   })
 

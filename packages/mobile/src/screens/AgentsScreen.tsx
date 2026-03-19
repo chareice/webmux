@@ -168,16 +168,6 @@ export default function AgentsScreen(): React.JSX.Element {
               onPress={() => navigation.navigate('NewThread', { agentId: agent.id })}>
               <Text style={styles.actionButtonText}>New Thread</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.secondaryButton,
-                agent.status !== 'online' && styles.actionButtonDisabled,
-              ]}
-              activeOpacity={0.7}
-              disabled={agent.status !== 'online'}
-              onPress={() => navigation.navigate('Terminal', { agentId: agent.id })}>
-              <Text style={styles.secondaryButtonText}>Terminal</Text>
-            </TouchableOpacity>
           </View>
         </View>
       ))}

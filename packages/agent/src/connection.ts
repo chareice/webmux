@@ -8,17 +8,13 @@ import {
   type RunStatus,
   type RunTurnOptions,
   type ServerToAgentMessage,
-  type SessionSummary,
 } from '@webmux/shared'
 import { upgradeService } from './service.js'
-import type { TmuxClient } from './tmux.js'
-import { createTerminalBridge, type TerminalBridge } from './terminal.js'
 import { RunWrapper } from './run-wrapper.js'
 import { browseRepositories } from './repositories.js'
 import { AGENT_PACKAGE_NAME, AGENT_VERSION } from './version.js'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
-const SESSION_SYNC_INTERVAL_MS = 15_000
 const INITIAL_RECONNECT_DELAY_MS = 1_000
 const MAX_RECONNECT_DELAY_MS = 30_000
 
@@ -50,15 +46,13 @@ export class AgentConnection {
   private readonly serverUrl: string
   private readonly agentId: string
   private readonly agentSecret: string
-  private readonly tmux: TmuxClient
+  private readonly workspaceRoot: string
   private readonly runtime: AgentRuntime
 
   private ws: WebSocket | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
-  private sessionSyncTimer: ReturnType<typeof setInterval> | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = INITIAL_RECONNECT_DELAY_MS
-  private bridges = new Map<string, TerminalBridge>()
   private runs = new Map<string, { turnId: string; wrapper: RunWrapper }>()
   private stopped = false
 
@@ -66,13 +60,13 @@ export class AgentConnection {
     serverUrl: string,
     agentId: string,
     agentSecret: string,
-    tmux: TmuxClient,
+    workspaceRoot: string,
     runtime: AgentRuntime = defaultAgentRuntime,
   ) {
     this.serverUrl = serverUrl
     this.agentId = agentId
     this.agentSecret = agentSecret
-    this.tmux = tmux
+    this.workspaceRoot = workspaceRoot
     this.runtime = runtime
   }
 
@@ -90,8 +84,6 @@ export class AgentConnection {
     }
 
     this.stopHeartbeat()
-    this.stopSessionSync()
-    this.disposeAllBridges()
     this.disposeAllRuns()
 
     if (this.ws) {
@@ -149,8 +141,6 @@ export class AgentConnection {
           return
         }
         this.startHeartbeat()
-        this.startSessionSync()
-        this.syncSessions()
         break
 
       case 'auth-fail':
@@ -161,34 +151,6 @@ export class AgentConnection {
           this.ws = null
         }
         this.runtime.exit(1)
-        break
-
-      case 'sessions-list':
-        this.syncSessions()
-        break
-
-      case 'terminal-attach':
-        this.handleTerminalAttach(msg.browserId, msg.sessionName, msg.cols, msg.rows)
-        break
-
-      case 'terminal-detach':
-        this.handleTerminalDetach(msg.browserId)
-        break
-
-      case 'terminal-input':
-        this.handleTerminalInput(msg.browserId, msg.data)
-        break
-
-      case 'terminal-resize':
-        this.handleTerminalResize(msg.browserId, msg.cols, msg.rows)
-        break
-
-      case 'session-create':
-        this.handleSessionCreate(msg.requestId, msg.name)
-        break
-
-      case 'session-kill':
-        this.handleSessionKill(msg.requestId, msg.name)
         break
 
       case 'repository-browse':
@@ -212,112 +174,10 @@ export class AgentConnection {
     }
   }
 
-  private async syncSessions(): Promise<SessionSummary[]> {
-    try {
-      const sessions = await this.tmux.listSessions()
-      this.sendMessage({ type: 'sessions-sync', sessions })
-      return sessions
-    } catch (err) {
-      console.error('[agent] Failed to list sessions:', err)
-      this.sendMessage({ type: 'error', message: 'Failed to list sessions' })
-      return []
-    }
-  }
-
-  private async handleTerminalAttach(
-    browserId: string,
-    sessionName: string,
-    cols: number,
-    rows: number,
-  ): Promise<void> {
-    // Dispose existing bridge for this browserId if any
-    const existing = this.bridges.get(browserId)
-    if (existing) {
-      existing.dispose()
-      this.bridges.delete(browserId)
-    }
-
-    try {
-      const bridge = await createTerminalBridge({
-        tmux: this.tmux,
-        sessionName,
-        cols,
-        rows,
-        onData: (data: string) => {
-          this.sendMessage({ type: 'terminal-output', browserId, data })
-        },
-        onExit: (exitCode: number) => {
-          this.bridges.delete(browserId)
-          this.sendMessage({ type: 'terminal-exit', browserId, exitCode })
-          void this.syncSessions()
-        },
-      })
-
-      this.bridges.set(browserId, bridge)
-      this.sendMessage({ type: 'terminal-ready', browserId, sessionName })
-      await this.syncSessions()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.error(`[agent] Failed to attach terminal for browser ${browserId}:`, message)
-      this.sendMessage({ type: 'error', browserId, message: `Failed to attach: ${message}` })
-    }
-  }
-
-  private handleTerminalDetach(browserId: string): void {
-    const bridge = this.bridges.get(browserId)
-    if (bridge) {
-      bridge.dispose()
-      this.bridges.delete(browserId)
-      void this.syncSessions()
-    }
-  }
-
-  private handleTerminalInput(browserId: string, data: string): void {
-    const bridge = this.bridges.get(browserId)
-    if (bridge) {
-      bridge.write(data)
-    }
-  }
-
-  private handleTerminalResize(browserId: string, cols: number, rows: number): void {
-    const bridge = this.bridges.get(browserId)
-    if (bridge) {
-      bridge.resize(cols, rows)
-    }
-  }
-
-  private async handleSessionCreate(requestId: string, name: string): Promise<void> {
-    try {
-      await this.tmux.createSession(name)
-      const sessions = await this.syncSessions()
-      const session = sessions.find((item) => item.name === name)
-      if (!session) {
-        throw new Error('Created session was not returned by tmux')
-      }
-      this.sendMessage({ type: 'command-result', requestId, ok: true, session })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.error(`[agent] Failed to create session "${name}":`, message)
-      this.sendMessage({ type: 'command-result', requestId, ok: false, error: message })
-    }
-  }
-
-  private async handleSessionKill(requestId: string, name: string): Promise<void> {
-    try {
-      await this.tmux.killSession(name)
-      await this.syncSessions()
-      this.sendMessage({ type: 'command-result', requestId, ok: true })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.error(`[agent] Failed to kill session "${name}":`, message)
-      this.sendMessage({ type: 'command-result', requestId, ok: false, error: message })
-    }
-  }
-
   private async handleRepositoryBrowse(requestId: string, requestedPath?: string): Promise<void> {
     try {
       const result = await browseRepositories({
-        rootPath: this.tmux.workspaceRoot,
+        rootPath: this.workspaceRoot,
         requestedPath,
       })
       this.sendMessage({
@@ -392,31 +252,10 @@ export class AgentConnection {
     }, HEARTBEAT_INTERVAL_MS)
   }
 
-  private startSessionSync(): void {
-    this.stopSessionSync()
-    this.sessionSyncTimer = setInterval(() => {
-      void this.syncSessions()
-    }, SESSION_SYNC_INTERVAL_MS)
-  }
-
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer)
       this.heartbeatTimer = null
-    }
-  }
-
-  private stopSessionSync(): void {
-    if (this.sessionSyncTimer) {
-      clearInterval(this.sessionSyncTimer)
-      this.sessionSyncTimer = null
-    }
-  }
-
-  private disposeAllBridges(): void {
-    for (const [browserId, bridge] of this.bridges) {
-      bridge.dispose()
-      this.bridges.delete(browserId)
     }
   }
 
@@ -507,8 +346,6 @@ export class AgentConnection {
 
   private onDisconnect(): void {
     this.stopHeartbeat()
-    this.stopSessionSync()
-    this.disposeAllBridges()
     this.disposeAllRuns()
     this.ws = null
 

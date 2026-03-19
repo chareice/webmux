@@ -1,12 +1,9 @@
-import crypto from 'node:crypto'
 import { WebSocketServer } from 'ws'
 import type { WebSocket } from 'ws'
 import { verifyJwt } from './auth.js'
 import type { JwtPayload } from './auth.js'
 import { buildAgentUpgradePolicy } from './agent-upgrade.js'
 import { buildApp } from './app.js'
-import { handleTerminalConnection } from './relay.js'
-import { DEFAULT_TERMINAL_SIZE } from '@webmux/shared'
 import { findRunById } from './db.js'
 import { runRowToRun } from './agent-hub.js'
 
@@ -74,8 +71,6 @@ const { app, db, hub } = buildApp({
 const server = app.server
 
 const agentWss = new WebSocketServer({ noServer: true })
-const terminalWss = new WebSocketServer({ noServer: true })
-const eventsWss = new WebSocketServer({ noServer: true })
 const runWss = new WebSocketServer({ noServer: true })
 
 server.on('upgrade', (request, socket, head) => {
@@ -85,66 +80,6 @@ server.on('upgrade', (request, socket, head) => {
   if (pathname === '/ws/agent') {
     agentWss.handleUpgrade(request, socket, head, (ws) => {
       agentWss.emit('connection', ws, request)
-    })
-    return
-  }
-
-  if (pathname === '/ws/terminal') {
-    // Verify JWT from query params
-    const token = parsed.searchParams.get('token') ?? undefined
-    if (!token) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
-    }
-
-    let payload: JwtPayload
-    try {
-      payload = verifyJwt(token, JWT_SECRET)
-    } catch {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
-    }
-
-    const agentId = parsed.searchParams.get('agent') ?? undefined
-    const sessionName = parsed.searchParams.get('session') ?? undefined
-    const cols = parseInt(parsed.searchParams.get('cols') ?? String(DEFAULT_TERMINAL_SIZE.cols), 10)
-    const rows = parseInt(parsed.searchParams.get('rows') ?? String(DEFAULT_TERMINAL_SIZE.rows), 10)
-
-    if (!agentId || !sessionName) {
-      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
-      socket.destroy()
-      return
-    }
-
-    terminalWss.handleUpgrade(request, socket, head, (ws) => {
-      const browserId = crypto.randomUUID()
-      handleTerminalConnection(ws, hub, agentId, sessionName, cols, rows, payload.userId, browserId)
-    })
-    return
-  }
-
-  if (pathname === '/ws/events') {
-    // Verify JWT from query params
-    const token = parsed.searchParams.get('token') ?? undefined
-    if (!token) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
-    }
-
-    let payload: JwtPayload
-    try {
-      payload = verifyJwt(token, JWT_SECRET)
-    } catch {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
-      socket.destroy()
-      return
-    }
-
-    eventsWss.handleUpgrade(request, socket, head, (ws) => {
-      hub.addEventClient(ws, payload.userId)
     })
     return
   }

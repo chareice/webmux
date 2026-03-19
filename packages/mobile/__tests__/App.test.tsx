@@ -97,7 +97,6 @@ jest.mock('../src/screens/AgentsScreen', () => mockCreateScreen('AgentsScreen'))
 jest.mock('../src/screens/NewRunScreen', () => mockCreateScreen('NewThreadScreen'));
 jest.mock('../src/screens/RunDetailScreen', () => mockCreateScreen('ThreadDetailScreen'));
 jest.mock('../src/screens/ThreadContentScreen', () => mockCreateScreen('ThreadContentScreen'));
-jest.mock('../src/screens/TerminalScreen', () => mockCreateScreen('TerminalScreen'));
 jest.mock('../src/screens/SettingsScreen', () => mockCreateScreen('SettingsScreen'));
 
 test('renders correctly', async () => {
