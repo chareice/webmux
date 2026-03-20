@@ -3957,7 +3957,7 @@
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3971,7 +3971,7 @@
 }
 
 .td-modal-content {
-  background: var(--surface-raised);
+  background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: 12px;
   width: 100%;
@@ -4137,6 +4137,7 @@
   border-radius: 999px;
   font-size: 0.72rem;
   font-weight: 700;
+  justify-self: start;
 }
 
 .td-status-pending { background: rgba(255, 255, 255, 0.06); color: var(--muted); }
@@ -4232,6 +4233,186 @@
 .td-view-run-link {
   align-self: flex-start;
   text-decoration: none;
+}
+
+/* ── Run timeline (embedded in execution tab) ─── */
+
+.td-run-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.td-run-timeline::-webkit-scrollbar {
+  width: 4px;
+}
+
+.td-run-timeline::-webkit-scrollbar-thumb {
+  background: var(--border-soft);
+  border-radius: 2px;
+}
+
+.td-timeline-item {
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.td-timeline-msg {
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.td-timeline-msg-assistant {
+  background: var(--accent-dim);
+  color: var(--ink);
+}
+
+.td-timeline-msg-user,
+.td-timeline-msg-system {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+}
+
+.td-timeline-msg-role {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.td-timeline-cmd {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.td-timeline-cmd-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.78rem;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.td-timeline-cmd-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.td-timeline-cmd-status {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.td-timeline-cmd-status-completed {
+  background: rgba(115, 218, 202, 0.12);
+  color: var(--success);
+}
+
+.td-timeline-cmd-status-failed {
+  background: rgba(247, 118, 142, 0.12);
+  color: var(--danger);
+}
+
+.td-timeline-cmd-status-started {
+  background: rgba(122, 162, 247, 0.12);
+  color: var(--accent);
+}
+
+.td-timeline-cmd-output {
+  padding: 0.5rem 0.75rem;
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-soft);
+}
+
+.td-timeline-activity {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.td-timeline-activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.td-timeline-activity-dot-info { background: var(--accent); }
+.td-timeline-activity-dot-success { background: var(--success); }
+.td-timeline-activity-dot-warning { background: var(--warning); }
+.td-timeline-activity-dot-error { background: var(--danger); }
+
+.td-timeline-activity-label {
+  font-weight: 600;
+}
+
+.td-timeline-activity-detail {
+  color: var(--muted);
+}
+
+.td-timeline-todo {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+}
+
+.td-timeline-todo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.td-timeline-todo-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.td-timeline-todo-icon-pending { color: var(--muted); }
+.td-timeline-todo-icon-in_progress { color: var(--accent); }
+.td-timeline-todo-icon-completed { color: var(--success); }
+
+.td-timeline-todo-text-completed {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.td-timeline-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 /* ── Buttons ───────────────────────────────────── */
