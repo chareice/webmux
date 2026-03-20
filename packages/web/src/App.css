@@ -3946,13 +3946,34 @@
 
 .project-add-task {
   border-top: 1px solid var(--border-soft);
-  padding-top: 1.5rem;
+  padding-top: 1rem;
+}
+
+.project-add-task-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px dashed var(--border-soft);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  width: 100%;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.project-add-task-toggle:hover {
+  color: var(--ink);
+  border-color: var(--accent);
 }
 
 .project-add-task-form {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  margin-top: 0.75rem;
 }
 
 .project-priority-input {

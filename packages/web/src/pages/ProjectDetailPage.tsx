@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Plus, LoaderCircle, RotateCcw, Trash2, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Plus, LoaderCircle, RotateCcw, Trash2, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
 import type { Project, Task, TaskStatus, TaskStep, RunEvent } from '@webmux/shared'
@@ -58,6 +58,7 @@ export function ProjectDetailPage() {
 
   const [taskSteps, setTaskSteps] = useState<Record<string, TaskStep[]>>({})
 
+  const [showAddForm, setShowAddForm] = useState(false)
   const [retryingId, setRetryingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -293,9 +294,11 @@ export function ProjectDetailPage() {
                       <span className="project-task-priority">P{task.priority}</span>
                     ) : null}
                   </div>
-                  <div className="project-task-details">
-                    <span className="project-task-prompt">{task.prompt}</span>
-                  </div>
+                  {task.prompt !== task.title && (
+                    <div className="project-task-details">
+                      <span className="project-task-prompt">{task.prompt}</span>
+                    </div>
+                  )}
                   {(taskSteps[task.id]?.length > 0 || task.summary) && (
                     <div className="project-task-steps">
                       {taskSteps[task.id]?.map(step => (
@@ -375,49 +378,59 @@ export function ProjectDetailPage() {
 
       {/* Add Task form */}
       <div className="project-add-task">
-        <h2 className="project-tasks-heading">Add Task</h2>
-        <div className="project-add-task-form">
-          <div className="form-section">
-            <label className="form-label">Title</label>
-            <input
-              className="session-input"
-              placeholder="Task title"
-              type="text"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-            />
+        <button
+          className="project-add-task-toggle"
+          onClick={() => setShowAddForm(!showAddForm)}
+          type="button"
+        >
+          <Plus size={16} />
+          Add Task
+          {showAddForm ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+        {showAddForm && (
+          <div className="project-add-task-form">
+            <div className="form-section">
+              <label className="form-label">Title</label>
+              <input
+                className="session-input"
+                placeholder="Task title"
+                type="text"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+              />
+            </div>
+            <div className="form-section">
+              <label className="form-label">Prompt</label>
+              <textarea
+                className="prompt-textarea"
+                placeholder="What should the AI do for this task?"
+                rows={3}
+                value={newPrompt}
+                onChange={(e) => setNewPrompt(e.target.value)}
+              />
+            </div>
+            <div className="form-section">
+              <label className="form-label">Priority (higher = first)</label>
+              <input
+                className="session-input project-priority-input"
+                placeholder="0"
+                type="number"
+                value={newPriority}
+                onChange={(e) => setNewPriority(e.target.value)}
+              />
+            </div>
+            {formError ? <p className="error-banner">{formError}</p> : null}
+            <button
+              className="primary-button new-thread-submit"
+              disabled={isSubmitting || !newTitle.trim() || !newPrompt.trim()}
+              onClick={() => void handleAddTask()}
+              type="button"
+            >
+              {isSubmitting ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}
+              {isSubmitting ? 'Creating...' : 'Add Task'}
+            </button>
           </div>
-          <div className="form-section">
-            <label className="form-label">Prompt</label>
-            <textarea
-              className="prompt-textarea"
-              placeholder="What should the AI do for this task?"
-              rows={4}
-              value={newPrompt}
-              onChange={(e) => setNewPrompt(e.target.value)}
-            />
-          </div>
-          <div className="form-section">
-            <label className="form-label">Priority (higher = first)</label>
-            <input
-              className="session-input project-priority-input"
-              placeholder="0"
-              type="number"
-              value={newPriority}
-              onChange={(e) => setNewPriority(e.target.value)}
-            />
-          </div>
-          {formError ? <p className="error-banner">{formError}</p> : null}
-          <button
-            className="primary-button new-thread-submit"
-            disabled={isSubmitting || !newTitle.trim() || !newPrompt.trim()}
-            onClick={() => void handleAddTask()}
-            type="button"
-          >
-            {isSubmitting ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}
-            {isSubmitting ? 'Creating...' : 'Add Task'}
-          </button>
-        </div>
+        )}
       </div>
     </div>
   )
