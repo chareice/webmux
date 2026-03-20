@@ -31,7 +31,10 @@ export interface AgentLoopOptions {
   onStepUpdate: (step: StepUpdate) => void
   onTaskComplete: (summary: string) => void
   onTaskFailed: (error: string) => void
+  onMessage: (message: { id: string; role: 'agent'; content: string; createdAt: number }) => void
+  onWaiting?: () => void
   createRun: (tool: RunTool, prompt: string, repoPath: string) => Promise<{ summary: string; runId: string }>
+  conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>
 }
 
 const AGENT_TOOLS: ToolDefinition[] = [
@@ -76,6 +79,20 @@ const AGENT_TOOLS: ToolDefinition[] = [
           message: { type: 'string', description: 'Message content' },
         },
         required: ['message'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'wait_for_user',
+      description: 'Pause and wait for the user to reply. Use when you need clarification or input before proceeding. Send a message explaining what you need.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Message to show the user explaining what you need' },
+        },
+        required: ['prompt'],
       },
     },
   },
@@ -127,13 +144,42 @@ export class AgentLoop {
   private client: LlmClient
   private messages: ChatMessage[]
   private aborted = false
+  private userReplyResolve: ((reply: string) => void) | null = null
 
   constructor(private options: AgentLoopOptions) {
     this.client = new LlmClient(options.llmConfig)
-    this.messages = [
-      { role: 'system', content: this.buildSystemPrompt() },
-      { role: 'user', content: `Task: ${options.title}\n\n${options.prompt}` },
-    ]
+
+    if (options.conversationHistory?.length) {
+      // Build from conversation history for resumed/continued tasks
+      this.messages = [
+        { role: 'system', content: this.buildSystemPrompt() },
+        // Include original task
+        { role: 'user', content: `Task: ${options.title}\n\n${options.prompt}` },
+        // Add conversation history
+        ...options.conversationHistory.map(msg => ({
+          role: (msg.role === 'agent' ? 'assistant' : 'user') as ChatMessage['role'],
+          content: msg.content,
+        })),
+      ]
+    } else {
+      this.messages = [
+        { role: 'system', content: this.buildSystemPrompt() },
+        { role: 'user', content: `Task: ${options.title}\n\n${options.prompt}` },
+      ]
+    }
+  }
+
+  private waitForUserReply(): Promise<string> {
+    return new Promise((resolve) => {
+      this.userReplyResolve = resolve
+    })
+  }
+
+  public resolveUserReply(content: string): void {
+    if (this.userReplyResolve) {
+      this.userReplyResolve(content)
+      this.userReplyResolve = null
+    }
   }
 
   async run(): Promise<void> {
@@ -184,7 +230,8 @@ Guidelines:
 - Use run_codex for code review or alternative implementations.
 - Use read_file to quickly inspect files without starting a full session.
 - Use run_command for quick checks (git status, running tests, etc.).
-- Use reply_message to communicate findings or status to the user.
+- Use reply_message for one-way updates that don't need a response.
+- Use wait_for_user when you need clarification or want the user's input before proceeding. Always include a clear prompt explaining what you need.
 - When all work is done, call complete_task with a detailed summary.
 
 Project context:
@@ -276,7 +323,30 @@ Important:
 
       case 'reply_message': {
         const message = args.message as string
-        return `Message sent to user: ${message}`
+        this.options.onMessage({
+          id: randomUUID(),
+          role: 'agent',
+          content: message,
+          createdAt: Date.now(),
+        })
+        return 'Message sent to user.'
+      }
+
+      case 'wait_for_user': {
+        const prompt = args.prompt as string
+        // Send the prompt as an agent message first
+        this.options.onMessage({
+          id: randomUUID(),
+          role: 'agent',
+          content: prompt,
+          createdAt: Date.now(),
+        })
+        // Notify that the task is waiting for user input
+        this.options.onWaiting?.()
+        // Wait for user reply (blocks until resolveUserReply is called)
+        const reply = await this.waitForUserReply()
+        // Add user's reply to messages for LLM context
+        return `User replied: ${reply}`
       }
 
       case 'read_file': {
@@ -323,6 +393,7 @@ Important:
       case 'run_codex':
         return 'code'
       case 'reply_message':
+      case 'wait_for_user':
         return 'message'
       case 'run_command':
         return 'command'
@@ -343,6 +414,8 @@ Important:
         return `Codex: ${(args.prompt as string).slice(0, 80)}`
       case 'reply_message':
         return `Message: ${(args.message as string).slice(0, 80)}`
+      case 'wait_for_user':
+        return `Waiting for user: ${(args.prompt as string).slice(0, 60)}`
       case 'read_file':
         return `Read: ${args.path as string}`
       case 'run_command':

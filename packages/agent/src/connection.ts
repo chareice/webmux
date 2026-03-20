@@ -175,8 +175,16 @@ export class AgentConnection {
         break
 
       case 'task-dispatch':
-        this.handleTaskDispatch(msg.taskId, msg.projectId, msg.repoPath, msg.tool, msg.title, msg.prompt, msg.llmConfig)
+        this.handleTaskDispatch(msg.taskId, msg.projectId, msg.repoPath, msg.tool, msg.title, msg.prompt, msg.llmConfig, msg.conversationHistory)
         break
+
+      case 'task-user-reply': {
+        const loop = this.taskLoops.get(msg.taskId)
+        if (loop) {
+          loop.resolveUserReply(msg.content)
+        }
+        break
+      }
 
       default:
         console.warn('[agent] Unknown message type:', (msg as { type: string }).type)
@@ -369,6 +377,7 @@ export class AgentConnection {
     title: string,
     prompt: string,
     llmConfig: { apiBaseUrl: string; apiKey: string; model: string } | null,
+    conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>,
   ): void {
     // Fall back to legacy behavior if no LLM config
     if (!llmConfig) {
@@ -396,6 +405,13 @@ export class AgentConnection {
         this.sendMessage({ type: 'task-failed', taskId, error })
         this.taskLoops.delete(taskId)
       },
+      onMessage: (message) => {
+        this.sendMessage({ type: 'task-message', taskId, message })
+      },
+      onWaiting: () => {
+        this.sendMessage({ type: 'task-waiting', taskId })
+      },
+      conversationHistory,
       createRun: (runTool, runPrompt, runRepoPath) => {
         return this.createRunForAgentLoop(runTool, runPrompt, runRepoPath)
       },
