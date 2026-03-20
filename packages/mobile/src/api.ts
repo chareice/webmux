@@ -157,6 +157,50 @@ export async function deleteThread(
   });
 }
 
+// --- Turn Queue ---
+
+export async function updateQueuedTurn(
+  agentId: string,
+  threadId: string,
+  turnId: string,
+  prompt: string,
+): Promise<void> {
+  await fetchApi(`/api/agents/${agentId}/threads/${threadId}/turns/${turnId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ prompt }),
+  });
+}
+
+export async function deleteQueuedTurn(
+  agentId: string,
+  threadId: string,
+  turnId: string,
+): Promise<void> {
+  await fetchApi(`/api/agents/${agentId}/threads/${threadId}/turns/${turnId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function resumeQueue(
+  agentId: string,
+  threadId: string,
+): Promise<RunDetailResponse> {
+  const response = await fetchApi<RunDetailResponse>(
+    `/api/agents/${agentId}/threads/${threadId}/resume-queue`,
+    { method: 'POST' },
+  );
+  return normalizeRunDetailResponse(response);
+}
+
+export async function discardQueue(
+  agentId: string,
+  threadId: string,
+): Promise<void> {
+  await fetchApi(`/api/agents/${agentId}/threads/${threadId}/discard-queue`, {
+    method: 'POST',
+  });
+}
+
 export async function registerPushDevice(
   request: RegisterPushDeviceRequest,
 ): Promise<void> {

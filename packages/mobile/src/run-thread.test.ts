@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { RunTurnDetail } from './types.ts';
-import { appendTurnItem, canContinueRun, latestRunTurn, upsertRunTurn } from './run-thread.ts';
+import { appendTurnItem, canContinueRun, latestRunTurn, upsertRunTurn, queuedTurns, nonQueuedTurns } from './run-thread.ts';
 
 const turnOne: RunTurnDetail = {
   id: 'run-1:turn:1',
@@ -47,4 +47,18 @@ test('canContinueRun only allows terminal turns', () => {
   assert.equal(canContinueRun({ ...turnOne, status: 'success' }), true);
   assert.equal(canContinueRun(null), false);
   assert.equal(latestRunTurn([turnOne])?.id, turnOne.id);
+});
+
+test('queuedTurns returns only queued turns', () => {
+  const queued: RunTurnDetail = { ...turnOne, id: 'queued-1', status: 'queued', index: 2 };
+  const result = queuedTurns([turnOne, queued]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.id, 'queued-1');
+});
+
+test('nonQueuedTurns excludes queued turns', () => {
+  const queued: RunTurnDetail = { ...turnOne, id: 'queued-1', status: 'queued', index: 2 };
+  const result = nonQueuedTurns([turnOne, queued]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.id, turnOne.id);
 });
