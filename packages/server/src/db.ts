@@ -104,6 +104,14 @@ export interface TaskStepRow {
   completed_at: number | null
 }
 
+export interface TaskMessageRow {
+  id: string
+  task_id: string
+  role: string
+  content: string
+  created_at: number
+}
+
 export function initDb(dbPath: string): Database.Database {
   const db = new Database(dbPath)
 
@@ -246,6 +254,16 @@ export function initDb(dbPath: string): Database.Database {
       FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_task_steps_task ON task_steps(task_id);
+
+    CREATE TABLE IF NOT EXISTS task_messages (
+      id          TEXT PRIMARY KEY,
+      task_id     TEXT NOT NULL,
+      role        TEXT NOT NULL,
+      content     TEXT NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_messages_task ON task_messages(task_id);
   `)
 
   migrateRunsTableIfNeeded(db)
@@ -1382,6 +1400,29 @@ export function findStepsByTaskId(db: Database.Database, taskId: string): TaskSt
   return db.prepare(
     'SELECT * FROM task_steps WHERE task_id = ? ORDER BY created_at ASC',
   ).all(taskId) as TaskStepRow[]
+}
+
+// --- Task Messages ---
+
+export function createTaskMessage(
+  db: Database.Database,
+  taskId: string,
+  role: string,
+  content: string,
+  id?: string,
+): TaskMessageRow {
+  const msgId = id || crypto.randomUUID()
+  const now = Date.now()
+  db.prepare(
+    'INSERT INTO task_messages (id, task_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
+  ).run(msgId, taskId, role, content, now)
+  return { id: msgId, task_id: taskId, role, content, created_at: now }
+}
+
+export function findMessagesByTaskId(db: Database.Database, taskId: string): TaskMessageRow[] {
+  return db.prepare(
+    'SELECT * FROM task_messages WHERE task_id = ? ORDER BY created_at ASC',
+  ).all(taskId) as TaskMessageRow[]
 }
 
 function migrateRunsTableIfNeeded(db: Database.Database): void {
