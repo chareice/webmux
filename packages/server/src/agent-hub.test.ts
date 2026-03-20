@@ -5,7 +5,7 @@ import type { AgentUpgradePolicy, ServerToAgentMessage } from '@webmux/shared'
 
 import { hashSecret } from './auth.js'
 import { AgentHub } from './agent-hub.js'
-import { createAgent, createProject, createRunWithInitialTurn, createTask, createUser, findRunById, findRunTurnById, findTaskById, initDb } from './db.js'
+import { createAgent, createProject, createRunWithInitialTurn, createTask, createUser, findRunById, findRunTurnById, findStepsByTaskId, findTaskById, initDb } from './db.js'
 import type { TaskDispatcher } from './task-dispatcher.js'
 
 function createSocket() {
@@ -425,7 +425,7 @@ describe('AgentHub task message handling', () => {
     expect(updated?.worktree_path).toBe('/tmp/worktree')
   })
 
-  it('task-completed sets status to completed', () => {
+  it('task-completed sets status to completed and persists summary', () => {
     const { db, agent, task, hub } = setupTaskEnv()
     db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(task.id)
 
@@ -438,6 +438,7 @@ describe('AgentHub task message handling', () => {
     const updated = findTaskById(db, task.id)
     expect(updated?.status).toBe('completed')
     expect(updated?.completed_at).not.toBeNull()
+    expect(updated?.summary).toBe('All done')
   })
 
   it('task-failed sets status to failed with error message', () => {
@@ -498,6 +499,92 @@ describe('AgentHub task message handling', () => {
       { type: 'task-claimed', taskId: 'nonexistent-id', branchName: 'b', worktreePath: '/w' },
       db,
     )
+  })
+
+  it('task-step-update creates a new step when status is running', () => {
+    const { db, agent, task, hub } = setupTaskEnv()
+    db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(task.id)
+
+    hub.handleAgentMessage(
+      agent.id,
+      {
+        type: 'task-step-update',
+        taskId: task.id,
+        step: {
+          id: 'step-1',
+          type: 'code',
+          label: 'Writing code',
+          status: 'running',
+          toolName: 'write_file',
+          createdAt: 1000,
+        },
+      },
+      db,
+    )
+
+    const steps = findStepsByTaskId(db, task.id)
+    expect(steps).toHaveLength(1)
+    expect(steps[0]).toMatchObject({
+      id: 'step-1',
+      task_id: task.id,
+      type: 'code',
+      label: 'Writing code',
+      status: 'running',
+      tool_name: 'write_file',
+      created_at: 1000,
+    })
+  })
+
+  it('task-step-update updates an existing step when status is completed', () => {
+    const { db, agent, task, hub } = setupTaskEnv()
+    db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(task.id)
+
+    // First create a running step
+    hub.handleAgentMessage(
+      agent.id,
+      {
+        type: 'task-step-update',
+        taskId: task.id,
+        step: {
+          id: 'step-2',
+          type: 'command',
+          label: 'Running tests',
+          status: 'running',
+          toolName: 'bash',
+          createdAt: 2000,
+        },
+      },
+      db,
+    )
+
+    // Then complete it
+    hub.handleAgentMessage(
+      agent.id,
+      {
+        type: 'task-step-update',
+        taskId: task.id,
+        step: {
+          id: 'step-2',
+          type: 'command',
+          label: 'Running tests',
+          status: 'completed',
+          toolName: 'bash',
+          durationMs: 500,
+          completedAt: 2500,
+          createdAt: 2000,
+        },
+      },
+      db,
+    )
+
+    const steps = findStepsByTaskId(db, task.id)
+    expect(steps).toHaveLength(1)
+    expect(steps[0]).toMatchObject({
+      id: 'step-2',
+      status: 'completed',
+      duration_ms: 500,
+      completed_at: 2500,
+    })
   })
 })
 

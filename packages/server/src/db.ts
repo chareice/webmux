@@ -1317,10 +1317,10 @@ export function deleteLlmConfig(db: Database.Database, id: string): void {
 
 export function createTaskStep(
   db: Database.Database,
-  data: { task_id: string; type: string; label: string; tool_name: string; status?: string; detail?: string; run_id?: string },
+  data: { id?: string; task_id: string; type: string; label: string; tool_name: string; status?: string; detail?: string | null; run_id?: string | null; created_at?: number },
 ): TaskStepRow {
-  const id = crypto.randomUUID()
-  const now = Date.now()
+  const id = data.id ?? crypto.randomUUID()
+  const now = data.created_at ?? Date.now()
   const status = data.status ?? 'running'
 
   db.prepare(

@@ -5,6 +5,7 @@ import {
   findProjectsByAgentId,
   findPendingTasksByProjectId,
   findProjectById,
+  resolveLlmConfig,
   updateTaskStatus,
 } from './db.js'
 import type { TaskRow } from './db.js'
@@ -19,16 +20,16 @@ export class TaskDispatcher {
   dispatchPendingTasks(): void {
     // Query all pending tasks with project info via JOIN
     const allPending = this.db.prepare(
-      `SELECT t.*, p.agent_id, p.repo_path, p.default_tool
+      `SELECT t.*, p.agent_id, p.repo_path, p.default_tool, p.user_id
        FROM tasks t
        JOIN projects p ON t.project_id = p.id
        WHERE t.status = 'pending'
        ORDER BY t.priority DESC, t.created_at ASC`,
-    ).all() as Array<TaskRow & { agent_id: string; repo_path: string; default_tool: string }>
+    ).all() as Array<TaskRow & { agent_id: string; repo_path: string; default_tool: string; user_id: string }>
 
     for (const task of allPending) {
       if (!this.hub.getAgent(task.agent_id)) continue
-      this.dispatchTask(task.agent_id, task, task.repo_path, task.default_tool)
+      this.dispatchTask(task.agent_id, task, task.repo_path, task.default_tool, task.user_id)
     }
   }
 
@@ -40,7 +41,7 @@ export class TaskDispatcher {
     for (const project of projects) {
       const pending = findPendingTasksByProjectId(this.db, project.id)
       for (const task of pending) {
-        this.dispatchTask(agentId, task, project.repo_path, project.default_tool)
+        this.dispatchTask(agentId, task, project.repo_path, project.default_tool, project.user_id)
       }
     }
   }
@@ -53,7 +54,7 @@ export class TaskDispatcher {
 
     const pending = findPendingTasksByProjectId(this.db, projectId)
     for (const task of pending) {
-      this.dispatchTask(project.agent_id, task, project.repo_path, project.default_tool)
+      this.dispatchTask(project.agent_id, task, project.repo_path, project.default_tool, project.user_id)
     }
   }
 
@@ -62,7 +63,10 @@ export class TaskDispatcher {
     task: TaskRow,
     repoPath: string,
     tool: string,
+    userId: string,
   ): boolean {
+    const llmConfig = resolveLlmConfig(this.db, userId, task.project_id)
+
     const msg: ServerToAgentMessage = {
       type: 'task-dispatch',
       taskId: task.id,
@@ -71,7 +75,9 @@ export class TaskDispatcher {
       tool: tool as RunTool,
       title: task.title,
       prompt: task.prompt,
-      llmConfig: null,
+      llmConfig: llmConfig
+        ? { apiBaseUrl: llmConfig.api_base_url, apiKey: llmConfig.api_key, model: llmConfig.model }
+        : null,
     }
 
     const sent = this.hub.sendToAgent(agentId, msg)
