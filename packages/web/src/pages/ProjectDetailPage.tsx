@@ -367,18 +367,10 @@ function ChatView({
   task,
   messages,
   steps,
-  replyText,
-  setReplyText,
-  sendingReply,
-  onSendReply,
 }: {
   task: Task
   messages: TaskMessage[]
   steps: TaskStep[]
-  replyText: string
-  setReplyText: (v: string) => void
-  sendingReply: boolean
-  onSendReply: () => void
 }) {
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const timeline = buildChatTimeline(messages, steps, task)
@@ -402,8 +394,6 @@ function ChatView({
       grouped.push(item)
     }
   }
-
-  const showInput = task.status === 'waiting' || task.status === 'completed' || task.status === 'failed'
 
   return (
     <div className="td-chat-wrapper">
@@ -474,32 +464,6 @@ function ChatView({
         })}
         <div ref={chatBottomRef} />
       </div>
-
-      {showInput && (
-        <div className="td-chat-input-area">
-          {task.status === 'waiting' && (
-            <div className="td-waiting-indicator">Agent is waiting for your reply...</div>
-          )}
-          <div className="td-chat-input-row">
-            <input
-              className="td-chat-input"
-              placeholder="Type a message..."
-              value={replyText}
-              onChange={(e) => setReplyText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && replyText.trim()) onSendReply() }}
-              disabled={sendingReply}
-            />
-            <button
-              className="td-btn td-btn-primary td-chat-send"
-              disabled={!replyText.trim() || sendingReply}
-              onClick={onSendReply}
-              type="button"
-            >
-              <Send size={14} />
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -515,6 +479,7 @@ function TaskDetailModal({
   onClose,
   onDelete,
   onRetry,
+  onMarkComplete,
   retrying,
   replyText,
   setReplyText,
@@ -529,6 +494,7 @@ function TaskDetailModal({
   onClose: () => void
   onDelete: (taskId: string) => void
   onRetry: (taskId: string) => void
+  onMarkComplete: (taskId: string) => void
   retrying: boolean
   replyText: string
   setReplyText: (v: string) => void
@@ -618,6 +584,16 @@ function TaskDetailModal({
 
             {/* Actions */}
             <div className="td-detail-actions">
+              {task.status !== 'completed' && task.status !== 'pending' && (
+                <button
+                  className="td-btn td-btn-success"
+                  onClick={() => onMarkComplete(task.id)}
+                  type="button"
+                >
+                  <Check size={14} />
+                  Mark Complete
+                </button>
+              )}
               <button
                 className="td-btn td-btn-danger"
                 onClick={() => onDelete(task.id)}
@@ -648,15 +624,38 @@ function TaskDetailModal({
                 task={task}
                 messages={messages}
                 steps={steps}
-                replyText={replyText}
-                setReplyText={setReplyText}
-                sendingReply={sendingReply}
-                onSendReply={onSendReply}
               />
             ) : task.runId && token ? (
               <RunTimeline agentId={project.agentId} runId={task.runId} token={token} />
             ) : (
               <p className="td-muted-placeholder">No execution data yet.</p>
+            )}
+
+            {/* Input always visible at bottom of execution tab */}
+            {task.status !== 'pending' && (
+              <div className="td-chat-input-area">
+                {task.status === 'waiting' && (
+                  <div className="td-waiting-indicator">Agent is waiting for your reply...</div>
+                )}
+                <div className="td-chat-input-row">
+                  <input
+                    className="td-chat-input"
+                    placeholder="Type a message..."
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && replyText.trim()) onSendReply() }}
+                    disabled={sendingReply}
+                  />
+                  <button
+                    className="td-btn td-btn-primary td-chat-send"
+                    disabled={!replyText.trim() || sendingReply}
+                    onClick={onSendReply}
+                    type="button"
+                  >
+                    <Send size={14} />
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -971,6 +970,20 @@ export function ProjectDetailPage() {
     }
   }
 
+  const handleMarkComplete = async (taskId: string) => {
+    try {
+      const res = await fetchApi(`/api/projects/${projectId}/tasks/${taskId}/complete`, {
+        method: 'POST',
+      })
+      if (res.ok) {
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'completed' as TaskStatus } : t))
+        setSelectedTask(prev => prev && prev.id === taskId ? { ...prev, status: 'completed' as TaskStatus } : prev)
+      }
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   const handleSendReply = async () => {
     if (!replyText.trim() || !selectedTask) return
     setSendingReply(true)
@@ -1144,6 +1157,7 @@ export function ProjectDetailPage() {
           onClose={() => { setSelectedTask(null); setReplyText('') }}
           onDelete={handleDeleteRequest}
           onRetry={(id) => void handleRetry(id)}
+          onMarkComplete={(id) => void handleMarkComplete(id)}
           retrying={retryingId === selectedTask.id}
           replyText={replyText}
           setReplyText={setReplyText}

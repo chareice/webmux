@@ -4463,6 +4463,15 @@
   background: rgba(247, 118, 142, 0.2);
 }
 
+.td-btn-success {
+  background: rgba(158, 206, 106, 0.12);
+  color: var(--success);
+}
+
+.td-btn-success:hover:not(:disabled) {
+  background: rgba(158, 206, 106, 0.2);
+}
+
 .td-btn-ghost {
   background: none;
   color: var(--muted);

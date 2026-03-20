@@ -1197,6 +1197,24 @@ export function registerRoutes(
     return { task: taskRowToTask(findTaskById(db, taskId)!) }
   })
 
+  // Mark task as completed (user action)
+  app.post('/api/projects/:id/tasks/:taskId/complete', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, taskId } = request.params as { id: string; taskId: string }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const task = findTaskById(db, taskId)
+    if (!task || task.project_id !== id) {
+      return reply.status(404).send({ error: 'Task not found' })
+    }
+
+    updateTaskStatus(db, taskId, 'completed')
+    return { ok: true }
+  })
+
   // --- Task Steps ---
 
   app.get('/api/projects/:id/tasks/:taskId/steps', { preHandler: authPreHandler }, async (request, reply) => {

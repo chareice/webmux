@@ -128,7 +128,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'complete_task',
-      description: 'Mark the task as complete. Call this when all work is done.',
+      description: 'Signal that the task work is done and provide a summary. The user will review and mark it complete.',
       parameters: {
         type: 'object',
         properties: {
@@ -193,10 +193,22 @@ export class AgentLoop {
         this.messages.push(message)
 
         // If LLM responded with just text (no tool calls), treat as implicit completion
+        // Send the content as a message and enter waiting state instead of auto-completing
         if (finishReason === 'stop' || !message.tool_calls?.length) {
-          const summary = message.content || 'Task completed.'
-          this.options.onTaskComplete(summary)
-          return
+          const content = message.content || 'I have completed my analysis.'
+          this.options.onMessage({
+            id: randomUUID(),
+            role: 'agent',
+            content,
+            createdAt: Date.now(),
+          })
+          // Signal waiting — user decides when to mark complete or send follow-up
+          this.options.onWaiting?.()
+          // Wait for user reply (blocks until resolveUserReply is called)
+          const reply = await this.waitForUserReply()
+          // Add user reply as a user message and continue the loop
+          this.messages.push({ role: 'user', content: reply })
+          continue
         }
 
         // Process each tool call
@@ -232,7 +244,7 @@ Guidelines:
 - Use run_command for quick checks (git status, running tests, etc.).
 - Use reply_message for one-way updates that don't need a response.
 - Use wait_for_user when you need clarification or want the user's input before proceeding. Always include a clear prompt explaining what you need.
-- When all work is done, call complete_task with a detailed summary.
+- When all work is done, call complete_task with a detailed summary. The user will review and decide when to mark the task as completed.
 
 Project context:
 - Repository path: ${this.options.repoPath}
@@ -377,9 +389,18 @@ Important:
 
       case 'complete_task': {
         const summary = args.summary as string
-        this.options.onTaskComplete(summary)
-        this.aborted = true
-        return 'Task marked as complete.'
+        // Send summary as an agent message instead of completing the task
+        this.options.onMessage({
+          id: randomUUID(),
+          role: 'agent',
+          content: summary,
+          createdAt: Date.now(),
+        })
+        // Signal waiting — user decides when to mark complete or send follow-up
+        this.options.onWaiting?.()
+        // Wait for user reply (blocks until resolveUserReply is called)
+        const reply = await this.waitForUserReply()
+        return `User replied: ${reply}`
       }
 
       default:
