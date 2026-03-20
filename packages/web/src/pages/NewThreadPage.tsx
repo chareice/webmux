@@ -254,7 +254,7 @@ export function NewThreadPage() {
   const handleSubmit = async () => {
     setError(null)
     if (!selectedAgent) { setError('Please select an agent'); return }
-    if (!repoPath.trim()) { setError('Please choose a repository'); return }
+    if (!repoPath.trim()) { setError('Please choose a working directory'); return }
     if (!hasContent) { setError('Please enter a prompt or attach images'); return }
 
     setIsSubmitting(true)
@@ -356,7 +356,7 @@ export function NewThreadPage() {
 
         {/* Repository Selection */}
         <div className="form-section">
-          <label className="form-label">Repository</label>
+          <label className="form-label">Working Directory</label>
           <button
             className="repo-picker-button"
             disabled={!selectedAgent}
@@ -370,7 +370,7 @@ export function NewThreadPage() {
             type="button"
           >
             <span className="repo-picker-name">
-              {repoPath ? repositoryName(repoPath) : 'Choose a repository'}
+              {repoPath ? repositoryName(repoPath) : 'Choose a directory'}
             </span>
             <span className="repo-picker-path">
               {repoPath ||
@@ -571,7 +571,7 @@ function RepositoryBrowserModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-container repo-browser-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Browse Repositories</h2>
+          <h2>Browse Directories</h2>
           <button className="icon-button" onClick={onClose} type="button">✕</button>
         </div>
         <div className="repo-browser-body">
@@ -617,7 +617,7 @@ function RepositoryBrowserModal({
           )}
         </div>
         <div className="repo-browser-footer">
-          <span className="form-hint">Only Git repositories can be selected</span>
+          <span className="form-hint">Click folder to browse, click Select to choose</span>
         </div>
       </div>
     </div>
@@ -642,7 +642,7 @@ function RepositoryEntryRow({
     <div className="repo-browser-entry-row">
       <button
         className="repo-browser-entry"
-        onClick={() => (isRepo ? onSelect(entry.path) : onNavigate(entry.path))}
+        onClick={() => onNavigate(entry.path)}
         type="button"
       >
         {isRepo ? (
@@ -651,24 +651,27 @@ function RepositoryEntryRow({
           <Folder size={14} className="repo-icon-dir" />
         )}
         <span className="repo-browser-entry-name">{entry.name}</span>
-        {isRepo ? (
-          <>
-            <span
-              className={`repo-browser-entry-star ${isFavorited ? 'favorited' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                onToggleFavorite(entry.path, e)
-              }}
-              role="button"
-              title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-            >
-              <Star size={13} />
-            </span>
-            <span className="repo-browser-entry-badge">Select</span>
-          </>
-        ) : (
-          <ChevronRight size={14} className="repo-browser-entry-arrow" />
-        )}
+        <span
+          className={`repo-browser-entry-star ${isFavorited ? 'favorited' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleFavorite(entry.path, e)
+          }}
+          role="button"
+          title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+        >
+          <Star size={13} />
+        </span>
+        <span
+          className="repo-browser-entry-badge"
+          onClick={(e) => {
+            e.stopPropagation()
+            onSelect(entry.path)
+          }}
+        >
+          Select
+        </span>
+        <ChevronRight size={14} className="repo-browser-entry-arrow" />
       </button>
     </div>
   )
