@@ -144,6 +144,7 @@ export class AgentLoop {
   private client: LlmClient
   private messages: ChatMessage[]
   private aborted = false
+  private pendingWait = false
   private userReplyResolve: ((reply: string) => void) | null = null
 
   constructor(private options: AgentLoopOptions) {
@@ -220,8 +221,15 @@ export class AgentLoop {
             content: result,
             tool_call_id: toolCall.id,
           })
-          // If complete_task was called, we're done
           if (this.aborted) return
+        }
+
+        // If a tool triggered a wait (complete_task or wait_for_user),
+        // block here until the user replies, then continue the loop
+        if (this.pendingWait) {
+          this.pendingWait = false
+          const reply = await this.waitForUserReply()
+          this.messages.push({ role: 'user', content: reply })
         }
       }
     } catch (err) {
@@ -346,19 +354,17 @@ Important:
 
       case 'wait_for_user': {
         const prompt = args.prompt as string
-        // Send the prompt as an agent message first
+        // Send the prompt as an agent message
         this.options.onMessage({
           id: randomUUID(),
           role: 'agent',
           content: prompt,
           createdAt: Date.now(),
         })
-        // Notify that the task is waiting for user input
+        // Signal waiting — actual wait happens in run() loop after step completes
         this.options.onWaiting?.()
-        // Wait for user reply (blocks until resolveUserReply is called)
-        const reply = await this.waitForUserReply()
-        // Add user's reply to messages for LLM context
-        return `User replied: ${reply}`
+        this.pendingWait = true
+        return 'Waiting for user response.'
       }
 
       case 'read_file': {
@@ -396,11 +402,10 @@ Important:
           content: summary,
           createdAt: Date.now(),
         })
-        // Signal waiting — user decides when to mark complete or send follow-up
+        // Signal waiting — actual wait happens in run() loop after step completes
         this.options.onWaiting?.()
-        // Wait for user reply (blocks until resolveUserReply is called)
-        const reply = await this.waitForUserReply()
-        return `User replied: ${reply}`
+        this.pendingWait = true
+        return 'Summary sent. Waiting for user response.'
       }
 
       default:
