@@ -43,6 +43,10 @@ export type AgentMessage =
   | { type: 'error'; message: string }
   | { type: 'run-status'; runId: string; turnId: string; status: RunStatus; summary?: string; hasDiff?: boolean; toolThreadId?: string }
   | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEventPayload }
+  | { type: 'task-claimed'; taskId: string; branchName?: string; worktreePath?: string }
+  | { type: 'task-running'; taskId: string; runId: string; turnId: string; branchName?: string; worktreePath?: string }
+  | { type: 'task-completed'; taskId: string; summary?: string }
+  | { type: 'task-failed'; taskId: string; error: string }
 
 // Server → Agent
 export type ServerToAgentMessage =
@@ -62,6 +66,15 @@ export type ServerToAgentMessage =
     }
   | { type: 'run-turn-interrupt'; runId: string; turnId: string }
   | { type: 'run-turn-kill'; runId: string; turnId: string }
+  | {
+      type: 'task-dispatch'
+      taskId: string
+      projectId: string
+      repoPath: string
+      tool: RunTool
+      title: string
+      prompt: string
+    }
 
 // REST API types
 
@@ -221,3 +234,81 @@ export type RunEvent =
   | { type: 'run-status'; run: Run }
   | { type: 'run-turn'; runId: string; turn: RunTurn }
   | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEvent }
+  | { type: 'task-status'; task: Task }
+  | { type: 'project-status'; project: Project }
+
+// --- Project + Task types ---
+
+export type TaskStatus = 'pending' | 'dispatched' | 'running' | 'completed' | 'failed'
+
+export interface Project {
+  id: string
+  name: string
+  description: string
+  repoPath: string
+  agentId: string
+  defaultTool: RunTool
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Task {
+  id: string
+  projectId: string
+  title: string
+  prompt: string
+  status: TaskStatus
+  priority: number
+  branchName: string | null
+  worktreePath: string | null
+  runId: string | null
+  errorMessage: string | null
+  createdAt: number
+  updatedAt: number
+  claimedAt: number | null
+  completedAt: number | null
+}
+
+// --- Project REST API types ---
+
+export interface CreateProjectRequest {
+  name: string
+  description?: string
+  repoPath: string
+  agentId: string
+  defaultTool?: RunTool
+}
+
+export interface UpdateProjectRequest {
+  name?: string
+  description?: string
+  defaultTool?: RunTool
+}
+
+export interface ProjectListResponse {
+  projects: Project[]
+}
+
+export interface ProjectDetailResponse {
+  project: Project
+  tasks: Task[]
+}
+
+// --- Task REST API types ---
+
+export interface CreateTaskRequest {
+  title: string
+  prompt: string
+  priority?: number
+}
+
+export interface UpdateTaskRequest {
+  title?: string
+  prompt?: string
+  priority?: number
+}
+
+export interface TaskDetailResponse {
+  task: Task
+  run: Run | null
+}

@@ -30,6 +30,23 @@ import {
   findNotificationDevicesByUserId,
   updateRunToolThreadId,
   upsertNotificationDevice,
+  createProject,
+  findProjectById,
+  findProjectsByUserId,
+  findProjectsByAgentId,
+  updateProject,
+  deleteProject,
+  createTask,
+  findTaskById,
+  findTasksByProjectId,
+  findPendingTasksByProjectId,
+  findPendingTasksByAgentId,
+  updateTaskStatus,
+  updateTaskRunInfo,
+  updateTaskWorktreeInfo,
+  updateTaskPrompt,
+  deleteTask,
+  resetTaskToPending,
 } from './db.js'
 import type Database from 'libsql'
 
@@ -713,5 +730,239 @@ describe('run timeline events', () => {
 
     migratedDb.close()
     rmSync(tempDir, { recursive: true, force: true })
+  })
+})
+
+describe('projects', () => {
+  let userId: string
+  let agentId: string
+
+  beforeEach(() => {
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'owner',
+      avatarUrl: null,
+    })
+    userId = user.id
+    agentId = createAgent(db, { userId, name: 'runner', agentSecretHash: 'hash' }).id
+  })
+
+  it('creates and finds a project', () => {
+    const project = createProject(db, {
+      userId,
+      agentId,
+      name: 'my-project',
+      description: 'A test project',
+      repoPath: '/tmp/my-project',
+      defaultTool: 'codex',
+    })
+
+    expect(project.name).toBe('my-project')
+    expect(project.description).toBe('A test project')
+    expect(project.default_tool).toBe('codex')
+
+    const found = findProjectById(db, project.id)
+    expect(found?.id).toBe(project.id)
+    expect(found?.user_id).toBe(userId)
+    expect(found?.agent_id).toBe(agentId)
+    expect(found?.repo_path).toBe('/tmp/my-project')
+  })
+
+  it('lists projects by user ordered by updated_at desc', () => {
+    const proj1 = createProject(db, { userId, agentId, name: 'proj-1', repoPath: '/tmp/p1' })
+    createProject(db, { userId, agentId, name: 'proj-2', repoPath: '/tmp/p2' })
+
+    // Update proj-1 so it has the most recent updated_at
+    updateProject(db, proj1.id, { name: 'proj-1-updated' })
+
+    const projects = findProjectsByUserId(db, userId)
+    expect(projects).toHaveLength(2)
+    // Most recently updated first
+    expect(projects[0].name).toBe('proj-1-updated')
+    expect(projects[1].name).toBe('proj-2')
+  })
+
+  it('lists projects by agent', () => {
+    createProject(db, { userId, agentId, name: 'proj-1', repoPath: '/tmp/p1' })
+
+    const projects = findProjectsByAgentId(db, agentId)
+    expect(projects).toHaveLength(1)
+    expect(projects[0].agent_id).toBe(agentId)
+  })
+
+  it('updates a project', () => {
+    const project = createProject(db, { userId, agentId, name: 'old-name', repoPath: '/tmp/p' })
+    updateProject(db, project.id, { name: 'new-name', description: 'updated' })
+
+    const found = findProjectById(db, project.id)
+    expect(found?.name).toBe('new-name')
+    expect(found?.description).toBe('updated')
+  })
+
+  it('deletes a project and cascades to tasks', () => {
+    const project = createProject(db, { userId, agentId, name: 'doomed', repoPath: '/tmp/p' })
+    const task = createTask(db, { projectId: project.id, title: 'task-1', prompt: 'do it' })
+
+    deleteProject(db, project.id)
+
+    expect(findProjectById(db, project.id)).toBeUndefined()
+    expect(findTaskById(db, task.id)).toBeUndefined()
+  })
+})
+
+describe('tasks', () => {
+  let userId: string
+  let agentId: string
+  let projectId: string
+
+  beforeEach(() => {
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'owner',
+      avatarUrl: null,
+    })
+    userId = user.id
+    agentId = createAgent(db, { userId, name: 'runner', agentSecretHash: 'hash' }).id
+    projectId = createProject(db, { userId, agentId, name: 'test-project', repoPath: '/tmp/p' }).id
+  })
+
+  it('creates and finds a task', () => {
+    const task = createTask(db, {
+      projectId,
+      title: 'Fix bug',
+      prompt: 'Fix the login bug',
+      priority: 5,
+    })
+
+    expect(task.status).toBe('pending')
+    expect(task.priority).toBe(5)
+    expect(task.branch_name).toBeNull()
+    expect(task.run_id).toBeNull()
+
+    const found = findTaskById(db, task.id)
+    expect(found?.title).toBe('Fix bug')
+    expect(found?.prompt).toBe('Fix the login bug')
+  })
+
+  it('finds pending tasks by project ordered by priority desc', () => {
+    createTask(db, { projectId, title: 'low', prompt: 'low priority', priority: 1 })
+    createTask(db, { projectId, title: 'high', prompt: 'high priority', priority: 10 })
+    createTask(db, { projectId, title: 'mid', prompt: 'mid priority', priority: 5 })
+
+    const pending = findPendingTasksByProjectId(db, projectId)
+    expect(pending).toHaveLength(3)
+    expect(pending[0].title).toBe('high')
+    expect(pending[1].title).toBe('mid')
+    expect(pending[2].title).toBe('low')
+  })
+
+  it('finds pending tasks by agent id', () => {
+    createTask(db, { projectId, title: 'agent-task', prompt: 'do it' })
+
+    const pending = findPendingTasksByAgentId(db, agentId)
+    expect(pending).toHaveLength(1)
+    expect(pending[0].title).toBe('agent-task')
+  })
+
+  it('finds all tasks by project ordered by priority desc then created_at asc', () => {
+    createTask(db, { projectId, title: 'a', prompt: 'first', priority: 5 })
+    createTask(db, { projectId, title: 'b', prompt: 'second', priority: 5 })
+    createTask(db, { projectId, title: 'c', prompt: 'third', priority: 10 })
+
+    const tasks = findTasksByProjectId(db, projectId)
+    expect(tasks).toHaveLength(3)
+    expect(tasks[0].title).toBe('c')
+    expect(tasks[1].title).toBe('a')
+    expect(tasks[2].title).toBe('b')
+  })
+
+  it('updates task status', () => {
+    const task = createTask(db, { projectId, title: 'task', prompt: 'go' })
+
+    updateTaskStatus(db, task.id, 'dispatched')
+    const dispatched = findTaskById(db, task.id)
+    expect(dispatched?.status).toBe('dispatched')
+    expect(dispatched?.claimed_at).toBeGreaterThan(0)
+
+    updateTaskStatus(db, task.id, 'completed')
+    const completed = findTaskById(db, task.id)
+    expect(completed?.status).toBe('completed')
+    expect(completed?.completed_at).toBeGreaterThan(0)
+  })
+
+  it('updates task run info', () => {
+    const task = createTask(db, { projectId, title: 'task', prompt: 'go' })
+    updateTaskRunInfo(db, task.id, 'run-123')
+
+    const found = findTaskById(db, task.id)
+    expect(found?.run_id).toBe('run-123')
+  })
+
+  it('updates task worktree info', () => {
+    const task = createTask(db, { projectId, title: 'task', prompt: 'go' })
+    updateTaskWorktreeInfo(db, task.id, 'feature/foo', '/tmp/worktrees/foo')
+
+    const found = findTaskById(db, task.id)
+    expect(found?.branch_name).toBe('feature/foo')
+    expect(found?.worktree_path).toBe('/tmp/worktrees/foo')
+  })
+
+  it('marks task as failed with error message', () => {
+    const task = createTask(db, { projectId, title: 'task', prompt: 'go' })
+    updateTaskStatus(db, task.id, 'failed', 'Something went wrong')
+
+    const found = findTaskById(db, task.id)
+    expect(found?.status).toBe('failed')
+    expect(found?.error_message).toBe('Something went wrong')
+    expect(found?.completed_at).toBeGreaterThan(0)
+  })
+
+  it('deletes a task', () => {
+    const task = createTask(db, { projectId, title: 'task', prompt: 'go' })
+    expect(deleteTask(db, task.id)).toBe(true)
+    expect(findTaskById(db, task.id)).toBeUndefined()
+    expect(deleteTask(db, 'nonexistent')).toBe(false)
+  })
+
+  it('updates task prompt fields', () => {
+    const task = createTask(db, { projectId, title: 'old title', prompt: 'old prompt', priority: 1 })
+    updateTaskPrompt(db, task.id, { title: 'new title', prompt: 'new prompt', priority: 10 })
+
+    const found = findTaskById(db, task.id)
+    expect(found?.title).toBe('new title')
+    expect(found?.prompt).toBe('new prompt')
+    expect(found?.priority).toBe(10)
+  })
+
+  it('resets a task to pending', () => {
+    const task = createTask(db, { projectId, title: 'task', prompt: 'original' })
+    updateTaskStatus(db, task.id, 'dispatched')
+    updateTaskRunInfo(db, task.id, 'run-1')
+    updateTaskWorktreeInfo(db, task.id, 'branch-1', '/tmp/wt')
+
+    resetTaskToPending(db, task.id)
+
+    const found = findTaskById(db, task.id)
+    expect(found?.status).toBe('pending')
+    expect(found?.run_id).toBeNull()
+    expect(found?.branch_name).toBeNull()
+    expect(found?.worktree_path).toBeNull()
+    expect(found?.error_message).toBeNull()
+    expect(found?.claimed_at).toBeNull()
+    expect(found?.completed_at).toBeNull()
+  })
+
+  it('resets a task to pending with additional prompt', () => {
+    const task = createTask(db, { projectId, title: 'task', prompt: 'original prompt' })
+    updateTaskStatus(db, task.id, 'failed', 'it broke')
+
+    resetTaskToPending(db, task.id, 'Try a different approach')
+
+    const found = findTaskById(db, task.id)
+    expect(found?.status).toBe('pending')
+    expect(found?.prompt).toBe('original prompt\n\nTry a different approach')
+    expect(found?.error_message).toBeNull()
   })
 })

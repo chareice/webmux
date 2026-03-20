@@ -5,7 +5,8 @@ import type { AgentUpgradePolicy, ServerToAgentMessage } from '@webmux/shared'
 
 import { hashSecret } from './auth.js'
 import { AgentHub } from './agent-hub.js'
-import { createAgent, createRunWithInitialTurn, createUser, findRunById, findRunTurnById, initDb } from './db.js'
+import { createAgent, createProject, createRunWithInitialTurn, createTask, createUser, findRunById, findRunTurnById, findTaskById, initDb } from './db.js'
+import type { TaskDispatcher } from './task-dispatcher.js'
 
 function createSocket() {
   const messages: ServerToAgentMessage[] = []
@@ -337,5 +338,254 @@ describe('AgentHub run lifecycle', () => {
         },
       ],
     })
+  })
+})
+
+describe('AgentHub task message handling', () => {
+  function setupTaskEnv() {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db, { userId: user.id, name: 'worker', agentSecretHash: 'hash' })
+    const project = createProject(db, {
+      userId: user.id,
+      agentId: agent.id,
+      name: 'test-project',
+      repoPath: '/tmp/project',
+    })
+    const task = createTask(db, {
+      projectId: project.id,
+      title: 'Fix bug',
+      prompt: 'Please fix the bug',
+    })
+    // Move task to dispatched so it simulates a real flow
+    db.prepare("UPDATE tasks SET status = 'dispatched' WHERE id = ?").run(task.id)
+
+    const hub = new AgentHub()
+    return { db, user, agent, project, task, hub }
+  }
+
+  it('task-claimed updates worktree info', () => {
+    const { db, agent, task, hub } = setupTaskEnv()
+
+    hub.handleAgentMessage(
+      agent.id,
+      {
+        type: 'task-claimed',
+        taskId: task.id,
+        branchName: 'feat/fix-bug',
+        worktreePath: '/tmp/project-worktree',
+      },
+      db,
+    )
+
+    const updated = findTaskById(db, task.id)
+    expect(updated?.branch_name).toBe('feat/fix-bug')
+    expect(updated?.worktree_path).toBe('/tmp/project-worktree')
+  })
+
+  it('task-claimed without worktree info does not crash', () => {
+    const { db, agent, task, hub } = setupTaskEnv()
+
+    hub.handleAgentMessage(
+      agent.id,
+      { type: 'task-claimed', taskId: task.id },
+      db,
+    )
+
+    const updated = findTaskById(db, task.id)
+    expect(updated?.branch_name).toBeNull()
+    expect(updated?.worktree_path).toBeNull()
+  })
+
+  it('task-running sets status to running and stores run_id', () => {
+    const { db, agent, task, hub } = setupTaskEnv()
+
+    hub.handleAgentMessage(
+      agent.id,
+      {
+        type: 'task-running',
+        taskId: task.id,
+        runId: 'run-123',
+        turnId: 'turn-456',
+        branchName: 'feat/fix-bug',
+        worktreePath: '/tmp/worktree',
+      },
+      db,
+    )
+
+    const updated = findTaskById(db, task.id)
+    expect(updated?.status).toBe('running')
+    expect(updated?.run_id).toBe('run-123')
+    expect(updated?.branch_name).toBe('feat/fix-bug')
+    expect(updated?.worktree_path).toBe('/tmp/worktree')
+  })
+
+  it('task-completed sets status to completed', () => {
+    const { db, agent, task, hub } = setupTaskEnv()
+    db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(task.id)
+
+    hub.handleAgentMessage(
+      agent.id,
+      { type: 'task-completed', taskId: task.id, summary: 'All done' },
+      db,
+    )
+
+    const updated = findTaskById(db, task.id)
+    expect(updated?.status).toBe('completed')
+    expect(updated?.completed_at).not.toBeNull()
+  })
+
+  it('task-failed sets status to failed with error message', () => {
+    const { db, agent, task, hub } = setupTaskEnv()
+    db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(task.id)
+
+    hub.handleAgentMessage(
+      agent.id,
+      { type: 'task-failed', taskId: task.id, error: 'Something went wrong' },
+      db,
+    )
+
+    const updated = findTaskById(db, task.id)
+    expect(updated?.status).toBe('failed')
+    expect(updated?.error_message).toBe('Something went wrong')
+    expect(updated?.completed_at).not.toBeNull()
+  })
+
+  it('agent disconnect marks dispatched and running tasks as failed', () => {
+    const { db, user, agent, project, task, hub } = setupTaskEnv()
+
+    // Create a second task in running state
+    const task2 = createTask(db, {
+      projectId: project.id,
+      title: 'Another task',
+      prompt: 'Do something',
+    })
+    db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(task2.id)
+
+    // Register the agent in the hub's internal map
+    ;(hub as unknown as {
+      agents: Map<string, { socket: { close: () => void }; userId: string; name: string }>
+    }).agents.set(agent.id, {
+      socket: { close: vi.fn() },
+      userId: user.id,
+      name: agent.name,
+    })
+
+    hub.removeAgent(agent.id, db)
+
+    // The first task (dispatched) should be failed
+    const updatedTask1 = findTaskById(db, task.id)
+    expect(updatedTask1?.status).toBe('failed')
+    expect(updatedTask1?.error_message).toBe('Agent disconnected')
+
+    // The second task (running) should also be failed
+    const updatedTask2 = findTaskById(db, task2.id)
+    expect(updatedTask2?.status).toBe('failed')
+    expect(updatedTask2?.error_message).toBe('Agent disconnected')
+  })
+
+  it('ignores task-claimed for nonexistent task', () => {
+    const { db, agent, hub } = setupTaskEnv()
+
+    // Should not throw
+    hub.handleAgentMessage(
+      agent.id,
+      { type: 'task-claimed', taskId: 'nonexistent-id', branchName: 'b', worktreePath: '/w' },
+      db,
+    )
+  })
+})
+
+describe('AgentHub dispatch on connect', () => {
+  it('calls dispatchPendingTasksForAgent when an agent authenticates', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const secret = 'agent-secret'
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'worker',
+      agentSecretHash: await hashSecret(secret),
+    })
+
+    const dispatchPendingTasksForAgent = vi.fn()
+    const mockTaskDispatcher = {
+      dispatchPendingTasksForAgent,
+    } as unknown as TaskDispatcher
+
+    const hub = new AgentHub({ taskDispatcher: mockTaskDispatcher })
+    const socket = createSocket()
+
+    const authenticated = await (hub as unknown as { authenticateAgent: AuthenticateAgent })
+      .authenticateAgent(socket, db, agent.id, secret, '0.1.0')
+
+    expect(authenticated).toBe(true)
+    expect(dispatchPendingTasksForAgent).toHaveBeenCalledWith(agent.id)
+    expect(dispatchPendingTasksForAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not dispatch when no taskDispatcher is configured', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const secret = 'agent-secret'
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'worker',
+      agentSecretHash: await hashSecret(secret),
+    })
+
+    const hub = new AgentHub()
+    const socket = createSocket()
+
+    // Should not throw even without a taskDispatcher
+    const authenticated = await (hub as unknown as { authenticateAgent: AuthenticateAgent })
+      .authenticateAgent(socket, db, agent.id, secret, '0.1.0')
+
+    expect(authenticated).toBe(true)
+  })
+
+  it('dispatches pending tasks via setTaskDispatcher', async () => {
+    const db = initDb(':memory:')
+    const user = createUser(db, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'alice',
+      avatarUrl: null,
+    })
+    const secret = 'agent-secret'
+    const agent = createAgent(db, {
+      userId: user.id,
+      name: 'worker',
+      agentSecretHash: await hashSecret(secret),
+    })
+
+    const dispatchPendingTasksForAgent = vi.fn()
+    const mockTaskDispatcher = {
+      dispatchPendingTasksForAgent,
+    } as unknown as TaskDispatcher
+
+    const hub = new AgentHub()
+    hub.setTaskDispatcher(mockTaskDispatcher)
+    const socket = createSocket()
+
+    const authenticated = await (hub as unknown as { authenticateAgent: AuthenticateAgent })
+      .authenticateAgent(socket, db, agent.id, secret, '0.1.0')
+
+    expect(authenticated).toBe(true)
+    expect(dispatchPendingTasksForAgent).toHaveBeenCalledWith(agent.id)
   })
 })

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import WebSocket from 'ws'
 
 import {
@@ -54,6 +55,7 @@ export class AgentConnection {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = INITIAL_RECONNECT_DELAY_MS
   private runs = new Map<string, { turnId: string; wrapper: RunWrapper }>()
+  private tasks = new Map<string, { runId: string; turnId: string; wrapper: RunWrapper }>()
   private stopped = false
 
   constructor(
@@ -169,6 +171,10 @@ export class AgentConnection {
         this.handleRunKill(msg.runId, msg.turnId)
         break
 
+      case 'task-dispatch':
+        this.handleTaskDispatch(msg.taskId, msg.projectId, msg.repoPath, msg.tool, msg.title, msg.prompt)
+        break
+
       default:
         console.warn('[agent] Unknown message type:', (msg as { type: string }).type)
     }
@@ -264,6 +270,10 @@ export class AgentConnection {
       run.wrapper.dispose()
       this.runs.delete(runId)
     }
+    for (const [taskId, task] of this.tasks) {
+      task.wrapper.dispose()
+      this.tasks.delete(taskId)
+    }
   }
 
   private handleRunStart(
@@ -342,6 +352,79 @@ export class AgentConnection {
       run.wrapper.dispose()
       this.runs.delete(runId)
     }
+  }
+
+  private handleTaskDispatch(
+    taskId: string,
+    _projectId: string,
+    repoPath: string,
+    tool: 'codex' | 'claude',
+    title: string,
+    prompt: string,
+  ): void {
+    // Acknowledge claim immediately
+    this.sendMessage({ type: 'task-claimed', taskId })
+
+    // Build a task-aware prompt that tells the AI it's working on a task
+    const taskPrompt = [
+      'You are working on a task within a project that uses git worktree.',
+      '',
+      `**Task:** ${title}`,
+      '',
+      '**Instructions:**',
+      prompt,
+      '',
+      `**Repo path (bare repo):** ${repoPath}`,
+      '',
+      'You should:',
+      '1. First understand the task requirements. If anything is unclear, ask for clarification.',
+      '2. Create a git worktree for this task from the bare repo when you are ready to start coding.',
+      '3. Do your work in the worktree.',
+      '4. Commit your changes when done.',
+    ].join('\n')
+
+    const runId = crypto.randomUUID()
+    const turnId = crypto.randomUUID()
+
+    const run = new RunWrapper({
+      runId,
+      tool,
+      repoPath,
+      prompt: taskPrompt,
+      onEvent: (status, summary, hasDiff) => {
+        this.sendMessage({ type: 'run-status', runId, turnId, status, summary, hasDiff })
+
+        if (status === 'running') {
+          this.sendMessage({ type: 'task-running', taskId, runId, turnId })
+        }
+      },
+      onFinish: (finalStatus) => {
+        this.tasks.delete(taskId)
+        if (finalStatus === 'success') {
+          this.sendMessage({ type: 'task-completed', taskId })
+        } else {
+          this.sendMessage({
+            type: 'task-failed',
+            taskId,
+            error: finalStatus === 'interrupted' ? 'Run interrupted' : 'Run failed',
+          })
+        }
+      },
+      onItem: (item) => {
+        this.sendMessage({ type: 'run-item', runId, turnId, item })
+      },
+      onThreadReady: (toolThreadId) => {
+        this.sendMessage({ type: 'run-status', runId, turnId, status: 'running', toolThreadId })
+      },
+    })
+
+    this.tasks.set(taskId, { runId, turnId, wrapper: run })
+
+    run.start().catch((err) => {
+      const message = err instanceof Error ? err.message : String(err)
+      this.sendMessage({ type: 'task-failed', taskId, error: `Failed to start: ${message}` })
+      this.tasks.delete(taskId)
+    })
   }
 
   private onDisconnect(): void {

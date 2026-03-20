@@ -10,13 +10,15 @@ import type {
   ServerToAgentMessage,
   RunEvent,
   Run,
+  Task,
+  TaskStatus,
 } from '@webmux/shared'
+import type { TaskDispatcher } from './task-dispatcher.js'
 import { compareSemanticVersions } from '@webmux/shared'
 import { verifySecret } from './auth.js'
 import { describeMinimumVersionFailure } from './agent-upgrade.js'
 import {
   appendRunTimelineEvent,
-  createRunTurn,
   findActiveRunsByAgentId,
   findAgentById,
   findRunById,
@@ -24,14 +26,18 @@ import {
   findQueuedRunTurnsByRunId,
   findRunTurnById,
   findLatestRunTurnByRunId,
+  findTaskById,
   runTurnRowToRunTurn,
   updateAgentLastSeen,
   updateAgentStatus,
   updateRunStatus,
   updateRunToolThreadId,
   updateRunTurnStatus,
+  updateTaskStatus,
+  updateTaskRunInfo,
+  updateTaskWorktreeInfo,
 } from './db.js'
-import type { RunRow, RunTurnRow } from './db.js'
+import type { RunRow, TaskRow } from './db.js'
 
 export interface TurnCompletionNotification {
   userId: string
@@ -66,19 +72,23 @@ interface PendingCommand<T> {
 export class AgentHub {
   upgradePolicy: AgentUpgradePolicy | null
   private notificationService: NotificationService | null
+  private taskDispatcher: TaskDispatcher | null
   private agents = new Map<string, OnlineAgent>()
   private heartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private pendingCommands = new Map<string, PendingCommand<unknown>>()
   private runClients = new Map<string, Set<WebSocket>>()
+  private projectClients = new Map<string, Set<WebSocket>>()
 
   constructor(
     options: {
       upgradePolicy?: AgentUpgradePolicy | null
       notificationService?: NotificationService | null
+      taskDispatcher?: TaskDispatcher | null
     } = {},
   ) {
     this.upgradePolicy = options.upgradePolicy ?? null
     this.notificationService = options.notificationService ?? null
+    this.taskDispatcher = options.taskDispatcher ?? null
   }
 
   handleConnection(socket: WebSocket, db: Database): void {
@@ -200,6 +210,11 @@ export class AgentHub {
     }
     socket.send(JSON.stringify(msg))
 
+    // Dispatch pending tasks for this agent
+    if (this.taskDispatcher) {
+      this.taskDispatcher.dispatchPendingTasksForAgent(agentId)
+    }
+
     return true
   }
 
@@ -271,10 +286,30 @@ export class AgentHub {
         break
       }
 
+      case 'task-claimed':
+        this.handleTaskClaimed(message, db)
+        break
+
+      case 'task-running':
+        this.handleTaskRunning(message, db)
+        break
+
+      case 'task-completed':
+        this.handleTaskCompleted(message, db)
+        break
+
+      case 'task-failed':
+        this.handleTaskFailed(message, db)
+        break
+
       // auth is handled separately; ignore here
       case 'auth':
         break
     }
+  }
+
+  setTaskDispatcher(dispatcher: TaskDispatcher): void {
+    this.taskDispatcher = dispatcher
   }
 
   getAgent(agentId: string): OnlineAgent | undefined {
@@ -342,6 +377,17 @@ export class AgentHub {
       }
       this.broadcastRunSnapshot(db, run.id, activeTurn?.id)
     }
+
+    // Fail any dispatched or running tasks for this agent
+    const activeTasks = db.prepare(
+      `SELECT t.id FROM tasks t
+       JOIN projects p ON t.project_id = p.id
+       WHERE p.agent_id = ? AND t.status IN ('dispatched', 'running')`,
+    ).all(agentId) as Array<{ id: string }>
+
+    for (const { id } of activeTasks) {
+      updateTaskStatus(db, id, 'failed', 'Agent disconnected')
+    }
   }
 
   // --- Run client management ---
@@ -406,6 +452,51 @@ export class AgentHub {
     }
   }
 
+  // --- Project client management ---
+
+  addProjectClient(projectId: string, socket: WebSocket): void {
+    let clients = this.projectClients.get(projectId)
+    if (!clients) {
+      clients = new Set()
+      this.projectClients.set(projectId, clients)
+    }
+    clients.add(socket)
+
+    socket.on('close', () => {
+      this.removeProjectClient(projectId, socket)
+    })
+    socket.on('error', () => {
+      this.removeProjectClient(projectId, socket)
+    })
+  }
+
+  removeProjectClient(projectId: string, socket: WebSocket): void {
+    const clients = this.projectClients.get(projectId)
+    if (clients) {
+      clients.delete(socket)
+      if (clients.size === 0) {
+        this.projectClients.delete(projectId)
+      }
+    }
+  }
+
+  broadcastTaskSnapshot(db: Database, taskId: string): void {
+    const taskRow = findTaskById(db, taskId)
+    if (!taskRow) return
+
+    const clients = this.projectClients.get(taskRow.project_id)
+    if (!clients || clients.size === 0) return
+
+    const event: RunEvent = {
+      type: 'task-status',
+      task: taskRowToTask(taskRow),
+    }
+
+    for (const client of clients) {
+      this.safeSend(client, event)
+    }
+  }
+
   private handleRunEvent(
     agentId: string,
     message: { type: 'run-status'; runId: string; turnId: string; status: string; summary?: string; hasDiff?: boolean; toolThreadId?: string },
@@ -464,6 +555,53 @@ export class AgentHub {
         this.safeSend(client, event)
       }
     }
+  }
+
+  private handleTaskClaimed(
+    message: { type: 'task-claimed'; taskId: string; branchName?: string; worktreePath?: string },
+    db: Database,
+  ): void {
+    const task = findTaskById(db, message.taskId)
+    if (!task) return
+
+    if (message.branchName && message.worktreePath) {
+      updateTaskWorktreeInfo(db, message.taskId, message.branchName, message.worktreePath)
+    }
+
+    this.broadcastTaskSnapshot(db, message.taskId)
+  }
+
+  private handleTaskRunning(
+    message: { type: 'task-running'; taskId: string; runId: string; turnId: string; branchName?: string; worktreePath?: string },
+    db: Database,
+  ): void {
+    const task = findTaskById(db, message.taskId)
+    if (!task) return
+
+    updateTaskStatus(db, message.taskId, 'running')
+    updateTaskRunInfo(db, message.taskId, message.runId)
+
+    if (message.branchName && message.worktreePath) {
+      updateTaskWorktreeInfo(db, message.taskId, message.branchName, message.worktreePath)
+    }
+
+    this.broadcastTaskSnapshot(db, message.taskId)
+  }
+
+  private handleTaskCompleted(
+    message: { type: 'task-completed'; taskId: string; summary?: string },
+    db: Database,
+  ): void {
+    updateTaskStatus(db, message.taskId, 'completed')
+    this.broadcastTaskSnapshot(db, message.taskId)
+  }
+
+  private handleTaskFailed(
+    message: { type: 'task-failed'; taskId: string; error: string },
+    db: Database,
+  ): void {
+    updateTaskStatus(db, message.taskId, 'failed', message.error)
+    this.broadcastTaskSnapshot(db, message.taskId)
   }
 
   private requestCommand<TResult>(
@@ -585,6 +723,25 @@ export function runRowToRun(row: RunRow): Run {
     summary: row.summary ?? undefined,
     hasDiff: row.has_diff === 1,
     unread: row.unread === 1,
+  }
+}
+
+function taskRowToTask(row: TaskRow): Task {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    prompt: row.prompt,
+    status: row.status as TaskStatus,
+    priority: row.priority,
+    branchName: row.branch_name,
+    worktreePath: row.worktree_path,
+    runId: row.run_id,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    claimedAt: row.claimed_at,
+    completedAt: row.completed_at,
   }
 }
 

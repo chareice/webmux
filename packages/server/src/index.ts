@@ -4,7 +4,7 @@ import { verifyJwt } from './auth.js'
 import type { JwtPayload } from './auth.js'
 import { buildAgentUpgradePolicy } from './agent-upgrade.js'
 import { buildApp } from './app.js'
-import { findRunById } from './db.js'
+import { findProjectById, findRunById } from './db.js'
 import { runRowToRun } from './agent-hub.js'
 
 // --- Parse environment ---
@@ -72,6 +72,7 @@ const server = app.server
 
 const agentWss = new WebSocketServer({ noServer: true })
 const runWss = new WebSocketServer({ noServer: true })
+const projectWss = new WebSocketServer({ noServer: true })
 
 server.on('upgrade', (request, socket, head) => {
   const parsed = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
@@ -124,6 +125,45 @@ server.on('upgrade', (request, socket, head) => {
       // Send current thread state immediately
       const run = runRowToRun(runRow)
       ws.send(JSON.stringify({ type: 'run-status', run }))
+    })
+    return
+  }
+
+  // WebSocket endpoint for project real-time updates
+  if (pathname === '/ws/project') {
+    const token = parsed.searchParams.get('token') ?? undefined
+    if (!token) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    let payload: JwtPayload
+    try {
+      payload = verifyJwt(token, JWT_SECRET)
+    } catch {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    const projectId = parsed.searchParams.get('projectId') ?? undefined
+    if (!projectId) {
+      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    // Verify project exists and belongs to user
+    const project = findProjectById(db, projectId)
+    if (!project || project.user_id !== payload.userId) {
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    projectWss.handleUpgrade(request, socket, head, (ws) => {
+      hub.addProjectClient(projectId, ws)
     })
     return
   }

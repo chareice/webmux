@@ -49,6 +49,35 @@ export interface NotificationDeviceRow {
   updated_at: number
 }
 
+export interface ProjectRow {
+  id: string
+  user_id: string
+  agent_id: string
+  name: string
+  description: string
+  repo_path: string
+  default_tool: string
+  created_at: number
+  updated_at: number
+}
+
+export interface TaskRow {
+  id: string
+  project_id: string
+  title: string
+  prompt: string
+  status: string
+  priority: number
+  branch_name: string | null
+  worktree_path: string | null
+  run_id: string | null
+  error_message: string | null
+  created_at: number
+  updated_at: number
+  claimed_at: number | null
+  completed_at: number | null
+}
+
 export function initDb(dbPath: string): Database.Database {
   const db = new Database(dbPath)
 
@@ -126,6 +155,40 @@ export function initDb(dbPath: string): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_notification_devices_user_id
       ON notification_devices(user_id);
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id            TEXT PRIMARY KEY,
+      user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      agent_id      TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      name          TEXT NOT NULL,
+      description   TEXT NOT NULL DEFAULT '',
+      repo_path     TEXT NOT NULL,
+      default_tool  TEXT NOT NULL DEFAULT 'claude',
+      created_at    INTEGER NOT NULL,
+      updated_at    INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id              TEXT PRIMARY KEY,
+      project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title           TEXT NOT NULL,
+      prompt          TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'pending',
+      priority        INTEGER NOT NULL DEFAULT 0,
+      branch_name     TEXT,
+      worktree_path   TEXT,
+      run_id          TEXT,
+      error_message   TEXT,
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL,
+      claimed_at      INTEGER,
+      completed_at    INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
   `)
 
   migrateRunsTableIfNeeded(db)
@@ -149,6 +212,11 @@ export function initDb(dbPath: string): Database.Database {
   db.prepare(
     `UPDATE runs SET status = 'failed', summary = 'Server restarted while this task was running.', updated_at = ?
      WHERE status IN ('starting', 'running')`,
+  ).run(now)
+  // 3. Fail any tasks that were dispatched/running when the server stopped
+  db.prepare(
+    `UPDATE tasks SET status = 'failed', error_message = 'Server restarted while this task was active.', updated_at = ?
+     WHERE status IN ('dispatched', 'running')`,
   ).run(now)
 
   return db
@@ -843,6 +911,250 @@ export function runTurnRowToRunTurn(
     summary: row.summary ?? undefined,
     hasDiff: row.has_diff === 1,
   }
+}
+
+// --- Projects ---
+
+export function createProject(
+  db: Database.Database,
+  opts: { userId: string; agentId: string; name: string; description?: string; repoPath: string; defaultTool?: string },
+): ProjectRow {
+  const id = crypto.randomUUID()
+  const now = Date.now()
+  const description = opts.description ?? ''
+  const defaultTool = opts.defaultTool ?? 'claude'
+
+  db.prepare(
+    `INSERT INTO projects (id, user_id, agent_id, name, description, repo_path, default_tool, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, opts.userId, opts.agentId, opts.name, description, opts.repoPath, defaultTool, now, now)
+
+  return {
+    id,
+    user_id: opts.userId,
+    agent_id: opts.agentId,
+    name: opts.name,
+    description,
+    repo_path: opts.repoPath,
+    default_tool: defaultTool,
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+export function findProjectById(db: Database.Database, projectId: string): ProjectRow | undefined {
+  return db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as ProjectRow | undefined
+}
+
+export function findProjectsByUserId(db: Database.Database, userId: string): ProjectRow[] {
+  return db.prepare('SELECT * FROM projects WHERE user_id = ? ORDER BY updated_at DESC').all(userId) as ProjectRow[]
+}
+
+export function findProjectsByAgentId(db: Database.Database, agentId: string): ProjectRow[] {
+  return db.prepare('SELECT * FROM projects WHERE agent_id = ? ORDER BY updated_at DESC').all(agentId) as ProjectRow[]
+}
+
+export function updateProject(
+  db: Database.Database,
+  projectId: string,
+  opts: { name?: string; description?: string; defaultTool?: string },
+): void {
+  const now = Date.now()
+  const sets: string[] = ['updated_at = ?']
+  const params: (string | number)[] = [now]
+
+  if (opts.name !== undefined) {
+    sets.push('name = ?')
+    params.push(opts.name)
+  }
+  if (opts.description !== undefined) {
+    sets.push('description = ?')
+    params.push(opts.description)
+  }
+  if (opts.defaultTool !== undefined) {
+    sets.push('default_tool = ?')
+    params.push(opts.defaultTool)
+  }
+
+  params.push(projectId)
+  db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...params)
+}
+
+export function deleteProject(db: Database.Database, projectId: string): void {
+  db.prepare('DELETE FROM projects WHERE id = ?').run(projectId)
+}
+
+// --- Tasks ---
+
+export function createTask(
+  db: Database.Database,
+  opts: { projectId: string; title: string; prompt: string; priority?: number },
+): TaskRow {
+  const id = crypto.randomUUID()
+  const now = Date.now()
+  const priority = opts.priority ?? 0
+
+  db.prepare(
+    `INSERT INTO tasks (id, project_id, title, prompt, status, priority, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`,
+  ).run(id, opts.projectId, opts.title, opts.prompt, priority, now, now)
+
+  return {
+    id,
+    project_id: opts.projectId,
+    title: opts.title,
+    prompt: opts.prompt,
+    status: 'pending',
+    priority,
+    branch_name: null,
+    worktree_path: null,
+    run_id: null,
+    error_message: null,
+    created_at: now,
+    updated_at: now,
+    claimed_at: null,
+    completed_at: null,
+  }
+}
+
+export function findTaskById(db: Database.Database, taskId: string): TaskRow | undefined {
+  return db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as TaskRow | undefined
+}
+
+export function findTasksByProjectId(db: Database.Database, projectId: string): TaskRow[] {
+  return db.prepare(
+    'SELECT * FROM tasks WHERE project_id = ? ORDER BY priority DESC, created_at ASC',
+  ).all(projectId) as TaskRow[]
+}
+
+export function findPendingTasksByProjectId(db: Database.Database, projectId: string): TaskRow[] {
+  return db.prepare(
+    `SELECT * FROM tasks WHERE project_id = ? AND status = 'pending' ORDER BY priority DESC, created_at ASC`,
+  ).all(projectId) as TaskRow[]
+}
+
+export function findPendingTasksByAgentId(db: Database.Database, agentId: string): TaskRow[] {
+  return db.prepare(
+    `SELECT tasks.* FROM tasks
+     JOIN projects ON tasks.project_id = projects.id
+     WHERE projects.agent_id = ? AND tasks.status = 'pending'
+     ORDER BY tasks.priority DESC, tasks.created_at ASC`,
+  ).all(agentId) as TaskRow[]
+}
+
+export function updateTaskStatus(
+  db: Database.Database,
+  taskId: string,
+  status: string,
+  errorMessage?: string,
+): void {
+  const now = Date.now()
+  const sets: string[] = ['status = ?', 'updated_at = ?']
+  const params: (string | number | null)[] = [status, now]
+
+  if (status === 'dispatched') {
+    sets.push('claimed_at = ?')
+    params.push(now)
+  }
+  if (status === 'completed' || status === 'failed') {
+    sets.push('completed_at = ?')
+    params.push(now)
+  }
+  if (errorMessage !== undefined) {
+    sets.push('error_message = ?')
+    params.push(errorMessage)
+  }
+
+  params.push(taskId)
+  db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`).run(...params)
+}
+
+export function updateTaskRunInfo(db: Database.Database, taskId: string, runId: string): void {
+  db.prepare('UPDATE tasks SET run_id = ?, updated_at = ? WHERE id = ?').run(runId, Date.now(), taskId)
+}
+
+export function updateTaskWorktreeInfo(
+  db: Database.Database,
+  taskId: string,
+  branchName: string,
+  worktreePath: string,
+): void {
+  db.prepare(
+    'UPDATE tasks SET branch_name = ?, worktree_path = ?, updated_at = ? WHERE id = ?',
+  ).run(branchName, worktreePath, Date.now(), taskId)
+}
+
+export function updateTaskPrompt(
+  db: Database.Database,
+  taskId: string,
+  opts: { title?: string; prompt?: string; priority?: number },
+): void {
+  const now = Date.now()
+  const sets: string[] = ['updated_at = ?']
+  const params: (string | number)[] = [now]
+
+  if (opts.title !== undefined) {
+    sets.push('title = ?')
+    params.push(opts.title)
+  }
+  if (opts.prompt !== undefined) {
+    sets.push('prompt = ?')
+    params.push(opts.prompt)
+  }
+  if (opts.priority !== undefined) {
+    sets.push('priority = ?')
+    params.push(opts.priority)
+  }
+
+  params.push(taskId)
+  db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`).run(...params)
+}
+
+export function deleteTask(db: Database.Database, taskId: string): boolean {
+  const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId)
+  return result.changes > 0
+}
+
+export function resetTaskToPending(
+  db: Database.Database,
+  taskId: string,
+  additionalPrompt?: string,
+): void {
+  const now = Date.now()
+
+  if (additionalPrompt) {
+    const existing = findTaskById(db, taskId)
+    if (existing) {
+      const newPrompt = `${existing.prompt}\n\n${additionalPrompt}`
+      db.prepare(
+        `UPDATE tasks SET
+          status = 'pending',
+          prompt = ?,
+          run_id = NULL,
+          branch_name = NULL,
+          worktree_path = NULL,
+          error_message = NULL,
+          claimed_at = NULL,
+          completed_at = NULL,
+          updated_at = ?
+        WHERE id = ?`,
+      ).run(newPrompt, now, taskId)
+      return
+    }
+  }
+
+  db.prepare(
+    `UPDATE tasks SET
+      status = 'pending',
+      run_id = NULL,
+      branch_name = NULL,
+      worktree_path = NULL,
+      error_message = NULL,
+      claimed_at = NULL,
+      completed_at = NULL,
+      updated_at = ?
+    WHERE id = ?`,
+  ).run(now, taskId)
 }
 
 function migrateRunsTableIfNeeded(db: Database.Database): void {
