@@ -248,12 +248,13 @@ Important:
     const stepStart = Date.now()
     const stepType = this.toolToStepType(name)
 
-    // Report step started
+    // Report step started (include full prompt as detail for code tools)
     this.options.onStepUpdate({
       id: stepId,
       type: stepType,
       label: this.toolToLabel(name, args),
       status: 'running',
+      detail: (name === 'run_claude_code' || name === 'run_codex') ? args.prompt as string : undefined,
       toolName: name,
       createdAt: stepStart,
     })
