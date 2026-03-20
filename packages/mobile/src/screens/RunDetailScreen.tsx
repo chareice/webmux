@@ -17,8 +17,12 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   connectThreadWebSocket,
   continueThread,
+  deleteQueuedTurn,
+  discardQueue,
   getThreadDetail,
   interruptThread,
+  resumeQueue,
+  updateQueuedTurn,
 } from '../api';
 import MarkdownContent from '../components/MarkdownContent';
 import {
@@ -34,7 +38,15 @@ import { colors, commonStyles, fonts, statusColor, statusLabel } from '../theme'
 import type { RootStackParamList } from '../navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isRunTimelineEvent, isRunTurn } from '../run-detail-response';
-import { appendTurnItem, canContinueRun, isRunActive, latestRunTurn, upsertRunTurn } from '../run-thread';
+import {
+  appendTurnItem,
+  canContinueRun,
+  isRunActive,
+  latestRunTurn,
+  nonQueuedTurns as filterNonQueued,
+  queuedTurns as filterQueued,
+  upsertRunTurn,
+} from '../run-thread';
 import {
   formatAttachmentSize,
   pickImageAttachments,
@@ -213,11 +225,12 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
     }, 50);
   }, [turns]);
 
-  const latestTurn = latestRunTurn(turns);
-  const isActive = latestTurn ? isRunActive(latestTurn.status) : run ? isRunActive(run.status) : false;
-  const canRetry = latestTurn !== null
-    && (latestTurn.status === 'failed' || latestTurn.status === 'interrupted')
-    && !!latestTurn.prompt;
+  const latestNonQueuedTurn = latestRunTurn(filterNonQueued(turns));
+  const isActive = latestNonQueuedTurn ? isRunActive(latestNonQueuedTurn.status) : run ? isRunActive(run.status) : false;
+  const canRetry = latestNonQueuedTurn !== null
+    && (latestNonQueuedTurn.status === 'failed' || latestNonQueuedTurn.status === 'interrupted')
+    && !!latestNonQueuedTurn.prompt;
+  const interruptedWithQueue = latestNonQueuedTurn?.status === 'interrupted' && filterQueued(turns).length > 0;
   const handleOpenContent = useCallback(
     (title: string, content: string, mono = false) => {
       navigation.navigate('ThreadContent', { title, content, mono });
@@ -269,7 +282,7 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
   const [isRetrying, setIsRetrying] = useState(false);
 
   const handleRetry = async () => {
-    const failedTurn = latestTurn;
+    const failedTurn = latestNonQueuedTurn;
     if (!failedTurn || !failedTurn.prompt) return;
 
     setIsRetrying(true);
@@ -303,7 +316,50 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
     }
   };
 
-  const segments = groupIntoSegments(turns);
+  const handleDeleteQueuedTurn = async (turnId: string) => {
+    try {
+      await deleteQueuedTurn(agentId, runId, turnId);
+      setTurns((prev) => prev.filter((t) => t.id !== turnId));
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleUpdateQueuedTurn = async (turnId: string, prompt: string) => {
+    try {
+      await updateQueuedTurn(agentId, runId, turnId, prompt);
+      setTurns((prev) =>
+        prev.map((t) => (t.id === turnId ? { ...t, prompt } : t)),
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to update';
+      setError(msg);
+    }
+  };
+
+  const handleResumeQueue = async () => {
+    try {
+      const result = await resumeQueue(agentId, runId);
+      setRun(result.run);
+      setTurns(result.turns);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to resume queue';
+      setError(msg);
+    }
+  };
+
+  const handleDiscardQueue = async () => {
+    try {
+      await discardQueue(agentId, runId);
+      setTurns((prev) => prev.filter((t) => t.status !== 'queued'));
+    } catch {
+      // Ignore
+    }
+  };
+
+  const activeAndDoneTurns = filterNonQueued(turns);
+  const pendingQueuedTurns = filterQueued(turns);
+  const segments = groupIntoSegments(activeAndDoneTurns);
 
   if (isLoading) {
     return (
@@ -421,41 +477,84 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
             );
           })
         )}
+
+            {/* Queued turns */}
+            {pendingQueuedTurns.length > 0 ? (
+              <View style={styles.queuedSection}>
+                <Text style={styles.queuedSectionLabel}>
+                  Queued ({pendingQueuedTurns.length})
+                </Text>
+                {pendingQueuedTurns.map((turn) => (
+                  <QueuedTurnCard
+                    key={turn.id}
+                    turn={turn}
+                    onUpdate={(prompt) => void handleUpdateQueuedTurn(turn.id, prompt)}
+                    onDelete={() => void handleDeleteQueuedTurn(turn.id)}
+                  />
+                ))}
+              </View>
+            ) : null}
       </ScrollView>
 
       {/* Composer / footer */}
       <View style={[styles.footer, { paddingBottom: 12 + insets.bottom }]}>
+        {/* Interrupt button — show when active */}
         {isActive ? (
-          <>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.interruptButton]}
+            onPress={handleInterrupt}
+            activeOpacity={0.7}>
+            <Text style={[styles.actionButtonText, { color: colors.orange }]}>
+              Interrupt
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {/* Resume/discard decision — show when interrupted with queued turns */}
+        {interruptedWithQueue ? (
+          <View style={styles.queueDecision}>
+            <Text style={styles.queueDecisionLabel}>
+              {pendingQueuedTurns.length} queued message{pendingQueuedTurns.length > 1 ? 's' : ''}
+            </Text>
             <TouchableOpacity
-              style={[styles.actionButton, styles.interruptButton]}
-              onPress={handleInterrupt}
+              style={[styles.queueDecisionButton, { backgroundColor: colors.accent + '22' }]}
+              onPress={() => void handleResumeQueue()}
               activeOpacity={0.7}>
-              <Text style={[styles.actionButtonText, { color: colors.orange }]}>
-                Interrupt
+              <Text style={[styles.queueDecisionButtonText, { color: colors.accent }]}>
+                Resume
               </Text>
             </TouchableOpacity>
-            <Text style={styles.footerHint}>
-              Follow-up input becomes available after the current turn finishes.
-            </Text>
-          </>
-        ) : canContinueRun(latestTurn) ? (
+            <TouchableOpacity
+              style={[styles.queueDecisionButton, { backgroundColor: colors.red + '22' }]}
+              onPress={() => void handleDiscardQueue()}
+              activeOpacity={0.7}>
+              <Text style={[styles.queueDecisionButtonText, { color: colors.red }]}>
+                Discard
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {/* Retry button — show when latest turn failed/interrupted (and no queue decision showing) */}
+        {!isActive && !interruptedWithQueue && canRetry ? (
+          <TouchableOpacity
+            style={[styles.actionButton, styles.retryButton]}
+            onPress={handleRetry}
+            disabled={isRetrying}
+            activeOpacity={0.7}>
+            {isRetrying ? (
+              <ActivityIndicator color={colors.accent} size="small" />
+            ) : (
+              <Text style={[styles.actionButtonText, { color: colors.accent }]}>
+                Retry
+              </Text>
+            )}
+          </TouchableOpacity>
+        ) : null}
+
+        {/* Composer — show when active (to queue) OR when can continue */}
+        {isActive || canContinueRun(latestNonQueuedTurn) ? (
           <>
-            {canRetry ? (
-              <TouchableOpacity
-                style={[styles.actionButton, styles.retryButton]}
-                onPress={handleRetry}
-                disabled={isRetrying}
-                activeOpacity={0.7}>
-                {isRetrying ? (
-                  <ActivityIndicator color={colors.accent} size="small" />
-                ) : (
-                  <Text style={[styles.actionButtonText, { color: colors.accent }]}>
-                    Retry
-                  </Text>
-                )}
-              </TouchableOpacity>
-            ) : null}
             <View style={styles.composerCard}>
               {followUpAttachments.length > 0 ? (
                 <ScrollView
@@ -483,14 +582,16 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
                 </ScrollView>
               ) : null}
 
-              {/* Options toggle + panel */}
-              <TurnOptionsBar
-                tool={run.tool}
-                options={turnOptions}
-                onChange={setTurnOptions}
-                expanded={showOptions}
-                onToggle={() => setShowOptions((v) => !v)}
-              />
+              {/* Options toggle + panel — only when not active */}
+              {!isActive ? (
+                <TurnOptionsBar
+                  tool={run.tool}
+                  options={turnOptions}
+                  onChange={setTurnOptions}
+                  expanded={showOptions}
+                  onToggle={() => setShowOptions((v) => !v)}
+                />
+              ) : null}
 
               <View style={styles.composerInputRow}>
                 <TouchableOpacity
@@ -509,7 +610,7 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
 
                 <TextInput
                   style={styles.followUpInput}
-                  placeholder="Message this thread"
+                  placeholder={isActive ? 'Queue a follow-up message...' : 'Message this thread...'}
                   placeholderTextColor={colors.textSecondary}
                   value={followUpPrompt}
                   onChangeText={setFollowUpPrompt}
@@ -529,7 +630,7 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
                   {isContinuing ? (
                     <ActivityIndicator color="#ffffff" size="small" />
                   ) : (
-                    <Text style={styles.sendButtonText}>Send</Text>
+                    <Text style={styles.sendButtonText}>{isActive ? 'Queue' : 'Send'}</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -548,6 +649,63 @@ export default function RunDetailScreen({ navigation, route }: Props): React.JSX
 
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'max'] as const;
 const CODEX_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+
+function QueuedTurnCard({
+  turn,
+  onUpdate,
+  onDelete,
+}: {
+  turn: RunTurnDetail;
+  onUpdate: (prompt: string) => void;
+  onDelete: () => void;
+}): React.JSX.Element {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(turn.prompt);
+
+  return (
+    <View style={styles.queuedCard}>
+      {isEditing ? (
+        <View style={styles.queuedCardEdit}>
+          <TextInput
+            style={styles.queuedCardEditInput}
+            value={editText}
+            onChangeText={setEditText}
+            multiline
+            autoFocus
+            placeholderTextColor={colors.textSecondary}
+          />
+          <View style={styles.queuedCardEditActions}>
+            <TouchableOpacity onPress={() => setIsEditing(false)} activeOpacity={0.7}>
+              <Text style={styles.queuedCardCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => { onUpdate(editText); setIsEditing(false); }}
+              disabled={!editText.trim()}
+              activeOpacity={0.7}>
+              <Text style={[styles.queuedCardSaveText, !editText.trim() && { opacity: 0.4 }]}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.queuedCardContent}>
+          <Text style={styles.queuedCardPrompt} numberOfLines={3}>
+            {turn.prompt}
+          </Text>
+          <View style={styles.queuedCardActions}>
+            <TouchableOpacity
+              onPress={() => { setEditText(turn.prompt); setIsEditing(true); }}
+              activeOpacity={0.7}>
+              <Text style={styles.queuedCardActionText}>✏️</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onDelete} activeOpacity={0.7}>
+              <Text style={styles.queuedCardDeleteText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
 
 function TurnOptionsBar({
   tool,
@@ -1394,5 +1552,99 @@ const styles = StyleSheet.create({
   turnOptionCheckbox: {
     color: colors.accent,
     fontSize: 16,
+  },
+
+  // Queued turns section
+  queuedSection: {
+    marginTop: 12,
+    gap: 8,
+  },
+  queuedSectionLabel: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  queuedCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.textSecondary,
+    padding: 10,
+  },
+  queuedCardContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  queuedCardPrompt: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  queuedCardActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  queuedCardActionText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
+  queuedCardDeleteText: {
+    color: colors.red,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  queuedCardEdit: {
+    gap: 8,
+  },
+  queuedCardEditInput: {
+    backgroundColor: colors.surfaceLight,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.text,
+    fontSize: 13,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 60,
+    textAlignVertical: 'top',
+  },
+  queuedCardEditActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 16,
+  },
+  queuedCardCancelText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  queuedCardSaveText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  queueDecision: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  queueDecisionLabel: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    flex: 1,
+  },
+  queueDecisionButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  queueDecisionButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
