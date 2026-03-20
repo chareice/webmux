@@ -8,7 +8,6 @@ import { ThreadsPage } from './pages/ThreadsPage.tsx'
 import { NewThreadPage } from './pages/NewThreadPage.tsx'
 import { ThreadDetailPage } from './pages/ThreadDetailPage.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
-import { ProjectDetailPage } from './pages/ProjectDetailPage.tsx'
 import { TaskDetailPage } from './pages/TaskDetailPage.tsx'
 import { NewProjectPage } from './pages/NewProjectPage.tsx'
 import { LlmConfigPage } from './pages/LlmConfigPage.tsx'
@@ -165,7 +164,7 @@ function App() {
           element={
             <ProtectedRoute>
               <AppLayout>
-                <ProjectDetailPage />
+                <ProjectsPage />
               </AppLayout>
             </ProtectedRoute>
           }

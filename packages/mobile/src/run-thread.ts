@@ -52,3 +52,11 @@ export function isRunActive(status: RunStatus): boolean {
 export function canContinueRun(turn: RunTurnDetail | null): boolean {
   return turn !== null && !isRunActive(turn.status);
 }
+
+export function queuedTurns(turns: RunTurnDetail[]): RunTurnDetail[] {
+  return turns.filter((t) => t.status === 'queued');
+}
+
+export function nonQueuedTurns(turns: RunTurnDetail[]): RunTurnDetail[] {
+  return turns.filter((t) => t.status !== 'queued');
+}
