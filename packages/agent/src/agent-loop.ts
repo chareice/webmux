@@ -1,12 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { resolve } from 'node:path'
 import type { RunTool, StepType } from '@webmux/shared'
 import { LlmClient, type ChatMessage, type ToolDefinition, type ToolCall } from './llm-client.js'
-
-const execFileAsync = promisify(execFile)
 
 export interface StepUpdate {
   id: string
@@ -42,11 +36,11 @@ const AGENT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'run_claude_code',
-      description: 'Start a Claude Code session to implement code changes. Returns the session summary when complete.',
+      description: 'Start a Claude Code session. Use for ALL code-related work: reading code, analyzing projects, writing code, running tests, git operations, etc. Returns the session summary when complete.',
       parameters: {
         type: 'object',
         properties: {
-          prompt: { type: 'string', description: 'What Claude Code should do' },
+          prompt: { type: 'string', description: 'Detailed instructions for what Claude Code should do' },
           directory: { type: 'string', description: 'Working directory (defaults to repo path)' },
         },
         required: ['prompt'],
@@ -57,11 +51,11 @@ const AGENT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'run_codex',
-      description: 'Start a Codex session for code review or implementation. Returns the session summary when complete.',
+      description: 'Start a Codex session. Alternative to Claude Code for code tasks. Returns the session summary when complete.',
       parameters: {
         type: 'object',
         properties: {
-          prompt: { type: 'string', description: 'What Codex should do' },
+          prompt: { type: 'string', description: 'Detailed instructions for what Codex should do' },
           directory: { type: 'string', description: 'Working directory (defaults to repo path)' },
         },
         required: ['prompt'],
@@ -72,7 +66,7 @@ const AGENT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'reply_message',
-      description: 'Send a message to the user visible on the task card. Use for status updates or questions.',
+      description: 'Send a message to the user visible on the task card. Use for status updates, questions, or relaying results.',
       parameters: {
         type: 'object',
         properties: {
@@ -86,41 +80,13 @@ const AGENT_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'wait_for_user',
-      description: 'Pause and wait for the user to reply. Use when you need clarification or input before proceeding. Send a message explaining what you need.',
+      description: 'Pause and wait for the user to reply. Use when you need clarification or input before proceeding.',
       parameters: {
         type: 'object',
         properties: {
           prompt: { type: 'string', description: 'Message to show the user explaining what you need' },
         },
         required: ['prompt'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'read_file',
-      description: 'Read the contents of a file in the repository.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'File path relative to repo root' },
-        },
-        required: ['path'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'run_command',
-      description: 'Run a shell command in the repository directory.',
-      parameters: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: 'Shell command to execute' },
-        },
-        required: ['command'],
       },
     },
   },
@@ -242,27 +208,30 @@ export class AgentLoop {
   }
 
   private buildSystemPrompt(): string {
-    return `You are a task orchestrator for a software project. You receive a task and must decide how to complete it using the available tools.
+    return `You are a task orchestrator for a software project. You coordinate code agents (Claude Code / Codex) to complete tasks. You do NOT read code or run commands yourself — delegate ALL code-related work to code agents.
 
-Guidelines:
-- Analyze the task before jumping into execution.
-- Use run_claude_code for writing or modifying code.
-- Use run_codex for code review or alternative implementations.
-- Use read_file to quickly inspect files without starting a full session.
-- Use run_command for quick checks (git status, running tests, etc.).
-- Use reply_message for one-way updates that don't need a response.
-- Use wait_for_user when you need clarification or want the user's input before proceeding. Always include a clear prompt explaining what you need.
-- When all work is done, call complete_task with a detailed summary. The user will review and decide when to mark the task as completed.
+Your role:
+- Understand what the user needs
+- Delegate code work to run_claude_code or run_codex with clear, detailed instructions
+- Relay results and communicate with the user
+- Coordinate multi-step workflows
+
+Tools:
+- run_claude_code: Delegate ANY code-related work — reading code, analyzing projects, writing code, running tests, git operations, debugging, etc. Give detailed instructions.
+- run_codex: Alternative code agent. Use when you want a second opinion or prefer Codex.
+- reply_message: Send a message to the user (status updates, questions, relaying results).
+- wait_for_user: Pause and wait for user input when you need clarification.
+- complete_task: Signal you're done and provide a summary.
 
 Project context:
 - Repository path: ${this.options.repoPath}
 - Default coding tool: ${this.options.defaultTool}
 
 Important:
-- You MUST call complete_task when you are finished. Do not just stop responding.
-- Be thorough but efficient. Don't do unnecessary work.
-- If the task is a simple question, use read_file/run_command to find the answer and reply_message to respond, then complete_task.
-- If the task requires coding, use run_claude_code or run_codex as appropriate.`
+- ALWAYS delegate code work to code agents. Never try to analyze code or run commands yourself.
+- Give code agents detailed, specific instructions so they can work independently.
+- After a code agent finishes, relay the key results to the user via reply_message.
+- Call complete_task when all work is done. The user will review and decide when to mark complete.`
   }
 
   private async executeTool(toolCall: ToolCall): Promise<string> {
@@ -367,32 +336,6 @@ Important:
         return 'Waiting for user response.'
       }
 
-      case 'read_file': {
-        const filePath = args.path as string
-        const fullPath = resolve(this.options.repoPath, filePath)
-        const content = await readFile(fullPath, 'utf-8')
-        // Truncate very large files
-        if (content.length > 10000) {
-          return content.slice(0, 10000) + '\n... (truncated)'
-        }
-        return content
-      }
-
-      case 'run_command': {
-        const command = args.command as string
-        try {
-          const { stdout, stderr } = await execFileAsync('bash', ['-c', command], {
-            cwd: this.options.repoPath,
-            timeout: 60000, // 60s timeout
-            maxBuffer: 1024 * 1024, // 1MB
-          })
-          return (stdout + (stderr ? '\nSTDERR: ' + stderr : '')).trim()
-        } catch (err: unknown) {
-          const execErr = err as { code?: number; stdout?: string; stderr?: string }
-          return `Command failed (exit ${execErr.code}): ${execErr.stdout || ''}\n${execErr.stderr || ''}`
-        }
-      }
-
       case 'complete_task': {
         const summary = args.summary as string
         // Send summary as an agent message instead of completing the task
@@ -421,10 +364,6 @@ Important:
       case 'reply_message':
       case 'wait_for_user':
         return 'message'
-      case 'run_command':
-        return 'command'
-      case 'read_file':
-        return 'read_file'
       case 'complete_task':
         return 'think'
       default:
@@ -442,10 +381,6 @@ Important:
         return `Message: ${(args.message as string).slice(0, 80)}`
       case 'wait_for_user':
         return `Waiting for user: ${(args.prompt as string).slice(0, 60)}`
-      case 'read_file':
-        return `Read: ${args.path as string}`
-      case 'run_command':
-        return `Command: ${(args.command as string).slice(0, 80)}`
       case 'complete_task':
         return 'Complete task'
       default:
