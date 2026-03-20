@@ -10,9 +10,6 @@ import {
   X,
   Check,
   CircleAlert,
-  Circle,
-  ChevronRight,
-  ChevronDown,
   Send,
   Bot,
   User,
@@ -26,10 +23,6 @@ import type {
   TaskStatus,
   TaskStep,
   RunEvent,
-  RunTurnDetail,
-  RunTimelineEvent,
-  TodoEntry,
-  TodoEntryStatus,
 } from '@webmux/shared'
 
 const ACTIVE_TASK_STATUSES: TaskStatus[] = ['dispatched', 'running', 'waiting']
@@ -122,187 +115,6 @@ function StatusCircle({ status, size = 18 }: { status: TaskStatus; size?: number
   }
 }
 
-/* ── Timeline Item Component ───────────────────── */
-
-function TodoIcon({ status }: { status: TodoEntryStatus }) {
-  switch (status) {
-    case 'completed':
-      return <Check size={14} className="td-timeline-todo-icon td-timeline-todo-icon-completed" />
-    case 'in_progress':
-      return <LoaderCircle size={14} className="td-timeline-todo-icon td-timeline-todo-icon-in_progress spin" />
-    default:
-      return <Circle size={14} className="td-timeline-todo-icon td-timeline-todo-icon-pending" />
-  }
-}
-
-function TimelineItem({ item }: { item: RunTimelineEvent }) {
-  const [expanded, setExpanded] = useState(false)
-
-  switch (item.type) {
-    case 'message': {
-      const roleLabel = item.role === 'assistant' ? 'Assistant' : item.role === 'user' ? 'User' : 'System'
-      return (
-        <div className="td-timeline-item">
-          <div className={`td-timeline-msg td-timeline-msg-${item.role}`}>
-            <div className="td-timeline-msg-role">{roleLabel}</div>
-            {item.text}
-          </div>
-        </div>
-      )
-    }
-
-    case 'command': {
-      const hasOutput = item.output && item.output.length > 0
-      return (
-        <div className="td-timeline-item">
-          <div className="td-timeline-cmd">
-            <div
-              className="td-timeline-cmd-header"
-              onClick={() => hasOutput && setExpanded(!expanded)}
-            >
-              {hasOutput && (expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
-              <span>{item.command}</span>
-              <span className={`td-timeline-cmd-status td-timeline-cmd-status-${item.status}`}>
-                {item.status}
-              </span>
-            </div>
-            {expanded && hasOutput && (
-              <div className="td-timeline-cmd-output">{item.output}</div>
-            )}
-          </div>
-        </div>
-      )
-    }
-
-    case 'activity': {
-      return (
-        <div className="td-timeline-item">
-          <div className="td-timeline-activity">
-            <span className={`td-timeline-activity-dot td-timeline-activity-dot-${item.status}`} />
-            <span className="td-timeline-activity-label">{item.label}</span>
-            {item.detail && <span className="td-timeline-activity-detail">{item.detail}</span>}
-          </div>
-        </div>
-      )
-    }
-
-    case 'todo': {
-      return (
-        <div className="td-timeline-item">
-          <div className="td-timeline-todo">
-            {item.items.map((entry: TodoEntry, i: number) => (
-              <div key={i} className="td-timeline-todo-item">
-                <TodoIcon status={entry.status} />
-                <span className={entry.status === 'completed' ? 'td-timeline-todo-text-completed' : ''}>
-                  {entry.text}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )
-    }
-  }
-}
-
-/* ── Run Timeline Component ────────────────────── */
-
-function RunTimeline({ agentId, runId, token }: { agentId: string; runId: string; token: string }) {
-  const [turns, setTurns] = useState<RunTurnDetail[]>([])
-  const [loading, setLoading] = useState(true)
-  const bottomRef = useRef<HTMLDivElement>(null)
-
-  // Fetch run data on mount
-  useEffect(() => {
-    fetchApi(`/api/agents/${agentId}/threads/${runId}`)
-      .then((res) => res.json())
-      .then((data: { turns: RunTurnDetail[] }) => {
-        setTurns(data.turns)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [agentId, runId])
-
-  // WebSocket for real-time updates
-  useEffect(() => {
-    if (!token) return
-
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const controller = createReconnectableSocket({
-      connect() {
-        return new WebSocket(
-          `${wsProtocol}//${window.location.host}/ws/thread?threadId=${encodeURIComponent(runId)}&token=${encodeURIComponent(token)}`,
-        )
-      },
-      onMessage(event) {
-        try {
-          const data = JSON.parse(event.data) as RunEvent
-          if (data.type === 'run-item' && data.runId === runId) {
-            setTurns((prev) => {
-              const turnIdx = prev.findIndex((t) => t.id === data.turnId)
-              if (turnIdx < 0) return prev
-              const updated = [...prev]
-              const turn = { ...updated[turnIdx] }
-              const existingIdx = turn.items.findIndex((it) => it.id === data.item.id)
-              if (existingIdx >= 0) {
-                turn.items = [...turn.items]
-                turn.items[existingIdx] = data.item
-              } else {
-                turn.items = [...turn.items, data.item]
-              }
-              updated[turnIdx] = turn
-              return updated
-            })
-          }
-          if (data.type === 'run-turn' && data.runId === runId) {
-            setTurns((prev) => {
-              const existing = prev.findIndex((t) => t.id === data.turn.id)
-              if (existing >= 0) {
-                const updated = [...prev]
-                updated[existing] = { ...updated[existing], ...data.turn }
-                return updated
-              }
-              return [...prev, { ...data.turn, items: [] }]
-            })
-          }
-        } catch {
-          // ignore parse errors
-        }
-      },
-    })
-
-    return () => controller.dispose()
-  }, [runId, token])
-
-  // Auto-scroll when new items arrive
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [turns])
-
-  if (loading) {
-    return (
-      <div className="td-timeline-loading">
-        <LoaderCircle className="spin" size={16} />
-        <span>Loading run data...</span>
-      </div>
-    )
-  }
-
-  const allItems = turns.flatMap((turn) => turn.items)
-
-  if (allItems.length === 0) {
-    return <p className="td-muted-placeholder">No timeline events yet.</p>
-  }
-
-  return (
-    <div className="td-run-timeline">
-      {allItems.map((item) => (
-        <TimelineItem key={item.id} item={item} />
-      ))}
-      <div ref={bottomRef} />
-    </div>
-  )
-}
 
 /* ── Modal Overlay ──────────────────────────────── */
 
@@ -397,8 +209,6 @@ function TaskDetailModal({
   task,
   steps,
   messages,
-  project,
-  token,
   onClose,
   onDelete,
   onRetry,
@@ -412,8 +222,6 @@ function TaskDetailModal({
   task: Task
   steps: TaskStep[]
   messages: TaskMessage[]
-  project: Project
-  token: string | null
   onClose: () => void
   onDelete: (taskId: string) => void
   onRetry: (taskId: string) => void
@@ -1065,8 +873,6 @@ export function ProjectDetailPage() {
           task={selectedTask}
           steps={taskSteps[selectedTask.id] || []}
           messages={taskMessages[selectedTask.id] || []}
-          project={project}
-          token={token}
           onClose={() => { setSelectedTask(null); setReplyText('') }}
           onDelete={handleDeleteRequest}
           onRetry={(id) => void handleRetry(id)}
