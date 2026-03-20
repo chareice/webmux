@@ -885,11 +885,21 @@ function TurnMessages({ turn, showDivider, onOpenTools }: {
 }
 
 function ToolsGroup({ items, onOpen }: { items: RunTimelineEvent[]; onOpen: (items: RunTimelineEvent[]) => void }) {
-  // Single todo → show inline as a todo card directly
-  if (items.length === 1 && items[0].type === 'todo') {
-    return <TodoCard item={items[0]} />
-  }
+  // Always show todos inline, separate from the collapsible tools group
+  const todoItems = items.filter((i) => i.type === 'todo')
+  const rest = items.filter((i) => i.type !== 'todo')
 
+  return (
+    <>
+      {todoItems.map((item) => (
+        <TodoCard key={item.id} item={item as Extract<RunTimelineEvent, { type: 'todo' }>} />
+      ))}
+      {rest.length > 0 && <ToolsGroupInner items={rest} onOpen={onOpen} />}
+    </>
+  )
+}
+
+function ToolsGroupInner({ items, onOpen }: { items: RunTimelineEvent[]; onOpen: (items: RunTimelineEvent[]) => void }) {
   // Single activity with short/no detail → show inline as system text
   if (items.length === 1 && items[0].type === 'activity') {
     const a = items[0]
@@ -897,10 +907,9 @@ function ToolsGroup({ items, onOpen }: { items: RunTimelineEvent[]; onOpen: (ite
     return <div className="chat-system">{a.label}{detail}</div>
   }
 
-  // Only trivial activities (no commands, no todos, all short) → show inline
+  // Only trivial activities (no commands, all short) → show inline
   const hasCommands = items.some((i) => i.type === 'command')
-  const hasTodos = items.some((i) => i.type === 'todo')
-  if (!hasCommands && !hasTodos && items.length <= 3 && items.every((i) => i.type === 'activity' && (!i.detail || i.detail.length <= 80))) {
+  if (!hasCommands && items.length <= 3 && items.every((i) => i.type === 'activity' && (!i.detail || i.detail.length <= 80))) {
     return (
       <div className="chat-system">
         {items.map((i) => i.type === 'activity' ? i.label : '').filter(Boolean).join(' → ')}
@@ -910,11 +919,9 @@ function ToolsGroup({ items, onOpen }: { items: RunTimelineEvent[]; onOpen: (ite
 
   const commands = items.filter((i) => i.type === 'command').length
   const activities = items.filter((i) => i.type === 'activity').length
-  const todos = items.filter((i) => i.type === 'todo').length
   const parts: string[] = []
   if (commands > 0) parts.push(`${commands} command${commands > 1 ? 's' : ''}`)
   if (activities > 0) parts.push(`${activities} activit${activities > 1 ? 'ies' : 'y'}`)
-  if (todos > 0) parts.push(`${todos} todo list${todos > 1 ? 's' : ''}`)
   const summary = parts.join(', ')
 
   return (
