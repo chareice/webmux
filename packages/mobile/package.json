@@ -29,7 +29,7 @@
     "react-native-image-picker": "^8.2.1",
     "react-native-markdown-display": "^7.0.2",
     "react-native-safe-area-context": "^5.5.2",
-    "react-native-screens": "^4.9.0",
+    "react-native-screens": "^4.9.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
