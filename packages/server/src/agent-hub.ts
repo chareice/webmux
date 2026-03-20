@@ -19,9 +19,11 @@ import { verifySecret } from './auth.js'
 import { describeMinimumVersionFailure } from './agent-upgrade.js'
 import {
   appendRunTimelineEvent,
+  createRunWithInitialTurn,
   createTaskStep,
   findActiveRunsByAgentId,
   findAgentById,
+  findProjectById,
   findRunById,
   findActiveRunTurnByRunId,
   findQueuedRunTurnsByRunId,
@@ -584,6 +586,25 @@ export class AgentHub {
   ): void {
     const task = findTaskById(db, message.taskId)
     if (!task) return
+
+    // Create run record if it doesn't exist (task-created runs aren't registered via normal flow)
+    if (message.runId) {
+      const existingRun = findRunById(db, message.runId)
+      if (!existingRun) {
+        const project = findProjectById(db, task.project_id)
+        if (project) {
+          createRunWithInitialTurn(db, {
+            runId: message.runId,
+            turnId: message.turnId,
+            agentId: project.agent_id,
+            userId: project.user_id,
+            tool: project.default_tool,
+            repoPath: project.repo_path,
+            prompt: task.prompt,
+          })
+        }
+      }
+    }
 
     updateTaskStatus(db, message.taskId, 'running')
     updateTaskRunInfo(db, message.taskId, message.runId)
