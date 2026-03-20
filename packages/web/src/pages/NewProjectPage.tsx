@@ -172,7 +172,7 @@ export function NewProjectPage() {
     setError(null)
     if (!name.trim()) { setError('Please enter a project name'); return }
     if (!selectedAgent) { setError('Please select an agent'); return }
-    if (!repoPath.trim()) { setError('Please choose a repository'); return }
+    if (!repoPath.trim()) { setError('Please choose a work path'); return }
 
     setIsSubmitting(true)
     try {
@@ -269,9 +269,9 @@ export function NewProjectPage() {
           )}
         </div>
 
-        {/* Repository Selection */}
+        {/* Work Path Selection */}
         <div className="form-section">
-          <label className="form-label">Repository</label>
+          <label className="form-label">Work Path</label>
           <button
             className="repo-picker-button"
             disabled={!selectedAgent}
@@ -285,12 +285,12 @@ export function NewProjectPage() {
             type="button"
           >
             <span className="repo-picker-name">
-              {repoPath ? repositoryName(repoPath) : 'Choose a repository'}
+              {repoPath ? repositoryName(repoPath) : 'Choose a directory'}
             </span>
             <span className="repo-picker-path">
               {repoPath ||
                 (selectedAgentInfo
-                  ? `Browse folders on ${selectedAgentInfo.name || selectedAgentInfo.id}`
+                  ? `Browse directories on ${selectedAgentInfo.name || selectedAgentInfo.id}`
                   : 'Select an agent first')}
             </span>
             <ChevronRight className="repo-picker-arrow" size={16} />
@@ -410,7 +410,7 @@ function RepositoryBrowserModal({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-container repo-browser-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Browse Repositories</h2>
+          <h2>Browse Directories</h2>
           <button className="icon-button" onClick={onClose} type="button">&#x2715;</button>
         </div>
         <div className="repo-browser-body">
@@ -456,7 +456,15 @@ function RepositoryBrowserModal({
           )}
         </div>
         <div className="repo-browser-footer">
-          <span className="form-hint">Only Git repositories can be selected</span>
+          {browser?.currentPath && (
+            <button
+              className="primary-button"
+              onClick={() => { onSelect(browser.currentPath); onClose() }}
+              type="button"
+            >
+              Select current directory
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -481,7 +489,7 @@ function RepositoryEntryRow({
     <div className="repo-browser-entry-row">
       <button
         className="repo-browser-entry"
-        onClick={() => (isRepo ? onSelect(entry.path) : onNavigate(entry.path))}
+        onClick={() => onNavigate(entry.path)}
         type="button"
       >
         {isRepo ? (
@@ -490,24 +498,24 @@ function RepositoryEntryRow({
           <Folder size={14} className="repo-icon-dir" />
         )}
         <span className="repo-browser-entry-name">{entry.name}</span>
-        {isRepo ? (
-          <>
-            <span
-              className={`repo-browser-entry-star ${isFavorited ? 'favorited' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                onToggleFavorite(entry.path, e)
-              }}
-              role="button"
-              title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-            >
-              <Star size={13} />
-            </span>
-            <span className="repo-browser-entry-badge">Select</span>
-          </>
-        ) : (
-          <ChevronRight size={14} className="repo-browser-entry-arrow" />
-        )}
+        <span
+          className={`repo-browser-entry-star ${isFavorited ? 'favorited' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleFavorite(entry.path, e)
+          }}
+          role="button"
+          title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+        >
+          <Star size={13} />
+        </span>
+        <span
+          className="repo-browser-entry-badge"
+          onClick={(e) => { e.stopPropagation(); onSelect(entry.path) }}
+          role="button"
+        >
+          Select
+        </span>
       </button>
     </div>
   )
