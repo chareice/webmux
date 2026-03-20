@@ -67,24 +67,26 @@ function StatusCircle({ status, size = 18 }: { status: TaskStatus; size?: number
     case 'pending':
       return (
         <svg width={size} height={size} className="td-status-circle">
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--muted)" strokeWidth="1.5" />
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeDasharray="3 2" />
         </svg>
       )
     case 'dispatched':
       return (
-        <svg width={size} height={size} className="td-status-circle">
+        <svg width={size} height={size} className="td-status-circle td-status-dispatched">
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--warning)" strokeWidth="1.5" />
+          <circle cx={cx} cy={cy} r={r * 0.35} fill="var(--warning)" opacity="0.6" />
         </svg>
       )
     case 'running':
       return (
-        <svg width={size} height={size} className="td-status-circle td-status-pulse">
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--accent)" strokeWidth="2" />
+        <svg width={size} height={size} className="td-status-circle td-status-running">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--accent)" strokeWidth="2" className="td-status-glow" />
+          <circle cx={cx} cy={cy} r={r * 0.35} fill="var(--accent)" />
         </svg>
       )
     case 'waiting':
       return (
-        <svg width={size} height={size} className="td-status-circle">
+        <svg width={size} height={size} className="td-status-circle td-status-waiting">
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--warning)" strokeWidth="1.5" />
           <rect x={cx - r * 0.3} y={cy - r * 0.35} width={r * 0.2} height={r * 0.7} fill="var(--warning)" rx="1" />
           <rect x={cx + r * 0.1} y={cy - r * 0.35} width={r * 0.2} height={r * 0.7} fill="var(--warning)" rx="1" />
@@ -107,7 +109,7 @@ function StatusCircle({ status, size = 18 }: { status: TaskStatus; size?: number
     case 'failed':
       return (
         <svg width={size} height={size} className="td-status-circle">
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--danger)" strokeWidth="1.5" />
+          <circle cx={cx} cy={cy} r={r} fill="var(--danger)" opacity="0.15" stroke="var(--danger)" strokeWidth="1.5" />
           <line x1={cx - r * 0.35} y1={cy - r * 0.35} x2={cx + r * 0.35} y2={cy + r * 0.35} stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" />
           <line x1={cx + r * 0.35} y1={cy - r * 0.35} x2={cx - r * 0.35} y2={cy + r * 0.35} stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" />
         </svg>

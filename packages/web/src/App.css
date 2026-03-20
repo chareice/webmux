@@ -3942,13 +3942,38 @@
   flex-shrink: 0;
 }
 
-.td-status-pulse {
-  animation: td-pulse 1.5s ease-in-out infinite;
+/* Running: breathing glow */
+.td-status-running .td-status-glow {
+  animation: td-breathe-stroke 2s ease-in-out infinite;
+}
+.td-status-running circle:last-child {
+  animation: td-breathe-fill 2s ease-in-out infinite;
+}
+@keyframes td-breathe-stroke {
+  0%, 100% { opacity: 1; filter: drop-shadow(0 0 0px var(--accent)); }
+  50% { opacity: 0.5; filter: drop-shadow(0 0 4px var(--accent)); }
+}
+@keyframes td-breathe-fill {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
-@keyframes td-pulse {
+/* Dispatched: gentle pulse on inner dot */
+.td-status-dispatched circle:last-child {
+  animation: td-dispatched-pulse 1.8s ease-in-out infinite;
+}
+@keyframes td-dispatched-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.15; }
+}
+
+/* Waiting: slow blink */
+.td-status-waiting {
+  animation: td-waiting-blink 2.5s ease-in-out infinite;
+}
+@keyframes td-waiting-blink {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  50% { opacity: 0.35; }
 }
 
 /* ── Modal overlay ─────────────────────────────── */
@@ -4792,7 +4817,7 @@
   color: var(--warning);
   font-size: 0.85rem;
   padding: 8px 0;
-  animation: td-pulse 2s ease-in-out infinite;
+  animation: td-waiting-blink 2.5s ease-in-out infinite;
 }
 
 .td-chat-input-row {
