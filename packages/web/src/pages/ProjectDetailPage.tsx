@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Plus, LoaderCircle, RotateCcw, Trash2, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'
+import {
+  ArrowLeft,
+  Plus,
+  LoaderCircle,
+  RotateCcw,
+  Trash2,
+  ExternalLink,
+  X,
+  Check,
+  CircleAlert,
+} from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
 import type { Project, Task, TaskStatus, TaskStep, RunEvent } from '@webmux/shared'
@@ -29,15 +39,408 @@ function taskStatusLabel(status: TaskStatus): string {
   }
 }
 
-function taskStatusClass(status: TaskStatus): string {
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60000) return `${Math.round(ms / 1000)}s`
+  return `${Math.round(ms / 60000)}m`
+}
+
+/* ── Status Circle Component ────────────────────── */
+
+function StatusCircle({ status, size = 18 }: { status: TaskStatus; size?: number }) {
+  const r = size / 2 - 2
+  const cx = size / 2
+  const cy = size / 2
+
   switch (status) {
-    case 'pending': return 'muted'
-    case 'dispatched': return 'warning'
-    case 'running': return 'accent'
-    case 'completed': return 'success'
-    case 'failed': return 'danger'
+    case 'pending':
+      return (
+        <svg width={size} height={size} className="td-status-circle">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--muted)" strokeWidth="1.5" />
+        </svg>
+      )
+    case 'dispatched':
+      return (
+        <svg width={size} height={size} className="td-status-circle">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--warning)" strokeWidth="1.5" />
+        </svg>
+      )
+    case 'running':
+      return (
+        <svg width={size} height={size} className="td-status-circle td-status-pulse">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--accent)" strokeWidth="2" />
+        </svg>
+      )
+    case 'completed':
+      return (
+        <svg width={size} height={size} className="td-status-circle">
+          <circle cx={cx} cy={cy} r={r} fill="var(--success)" stroke="none" />
+          <polyline
+            points={`${cx - r * 0.35},${cy} ${cx - r * 0.05},${cy + r * 0.35} ${cx + r * 0.4},${cy - r * 0.3}`}
+            fill="none"
+            stroke="white"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )
+    case 'failed':
+      return (
+        <svg width={size} height={size} className="td-status-circle">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--danger)" strokeWidth="1.5" />
+          <line x1={cx - r * 0.35} y1={cy - r * 0.35} x2={cx + r * 0.35} y2={cy + r * 0.35} stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1={cx + r * 0.35} y1={cy - r * 0.35} x2={cx - r * 0.35} y2={cy + r * 0.35} stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      )
   }
 }
+
+/* ── Modal Overlay ──────────────────────────────── */
+
+function ModalOverlay({
+  children,
+  onClose,
+  maxWidth = 640,
+}: {
+  children: React.ReactNode
+  onClose: () => void
+  maxWidth?: number
+}) {
+  return (
+    <div className="td-modal-overlay" onClick={onClose}>
+      <div
+        className="td-modal-content"
+        style={{ maxWidth }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/* ── Task Detail Modal ──────────────────────────── */
+
+function TaskDetailModal({
+  task,
+  steps,
+  project,
+  onClose,
+  onDelete,
+  onRetry,
+  retrying,
+}: {
+  task: Task
+  steps: TaskStep[]
+  project: Project
+  onClose: () => void
+  onDelete: (taskId: string) => void
+  onRetry: (taskId: string) => void
+  retrying: boolean
+}) {
+  const hasExecution = steps.length > 0 || task.summary || task.errorMessage
+  const [activeTab, setActiveTab] = useState<'details' | 'execution'>(
+    hasExecution ? 'execution' : 'details',
+  )
+
+  return (
+    <ModalOverlay onClose={onClose}>
+      {/* Header */}
+      <div className="td-modal-header">
+        <div className="td-modal-title-row">
+          <StatusCircle status={task.status} size={22} />
+          <h2 className="td-modal-title">{task.title}</h2>
+        </div>
+        <button className="td-modal-close" onClick={onClose} type="button">
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="td-modal-tabs">
+        <button
+          className={`td-modal-tab ${activeTab === 'details' ? 'active' : ''}`}
+          onClick={() => setActiveTab('details')}
+          type="button"
+        >
+          Details
+        </button>
+        <button
+          className={`td-modal-tab ${activeTab === 'execution' ? 'active' : ''}`}
+          onClick={() => setActiveTab('execution')}
+          type="button"
+        >
+          Execution
+        </button>
+      </div>
+
+      {/* Tab content */}
+      <div className="td-modal-body">
+        {activeTab === 'details' && (
+          <div className="td-tab-details">
+            {/* Prompt / description */}
+            <div className="td-detail-section">
+              <h3 className="td-detail-label">Description</h3>
+              {task.prompt && task.prompt !== task.title ? (
+                <p className="td-detail-text">{task.prompt}</p>
+              ) : (
+                <p className="td-detail-text td-muted-placeholder">No description</p>
+              )}
+            </div>
+
+            {/* Metadata */}
+            <div className="td-detail-section">
+              <h3 className="td-detail-label">Metadata</h3>
+              <div className="td-metadata-grid">
+                <span className="td-meta-key">Status</span>
+                <span className={`td-status-badge td-status-${task.status}`}>
+                  {taskStatusLabel(task.status)}
+                </span>
+
+                {task.priority !== 0 && (
+                  <>
+                    <span className="td-meta-key">Priority</span>
+                    <span className="td-meta-value">{task.priority}</span>
+                  </>
+                )}
+
+                {task.branchName && (
+                  <>
+                    <span className="td-meta-key">Branch</span>
+                    <span className="td-meta-value td-branch-name">{task.branchName}</span>
+                  </>
+                )}
+
+                <span className="td-meta-key">Created</span>
+                <span className="td-meta-value">{timeAgo(task.createdAt)}</span>
+
+                <span className="td-meta-key">Updated</span>
+                <span className="td-meta-value">{timeAgo(task.updatedAt)}</span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="td-detail-actions">
+              <button
+                className="td-btn td-btn-danger"
+                onClick={() => onDelete(task.id)}
+                type="button"
+              >
+                <Trash2 size={14} />
+                Delete
+              </button>
+              {task.status === 'failed' && (
+                <button
+                  className="td-btn td-btn-secondary"
+                  disabled={retrying}
+                  onClick={() => onRetry(task.id)}
+                  type="button"
+                >
+                  <RotateCcw size={14} />
+                  {retrying ? 'Retrying...' : 'Retry'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'execution' && (
+          <div className="td-tab-execution">
+            {/* Steps timeline */}
+            {steps.length > 0 && (
+              <div className="td-steps-timeline">
+                {steps.map((step) => (
+                  <div key={step.id} className={`td-step td-step-${step.status}`}>
+                    <span className="td-step-icon">
+                      {step.status === 'completed' ? (
+                        <Check size={12} />
+                      ) : step.status === 'running' ? (
+                        <LoaderCircle size={12} className="spin" />
+                      ) : (
+                        <CircleAlert size={12} />
+                      )}
+                    </span>
+                    <span className="td-step-label">{step.label}</span>
+                    {step.durationMs != null && (
+                      <span className="td-step-duration">{formatDuration(step.durationMs)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Summary */}
+            {task.summary && (
+              <div className="td-summary-box">
+                <h3 className="td-detail-label">Summary</h3>
+                <p className="td-summary-text">{task.summary}</p>
+              </div>
+            )}
+
+            {/* Error */}
+            {task.errorMessage && (
+              <div className="td-error-box">
+                <CircleAlert size={14} />
+                <span>{task.errorMessage}</span>
+              </div>
+            )}
+
+            {/* View Run link */}
+            {task.runId && (
+              <Link
+                className="td-btn td-btn-secondary td-view-run-link"
+                to={`/agents/${project.agentId}/threads/${task.runId}`}
+              >
+                <ExternalLink size={14} />
+                View Run
+              </Link>
+            )}
+
+            {/* Empty state */}
+            {steps.length === 0 && !task.summary && !task.errorMessage && !task.runId && (
+              <p className="td-muted-placeholder">No execution data yet.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </ModalOverlay>
+  )
+}
+
+/* ── Add Task Modal ─────────────────────────────── */
+
+function AddTaskModal({
+  onClose,
+  onSubmit,
+  isSubmitting,
+  formError,
+}: {
+  onClose: () => void
+  onSubmit: (title: string, description: string, priority: number) => void
+  isSubmitting: boolean
+  formError: string | null
+}) {
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [priority, setPriority] = useState('0')
+  const [showPriority, setShowPriority] = useState(false)
+
+  const handleSubmit = () => {
+    if (!title.trim()) return
+    const prio = parseInt(priority, 10)
+    onSubmit(title.trim(), description.trim(), isNaN(prio) ? 0 : prio)
+  }
+
+  return (
+    <ModalOverlay onClose={onClose} maxWidth={480}>
+      <div className="td-modal-header">
+        <h2 className="td-modal-title">Add Task</h2>
+        <button className="td-modal-close" onClick={onClose} type="button">
+          <X size={18} />
+        </button>
+      </div>
+
+      <div className="td-modal-body">
+        <input
+          className="td-input td-input-title"
+          placeholder="Task title"
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && title.trim()) handleSubmit()
+          }}
+          autoFocus
+        />
+
+        <textarea
+          className="td-input td-input-desc"
+          placeholder="Description (optional)"
+          rows={3}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+
+        <button
+          className="td-priority-toggle"
+          onClick={() => setShowPriority(!showPriority)}
+          type="button"
+        >
+          Priority {showPriority ? '−' : '+'}
+        </button>
+
+        {showPriority && (
+          <input
+            className="td-input td-input-priority"
+            placeholder="0"
+            type="number"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+          />
+        )}
+
+        {formError && <p className="td-form-error">{formError}</p>}
+
+        <div className="td-modal-footer">
+          <button className="td-btn td-btn-ghost" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className="td-btn td-btn-primary"
+            disabled={isSubmitting || !title.trim()}
+            onClick={handleSubmit}
+            type="button"
+          >
+            {isSubmitting ? (
+              <LoaderCircle className="spin" size={14} />
+            ) : (
+              <Plus size={14} />
+            )}
+            {isSubmitting ? 'Creating...' : 'Add Task'}
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
+  )
+}
+
+/* ── Confirm Delete Modal ───────────────────────── */
+
+function ConfirmDeleteModal({
+  onClose,
+  onConfirm,
+  isDeleting,
+}: {
+  onClose: () => void
+  onConfirm: () => void
+  isDeleting: boolean
+}) {
+  return (
+    <ModalOverlay onClose={onClose} maxWidth={360}>
+      <div className="td-confirm-body">
+        <h2 className="td-confirm-title">Delete task?</h2>
+        <p className="td-confirm-subtitle">This action cannot be undone.</p>
+        <div className="td-modal-footer">
+          <button className="td-btn td-btn-ghost" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className="td-btn td-btn-danger"
+            disabled={isDeleting}
+            onClick={onConfirm}
+            type="button"
+          >
+            <Trash2 size={14} />
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
+  )
+}
+
+/* ── Main Page Component ────────────────────────── */
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -49,16 +452,16 @@ export function ProjectDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Add task form
-  const [newTitle, setNewTitle] = useState('')
-  const [newPrompt, setNewPrompt] = useState('')
-  const [newPriority, setNewPriority] = useState('0')
+  // Modals
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+
+  // Form state
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
   const [taskSteps, setTaskSteps] = useState<Record<string, TaskStep[]>>({})
-
-  const [showAddForm, setShowAddForm] = useState(false)
   const [retryingId, setRetryingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -127,6 +530,8 @@ export function ProjectDetailPage() {
           const data = JSON.parse(event.data) as RunEvent
           if (data.type === 'task-status') {
             setTasks((prev) => prev.map((t) => (t.id === data.task.id ? data.task : t)))
+            // Update selected task if it's the one being viewed
+            setSelectedTask((prev) => (prev && prev.id === data.task.id ? data.task : prev))
           }
           if (data.type === 'task-step') {
             setTaskSteps(prev => {
@@ -149,19 +554,13 @@ export function ProjectDetailPage() {
     return () => controller.dispose()
   }, [projectId, token])
 
-  const handleAddTask = async () => {
+  const handleAddTask = async (title: string, description: string, priority: number) => {
     setFormError(null)
-    if (!newTitle.trim()) { setFormError('Title is required'); return }
-    if (!newPrompt.trim()) { setFormError('Prompt is required'); return }
-
     setIsSubmitting(true)
     try {
-      const body: { title: string; prompt: string; priority?: number } = {
-        title: newTitle.trim(),
-        prompt: newPrompt.trim(),
-      }
-      const prio = parseInt(newPriority, 10)
-      if (!isNaN(prio) && prio !== 0) body.priority = prio
+      const body: { title: string; prompt?: string; priority?: number } = { title }
+      if (description) body.prompt = description
+      if (priority !== 0) body.priority = priority
 
       const res = await fetchApi(`/api/projects/${projectId}/tasks`, {
         method: 'POST',
@@ -174,9 +573,7 @@ export function ProjectDetailPage() {
       }
       const data = (await res.json()) as { task: Task }
       setTasks((prev) => [...prev, data.task])
-      setNewTitle('')
-      setNewPrompt('')
-      setNewPriority('0')
+      setShowAddModal(false)
     } catch (err) {
       setFormError((err as Error).message)
     } finally {
@@ -193,6 +590,7 @@ export function ProjectDetailPage() {
       if (!res.ok) throw new Error('Failed to retry task')
       const data = (await res.json()) as { task: Task }
       setTasks((prev) => prev.map((t) => (t.id === taskId ? data.task : t)))
+      setSelectedTask(data.task)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -200,15 +598,22 @@ export function ProjectDetailPage() {
     }
   }
 
-  const handleDelete = async (taskId: string) => {
-    if (!confirm('Delete this task?')) return
+  const handleDeleteRequest = (taskId: string) => {
+    setDeleteTargetId(taskId)
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTargetId) return
     try {
-      setDeletingId(taskId)
-      const res = await fetchApi(`/api/projects/${projectId}/tasks/${taskId}`, {
+      setDeletingId(deleteTargetId)
+      const res = await fetchApi(`/api/projects/${projectId}/tasks/${deleteTargetId}`, {
         method: 'DELETE',
       })
       if (!res.ok) throw new Error('Failed to delete task')
-      setTasks((prev) => prev.filter((t) => t.id !== taskId))
+      setTasks((prev) => prev.filter((t) => t.id !== deleteTargetId))
+      // Close detail modal if the deleted task was open
+      if (selectedTask?.id === deleteTargetId) setSelectedTask(null)
+      setDeleteTargetId(null)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -270,168 +675,98 @@ export function ProjectDetailPage() {
       </div>
 
       {/* Task list */}
-      <div className="project-tasks-section">
-        <h2 className="project-tasks-heading">
-          Tasks
-          <span className="project-tasks-count">{tasks.length}</span>
-        </h2>
-
+      <div className="td-task-list">
         {sortedTasks.length === 0 ? (
-          <p className="form-hint">No tasks yet. Add one below.</p>
+          <p className="td-empty-hint">No tasks yet. Add one below.</p>
         ) : (
-          <div className="project-tasks-list">
-            {sortedTasks.map((task) => {
-              const sc = taskStatusClass(task.status)
-              return (
-                <div className="project-task-row" key={task.id}>
-                  <div className="project-task-main">
-                    <span className={`thread-status-badge ${sc}`}>
-                      <span className={`thread-status-dot ${sc}`} />
-                      {taskStatusLabel(task.status)}
-                    </span>
-                    <span className="project-task-title">{task.title}</span>
-                    {task.priority !== 0 ? (
-                      <span className="project-task-priority">P{task.priority}</span>
-                    ) : null}
-                  </div>
-                  {task.prompt !== task.title && (
-                    <div className="project-task-details">
-                      <span className="project-task-prompt">{task.prompt}</span>
-                    </div>
-                  )}
-                  {(taskSteps[task.id]?.length > 0 || task.summary) && (
-                    <div className="project-task-steps">
-                      {taskSteps[task.id]?.map(step => (
-                        <div key={step.id} className={`task-step task-step-${step.status}`}>
-                          <span className="task-step-icon">
-                            {step.status === 'completed' ? '\u2713' :
-                             step.status === 'running' ? '\u25CF' : '\u2717'}
-                          </span>
-                          <span className="task-step-label">{step.label}</span>
-                          {step.durationMs != null && (
-                            <span className="task-step-duration">
-                              {step.durationMs < 1000
-                                ? `${step.durationMs}ms`
-                                : step.durationMs < 60000
-                                  ? `${Math.round(step.durationMs / 1000)}s`
-                                  : `${Math.round(step.durationMs / 60000)}m`}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                      {task.summary && (
-                        <div className="project-task-summary">
-                          <span className="task-summary-text">{task.summary}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className="project-task-meta">
-                    {task.branchName ? (
-                      <span className="project-task-branch">{task.branchName}</span>
-                    ) : null}
-                    {task.errorMessage ? (
-                      <span className="project-task-error">{task.errorMessage}</span>
-                    ) : null}
-                    <span className="project-task-time">{timeAgo(task.updatedAt)}</span>
-                  </div>
-                  <div className="project-task-actions">
-                    {task.runId && project ? (
-                      <Link
-                        className="secondary-button"
-                        to={`/agents/${project.agentId}/threads/${task.runId}`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ExternalLink size={12} />
-                        View Run
-                      </Link>
-                    ) : null}
-                    {task.status === 'failed' ? (
-                      <button
-                        className="secondary-button"
-                        disabled={retryingId === task.id}
-                        onClick={() => void handleRetry(task.id)}
-                        type="button"
-                      >
-                        <RotateCcw size={12} />
-                        {retryingId === task.id ? 'Retrying...' : 'Retry'}
-                      </button>
-                    ) : null}
-                    {task.status === 'pending' ? (
-                      <button
-                        className="icon-button kill-button"
-                        disabled={deletingId === task.id}
-                        onClick={() => void handleDelete(task.id)}
-                        title="Delete task"
-                        type="button"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          sortedTasks.map((task) => (
+            <div
+              className={`td-task-row ${task.status === 'completed' ? 'td-task-completed' : ''}`}
+              key={task.id}
+              onClick={() => setSelectedTask(task)}
+            >
+              <StatusCircle status={task.status} />
+              <div className="td-task-body">
+                <span className="td-task-title">{task.title}</span>
+                {task.status === 'completed' && task.summary && (
+                  <span className="td-task-summary-preview">{task.summary}</span>
+                )}
+              </div>
+              <span className="td-task-time">{timeAgo(task.updatedAt)}</span>
+              <div className="td-task-actions">
+                {task.runId && (
+                  <Link
+                    className="td-action-icon"
+                    to={`/agents/${project.agentId}/threads/${task.runId}`}
+                    onClick={(e) => e.stopPropagation()}
+                    title="View Run"
+                  >
+                    <ExternalLink size={14} />
+                  </Link>
+                )}
+                {task.status === 'failed' && (
+                  <button
+                    className="td-action-icon"
+                    onClick={(e) => { e.stopPropagation(); void handleRetry(task.id) }}
+                    title="Retry"
+                    type="button"
+                  >
+                    <RotateCcw size={14} />
+                  </button>
+                )}
+                <button
+                  className="td-action-icon td-action-danger"
+                  onClick={(e) => { e.stopPropagation(); handleDeleteRequest(task.id) }}
+                  title="Delete"
+                  type="button"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))
         )}
-      </div>
 
-      {/* Add Task form */}
-      <div className="project-add-task">
+        {/* Add Task button */}
         <button
-          className="project-add-task-toggle"
-          onClick={() => setShowAddForm(!showAddForm)}
+          className="td-add-task-btn"
+          onClick={() => { setFormError(null); setShowAddModal(true) }}
           type="button"
         >
           <Plus size={16} />
           Add Task
-          {showAddForm ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
-        {showAddForm && (
-          <div className="project-add-task-form">
-            <div className="form-section">
-              <label className="form-label">Title</label>
-              <input
-                className="session-input"
-                placeholder="Task title"
-                type="text"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-              />
-            </div>
-            <div className="form-section">
-              <label className="form-label">Prompt</label>
-              <textarea
-                className="prompt-textarea"
-                placeholder="What should the AI do for this task?"
-                rows={3}
-                value={newPrompt}
-                onChange={(e) => setNewPrompt(e.target.value)}
-              />
-            </div>
-            <div className="form-section">
-              <label className="form-label">Priority (higher = first)</label>
-              <input
-                className="session-input project-priority-input"
-                placeholder="0"
-                type="number"
-                value={newPriority}
-                onChange={(e) => setNewPriority(e.target.value)}
-              />
-            </div>
-            {formError ? <p className="error-banner">{formError}</p> : null}
-            <button
-              className="primary-button new-thread-submit"
-              disabled={isSubmitting || !newTitle.trim() || !newPrompt.trim()}
-              onClick={() => void handleAddTask()}
-              type="button"
-            >
-              {isSubmitting ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}
-              {isSubmitting ? 'Creating...' : 'Add Task'}
-            </button>
-          </div>
-        )}
       </div>
+
+      {/* Modals */}
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          steps={taskSteps[selectedTask.id] || []}
+          project={project}
+          onClose={() => setSelectedTask(null)}
+          onDelete={handleDeleteRequest}
+          onRetry={(id) => void handleRetry(id)}
+          retrying={retryingId === selectedTask.id}
+        />
+      )}
+
+      {showAddModal && (
+        <AddTaskModal
+          onClose={() => setShowAddModal(false)}
+          onSubmit={(t, d, p) => void handleAddTask(t, d, p)}
+          isSubmitting={isSubmitting}
+          formError={formError}
+        />
+      )}
+
+      {deleteTargetId && (
+        <ConfirmDeleteModal
+          onClose={() => setDeleteTargetId(null)}
+          onConfirm={() => void handleDeleteConfirm()}
+          isDeleting={deletingId === deleteTargetId}
+        />
+      )}
     </div>
   )
 }

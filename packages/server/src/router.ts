@@ -1089,8 +1089,8 @@ export function registerRoutes(
     const { id } = request.params as { id: string }
     const body = request.body as CreateTaskRequest | undefined
 
-    if (!body?.title?.trim() || !body?.prompt?.trim()) {
-      return reply.status(400).send({ error: 'Missing required fields: title, prompt' })
+    if (!body?.title?.trim()) {
+      return reply.status(400).send({ error: 'Missing required field: title' })
     }
 
     const project = findProjectById(db, id)
@@ -1098,10 +1098,13 @@ export function registerRoutes(
       return reply.status(404).send({ error: 'Project not found' })
     }
 
+    const titleTrimmed = body.title.trim()
+    const promptTrimmed = body.prompt?.trim() || titleTrimmed
+
     const task = createTask(db, {
       projectId: id,
-      title: body.title.trim(),
-      prompt: body.prompt.trim(),
+      title: titleTrimmed,
+      prompt: promptTrimmed,
       priority: body.priority ?? 0,
     })
 
@@ -1160,10 +1163,6 @@ export function registerRoutes(
     const task = findTaskById(db, taskId)
     if (!task || task.project_id !== id) {
       return reply.status(404).send({ error: 'Task not found' })
-    }
-
-    if (task.status !== 'pending') {
-      return reply.status(409).send({ error: 'Can only delete pending tasks' })
     }
 
     deleteTask(db, taskId)

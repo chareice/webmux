@@ -1066,7 +1066,7 @@ describe('project and task routes', () => {
     await app.close()
   })
 
-  it('rejects deleting non-pending tasks', async () => {
+  it('allows deleting non-pending tasks', async () => {
     const db = initDb(':memory:')
     const { user, agent, token } = setupUserAndAgent(db)
 
@@ -1095,8 +1095,7 @@ describe('project and task routes', () => {
       headers: { authorization: `Bearer ${token}` },
     })
 
-    expect(response.statusCode).toBe(409)
-    expect(response.json().error).toBe('Can only delete pending tasks')
+    expect(response.statusCode).toBe(200)
 
     await app.close()
   })

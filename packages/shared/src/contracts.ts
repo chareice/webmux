@@ -346,7 +346,7 @@ export interface ProjectDetailResponse {
 
 export interface CreateTaskRequest {
   title: string
-  prompt: string
+  prompt?: string
   priority?: number
 }
 
