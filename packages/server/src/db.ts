@@ -66,6 +66,7 @@ export interface TaskRow {
   project_id: string
   title: string
   prompt: string
+  tool: string | null
   status: string
   priority: number
   branch_name: string | null
@@ -209,6 +210,7 @@ export function initDb(dbPath: string): Database.Database {
       project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       title           TEXT NOT NULL,
       prompt          TEXT NOT NULL,
+      tool            TEXT,
       status          TEXT NOT NULL DEFAULT 'pending',
       priority        INTEGER NOT NULL DEFAULT 0,
       branch_name     TEXT,
@@ -1068,22 +1070,24 @@ export function deleteProject(db: Database.Database, projectId: string): void {
 
 export function createTask(
   db: Database.Database,
-  opts: { projectId: string; title: string; prompt: string; priority?: number },
+  opts: { projectId: string; title: string; prompt: string; priority?: number; tool?: string },
 ): TaskRow {
   const id = crypto.randomUUID()
   const now = Date.now()
   const priority = opts.priority ?? 0
+  const tool = opts.tool ?? null
 
   db.prepare(
-    `INSERT INTO tasks (id, project_id, title, prompt, status, priority, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`,
-  ).run(id, opts.projectId, opts.title, opts.prompt, priority, now, now)
+    `INSERT INTO tasks (id, project_id, title, prompt, tool, status, priority, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+  ).run(id, opts.projectId, opts.title, opts.prompt, tool, priority, now, now)
 
   return {
     id,
     project_id: opts.projectId,
     title: opts.title,
     prompt: opts.prompt,
+    tool,
     status: 'pending',
     priority,
     branch_name: null,

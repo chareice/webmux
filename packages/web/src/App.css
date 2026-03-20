@@ -4688,6 +4688,33 @@
   color: var(--ink);
 }
 
+.td-tool-selector {
+  display: flex;
+  gap: 6px;
+}
+
+.td-tool-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.td-tool-btn:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.td-tool-btn.active {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb, 99, 102, 241), 0.12);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .td-form-error {
   color: var(--danger);
   font-size: 0.82rem;

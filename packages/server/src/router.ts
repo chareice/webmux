@@ -976,6 +976,7 @@ export function registerRoutes(
       projectId: row.project_id,
       title: row.title,
       prompt: row.prompt,
+      tool: (row.tool || 'claude') as Task['tool'],
       status: row.status as TaskStatus,
       priority: row.priority,
       branchName: row.branch_name,
@@ -1110,6 +1111,7 @@ export function registerRoutes(
       title: titleTrimmed,
       prompt: promptTrimmed,
       priority: body.priority ?? 0,
+      tool: body.tool,
     })
 
     // Trigger dispatch for this project

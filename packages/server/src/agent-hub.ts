@@ -855,6 +855,7 @@ function taskRowToTask(row: TaskRow): Task {
     projectId: row.project_id,
     title: row.title,
     prompt: row.prompt,
+    tool: (row.tool || 'claude') as Task['tool'],
     status: row.status as TaskStatus,
     priority: row.priority,
     branchName: row.branch_name,

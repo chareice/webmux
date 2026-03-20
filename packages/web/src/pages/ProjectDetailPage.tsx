@@ -407,21 +407,24 @@ function AddTaskModal({
   onSubmit,
   isSubmitting,
   formError,
+  defaultTool,
 }: {
   onClose: () => void
-  onSubmit: (title: string, description: string, priority: number) => void
+  onSubmit: (title: string, description: string, priority: number, tool: 'claude' | 'codex') => void
   isSubmitting: boolean
   formError: string | null
+  defaultTool: 'claude' | 'codex'
 }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [priority, setPriority] = useState('0')
   const [showPriority, setShowPriority] = useState(false)
+  const [tool, setTool] = useState<'claude' | 'codex'>(defaultTool)
 
   const handleSubmit = () => {
     if (!title.trim()) return
     const prio = parseInt(priority, 10)
-    onSubmit(title.trim(), description.trim(), isNaN(prio) ? 0 : prio)
+    onSubmit(title.trim(), description.trim(), isNaN(prio) ? 0 : prio, tool)
   }
 
   return (
@@ -471,6 +474,23 @@ function AddTaskModal({
             onChange={(e) => setPriority(e.target.value)}
           />
         )}
+
+        <div className="td-tool-selector">
+          <button
+            className={`td-tool-btn ${tool === 'claude' ? 'active' : ''}`}
+            onClick={() => setTool('claude')}
+            type="button"
+          >
+            Claude Code
+          </button>
+          <button
+            className={`td-tool-btn ${tool === 'codex' ? 'active' : ''}`}
+            onClick={() => setTool('codex')}
+            type="button"
+          >
+            Codex
+          </button>
+        </div>
 
         {formError && <p className="td-form-error">{formError}</p>}
 
@@ -662,11 +682,11 @@ export function ProjectDetailPage() {
     return () => controller.dispose()
   }, [projectId, token])
 
-  const handleAddTask = async (title: string, description: string, priority: number) => {
+  const handleAddTask = async (title: string, description: string, priority: number, tool: 'claude' | 'codex') => {
     setFormError(null)
     setIsSubmitting(true)
     try {
-      const body: { title: string; prompt?: string; priority?: number } = { title }
+      const body: { title: string; prompt?: string; priority?: number; tool?: string } = { title, tool }
       if (description) body.prompt = description
       if (priority !== 0) body.priority = priority
 
@@ -906,7 +926,8 @@ export function ProjectDetailPage() {
       {showAddModal && (
         <AddTaskModal
           onClose={() => setShowAddModal(false)}
-          onSubmit={(t, d, p) => void handleAddTask(t, d, p)}
+          onSubmit={(t, d, p, tool) => void handleAddTask(t, d, p, tool)}
+          defaultTool={(project.defaultTool || 'claude') as 'claude' | 'codex'}
           isSubmitting={isSubmitting}
           formError={formError}
         />

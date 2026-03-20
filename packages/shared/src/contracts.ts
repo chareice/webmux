@@ -265,6 +265,7 @@ export interface Task {
   projectId: string
   title: string
   prompt: string
+  tool: RunTool
   status: TaskStatus
   priority: number
   branchName: string | null
@@ -363,6 +364,7 @@ export interface CreateTaskRequest {
   title: string
   prompt?: string
   priority?: number
+  tool?: RunTool
 }
 
 export interface UpdateTaskRequest {

@@ -79,7 +79,7 @@ export class TaskDispatcher {
       taskId: row.id,
       projectId: row.project_id,
       repoPath: row.repo_path,
-      tool: row.default_tool as RunTool,
+      tool: (row.tool || row.default_tool) as RunTool,
       title: row.title,
       prompt: row.prompt,
       llmConfig: llmConfig
@@ -108,7 +108,7 @@ export class TaskDispatcher {
       taskId: task.id,
       projectId: task.project_id,
       repoPath,
-      tool: tool as RunTool,
+      tool: (task.tool || tool) as RunTool,
       title: task.title,
       prompt: task.prompt,
       llmConfig: llmConfig
