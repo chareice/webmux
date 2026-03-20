@@ -15,6 +15,7 @@ import {
   Send,
   Bot,
   User,
+  ImagePlus,
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
@@ -29,6 +30,28 @@ import type {
 
 const ACTIVE_TASK_STATUSES: TaskStatus[] = ['dispatched', 'running', 'waiting']
 const AUTO_REFRESH_INTERVAL = 5000
+
+const MAX_ATTACHMENTS = 4
+
+interface DraftAttachment {
+  id: string
+  file: File
+  previewUrl: string
+  base64: string
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      const base64 = result.split(',')[1] ?? ''
+      resolve(base64)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
 
 function timeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000)
@@ -254,6 +277,9 @@ function TaskDetailModal({
   setReplyText,
   sendingReply,
   onSendReply,
+  attachments,
+  onFilesSelected,
+  onRemoveAttachment,
 }: {
   task: Task
   steps: TaskStep[]
@@ -267,8 +293,12 @@ function TaskDetailModal({
   setReplyText: (v: string) => void
   sendingReply: boolean
   onSendReply: () => void
+  attachments: DraftAttachment[]
+  onFilesSelected: (files: FileList | null) => void
+  onRemoveAttachment: (id: string) => void
 }) {
   const chatRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Build unified timeline
   const timeline = buildUnifiedTimeline(messages, steps, task)
@@ -362,18 +392,51 @@ function TaskDetailModal({
 
       {/* Bottom: input + actions */}
       <div className="td-modal-bottom">
+        {attachments.length > 0 && (
+          <div className="td-attachment-previews">
+            {attachments.map((a) => (
+              <div key={a.id} className="td-attachment-thumb">
+                <img src={a.previewUrl} alt={a.file.name} />
+                <button className="td-attachment-remove" onClick={() => onRemoveAttachment(a.id)} type="button">
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="td-chat-input-row">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="visually-hidden"
+            onChange={(e) => { onFilesSelected(e.target.files); if (fileInputRef.current) fileInputRef.current.value = '' }}
+          />
+          <button
+            className="td-chat-attach"
+            disabled={attachments.length >= MAX_ATTACHMENTS}
+            onClick={() => fileInputRef.current?.click()}
+            title={`Attach images (${attachments.length}/${MAX_ATTACHMENTS})`}
+            type="button"
+          >
+            <ImagePlus size={16} />
+          </button>
           <input
             className="td-chat-input"
             placeholder="Type a message..."
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && replyText.trim()) { e.preventDefault(); onSendReply() } }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && (replyText.trim() || attachments.length > 0)) { e.preventDefault(); onSendReply() } }}
+            onPaste={(e) => {
+              const files = e.clipboardData?.files
+              if (files?.length) { e.preventDefault(); onFilesSelected(files) }
+            }}
             disabled={sendingReply}
           />
           <button
             className="td-chat-send"
-            disabled={!replyText.trim() || sendingReply}
+            disabled={(!replyText.trim() && attachments.length === 0) || sendingReply}
             onClick={onSendReply}
             type="button"
           >
@@ -579,6 +642,28 @@ export function ProjectDetailPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
   const [sendingReply, setSendingReply] = useState(false)
+  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([])
+
+  const handleFilesSelected = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const remaining = MAX_ATTACHMENTS - draftAttachments.length
+    const toAdd = Array.from(files).slice(0, remaining)
+    const newAttachments: DraftAttachment[] = []
+    for (const file of toAdd) {
+      if (!file.type.startsWith('image/')) continue
+      const base64 = await fileToBase64(file)
+      newAttachments.push({ id: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file), base64 })
+    }
+    setDraftAttachments((prev) => [...prev, ...newAttachments])
+  }
+
+  const removeAttachment = (id: string) => {
+    setDraftAttachments((prev) => {
+      const removed = prev.find((a) => a.id === id)
+      if (removed) URL.revokeObjectURL(removed.previewUrl)
+      return prev.filter((a) => a.id !== id)
+    })
+  }
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -744,13 +829,23 @@ export function ProjectDetailPage() {
   }
 
   const handleSendReply = async () => {
-    if (!replyText.trim() || !selectedTask) return
+    if ((!replyText.trim() && draftAttachments.length === 0) || !selectedTask) return
     setSendingReply(true)
     try {
+      const uploadAttachments = draftAttachments.map((a) => ({
+        id: a.id,
+        name: a.file.name,
+        mimeType: a.file.type,
+        sizeBytes: a.file.size,
+        base64: a.base64,
+      }))
+      const body: { content: string; attachments?: typeof uploadAttachments } = { content: replyText.trim() || '(image)' }
+      if (uploadAttachments.length > 0) body.attachments = uploadAttachments
+
       const res = await fetchApi(`/api/projects/${projectId}/tasks/${selectedTask.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: replyText.trim() }),
+        body: JSON.stringify(body),
       })
       if (res.ok) {
         const data = await res.json() as { message: TaskMessage }
@@ -759,6 +854,8 @@ export function ProjectDetailPage() {
           [selectedTask.id]: [...(prev[selectedTask.id] || []), data.message]
         }))
         setReplyText('')
+        for (const a of draftAttachments) URL.revokeObjectURL(a.previewUrl)
+        setDraftAttachments([])
       }
     } finally {
       setSendingReply(false)
@@ -920,6 +1017,9 @@ export function ProjectDetailPage() {
           setReplyText={setReplyText}
           sendingReply={sendingReply}
           onSendReply={() => void handleSendReply()}
+          attachments={draftAttachments}
+          onFilesSelected={(files) => void handleFilesSelected(files)}
+          onRemoveAttachment={removeAttachment}
         />
       )}
 

@@ -6,6 +6,7 @@ import type {
   AgentMessage,
   AgentUpgradePolicy,
   RepositoryBrowseResponse,
+  RunImageAttachmentUpload,
   RunTimelineEventPayload,
   ServerToAgentMessage,
   RunEvent,
@@ -712,7 +713,7 @@ export class AgentHub {
     }
   }
 
-  public sendUserReplyToAgent(db: Database, taskId: string): void {
+  public sendUserReplyToAgent(db: Database, taskId: string, attachments?: RunImageAttachmentUpload[]): void {
     const task = findTaskById(db, taskId)
     if (!task) return
     const project = findProjectById(db, task.project_id)
@@ -724,6 +725,7 @@ export class AgentHub {
       type: 'task-user-reply',
       taskId,
       content: lastUserMsg.content,
+      ...(attachments?.length ? { attachments } : {}),
     })
   }
 

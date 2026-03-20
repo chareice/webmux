@@ -1267,11 +1267,14 @@ export function registerRoutes(
   // User sends a message to a task
   app.post('/api/projects/:id/tasks/:taskId/messages', { preHandler: authPreHandler }, async (request, reply) => {
     const { id, taskId } = request.params as { id: string; taskId: string }
-    const { content } = request.body as { content: string }
+    const body = request.body as { content: string; attachments?: unknown }
 
+    const content = body.content
     if (!content?.trim()) {
       return reply.status(400).send({ error: 'Content is required' })
     }
+
+    const attachments = body.attachments ? normalizeAttachments(body.attachments) : undefined
 
     const project = findProjectById(db, id)
     if (!project || project.user_id !== request.user!.userId) {
@@ -1296,7 +1299,7 @@ export function registerRoutes(
     if (task.status === 'waiting') {
       // Agent is waiting — send reply to agent, update status to running
       updateTaskStatus(db, taskId, 'running')
-      hub.sendUserReplyToAgent(db, taskId)
+      hub.sendUserReplyToAgent(db, taskId, attachments)
       hub.broadcastTaskSnapshot(db, taskId)
     } else if (task.status === 'completed' || task.status === 'failed') {
       // Task is done — re-dispatch with conversation history

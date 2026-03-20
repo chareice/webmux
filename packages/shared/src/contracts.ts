@@ -79,8 +79,9 @@ export type ServerToAgentMessage =
       prompt: string
       llmConfig: { apiBaseUrl: string; apiKey: string; model: string } | null
       conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>
+      attachments?: RunImageAttachmentUpload[]
     }
-  | { type: 'task-user-reply'; taskId: string; content: string }
+  | { type: 'task-user-reply'; taskId: string; content: string; attachments?: RunImageAttachmentUpload[] }
 
 // REST API types
 

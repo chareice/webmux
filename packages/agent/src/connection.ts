@@ -175,13 +175,13 @@ export class AgentConnection {
         break
 
       case 'task-dispatch':
-        this.handleTaskDispatch(msg.taskId, msg.projectId, msg.repoPath, msg.tool, msg.title, msg.prompt, msg.llmConfig, msg.conversationHistory)
+        this.handleTaskDispatch(msg.taskId, msg.projectId, msg.repoPath, msg.tool, msg.title, msg.prompt, msg.llmConfig, msg.conversationHistory, msg.attachments)
         break
 
       case 'task-user-reply': {
         const session = this.taskSessions.get(msg.taskId)
         if (session) {
-          this.startTaskRun(msg.taskId, session.repoPath, session.tool, msg.content, session.toolThreadId)
+          this.startTaskRun(msg.taskId, session.repoPath, session.tool, msg.content, session.toolThreadId, msg.attachments)
         }
         break
       }
@@ -374,10 +374,11 @@ export class AgentConnection {
     prompt: string,
     _llmConfig: { apiBaseUrl: string; apiKey: string; model: string } | null,
     _conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>,
+    attachments?: RunImageAttachmentUpload[],
   ): void {
     this.sendMessage({ type: 'task-claimed', taskId })
     this.taskSessions.set(taskId, { repoPath, tool })
-    this.startTaskRun(taskId, repoPath, tool, `Task: ${title}\n\n${prompt}`)
+    this.startTaskRun(taskId, repoPath, tool, `Task: ${title}\n\n${prompt}`, undefined, attachments)
   }
 
   /**
@@ -390,6 +391,7 @@ export class AgentConnection {
     tool: RunTool,
     prompt: string,
     toolThreadId?: string,
+    attachments?: RunImageAttachmentUpload[],
   ): void {
     // Dispose previous run for this task if any
     const prev = this.tasks.get(taskId)
@@ -411,6 +413,7 @@ export class AgentConnection {
       toolThreadId,
       repoPath,
       prompt,
+      attachments,
       onEvent: (status, summary, hasDiff) => {
         this.sendMessage({ type: 'run-status', runId, turnId, status, summary, hasDiff })
         if (status === 'running') {
