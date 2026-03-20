@@ -11,9 +11,9 @@ import {
   type RunTurnOptions,
   type ServerToAgentMessage,
 } from '@webmux/shared'
+import type { RunTimelineEventPayload } from '@webmux/shared'
 import { upgradeService } from './service.js'
 import { RunWrapper } from './run-wrapper.js'
-import { AgentLoop, type StepUpdate } from './agent-loop.js'
 import { browseRepositories } from './repositories.js'
 import { AGENT_PACKAGE_NAME, AGENT_VERSION } from './version.js'
 
@@ -58,7 +58,7 @@ export class AgentConnection {
   private reconnectDelay = INITIAL_RECONNECT_DELAY_MS
   private runs = new Map<string, { turnId: string; wrapper: RunWrapper }>()
   private tasks = new Map<string, { runId: string; turnId: string; wrapper: RunWrapper }>()
-  private taskLoops = new Map<string, AgentLoop>()
+  private taskSessions = new Map<string, { toolThreadId?: string; repoPath: string; tool: RunTool }>()
   private stopped = false
 
   constructor(
@@ -179,9 +179,9 @@ export class AgentConnection {
         break
 
       case 'task-user-reply': {
-        const loop = this.taskLoops.get(msg.taskId)
-        if (loop) {
-          loop.resolveUserReply(msg.content)
+        const session = this.taskSessions.get(msg.taskId)
+        if (session) {
+          this.startTaskRun(msg.taskId, session.repoPath, session.tool, msg.content, session.toolThreadId)
         }
         break
       }
@@ -285,10 +285,6 @@ export class AgentConnection {
       task.wrapper.dispose()
       this.tasks.delete(taskId)
     }
-    for (const [taskId, loop] of this.taskLoops) {
-      loop.abort()
-      this.taskLoops.delete(taskId)
-    }
   }
 
   private handleRunStart(
@@ -371,109 +367,62 @@ export class AgentConnection {
 
   private handleTaskDispatch(
     taskId: string,
-    projectId: string,
-    repoPath: string,
-    tool: RunTool,
-    title: string,
-    prompt: string,
-    llmConfig: { apiBaseUrl: string; apiKey: string; model: string } | null,
-    conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>,
-  ): void {
-    // Fall back to legacy behavior if no LLM config
-    if (!llmConfig) {
-      return this.handleTaskDispatchLegacy(taskId, projectId, repoPath, tool, title, prompt)
-    }
-
-    // Acknowledge claim immediately
-    this.sendMessage({ type: 'task-claimed', taskId })
-
-    const loop = new AgentLoop({
-      taskId,
-      title,
-      prompt,
-      repoPath,
-      defaultTool: tool,
-      llmConfig,
-      onStepUpdate: (step: StepUpdate) => {
-        this.sendMessage({ type: 'task-step-update', taskId, step })
-      },
-      onTaskComplete: (summary: string) => {
-        this.sendMessage({ type: 'task-completed', taskId, summary })
-        this.taskLoops.delete(taskId)
-      },
-      onTaskFailed: (error: string) => {
-        this.sendMessage({ type: 'task-failed', taskId, error })
-        this.taskLoops.delete(taskId)
-      },
-      onMessage: (message) => {
-        this.sendMessage({ type: 'task-message', taskId, message })
-      },
-      onWaiting: () => {
-        this.sendMessage({ type: 'task-waiting', taskId })
-      },
-      conversationHistory,
-      createRun: (runTool, runPrompt, runRepoPath, toolThreadId) => {
-        return this.createRunForAgentLoop(runTool, runPrompt, runRepoPath, toolThreadId)
-      },
-    })
-
-    this.taskLoops.set(taskId, loop)
-
-    // Mark task as running (no specific runId for agent loop itself)
-    this.sendMessage({ type: 'task-running', taskId, runId: taskId, turnId: taskId })
-
-    // Start the loop (don't await — runs in background)
-    void loop.run()
-  }
-
-  private handleTaskDispatchLegacy(
-    taskId: string,
     _projectId: string,
     repoPath: string,
     tool: RunTool,
     title: string,
     prompt: string,
+    _llmConfig: { apiBaseUrl: string; apiKey: string; model: string } | null,
+    _conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>,
   ): void {
-    // Acknowledge claim immediately
     this.sendMessage({ type: 'task-claimed', taskId })
+    this.taskSessions.set(taskId, { repoPath, tool })
+    this.startTaskRun(taskId, repoPath, tool, `Task: ${title}\n\n${prompt}`)
+  }
 
-    // Build a task-aware prompt that tells the AI it's working on a task
-    const taskPrompt = [
-      'You are working on a task within a project that uses git worktree.',
-      '',
-      `**Task:** ${title}`,
-      '',
-      '**Instructions:**',
-      prompt,
-      '',
-      `**Repo path (bare repo):** ${repoPath}`,
-      '',
-      'You should:',
-      '1. First understand the task requirements. If anything is unclear, ask for clarification.',
-      '2. Create a git worktree for this task from the bare repo when you are ready to start coding.',
-      '3. Do your work in the worktree.',
-      '4. Commit your changes when done.',
-    ].join('\n')
+  /**
+   * Start a code agent run for a task. Used for both initial dispatch and follow-up turns.
+   * If toolThreadId is provided, the code agent resumes the existing session.
+   */
+  private startTaskRun(
+    taskId: string,
+    repoPath: string,
+    tool: RunTool,
+    prompt: string,
+    toolThreadId?: string,
+  ): void {
+    // Dispose previous run for this task if any
+    const prev = this.tasks.get(taskId)
+    if (prev) {
+      prev.wrapper.dispose()
+      this.runs.delete(prev.runId)
+      this.tasks.delete(taskId)
+    }
 
     const runId = crypto.randomUUID()
     const turnId = crypto.randomUUID()
+    const stepIds = new Map<string, string>() // command string → stepId
+
+    console.log(`[agent] task ${taskId}: ${toolThreadId ? `resuming session ${toolThreadId}` : 'new session'}`)
 
     const run = new RunWrapper({
       runId,
       tool,
+      toolThreadId,
       repoPath,
-      prompt: taskPrompt,
+      prompt,
       onEvent: (status, summary, hasDiff) => {
         this.sendMessage({ type: 'run-status', runId, turnId, status, summary, hasDiff })
-
         if (status === 'running') {
           this.sendMessage({ type: 'task-running', taskId, runId, turnId })
         }
       },
       onFinish: (finalStatus) => {
         this.tasks.delete(taskId)
+        this.runs.delete(runId)
         if (finalStatus === 'success') {
-          this.sendMessage({ type: 'task-completed', taskId, summary: 'Task completed' })
+          // Don't auto-complete — enter waiting state so user can follow up
+          this.sendMessage({ type: 'task-waiting', taskId })
         } else {
           this.sendMessage({
             type: 'task-failed',
@@ -484,69 +433,96 @@ export class AgentConnection {
       },
       onItem: (item) => {
         this.sendMessage({ type: 'run-item', runId, turnId, item })
+        // Forward code agent events to the task timeline
+        this.forwardRunItemToTask(taskId, item, stepIds)
       },
-      onThreadReady: (toolThreadId) => {
-        this.sendMessage({ type: 'run-status', runId, turnId, status: 'running', toolThreadId })
+      onThreadReady: (nextToolThreadId) => {
+        const session = this.taskSessions.get(taskId)
+        if (session) session.toolThreadId = nextToolThreadId
+        console.log(`[agent] task ${taskId}: session ready ${nextToolThreadId}`)
+        this.sendMessage({ type: 'run-status', runId, turnId, status: 'running', toolThreadId: nextToolThreadId })
       },
     })
 
     this.tasks.set(taskId, { runId, turnId, wrapper: run })
+    this.runs.set(runId, { turnId, wrapper: run })
 
     run.start().catch((err) => {
       const message = err instanceof Error ? err.message : String(err)
       this.sendMessage({ type: 'task-failed', taskId, error: `Failed to start: ${message}` })
       this.tasks.delete(taskId)
+      this.runs.delete(runId)
     })
   }
 
-  private createRunForAgentLoop(
-    tool: RunTool,
-    prompt: string,
-    repoPath: string,
-    toolThreadId?: string,
-  ): Promise<{ summary: string; runId: string; toolThreadId?: string }> {
-    return new Promise((resolve, reject) => {
-      const runId = crypto.randomUUID()
-      const turnId = crypto.randomUUID()
-      let latestSummary = ''
-      let resolvedThreadId = toolThreadId
+  /**
+   * Convert code agent run-item events into task-level messages and steps
+   * so they appear in the task conversation timeline.
+   */
+  private forwardRunItemToTask(
+    taskId: string,
+    item: RunTimelineEventPayload,
+    stepIds: Map<string, string>,
+  ): void {
+    const now = Date.now()
 
-      const run = new RunWrapper({
-        runId,
-        tool,
-        toolThreadId,
-        repoPath,
-        prompt,
-        onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => {
-          if (summary) {
-            latestSummary = summary
-          }
-          this.sendMessage({ type: 'run-status', runId, turnId, status, summary, hasDiff })
-        },
-        onFinish: (finalStatus: RunStatus) => {
-          this.runs.delete(runId)
-          if (finalStatus === 'success') {
-            resolve({ summary: latestSummary, runId, toolThreadId: resolvedThreadId })
-          } else {
-            reject(new Error(`Run ${finalStatus}`))
-          }
-        },
-        onItem: (item) => {
-          this.sendMessage({ type: 'run-item', runId, turnId, item })
-        },
-        onThreadReady: (nextToolThreadId) => {
-          resolvedThreadId = nextToolThreadId
-          this.sendMessage({ type: 'run-status', runId, turnId, status: 'running', toolThreadId: nextToolThreadId })
-        },
-      })
-
-      this.runs.set(runId, { turnId, wrapper: run })
-
-      run.start().catch((err) => {
-        this.runs.delete(runId)
-        reject(err)
-      })
-    })
+    switch (item.type) {
+      case 'message': {
+        if (item.role === 'assistant' && item.text) {
+          this.sendMessage({
+            type: 'task-message',
+            taskId,
+            message: { id: crypto.randomUUID(), role: 'agent', content: item.text, createdAt: now },
+          })
+        }
+        break
+      }
+      case 'command': {
+        const stepId = stepIds.get(item.command) ?? crypto.randomUUID()
+        if (item.status === 'started') {
+          stepIds.set(item.command, stepId)
+          this.sendMessage({
+            type: 'task-step-update',
+            taskId,
+            step: { id: stepId, type: 'command', label: item.command, status: 'running', toolName: 'command', createdAt: now },
+          })
+        } else {
+          this.sendMessage({
+            type: 'task-step-update',
+            taskId,
+            step: {
+              id: stepId,
+              type: 'command',
+              label: item.command,
+              status: item.status === 'completed' ? 'completed' : 'failed',
+              detail: item.output?.slice(0, 500) || undefined,
+              toolName: 'command',
+              createdAt: now,
+              completedAt: now,
+            },
+          })
+          stepIds.delete(item.command)
+        }
+        break
+      }
+      case 'activity': {
+        this.sendMessage({
+          type: 'task-step-update',
+          taskId,
+          step: {
+            id: crypto.randomUUID(),
+            type: 'think',
+            label: item.label,
+            status: item.status === 'error' ? 'failed' : 'completed',
+            detail: item.detail,
+            toolName: 'activity',
+            createdAt: now,
+            completedAt: now,
+          },
+        })
+        break
+      }
+    }
   }
 
   private onDisconnect(): void {
