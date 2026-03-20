@@ -28,7 +28,7 @@ import type {
   TodoEntryStatus,
 } from '@webmux/shared'
 
-const ACTIVE_TASK_STATUSES: TaskStatus[] = ['dispatched', 'running']
+const ACTIVE_TASK_STATUSES: TaskStatus[] = ['dispatched', 'running', 'waiting']
 const AUTO_REFRESH_INTERVAL = 5000
 
 function timeAgo(timestamp: number): string {
@@ -47,6 +47,7 @@ function taskStatusLabel(status: TaskStatus): string {
     case 'pending': return 'Pending'
     case 'dispatched': return 'Dispatched'
     case 'running': return 'Running'
+    case 'waiting': return 'Waiting'
     case 'completed': return 'Completed'
     case 'failed': return 'Failed'
   }
@@ -82,6 +83,14 @@ function StatusCircle({ status, size = 18 }: { status: TaskStatus; size?: number
       return (
         <svg width={size} height={size} className="td-status-circle td-status-pulse">
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--accent)" strokeWidth="2" />
+        </svg>
+      )
+    case 'waiting':
+      return (
+        <svg width={size} height={size} className="td-status-circle">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--warning)" strokeWidth="1.5" />
+          <rect x={cx - r * 0.3} y={cy - r * 0.35} width={r * 0.2} height={r * 0.7} fill="var(--warning)" rx="1" />
+          <rect x={cx + r * 0.1} y={cy - r * 0.35} width={r * 0.2} height={r * 0.7} fill="var(--warning)" rx="1" />
         </svg>
       )
     case 'completed':

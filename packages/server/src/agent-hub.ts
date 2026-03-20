@@ -391,7 +391,7 @@ export class AgentHub {
     const activeTasks = db.prepare(
       `SELECT t.id FROM tasks t
        JOIN projects p ON t.project_id = p.id
-       WHERE p.agent_id = ? AND t.status IN ('dispatched', 'running')`,
+       WHERE p.agent_id = ? AND t.status IN ('dispatched', 'running', 'waiting')`,
     ).all(agentId) as Array<{ id: string }>
 
     for (const { id } of activeTasks) {

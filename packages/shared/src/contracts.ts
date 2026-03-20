@@ -48,6 +48,8 @@ export type AgentMessage =
   | { type: 'task-completed'; taskId: string; summary: string }
   | { type: 'task-failed'; taskId: string; error: string }
   | { type: 'task-step-update'; taskId: string; step: Omit<TaskStep, 'taskId'> }
+  | { type: 'task-message'; taskId: string; message: { id: string; role: 'agent'; content: string; createdAt: number } }
+  | { type: 'task-waiting'; taskId: string }
 
 // Server → Agent
 export type ServerToAgentMessage =
@@ -76,7 +78,9 @@ export type ServerToAgentMessage =
       title: string
       prompt: string
       llmConfig: { apiBaseUrl: string; apiKey: string; model: string } | null
+      conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>
     }
+  | { type: 'task-user-reply'; taskId: string; content: string }
 
 // REST API types
 
@@ -238,11 +242,12 @@ export type RunEvent =
   | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEvent }
   | { type: 'task-status'; task: Task }
   | { type: 'task-step'; taskId: string; step: TaskStep }
+  | { type: 'task-message'; taskId: string; message: TaskMessage }
   | { type: 'project-status'; project: Project }
 
 // --- Project + Task types ---
 
-export type TaskStatus = 'pending' | 'dispatched' | 'running' | 'completed' | 'failed'
+export type TaskStatus = 'pending' | 'dispatched' | 'running' | 'waiting' | 'completed' | 'failed'
 
 export interface Project {
   id: string
@@ -315,6 +320,16 @@ export interface TaskStep {
   durationMs?: number
   createdAt: number
   completedAt?: number
+}
+
+// --- Task Message types ---
+
+export interface TaskMessage {
+  id: string
+  taskId: string
+  role: 'agent' | 'user'
+  content: string
+  createdAt: number
 }
 
 // --- Project REST API types ---
