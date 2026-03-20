@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   ArrowLeft,
   Plus,
@@ -290,7 +292,9 @@ function TaskDetailModal({
                   {isAgent ? <Bot size={14} /> : <User size={14} />}
                   <span className="td-chat-bubble-role">{isAgent ? 'Agent' : 'You'}</span>
                 </div>
-                <div className="td-chat-bubble-content">{msg.content}</div>
+                <div className="td-chat-bubble-content td-markdown">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                </div>
                 <div className="td-chat-bubble-meta">{timeAgo(msg.createdAt)}</div>
               </div>
             )
