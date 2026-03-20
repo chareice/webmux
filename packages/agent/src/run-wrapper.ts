@@ -284,7 +284,7 @@ export class RunWrapper {
       persistSession: true,
       permissionMode: 'bypassPermissions' as const,
       allowDangerouslySkipPermissions: true,
-      settingSources: ['user', 'project'],
+      settingSources: ['user', 'project'] as ('user' | 'project')[],
       ...(this.turnOptions.model ? { model: this.turnOptions.model } : {}),
       ...(this.turnOptions.claudeEffort ? { effort: this.turnOptions.claudeEffort } : {}),
     }
