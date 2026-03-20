@@ -3976,7 +3976,9 @@
   border-radius: 12px;
   width: 100%;
   max-height: 85vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   animation: td-slide-up 0.15s ease;
 }
 
@@ -4029,34 +4031,135 @@
   color: var(--ink);
 }
 
-/* ── Modal tabs ────────────────────────────────── */
+/* ── Modal meta bar ───────────────────────────── */
 
-.td-modal-tabs {
+.td-modal-meta-bar {
   display: flex;
-  gap: 0;
-  padding: 0 1.25rem;
-  border-bottom: 1px solid var(--border-soft);
+  align-items: center;
+  gap: 8px;
+  padding: 0 1.25rem 12px;
+  flex-wrap: wrap;
 }
 
-.td-modal-tab {
-  padding: 0.5rem 1rem;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
+.td-status-badge-sm {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.td-meta-pill {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--accent-dim);
   color: var(--muted);
+}
+
+.td-meta-time {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* ── Unified timeline ─────────────────────────── */
+
+.td-timeline {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 200px;
+}
+
+.td-timeline::-webkit-scrollbar {
+  width: 4px;
+}
+
+.td-timeline::-webkit-scrollbar-thumb {
+  background: var(--border-soft);
+  border-radius: 2px;
+}
+
+.td-timeline-prompt {
   font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: color 0.12s, border-color 0.12s;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-left: 2px solid var(--border-soft);
+  margin-bottom: 8px;
 }
 
-.td-modal-tab:hover {
-  color: var(--ink);
+.td-timeline-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 40px 0;
+  font-style: italic;
 }
 
-.td-modal-tab.active {
+.td-timeline-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.td-activity-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.td-activity-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.td-activity-icon { width: 14px; text-align: center; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.td-activity-completed .td-activity-icon { color: var(--success); }
+.td-activity-running .td-activity-icon { color: var(--accent); }
+.td-activity-failed .td-activity-icon { color: var(--danger); }
+.td-activity-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-activity-duration { font-size: 0.7rem; color: var(--muted); opacity: 0.7; flex-shrink: 0; }
+
+.td-thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--accent);
-  border-bottom-color: var(--accent);
+  font-size: 0.85rem;
+  padding: 8px 0;
+}
+
+/* ── Modal bottom (input + actions) ───────────── */
+
+.td-modal-bottom {
+  border-top: 1px solid var(--border-soft);
+  padding: 12px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.td-modal-actions-row {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.td-btn-sm {
+  font-size: 0.78rem;
+  padding: 4px 10px;
 }
 
 .td-modal-body {
@@ -4143,6 +4246,7 @@
 .td-status-pending { background: rgba(255, 255, 255, 0.06); color: var(--muted); }
 .td-status-dispatched { background: rgba(224, 175, 104, 0.12); color: var(--warning); }
 .td-status-running { background: rgba(122, 162, 247, 0.12); color: var(--accent); }
+.td-status-waiting { background: rgba(224, 175, 104, 0.12); color: var(--warning); }
 .td-status-completed { background: rgba(115, 218, 202, 0.12); color: var(--success); }
 .td-status-failed { background: rgba(247, 118, 142, 0.12); color: var(--danger); }
 
@@ -4722,6 +4826,21 @@
   align-items: center;
   justify-content: center;
   padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+
+.td-chat-send:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.td-chat-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ── New project page ───────────────────────────── */

@@ -328,144 +328,67 @@ function ModalOverlay({
   )
 }
 
-/* ── Chat View Component ───────────────────────── */
+/* ── Unified Timeline Builder ─────────────────── */
 
-type ChatItem =
+type TimelineItem =
   | { type: 'message'; data: TaskMessage; timestamp: number }
-  | { type: 'step'; data: TaskStep; timestamp: number }
+  | { type: 'step-group'; data: TaskStep[]; timestamp: number }
   | { type: 'summary'; text: string; timestamp: number }
   | { type: 'error'; text: string; timestamp: number }
 
-function buildChatTimeline(
+function buildUnifiedTimeline(
   messages: TaskMessage[],
   steps: TaskStep[],
   task: Task,
-): ChatItem[] {
-  const items: ChatItem[] = []
+): TimelineItem[] {
+  const items: Array<{ type: 'message' | 'step' | 'summary' | 'error'; data: any; timestamp: number }> = []
 
   for (const msg of messages) {
     items.push({ type: 'message', data: msg, timestamp: msg.createdAt })
   }
-
   for (const step of steps) {
     items.push({ type: 'step', data: step, timestamp: step.createdAt })
   }
-
   if (task.summary) {
-    items.push({ type: 'summary', text: task.summary, timestamp: task.updatedAt })
+    items.push({ type: 'summary', data: task.summary, timestamp: task.updatedAt })
   }
-
   if (task.errorMessage) {
-    items.push({ type: 'error', text: task.errorMessage, timestamp: task.updatedAt })
+    items.push({ type: 'error', data: task.errorMessage, timestamp: task.updatedAt })
   }
 
+  // Sort by timestamp
   items.sort((a, b) => a.timestamp - b.timestamp)
-  return items
-}
-
-function ChatView({
-  task,
-  messages,
-  steps,
-}: {
-  task: Task
-  messages: TaskMessage[]
-  steps: TaskStep[]
-}) {
-  const chatBottomRef = useRef<HTMLDivElement>(null)
-  const timeline = buildChatTimeline(messages, steps, task)
-
-  // Auto-scroll when new items arrive
-  useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [timeline.length])
 
   // Group consecutive steps together
-  const grouped: (ChatItem | { type: 'step-group'; items: ChatItem[] })[] = []
-  for (const item of timeline) {
+  const result: TimelineItem[] = []
+  let currentStepGroup: TaskStep[] = []
+  let groupTimestamp = 0
+
+  for (const item of items) {
     if (item.type === 'step') {
-      const last = grouped[grouped.length - 1]
-      if (last && 'items' in last && last.type === 'step-group') {
-        last.items.push(item)
-      } else {
-        grouped.push({ type: 'step-group', items: [item] })
-      }
+      if (currentStepGroup.length === 0) groupTimestamp = item.timestamp
+      currentStepGroup.push(item.data)
     } else {
-      grouped.push(item)
+      // Flush step group
+      if (currentStepGroup.length > 0) {
+        result.push({ type: 'step-group', data: currentStepGroup, timestamp: groupTimestamp })
+        currentStepGroup = []
+      }
+      if (item.type === 'message') {
+        result.push({ type: 'message', data: item.data, timestamp: item.timestamp })
+      } else if (item.type === 'summary') {
+        result.push({ type: 'summary', text: item.data, timestamp: item.timestamp })
+      } else if (item.type === 'error') {
+        result.push({ type: 'error', text: item.data, timestamp: item.timestamp })
+      }
     }
   }
+  // Flush remaining steps
+  if (currentStepGroup.length > 0) {
+    result.push({ type: 'step-group', data: currentStepGroup, timestamp: groupTimestamp })
+  }
 
-  return (
-    <div className="td-chat-wrapper">
-      <div className="td-chat-container">
-        {grouped.length === 0 && (
-          <p className="td-muted-placeholder">No execution data yet.</p>
-        )}
-        {grouped.map((entry, i) => {
-          if ('items' in entry && entry.type === 'step-group') {
-            return (
-              <div key={`sg-${i}`} className="td-chat-activity-group">
-                {entry.items.map((stepItem) => {
-                  const step = (stepItem as { type: 'step'; data: TaskStep }).data
-                  return (
-                    <div key={step.id} className="td-chat-activity-item">
-                      <span className="td-step-icon">
-                        {step.status === 'completed' ? (
-                          <Check size={12} />
-                        ) : step.status === 'running' ? (
-                          <LoaderCircle size={12} className="spin" />
-                        ) : (
-                          <CircleAlert size={12} />
-                        )}
-                      </span>
-                      <span className="td-chat-activity-label">{step.label}</span>
-                      {step.durationMs != null && (
-                        <span className="td-chat-activity-duration">{formatDuration(step.durationMs)}</span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          }
-
-          const item = entry as ChatItem
-          switch (item.type) {
-            case 'message': {
-              const isAgent = item.data.role === 'agent'
-              return (
-                <div key={item.data.id} className={`td-chat-bubble ${isAgent ? 'agent' : 'user'}`}>
-                  <div className="td-chat-bubble-header">
-                    {isAgent ? <Bot size={14} /> : <User size={14} />}
-                    <span className="td-chat-bubble-role">{isAgent ? 'Agent' : 'You'}</span>
-                  </div>
-                  <div className="td-chat-bubble-content">{item.data.content}</div>
-                  <div className="td-chat-bubble-meta">{timeAgo(item.data.createdAt)}</div>
-                </div>
-              )
-            }
-            case 'summary':
-              return (
-                <div key={`summary-${i}`} className="td-summary-box">
-                  <h3 className="td-detail-label">Summary</h3>
-                  <p className="td-summary-text">{item.text}</p>
-                </div>
-              )
-            case 'error':
-              return (
-                <div key={`error-${i}`} className="td-error-box">
-                  <CircleAlert size={14} />
-                  <span>{item.text}</span>
-                </div>
-              )
-            default:
-              return null
-          }
-        })}
-        <div ref={chatBottomRef} />
-      </div>
-    </div>
-  )
+  return result
 }
 
 /* ── Task Detail Modal ──────────────────────────── */
@@ -501,14 +424,21 @@ function TaskDetailModal({
   sendingReply: boolean
   onSendReply: () => void
 }) {
-  const hasExecution = steps.length > 0 || messages.length > 0 || task.summary || task.errorMessage || task.runId
-  const [activeTab, setActiveTab] = useState<'details' | 'execution'>(
-    hasExecution ? 'execution' : 'details',
-  )
+  const chatRef = useRef<HTMLDivElement>(null)
+
+  // Build unified timeline
+  const timeline = buildUnifiedTimeline(messages, steps, task)
+
+  // Auto-scroll on new items
+  useEffect(() => {
+    if (chatRef.current) {
+      chatRef.current.scrollTop = chatRef.current.scrollHeight
+    }
+  }, [timeline.length])
 
   return (
     <ModalOverlay onClose={onClose}>
-      {/* Header */}
+      {/* Header: status + title + close */}
       <div className="td-modal-header">
         <div className="td-modal-title-row">
           <StatusCircle status={task.status} size={22} />
@@ -519,146 +449,129 @@ function TaskDetailModal({
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="td-modal-tabs">
-        <button
-          className={`td-modal-tab ${activeTab === 'details' ? 'active' : ''}`}
-          onClick={() => setActiveTab('details')}
-          type="button"
-        >
-          Details
-        </button>
-        <button
-          className={`td-modal-tab ${activeTab === 'execution' ? 'active' : ''}`}
-          onClick={() => setActiveTab('execution')}
-          type="button"
-        >
-          Execution
-        </button>
+      {/* Compact metadata bar */}
+      <div className="td-modal-meta-bar">
+        <span className={`td-status-badge-sm td-status-${task.status}`}>
+          {taskStatusLabel(task.status)}
+        </span>
+        {task.priority !== 0 && <span className="td-meta-pill">P{task.priority}</span>}
+        {task.branchName && <span className="td-meta-pill">{task.branchName}</span>}
+        <span className="td-meta-time">{timeAgo(task.createdAt)}</span>
       </div>
 
-      {/* Tab content */}
-      <div className="td-modal-body">
-        {activeTab === 'details' && (
-          <div className="td-tab-details">
-            {/* Prompt / description */}
-            <div className="td-detail-section">
-              <h3 className="td-detail-label">Description</h3>
-              {task.prompt && task.prompt !== task.title ? (
-                <p className="td-detail-text">{task.prompt}</p>
-              ) : (
-                <p className="td-detail-text td-muted-placeholder">No description</p>
-              )}
-            </div>
-
-            {/* Metadata */}
-            <div className="td-detail-section">
-              <h3 className="td-detail-label">Metadata</h3>
-              <div className="td-metadata-grid">
-                <span className="td-meta-key">Status</span>
-                <span className={`td-status-badge td-status-${task.status}`}>
-                  {taskStatusLabel(task.status)}
-                </span>
-
-                {task.priority !== 0 && (
-                  <>
-                    <span className="td-meta-key">Priority</span>
-                    <span className="td-meta-value">{task.priority}</span>
-                  </>
-                )}
-
-                {task.branchName && (
-                  <>
-                    <span className="td-meta-key">Branch</span>
-                    <span className="td-meta-value td-branch-name">{task.branchName}</span>
-                  </>
-                )}
-
-                <span className="td-meta-key">Created</span>
-                <span className="td-meta-value">{timeAgo(task.createdAt)}</span>
-
-                <span className="td-meta-key">Updated</span>
-                <span className="td-meta-value">{timeAgo(task.updatedAt)}</span>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="td-detail-actions">
-              {task.status !== 'completed' && task.status !== 'pending' && (
-                <button
-                  className="td-btn td-btn-success"
-                  onClick={() => onMarkComplete(task.id)}
-                  type="button"
-                >
-                  <Check size={14} />
-                  Mark Complete
-                </button>
-              )}
-              <button
-                className="td-btn td-btn-danger"
-                onClick={() => onDelete(task.id)}
-                type="button"
-              >
-                <Trash2 size={14} />
-                Delete
-              </button>
-              {task.status === 'failed' && (
-                <button
-                  className="td-btn td-btn-secondary"
-                  disabled={retrying}
-                  onClick={() => onRetry(task.id)}
-                  type="button"
-                >
-                  <RotateCcw size={14} />
-                  {retrying ? 'Retrying...' : 'Retry'}
-                </button>
-              )}
-            </div>
-          </div>
+      {/* Unified timeline */}
+      <div className="td-timeline" ref={chatRef}>
+        {/* Show prompt/description at top if different from title */}
+        {task.prompt && task.prompt !== task.title && (
+          <div className="td-timeline-prompt">{task.prompt}</div>
         )}
 
-        {activeTab === 'execution' && (
-          <div className="td-tab-execution">
-            {messages.length > 0 || steps.length > 0 ? (
-              <ChatView
-                task={task}
-                messages={messages}
-                steps={steps}
-              />
-            ) : task.runId && token ? (
-              <RunTimeline agentId={project.agentId} runId={task.runId} token={token} />
-            ) : (
-              <p className="td-muted-placeholder">No execution data yet.</p>
-            )}
+        {timeline.length === 0 && task.status === 'pending' && (
+          <div className="td-timeline-empty">Task is pending...</div>
+        )}
 
-            {/* Input always visible at bottom of execution tab */}
-            {task.status !== 'pending' && (
-              <div className="td-chat-input-area">
-                {task.status === 'waiting' && (
-                  <div className="td-waiting-indicator">Agent is waiting for your reply...</div>
-                )}
-                <div className="td-chat-input-row">
-                  <input
-                    className="td-chat-input"
-                    placeholder="Type a message..."
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && replyText.trim()) onSendReply() }}
-                    disabled={sendingReply}
-                  />
-                  <button
-                    className="td-btn td-btn-primary td-chat-send"
-                    disabled={!replyText.trim() || sendingReply}
-                    onClick={onSendReply}
-                    type="button"
-                  >
-                    <Send size={14} />
-                  </button>
+        {timeline.map((item, i) => {
+          if (item.type === 'message') {
+            const msg = item.data as TaskMessage
+            const isAgent = msg.role === 'agent'
+            return (
+              <div key={msg.id} className={`td-chat-bubble ${isAgent ? 'agent' : 'user'}`}>
+                <div className="td-chat-bubble-header">
+                  {isAgent ? <Bot size={14} /> : <User size={14} />}
+                  <span className="td-chat-bubble-role">{isAgent ? 'Agent' : 'You'}</span>
                 </div>
+                <div className="td-chat-bubble-content">{msg.content}</div>
+                <div className="td-chat-bubble-meta">{timeAgo(msg.createdAt)}</div>
               </div>
-            )}
+            )
+          }
+          if (item.type === 'step-group') {
+            const stepsInGroup = item.data as TaskStep[]
+            return (
+              <div key={`sg-${i}`} className="td-activity-group">
+                {stepsInGroup.map(step => (
+                  <div key={step.id} className={`td-activity-item td-activity-${step.status}`}>
+                    <span className="td-activity-icon">
+                      {step.status === 'completed' ? (
+                        <Check size={12} />
+                      ) : step.status === 'running' ? (
+                        <LoaderCircle size={12} className="spin" />
+                      ) : (
+                        <CircleAlert size={12} />
+                      )}
+                    </span>
+                    <span className="td-activity-label">{step.label}</span>
+                    {step.durationMs != null && (
+                      <span className="td-activity-duration">{formatDuration(step.durationMs)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
+          }
+          if (item.type === 'summary') {
+            return (
+              <div key={`summary-${i}`} className="td-summary-box">
+                <h3 className="td-detail-label">Summary</h3>
+                <p className="td-summary-text">{item.text}</p>
+              </div>
+            )
+          }
+          if (item.type === 'error') {
+            return (
+              <div key={`error-${i}`} className="td-timeline-error">{item.text}</div>
+            )
+          }
+          return null
+        })}
+
+        {task.status === 'waiting' && (
+          <div className="td-waiting-indicator">Waiting for your reply...</div>
+        )}
+
+        {(task.status === 'dispatched' || task.status === 'running') && (
+          <div className="td-thinking-indicator">
+            <LoaderCircle size={14} className="spin" />
+            <span>Agent is working...</span>
           </div>
         )}
+      </div>
+
+      {/* Bottom: input + actions */}
+      <div className="td-modal-bottom">
+        <div className="td-chat-input-row">
+          <input
+            className="td-chat-input"
+            placeholder="Type a message..."
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && replyText.trim()) { e.preventDefault(); onSendReply() } }}
+            disabled={sendingReply}
+          />
+          <button
+            className="td-chat-send"
+            disabled={!replyText.trim() || sendingReply}
+            onClick={onSendReply}
+            type="button"
+          >
+            <Send size={16} />
+          </button>
+        </div>
+        <div className="td-modal-actions-row">
+          {task.status !== 'completed' && task.status !== 'pending' && (
+            <button className="td-btn td-btn-success td-btn-sm" onClick={() => onMarkComplete(task.id)} type="button">
+              <Check size={14} /> Complete
+            </button>
+          )}
+          {task.status === 'failed' && (
+            <button className="td-btn td-btn-secondary td-btn-sm" disabled={retrying} onClick={() => onRetry(task.id)} type="button">
+              <RotateCcw size={14} /> Retry
+            </button>
+          )}
+          <button className="td-btn td-btn-danger td-btn-sm" onClick={() => onDelete(task.id)} type="button">
+            <Trash2 size={14} /> Delete
+          </button>
+        </div>
       </div>
     </ModalOverlay>
   )
