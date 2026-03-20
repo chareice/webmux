@@ -1203,6 +1203,10 @@ export function resetTaskToPending(
 ): void {
   const now = Date.now()
 
+  // Clear previous execution data
+  db.prepare('DELETE FROM task_messages WHERE task_id = ?').run(taskId)
+  db.prepare('DELETE FROM task_steps WHERE task_id = ?').run(taskId)
+
   if (additionalPrompt) {
     const existing = findTaskById(db, taskId)
     if (existing) {
@@ -1215,6 +1219,7 @@ export function resetTaskToPending(
           branch_name = NULL,
           worktree_path = NULL,
           error_message = NULL,
+          summary = NULL,
           claimed_at = NULL,
           completed_at = NULL,
           updated_at = ?
@@ -1231,6 +1236,7 @@ export function resetTaskToPending(
       branch_name = NULL,
       worktree_path = NULL,
       error_message = NULL,
+      summary = NULL,
       claimed_at = NULL,
       completed_at = NULL,
       updated_at = ?

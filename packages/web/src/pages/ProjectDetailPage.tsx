@@ -708,6 +708,9 @@ export function ProjectDetailPage() {
       const data = (await res.json()) as { task: Task }
       setTasks((prev) => prev.map((t) => (t.id === taskId ? data.task : t)))
       setSelectedTask(data.task)
+      // Clear previous execution data
+      setTaskSteps(prev => { const next = { ...prev }; delete next[taskId]; return next })
+      setTaskMessages(prev => { const next = { ...prev }; delete next[taskId]; return next })
     } catch (err) {
       setError((err as Error).message)
     } finally {
