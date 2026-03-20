@@ -19,6 +19,8 @@ import {
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
+import { MAX_ATTACHMENTS, fileToBase64, repoName, timeAgo, toolIcon, toolLabel } from '../lib/utils.ts'
+import type { DraftAttachment } from '../lib/utils.ts'
 import type {
   ContinueRunRequest,
   Run,
@@ -31,15 +33,6 @@ import type {
   RunTurnDetail,
   RunTurnOptions,
 } from '@webmux/shared'
-
-const MAX_ATTACHMENTS = 4
-
-interface DraftAttachment {
-  id: string
-  file: File
-  previewUrl: string
-  base64: string
-}
 
 function statusLabel(status: RunStatus): string {
   switch (status) {
@@ -70,42 +63,6 @@ function isRunActive(status: RunStatus): boolean {
 function canContinue(turn: RunTurnDetail | undefined): boolean {
   if (!turn) return false
   return turn.status === 'success' || turn.status === 'failed' || turn.status === 'interrupted'
-}
-
-function toolIcon(tool: string): string {
-  return tool === 'codex' ? 'CX' : 'CC'
-}
-
-function toolLabel(tool: string): string {
-  return tool === 'codex' ? 'Codex' : 'Claude Code'
-}
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
-
-function repoName(repoPath: string): string {
-  const parts = repoPath.split('/')
-  return parts[parts.length - 1] || repoPath
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      const base64 = result.split(',')[1] ?? ''
-      resolve(base64)
-    }
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
 }
 
 // --- Conversation segment grouping ---

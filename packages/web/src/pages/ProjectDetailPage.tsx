@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
+import { timeAgo } from '../lib/utils.ts'
 import type {
   Project,
   Task,
@@ -20,17 +21,6 @@ import type {
 
 const ACTIVE_TASK_STATUSES: TaskStatus[] = ['dispatched', 'running', 'waiting']
 const AUTO_REFRESH_INTERVAL = 5000
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
 
 /* ── StatusCircle (lightweight, for task list only) ── */
 
@@ -289,7 +279,7 @@ export function ProjectDetailPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const [, setRetryingId] = useState<string | null>(null)
+  const [retryingId, setRetryingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -483,6 +473,9 @@ export function ProjectDetailPage() {
               className={`td-task-row ${task.status === 'completed' ? 'td-task-completed' : ''}`}
               key={task.id}
               onClick={() => navigate(`/projects/${projectId}/tasks/${task.id}`)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/projects/${projectId}/tasks/${task.id}`) } }}
+              role="link"
+              tabIndex={0}
             >
               <StatusCircle status={task.status} />
               <div className="td-task-body">
@@ -506,11 +499,12 @@ export function ProjectDetailPage() {
                 {task.status === 'failed' && (
                   <button
                     className="td-action-icon"
+                    disabled={retryingId === task.id}
                     onClick={(e) => { e.stopPropagation(); void handleRetry(task.id) }}
                     title="Retry"
                     type="button"
                   >
-                    <RotateCcw size={14} />
+                    {retryingId === task.id ? <LoaderCircle size={14} className="spin" /> : <RotateCcw size={14} />}
                   </button>
                 )}
                 <button

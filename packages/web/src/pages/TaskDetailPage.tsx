@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   Bot,
   Check,
+  ChevronDown,
+  ChevronRight,
   CircleAlert,
   ImagePlus,
   LoaderCircle,
@@ -18,6 +20,16 @@ import {
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
+import {
+  MAX_ATTACHMENTS,
+  fileToBase64,
+  formatDuration,
+  repoName,
+  timeAgo,
+  toolIcon,
+  toolLabel,
+} from '../lib/utils.ts'
+import type { DraftAttachment } from '../lib/utils.ts'
 import type {
   Project,
   Task,
@@ -26,39 +38,6 @@ import type {
   TaskStep,
   RunEvent,
 } from '@webmux/shared'
-
-const MAX_ATTACHMENTS = 4
-
-interface DraftAttachment {
-  id: string
-  file: File
-  previewUrl: string
-  base64: string
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      const base64 = result.split(',')[1] ?? ''
-      resolve(base64)
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
 
 function taskStatusLabel(status: TaskStatus): string {
   switch (status) {
@@ -82,27 +61,8 @@ function taskStatusClass(status: TaskStatus): string {
   }
 }
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${Math.round(ms / 1000)}s`
-  return `${Math.round(ms / 60000)}m`
-}
-
-function toolLabel(tool: string): string {
-  return tool === 'codex' ? 'Codex' : 'Claude Code'
-}
-
-function toolIcon(tool: string): string {
-  return tool === 'codex' ? 'CX' : 'CC'
-}
-
 function isTaskActive(status: TaskStatus): boolean {
   return status === 'dispatched' || status === 'running' || status === 'waiting'
-}
-
-function repoName(repoPath: string): string {
-  const parts = repoPath.split('/')
-  return parts[parts.length - 1] || repoPath
 }
 
 /* ── Step Item (expandable) ─────────────────────── */
@@ -113,7 +73,13 @@ function StepItem({ step }: { step: TaskStep }) {
 
   return (
     <div className={`td-activity-item td-activity-${step.status} ${hasDetail ? 'td-activity-clickable' : ''}`}>
-      <div className="td-activity-row" onClick={() => hasDetail && setExpanded(!expanded)}>
+      <button
+        className="td-activity-row"
+        onClick={() => hasDetail && setExpanded(!expanded)}
+        type="button"
+        aria-expanded={hasDetail ? expanded : undefined}
+        tabIndex={hasDetail ? 0 : -1}
+      >
         <span className="td-activity-icon">
           {step.status === 'completed' ? (
             <Check size={12} />
@@ -127,7 +93,12 @@ function StepItem({ step }: { step: TaskStep }) {
         {step.durationMs != null && (
           <span className="td-activity-duration">{formatDuration(step.durationMs)}</span>
         )}
-      </div>
+        {hasDetail && (
+          <span className="td-activity-chevron">
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </span>
+        )}
+      </button>
       {expanded && step.detail && (
         <div className="td-activity-detail">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{step.detail}</ReactMarkdown>
@@ -218,7 +189,33 @@ export function TaskDetailPage() {
   const timelineRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Reset state when navigating between tasks
+  useEffect(() => {
+    setTask(null)
+    setProject(null)
+    setSteps([])
+    setMessages([])
+    setReplyText('')
+    setAttachments(prev => {
+      for (const a of prev) URL.revokeObjectURL(a.previewUrl)
+      return []
+    })
+    setError(null)
+    setIsLoading(true)
+  }, [projectId, taskId])
+
+  // Cleanup attachment ObjectURLs on unmount
+  useEffect(() => {
+    return () => {
+      setAttachments(prev => {
+        for (const a of prev) URL.revokeObjectURL(a.previewUrl)
+        return []
+      })
+    }
+  }, [])
+
   const loadData = useCallback(async () => {
+    if (!projectId || !taskId) return
     try {
       // Load project info
       const projRes = await fetchApi(`/api/projects/${projectId}`)
@@ -245,6 +242,10 @@ export function TaskDetailPage() {
           const msgsData = await msgsRes.json() as { messages: TaskMessage[] }
           setMessages(msgsData.messages)
         }
+      } else {
+        // Explicitly clear for pending tasks
+        setSteps([])
+        setMessages([])
       }
 
       setError(null)
@@ -318,6 +319,18 @@ export function TaskDetailPage() {
     return () => clearInterval(interval)
   }, [task, loadData])
 
+  // Guard against missing params (after all hooks)
+  if (!projectId || !taskId) {
+    return (
+      <div className="task-detail-page">
+        <div className="threads-empty">
+          <h2>Invalid URL</h2>
+          <p>Missing project or task ID.</p>
+        </div>
+      </div>
+    )
+  }
+
   const handleFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     const remaining = MAX_ATTACHMENTS - attachments.length
@@ -358,13 +371,17 @@ export function TaskDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      if (res.ok) {
-        const data = await res.json() as { message: TaskMessage }
-        setMessages(prev => [...prev, data.message])
-        setReplyText('')
-        for (const a of attachments) URL.revokeObjectURL(a.previewUrl)
-        setAttachments([])
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null)
+        throw new Error((errData as any)?.error || 'Failed to send message')
       }
+      const data = await res.json() as { message: TaskMessage }
+      setMessages(prev => [...prev, data.message])
+      setReplyText('')
+      for (const a of attachments) URL.revokeObjectURL(a.previewUrl)
+      setAttachments([])
+    } catch (err) {
+      setError((err as Error).message)
     } finally {
       setSendingReply(false)
     }
@@ -457,6 +474,7 @@ export function TaskDetailPage() {
           className="icon-button"
           onClick={() => navigate(`/projects/${projectId}`)}
           type="button"
+          aria-label="Back to project"
         >
           <ArrowLeft size={16} />
         </button>
@@ -663,7 +681,7 @@ export function TaskDetailPage() {
                     <button
                       className="attachment-thumb-remove"
                       onClick={() => removeAttachment(a.id)}
-                      title="Remove"
+                      aria-label={`Remove attachment ${a.file.name}`}
                       type="button"
                     >
                       <X size={10} />
@@ -682,7 +700,10 @@ export function TaskDetailPage() {
                 accept="image/*"
                 multiple
                 className="visually-hidden"
-                onChange={(e) => void handleFilesSelected(e.target.files)}
+                onChange={(e) => {
+                  void handleFilesSelected(e.target.files)
+                  if (fileInputRef.current) fileInputRef.current.value = ''
+                }}
               />
               <button
                 className="composer-icon-btn"
