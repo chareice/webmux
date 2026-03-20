@@ -79,6 +79,31 @@ export interface TaskRow {
   completed_at: number | null
 }
 
+export interface LlmConfigRow {
+  id: string
+  user_id: string
+  project_id: string | null
+  api_base_url: string
+  api_key: string
+  model: string
+  created_at: number
+  updated_at: number
+}
+
+export interface TaskStepRow {
+  id: string
+  task_id: string
+  type: string
+  label: string
+  status: string
+  detail: string | null
+  tool_name: string
+  run_id: string | null
+  duration_ms: number | null
+  created_at: number
+  completed_at: number | null
+}
+
 export function initDb(dbPath: string): Database.Database {
   const db = new Database(dbPath)
 
@@ -191,6 +216,36 @@ export function initDb(dbPath: string): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+
+    CREATE TABLE IF NOT EXISTS llm_configs (
+      id            TEXT PRIMARY KEY,
+      user_id       TEXT NOT NULL,
+      project_id    TEXT,
+      api_base_url  TEXT NOT NULL,
+      api_key       TEXT NOT NULL,
+      model         TEXT NOT NULL,
+      created_at    INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at    INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_llm_configs_user ON llm_configs(user_id);
+
+    CREATE TABLE IF NOT EXISTS task_steps (
+      id            TEXT PRIMARY KEY,
+      task_id       TEXT NOT NULL,
+      type          TEXT NOT NULL,
+      label         TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'running',
+      detail        TEXT,
+      tool_name     TEXT NOT NULL,
+      run_id        TEXT,
+      duration_ms   INTEGER,
+      created_at    INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      completed_at  INTEGER,
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_steps_task ON task_steps(task_id);
   `)
 
   migrateRunsTableIfNeeded(db)
@@ -201,6 +256,11 @@ export function initDb(dbPath: string): Database.Database {
   migrateRunEventsIfNeeded(db)
   ensureRunEventsTable(db)
   db.exec('DROP TABLE IF EXISTS run_output_chunks')
+
+  // Migrate: add summary column to tasks for existing databases
+  try {
+    db.exec("ALTER TABLE tasks ADD COLUMN summary TEXT")
+  } catch { /* column may already exist */ }
 
   // On server startup, clean up stale state from a previous run:
   // 1. Mark all agents as offline (they will reconnect if still alive)
@@ -1158,6 +1218,170 @@ export function resetTaskToPending(
       updated_at = ?
     WHERE id = ?`,
   ).run(now, taskId)
+}
+
+export function updateTaskSummary(db: Database.Database, taskId: string, summary: string): void {
+  db.prepare('UPDATE tasks SET summary = ?, updated_at = ? WHERE id = ?').run(summary, Date.now(), taskId)
+}
+
+// --- LLM Configs ---
+
+export function createLlmConfig(
+  db: Database.Database,
+  userId: string,
+  data: { api_base_url: string; api_key: string; model: string; project_id?: string },
+): LlmConfigRow {
+  const id = crypto.randomUUID()
+  const now = Date.now()
+  const projectId = data.project_id ?? null
+
+  db.prepare(
+    `INSERT INTO llm_configs (id, user_id, project_id, api_base_url, api_key, model, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, userId, projectId, data.api_base_url, data.api_key, data.model, now, now)
+
+  return {
+    id,
+    user_id: userId,
+    project_id: projectId,
+    api_base_url: data.api_base_url,
+    api_key: data.api_key,
+    model: data.model,
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+export function findLlmConfigsByUser(db: Database.Database, userId: string): LlmConfigRow[] {
+  return db.prepare('SELECT * FROM llm_configs WHERE user_id = ? ORDER BY created_at DESC').all(userId) as LlmConfigRow[]
+}
+
+export function findLlmConfigById(db: Database.Database, id: string): LlmConfigRow | undefined {
+  return db.prepare('SELECT * FROM llm_configs WHERE id = ?').get(id) as LlmConfigRow | undefined
+}
+
+export function resolveLlmConfig(
+  db: Database.Database,
+  userId: string,
+  projectId: string | null,
+): LlmConfigRow | undefined {
+  // Try project-specific config first
+  if (projectId) {
+    const projectConfig = db.prepare(
+      'SELECT * FROM llm_configs WHERE user_id = ? AND project_id = ?',
+    ).get(userId, projectId) as LlmConfigRow | undefined
+    if (projectConfig) return projectConfig
+  }
+
+  // Fall back to default config (project_id IS NULL)
+  return db.prepare(
+    'SELECT * FROM llm_configs WHERE user_id = ? AND project_id IS NULL',
+  ).get(userId) as LlmConfigRow | undefined
+}
+
+export function updateLlmConfig(
+  db: Database.Database,
+  id: string,
+  data: { api_base_url?: string; api_key?: string; model?: string; project_id?: string | null },
+): void {
+  const now = Date.now()
+  const sets: string[] = ['updated_at = ?']
+  const params: (string | number | null)[] = [now]
+
+  if (data.api_base_url !== undefined) {
+    sets.push('api_base_url = ?')
+    params.push(data.api_base_url)
+  }
+  if (data.api_key !== undefined) {
+    sets.push('api_key = ?')
+    params.push(data.api_key)
+  }
+  if (data.model !== undefined) {
+    sets.push('model = ?')
+    params.push(data.model)
+  }
+  if (data.project_id !== undefined) {
+    sets.push('project_id = ?')
+    params.push(data.project_id)
+  }
+
+  params.push(id)
+  db.prepare(`UPDATE llm_configs SET ${sets.join(', ')} WHERE id = ?`).run(...params)
+}
+
+export function deleteLlmConfig(db: Database.Database, id: string): void {
+  db.prepare('DELETE FROM llm_configs WHERE id = ?').run(id)
+}
+
+// --- Task Steps ---
+
+export function createTaskStep(
+  db: Database.Database,
+  data: { task_id: string; type: string; label: string; tool_name: string; status?: string; detail?: string; run_id?: string },
+): TaskStepRow {
+  const id = crypto.randomUUID()
+  const now = Date.now()
+  const status = data.status ?? 'running'
+
+  db.prepare(
+    `INSERT INTO task_steps (id, task_id, type, label, status, detail, tool_name, run_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, data.task_id, data.type, data.label, status, data.detail ?? null, data.tool_name, data.run_id ?? null, now)
+
+  return {
+    id,
+    task_id: data.task_id,
+    type: data.type,
+    label: data.label,
+    status,
+    detail: data.detail ?? null,
+    tool_name: data.tool_name,
+    run_id: data.run_id ?? null,
+    duration_ms: null,
+    created_at: now,
+    completed_at: null,
+  }
+}
+
+export function updateTaskStep(
+  db: Database.Database,
+  id: string,
+  data: { status?: string; detail?: string; run_id?: string; duration_ms?: number; completed_at?: number },
+): void {
+  const sets: string[] = []
+  const params: (string | number | null)[] = []
+
+  if (data.status !== undefined) {
+    sets.push('status = ?')
+    params.push(data.status)
+  }
+  if (data.detail !== undefined) {
+    sets.push('detail = ?')
+    params.push(data.detail)
+  }
+  if (data.run_id !== undefined) {
+    sets.push('run_id = ?')
+    params.push(data.run_id)
+  }
+  if (data.duration_ms !== undefined) {
+    sets.push('duration_ms = ?')
+    params.push(data.duration_ms)
+  }
+  if (data.completed_at !== undefined) {
+    sets.push('completed_at = ?')
+    params.push(data.completed_at)
+  }
+
+  if (sets.length === 0) return
+
+  params.push(id)
+  db.prepare(`UPDATE task_steps SET ${sets.join(', ')} WHERE id = ?`).run(...params)
+}
+
+export function findStepsByTaskId(db: Database.Database, taskId: string): TaskStepRow[] {
+  return db.prepare(
+    'SELECT * FROM task_steps WHERE task_id = ? ORDER BY created_at ASC',
+  ).all(taskId) as TaskStepRow[]
 }
 
 function migrateRunsTableIfNeeded(db: Database.Database): void {
