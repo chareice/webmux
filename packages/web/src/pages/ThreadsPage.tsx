@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronRight, FolderGit2, LoaderCircle, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, FolderGit2, GitBranch, LoaderCircle, Plus, Trash2 } from 'lucide-react'
 import { fetchApi } from '../auth.tsx'
 import type { AgentInfo, Run, RunListResponse, RunStatus } from '@webmux/shared'
 
@@ -259,28 +259,18 @@ export function ThreadsPage() {
               ) : null}
             </button>
             {!isCollapsed ? (
-              <>
-                <div className="threads-table-header">
-                  <span className="th-tool">Tool</span>
-                  <span className="th-info">Branch</span>
-                  <span className="th-prompt">Prompt</span>
-                  <span className="th-status">Status</span>
-                  <span className="th-time">Updated</span>
-                  <span className="th-actions" />
-                </div>
-                <div className="threads-list">
-                  {group.runs.map((run) => (
-                    <ThreadRow
-                      key={run.id}
-                      run={run}
-                      agentName={agents.get(run.agentId)?.name || undefined}
-                      isDeleting={deletingId === run.id}
-                      onDelete={() => void handleDelete(run)}
-                      onClick={() => navigate(`/agents/${run.agentId}/threads/${run.id}`)}
-                    />
-                  ))}
-                </div>
-              </>
+              <div className="threads-list">
+                {group.runs.map((run) => (
+                  <ThreadRow
+                    key={run.id}
+                    run={run}
+                    agentName={agents.get(run.agentId)?.name || undefined}
+                    isDeleting={deletingId === run.id}
+                    onDelete={() => void handleDelete(run)}
+                    onClick={() => navigate(`/agents/${run.agentId}/threads/${run.id}`)}
+                  />
+                ))}
+              </div>
             ) : null}
           </div>
         )
@@ -303,69 +293,60 @@ function ThreadRow({
   onClick: () => void
 }) {
   const sc = statusClass(run.status)
-  const tl = run.tool === 'codex' ? 'Codex' : 'Claude'
+  const isActive = run.status === 'running' || run.status === 'starting'
   return (
-    <div className="thread-row" onClick={onClick} role="button" tabIndex={0}>
-      {/* Desktop: tool badge column */}
-      <div className="thread-row-tool desktop-only">
+    <div
+      className={`thread-row status-${sc}${run.unread ? ' unread' : ''}${isActive ? ' active' : ''}`}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+    >
+      {/* Line 1: meta info */}
+      <div className="thread-row-meta">
         <span className={`thread-tool-badge ${run.tool}`}>{toolIcon(run.tool)}</span>
-      </div>
-
-      {/* Desktop: branch column */}
-      <div className="thread-row-info desktop-only">
-        {run.branch ? <span className="thread-branch">{run.branch}</span> : <span className="thread-branch-empty">-</span>}
-        {agentName ? <span className="thread-agent-name">{agentName}</span> : null}
-      </div>
-
-      {/* Mobile: compact header with all meta on one line */}
-      <div className="thread-row-meta mobile-only">
-        <span className="thread-meta-repo">{repoName(run.repoPath)}</span>
-        <span className="thread-meta-sep">·</span>
-        <span className="thread-meta-tool">{tl}</span>
-        <span className={`thread-status-badge ${sc}`}>
-          <span className={`thread-status-dot ${sc}`} />
-          {statusLabel(run.status)}
-        </span>
-        <span className="thread-meta-time">{timeAgo(run.updatedAt)}</span>
-      </div>
-
-      {/* Conversation preview */}
-      <div className="thread-row-conversation">
-        <div className="thread-convo-line">
-          <span className="thread-convo-role user">You:</span>
-          <span className="thread-convo-text">{truncate(run.prompt, 100)}</span>
-        </div>
-        <div className="thread-convo-line">
-          <span className="thread-convo-role assistant">AI:</span>
-          <span className="thread-convo-text">{aiPreview(run)}</span>
-        </div>
-      </div>
-
-      {/* Desktop: status column */}
-      <div className="thread-row-status desktop-only">
-        <span className={`thread-status-badge ${sc}`}>
-          <span className={`thread-status-dot ${sc}`} />
-          {statusLabel(run.status)}
+        {run.branch ? (
+          <span className="thread-branch">
+            <GitBranch size={11} />
+            {run.branch}
+          </span>
+        ) : null}
+        {agentName ? (
+          <>
+            <span className="thread-meta-sep">·</span>
+            <span className="thread-agent-name">{agentName}</span>
+          </>
+        ) : null}
+        <span className="thread-row-right">
+          {run.hasDiff ? <span className="thread-diff-badge" title="Has code changes">Δ</span> : null}
+          <span className={`thread-status-badge ${sc}`}>
+            <span className={`thread-status-dot ${sc}`} />
+            {statusLabel(run.status)}
+          </span>
+          <span className="thread-row-time">{timeAgo(run.updatedAt)}</span>
+          <button
+            className="thread-row-delete icon-button kill-button"
+            disabled={isDeleting}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete()
+            }}
+            title="Remove thread"
+            type="button"
+          >
+            <Trash2 size={13} />
+          </button>
         </span>
       </div>
 
-      {/* Desktop: time column */}
-      <span className="thread-row-time desktop-only">{timeAgo(run.updatedAt)}</span>
-
-      {/* Desktop: actions column */}
-      <div className="thread-row-actions desktop-only">
-        <button
-          className="icon-button kill-button"
-          disabled={isDeleting}
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete()
-          }}
-          title="Remove thread"
-          type="button"
-        >
-          <Trash2 size={14} />
-        </button>
+      {/* Line 2: prompt → summary */}
+      <div className="thread-row-content">
+        <span className="thread-prompt-text">{truncate(run.prompt, 80)}</span>
+        {run.summary || isActive ? (
+          <>
+            <span className="thread-arrow">→</span>
+            <span className="thread-summary-text">{aiPreview(run)}</span>
+          </>
+        ) : null}
       </div>
     </div>
   )
