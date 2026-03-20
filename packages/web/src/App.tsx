@@ -9,6 +9,7 @@ import { NewThreadPage } from './pages/NewThreadPage.tsx'
 import { ThreadDetailPage } from './pages/ThreadDetailPage.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { ProjectDetailPage } from './pages/ProjectDetailPage.tsx'
+import { TaskDetailPage } from './pages/TaskDetailPage.tsx'
 import { NewProjectPage } from './pages/NewProjectPage.tsx'
 import { LlmConfigPage } from './pages/LlmConfigPage.tsx'
 import './App.css'
@@ -165,6 +166,16 @@ function App() {
             <ProtectedRoute>
               <AppLayout>
                 <ProjectDetailPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/projects/:projectId/tasks/:taskId"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <TaskDetailPage />
               </AppLayout>
             </ProtectedRoute>
           }

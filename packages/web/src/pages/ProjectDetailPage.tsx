@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   ArrowLeft,
   Plus,
@@ -10,48 +8,18 @@ import {
   Trash2,
   ExternalLink,
   X,
-  Check,
-  CircleAlert,
-  Send,
-  Bot,
-  User,
-  ImagePlus,
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
 import type {
   Project,
   Task,
-  TaskMessage,
   TaskStatus,
-  TaskStep,
   RunEvent,
 } from '@webmux/shared'
 
 const ACTIVE_TASK_STATUSES: TaskStatus[] = ['dispatched', 'running', 'waiting']
 const AUTO_REFRESH_INTERVAL = 5000
-
-const MAX_ATTACHMENTS = 4
-
-interface DraftAttachment {
-  id: string
-  file: File
-  previewUrl: string
-  base64: string
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      const base64 = result.split(',')[1] ?? ''
-      resolve(base64)
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
 
 function timeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000)
@@ -64,24 +32,7 @@ function timeAgo(timestamp: number): string {
   return `${days}d ago`
 }
 
-function taskStatusLabel(status: TaskStatus): string {
-  switch (status) {
-    case 'pending': return 'Pending'
-    case 'dispatched': return 'Dispatched'
-    case 'running': return 'Running'
-    case 'waiting': return 'Waiting'
-    case 'completed': return 'Completed'
-    case 'failed': return 'Failed'
-  }
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${Math.round(ms / 1000)}s`
-  return `${Math.round(ms / 60000)}m`
-}
-
-/* ── Status Circle Component ────────────────────── */
+/* ── StatusCircle (lightweight, for task list only) ── */
 
 function StatusCircle({ status, size = 18 }: { status: TaskStatus; size?: number }) {
   const r = size / 2 - 2
@@ -142,40 +93,7 @@ function StatusCircle({ status, size = 18 }: { status: TaskStatus; size?: number
   }
 }
 
-
-/* ── Step Item (expandable) ─────────────────────── */
-
-function StepItem({ step }: { step: TaskStep }) {
-  const [expanded, setExpanded] = useState(false)
-  const hasDetail = !!step.detail
-
-  return (
-    <div className={`td-activity-item td-activity-${step.status} ${hasDetail ? 'td-activity-clickable' : ''}`}>
-      <div className="td-activity-row" onClick={() => hasDetail && setExpanded(!expanded)}>
-        <span className="td-activity-icon">
-          {step.status === 'completed' ? (
-            <Check size={12} />
-          ) : step.status === 'running' ? (
-            <LoaderCircle size={12} className="spin" />
-          ) : (
-            <CircleAlert size={12} />
-          )}
-        </span>
-        <span className="td-activity-label">{step.label}</span>
-        {step.durationMs != null && (
-          <span className="td-activity-duration">{formatDuration(step.durationMs)}</span>
-        )}
-      </div>
-      {expanded && step.detail && (
-        <div className="td-activity-detail">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{step.detail}</ReactMarkdown>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ── Modal Overlay ──────────────────────────────── */
+/* ── Modal Overlay (for Add Task / Confirm Delete) ── */
 
 function ModalOverlay({
   children,
@@ -196,270 +114,6 @@ function ModalOverlay({
         {children}
       </div>
     </div>
-  )
-}
-
-/* ── Unified Timeline Builder ─────────────────── */
-
-type TimelineItem =
-  | { type: 'message'; data: TaskMessage; timestamp: number }
-  | { type: 'step-group'; data: TaskStep[]; timestamp: number }
-  | { type: 'summary'; text: string; timestamp: number }
-  | { type: 'error'; text: string; timestamp: number }
-
-function buildUnifiedTimeline(
-  messages: TaskMessage[],
-  steps: TaskStep[],
-  task: Task,
-): TimelineItem[] {
-  const items: Array<{ type: 'message' | 'step' | 'summary' | 'error'; data: any; timestamp: number }> = []
-
-  for (const msg of messages) {
-    items.push({ type: 'message', data: msg, timestamp: msg.createdAt })
-  }
-  for (const step of steps) {
-    items.push({ type: 'step', data: step, timestamp: step.createdAt })
-  }
-  if (task.summary) {
-    items.push({ type: 'summary', data: task.summary, timestamp: task.updatedAt })
-  }
-  if (task.errorMessage) {
-    items.push({ type: 'error', data: task.errorMessage, timestamp: task.updatedAt })
-  }
-
-  // Sort by timestamp
-  items.sort((a, b) => a.timestamp - b.timestamp)
-
-  // Group consecutive steps together
-  const result: TimelineItem[] = []
-  let currentStepGroup: TaskStep[] = []
-  let groupTimestamp = 0
-
-  for (const item of items) {
-    if (item.type === 'step') {
-      if (currentStepGroup.length === 0) groupTimestamp = item.timestamp
-      currentStepGroup.push(item.data)
-    } else {
-      // Flush step group
-      if (currentStepGroup.length > 0) {
-        result.push({ type: 'step-group', data: currentStepGroup, timestamp: groupTimestamp })
-        currentStepGroup = []
-      }
-      if (item.type === 'message') {
-        result.push({ type: 'message', data: item.data, timestamp: item.timestamp })
-      } else if (item.type === 'summary') {
-        result.push({ type: 'summary', text: item.data, timestamp: item.timestamp })
-      } else if (item.type === 'error') {
-        result.push({ type: 'error', text: item.data, timestamp: item.timestamp })
-      }
-    }
-  }
-  // Flush remaining steps
-  if (currentStepGroup.length > 0) {
-    result.push({ type: 'step-group', data: currentStepGroup, timestamp: groupTimestamp })
-  }
-
-  return result
-}
-
-/* ── Task Detail Modal ──────────────────────────── */
-
-function TaskDetailModal({
-  task,
-  steps,
-  messages,
-  onClose,
-  onDelete,
-  onRetry,
-  onMarkComplete,
-  retrying,
-  replyText,
-  setReplyText,
-  sendingReply,
-  onSendReply,
-  attachments,
-  onFilesSelected,
-  onRemoveAttachment,
-}: {
-  task: Task
-  steps: TaskStep[]
-  messages: TaskMessage[]
-  onClose: () => void
-  onDelete: (taskId: string) => void
-  onRetry: (taskId: string) => void
-  onMarkComplete: (taskId: string) => void
-  retrying: boolean
-  replyText: string
-  setReplyText: (v: string) => void
-  sendingReply: boolean
-  onSendReply: () => void
-  attachments: DraftAttachment[]
-  onFilesSelected: (files: FileList | null) => void
-  onRemoveAttachment: (id: string) => void
-}) {
-  const chatRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Build unified timeline
-  const timeline = buildUnifiedTimeline(messages, steps, task)
-
-  // Auto-scroll on new items
-  useEffect(() => {
-    if (chatRef.current) {
-      chatRef.current.scrollTop = chatRef.current.scrollHeight
-    }
-  }, [timeline.length])
-
-  return (
-    <ModalOverlay onClose={onClose}>
-      {/* Header: status + title + close */}
-      <div className="td-modal-header">
-        <div className="td-modal-title-row">
-          <StatusCircle status={task.status} size={22} />
-          <h2 className="td-modal-title">{task.title}</h2>
-        </div>
-        <button className="td-modal-close" onClick={onClose} type="button">
-          <X size={18} />
-        </button>
-      </div>
-
-      {/* Compact metadata bar */}
-      <div className="td-modal-meta-bar">
-        <span className={`td-status-badge-sm td-status-${task.status}`}>
-          {taskStatusLabel(task.status)}
-        </span>
-        {task.priority !== 0 && <span className="td-meta-pill">P{task.priority}</span>}
-        {task.branchName && <span className="td-meta-pill">{task.branchName}</span>}
-        <span className="td-meta-time">{timeAgo(task.createdAt)}</span>
-      </div>
-
-      {/* Unified timeline */}
-      <div className="td-timeline" ref={chatRef}>
-        {/* Show prompt/description at top if different from title */}
-        {task.prompt && task.prompt !== task.title && (
-          <div className="td-timeline-prompt">{task.prompt}</div>
-        )}
-
-        {timeline.length === 0 && task.status === 'pending' && (
-          <div className="td-timeline-empty">Task is pending...</div>
-        )}
-
-        {timeline.map((item, i) => {
-          if (item.type === 'message') {
-            const msg = item.data as TaskMessage
-            const isAgent = msg.role === 'agent'
-            return (
-              <div key={msg.id} className={`td-chat-bubble ${isAgent ? 'agent' : 'user'}`}>
-                <div className="td-chat-bubble-header">
-                  {isAgent ? <Bot size={14} /> : <User size={14} />}
-                  <span className="td-chat-bubble-role">{isAgent ? 'Agent' : 'You'}</span>
-                </div>
-                <div className="td-chat-bubble-content td-markdown">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                </div>
-                <div className="td-chat-bubble-meta">{timeAgo(msg.createdAt)}</div>
-              </div>
-            )
-          }
-          if (item.type === 'step-group') {
-            const stepsInGroup = item.data as TaskStep[]
-            return (
-              <div key={`sg-${i}`} className="td-activity-group">
-                {stepsInGroup.map(step => (
-                  <StepItem key={step.id} step={step} />
-                ))}
-              </div>
-            )
-          }
-          if (item.type === 'summary') {
-            return (
-              <div key={`summary-${i}`} className="td-summary-box">
-                <h3 className="td-detail-label">Summary</h3>
-                <p className="td-summary-text">{item.text}</p>
-              </div>
-            )
-          }
-          if (item.type === 'error') {
-            return (
-              <div key={`error-${i}`} className="td-timeline-error">{item.text}</div>
-            )
-          }
-          return null
-        })}
-
-
-      </div>
-
-      {/* Bottom: input + actions */}
-      <div className="td-modal-bottom">
-        {attachments.length > 0 && (
-          <div className="td-attachment-previews">
-            {attachments.map((a) => (
-              <div key={a.id} className="td-attachment-thumb">
-                <img src={a.previewUrl} alt={a.file.name} />
-                <button className="td-attachment-remove" onClick={() => onRemoveAttachment(a.id)} type="button">
-                  <X size={10} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="td-chat-input-row">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="visually-hidden"
-            onChange={(e) => { onFilesSelected(e.target.files); if (fileInputRef.current) fileInputRef.current.value = '' }}
-          />
-          <button
-            className="td-chat-attach"
-            disabled={attachments.length >= MAX_ATTACHMENTS}
-            onClick={() => fileInputRef.current?.click()}
-            title={`Attach images (${attachments.length}/${MAX_ATTACHMENTS})`}
-            type="button"
-          >
-            <ImagePlus size={16} />
-          </button>
-          <input
-            className="td-chat-input"
-            placeholder="Type a message..."
-            value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && (replyText.trim() || attachments.length > 0)) { e.preventDefault(); onSendReply() } }}
-            onPaste={(e) => {
-              const files = e.clipboardData?.files
-              if (files?.length) { e.preventDefault(); onFilesSelected(files) }
-            }}
-            disabled={sendingReply}
-          />
-          <button
-            className="td-chat-send"
-            disabled={(!replyText.trim() && attachments.length === 0) || sendingReply}
-            onClick={onSendReply}
-            type="button"
-          >
-            <Send size={16} />
-          </button>
-        </div>
-        <div className="td-modal-actions-row">
-          {task.status !== 'completed' && task.status !== 'pending' && (
-            <button className="td-btn td-btn-success td-btn-sm" onClick={() => onMarkComplete(task.id)} type="button">
-              <Check size={14} /> Complete
-            </button>
-          )}
-          {task.status === 'failed' && (
-            <button className="td-btn td-btn-secondary td-btn-sm" disabled={retrying} onClick={() => onRetry(task.id)} type="button">
-              <RotateCcw size={14} /> Retry
-            </button>
-          )}
-          <button className="td-btn td-btn-danger td-btn-sm" onClick={() => onDelete(task.id)} type="button">
-            <Trash2 size={14} /> Delete
-          </button>
-        </div>
-      </div>
-    </ModalOverlay>
   )
 }
 
@@ -629,41 +283,14 @@ export function ProjectDetailPage() {
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false)
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
 
   // Form state
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  const [taskSteps, setTaskSteps] = useState<Record<string, TaskStep[]>>({})
-  const [taskMessages, setTaskMessages] = useState<Record<string, TaskMessage[]>>({})
-  const [retryingId, setRetryingId] = useState<string | null>(null)
+  const [, setRetryingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-  const [replyText, setReplyText] = useState('')
-  const [sendingReply, setSendingReply] = useState(false)
-  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([])
-
-  const handleFilesSelected = async (files: FileList | null) => {
-    if (!files || files.length === 0) return
-    const remaining = MAX_ATTACHMENTS - draftAttachments.length
-    const toAdd = Array.from(files).slice(0, remaining)
-    const newAttachments: DraftAttachment[] = []
-    for (const file of toAdd) {
-      if (!file.type.startsWith('image/')) continue
-      const base64 = await fileToBase64(file)
-      newAttachments.push({ id: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file), base64 })
-    }
-    setDraftAttachments((prev) => [...prev, ...newAttachments])
-  }
-
-  const removeAttachment = (id: string) => {
-    setDraftAttachments((prev) => {
-      const removed = prev.find((a) => a.id === id)
-      if (removed) URL.revokeObjectURL(removed.previewUrl)
-      return prev.filter((a) => a.id !== id)
-    })
-  }
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -676,22 +303,6 @@ export function ProjectDetailPage() {
       setProject(data.project)
       setTasks(data.tasks)
       setError(null)
-
-      // Load steps and messages for non-pending tasks
-      for (const task of data.tasks) {
-        if (task.status !== 'pending') {
-          const stepsRes = await fetchApi(`/api/projects/${projectId}/tasks/${task.id}/steps`)
-          if (stepsRes.ok) {
-            const stepsData = await stepsRes.json() as { steps: TaskStep[] }
-            setTaskSteps(prev => ({ ...prev, [task.id]: stepsData.steps }))
-          }
-          const msgsRes = await fetchApi(`/api/projects/${projectId}/tasks/${task.id}/messages`)
-          if (msgsRes.ok) {
-            const msgsData = await msgsRes.json() as { messages: TaskMessage[] }
-            setTaskMessages(prev => ({ ...prev, [task.id]: msgsData.messages }))
-          }
-        }
-      }
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -735,28 +346,6 @@ export function ProjectDetailPage() {
           const data = JSON.parse(event.data) as RunEvent
           if (data.type === 'task-status') {
             setTasks((prev) => prev.map((t) => (t.id === data.task.id ? data.task : t)))
-            // Update selected task if it's the one being viewed
-            setSelectedTask((prev) => (prev && prev.id === data.task.id ? data.task : prev))
-          }
-          if (data.type === 'task-step') {
-            setTaskSteps(prev => {
-              const steps = prev[data.taskId] || []
-              const existing = steps.findIndex(s => s.id === data.step.id)
-              if (existing >= 0) {
-                const updated = [...steps]
-                updated[existing] = data.step
-                return { ...prev, [data.taskId]: updated }
-              }
-              return { ...prev, [data.taskId]: [...steps, data.step] }
-            })
-          }
-          if (data.type === 'task-message') {
-            setTaskMessages(prev => {
-              const msgs = prev[data.taskId] || []
-              // Avoid duplicates
-              if (msgs.some(m => m.id === data.message.id)) return prev
-              return { ...prev, [data.taskId]: [...msgs, data.message] }
-            })
           }
         } catch {
           // ignore parse errors
@@ -803,62 +392,10 @@ export function ProjectDetailPage() {
       if (!res.ok) throw new Error('Failed to retry task')
       const data = (await res.json()) as { task: Task }
       setTasks((prev) => prev.map((t) => (t.id === taskId ? data.task : t)))
-      setSelectedTask(data.task)
-      // Clear previous execution data
-      setTaskSteps(prev => { const next = { ...prev }; delete next[taskId]; return next })
-      setTaskMessages(prev => { const next = { ...prev }; delete next[taskId]; return next })
     } catch (err) {
       setError((err as Error).message)
     } finally {
       setRetryingId(null)
-    }
-  }
-
-  const handleMarkComplete = async (taskId: string) => {
-    try {
-      const res = await fetchApi(`/api/projects/${projectId}/tasks/${taskId}/complete`, {
-        method: 'POST',
-      })
-      if (res.ok) {
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'completed' as TaskStatus } : t))
-        setSelectedTask(prev => prev && prev.id === taskId ? { ...prev, status: 'completed' as TaskStatus } : prev)
-      }
-    } catch (err) {
-      setError((err as Error).message)
-    }
-  }
-
-  const handleSendReply = async () => {
-    if ((!replyText.trim() && draftAttachments.length === 0) || !selectedTask) return
-    setSendingReply(true)
-    try {
-      const uploadAttachments = draftAttachments.map((a) => ({
-        id: a.id,
-        name: a.file.name,
-        mimeType: a.file.type,
-        sizeBytes: a.file.size,
-        base64: a.base64,
-      }))
-      const body: { content: string; attachments?: typeof uploadAttachments } = { content: replyText.trim() || '(image)' }
-      if (uploadAttachments.length > 0) body.attachments = uploadAttachments
-
-      const res = await fetchApi(`/api/projects/${projectId}/tasks/${selectedTask.id}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (res.ok) {
-        const data = await res.json() as { message: TaskMessage }
-        setTaskMessages(prev => ({
-          ...prev,
-          [selectedTask.id]: [...(prev[selectedTask.id] || []), data.message]
-        }))
-        setReplyText('')
-        for (const a of draftAttachments) URL.revokeObjectURL(a.previewUrl)
-        setDraftAttachments([])
-      }
-    } finally {
-      setSendingReply(false)
     }
   }
 
@@ -875,8 +412,6 @@ export function ProjectDetailPage() {
       })
       if (!res.ok) throw new Error('Failed to delete task')
       setTasks((prev) => prev.filter((t) => t.id !== deleteTargetId))
-      // Close detail modal if the deleted task was open
-      if (selectedTask?.id === deleteTargetId) setSelectedTask(null)
       setDeleteTargetId(null)
     } catch (err) {
       setError((err as Error).message)
@@ -947,7 +482,7 @@ export function ProjectDetailPage() {
             <div
               className={`td-task-row ${task.status === 'completed' ? 'td-task-completed' : ''}`}
               key={task.id}
-              onClick={() => setSelectedTask(task)}
+              onClick={() => navigate(`/projects/${projectId}/tasks/${task.id}`)}
             >
               <StatusCircle status={task.status} />
               <div className="td-task-body">
@@ -1003,26 +538,6 @@ export function ProjectDetailPage() {
       </div>
 
       {/* Modals */}
-      {selectedTask && (
-        <TaskDetailModal
-          task={selectedTask}
-          steps={taskSteps[selectedTask.id] || []}
-          messages={taskMessages[selectedTask.id] || []}
-          onClose={() => { setSelectedTask(null); setReplyText('') }}
-          onDelete={handleDeleteRequest}
-          onRetry={(id) => void handleRetry(id)}
-          onMarkComplete={(id) => void handleMarkComplete(id)}
-          retrying={retryingId === selectedTask.id}
-          replyText={replyText}
-          setReplyText={setReplyText}
-          sendingReply={sendingReply}
-          onSendReply={() => void handleSendReply()}
-          attachments={draftAttachments}
-          onFilesSelected={(files) => void handleFilesSelected(files)}
-          onRemoveAttachment={removeAttachment}
-        />
-      )}
-
       {showAddModal && (
         <AddTaskModal
           onClose={() => setShowAddModal(false)}
