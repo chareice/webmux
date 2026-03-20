@@ -282,6 +282,11 @@ export function initDb(dbPath: string): Database.Database {
     db.exec("ALTER TABLE tasks ADD COLUMN summary TEXT")
   } catch { /* column may already exist */ }
 
+  // Migrate: add tool column to tasks for existing databases
+  try {
+    db.exec("ALTER TABLE tasks ADD COLUMN tool TEXT")
+  } catch { /* column may already exist */ }
+
   // On server startup, clean up stale state from a previous run:
   // 1. Mark all agents as offline (they will reconnect if still alive)
   db.prepare("UPDATE agents SET status = 'offline'").run()
