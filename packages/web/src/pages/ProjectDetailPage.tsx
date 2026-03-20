@@ -358,12 +358,6 @@ function TaskDetailModal({
         })}
 
 
-        {(task.status === 'dispatched' || task.status === 'running') && (
-          <div className="td-thinking-indicator">
-            <LoaderCircle size={14} className="spin" />
-            <span>Agent is working...</span>
-          </div>
-        )}
       </div>
 
       {/* Bottom: input + actions */}
