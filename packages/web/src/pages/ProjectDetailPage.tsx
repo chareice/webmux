@@ -13,12 +13,16 @@ import {
   Circle,
   ChevronRight,
   ChevronDown,
+  Send,
+  Bot,
+  User,
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
 import type {
   Project,
   Task,
+  TaskMessage,
   TaskStatus,
   TaskStep,
   RunEvent,
@@ -324,28 +328,214 @@ function ModalOverlay({
   )
 }
 
+/* ── Chat View Component ───────────────────────── */
+
+type ChatItem =
+  | { type: 'message'; data: TaskMessage; timestamp: number }
+  | { type: 'step'; data: TaskStep; timestamp: number }
+  | { type: 'summary'; text: string; timestamp: number }
+  | { type: 'error'; text: string; timestamp: number }
+
+function buildChatTimeline(
+  messages: TaskMessage[],
+  steps: TaskStep[],
+  task: Task,
+): ChatItem[] {
+  const items: ChatItem[] = []
+
+  for (const msg of messages) {
+    items.push({ type: 'message', data: msg, timestamp: msg.createdAt })
+  }
+
+  for (const step of steps) {
+    items.push({ type: 'step', data: step, timestamp: step.createdAt })
+  }
+
+  if (task.summary) {
+    items.push({ type: 'summary', text: task.summary, timestamp: task.updatedAt })
+  }
+
+  if (task.errorMessage) {
+    items.push({ type: 'error', text: task.errorMessage, timestamp: task.updatedAt })
+  }
+
+  items.sort((a, b) => a.timestamp - b.timestamp)
+  return items
+}
+
+function ChatView({
+  task,
+  messages,
+  steps,
+  replyText,
+  setReplyText,
+  sendingReply,
+  onSendReply,
+}: {
+  task: Task
+  messages: TaskMessage[]
+  steps: TaskStep[]
+  replyText: string
+  setReplyText: (v: string) => void
+  sendingReply: boolean
+  onSendReply: () => void
+}) {
+  const chatBottomRef = useRef<HTMLDivElement>(null)
+  const timeline = buildChatTimeline(messages, steps, task)
+
+  // Auto-scroll when new items arrive
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [timeline.length])
+
+  // Group consecutive steps together
+  const grouped: (ChatItem | { type: 'step-group'; items: ChatItem[] })[] = []
+  for (const item of timeline) {
+    if (item.type === 'step') {
+      const last = grouped[grouped.length - 1]
+      if (last && 'items' in last && last.type === 'step-group') {
+        last.items.push(item)
+      } else {
+        grouped.push({ type: 'step-group', items: [item] })
+      }
+    } else {
+      grouped.push(item)
+    }
+  }
+
+  const showInput = task.status === 'waiting' || task.status === 'completed' || task.status === 'failed'
+
+  return (
+    <div className="td-chat-wrapper">
+      <div className="td-chat-container">
+        {grouped.length === 0 && (
+          <p className="td-muted-placeholder">No execution data yet.</p>
+        )}
+        {grouped.map((entry, i) => {
+          if ('items' in entry && entry.type === 'step-group') {
+            return (
+              <div key={`sg-${i}`} className="td-chat-activity-group">
+                {entry.items.map((stepItem) => {
+                  const step = (stepItem as { type: 'step'; data: TaskStep }).data
+                  return (
+                    <div key={step.id} className="td-chat-activity-item">
+                      <span className="td-step-icon">
+                        {step.status === 'completed' ? (
+                          <Check size={12} />
+                        ) : step.status === 'running' ? (
+                          <LoaderCircle size={12} className="spin" />
+                        ) : (
+                          <CircleAlert size={12} />
+                        )}
+                      </span>
+                      <span className="td-chat-activity-label">{step.label}</span>
+                      {step.durationMs != null && (
+                        <span className="td-chat-activity-duration">{formatDuration(step.durationMs)}</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          }
+
+          const item = entry as ChatItem
+          switch (item.type) {
+            case 'message': {
+              const isAgent = item.data.role === 'agent'
+              return (
+                <div key={item.data.id} className={`td-chat-bubble ${isAgent ? 'agent' : 'user'}`}>
+                  <div className="td-chat-bubble-header">
+                    {isAgent ? <Bot size={14} /> : <User size={14} />}
+                    <span className="td-chat-bubble-role">{isAgent ? 'Agent' : 'You'}</span>
+                  </div>
+                  <div className="td-chat-bubble-content">{item.data.content}</div>
+                  <div className="td-chat-bubble-meta">{timeAgo(item.data.createdAt)}</div>
+                </div>
+              )
+            }
+            case 'summary':
+              return (
+                <div key={`summary-${i}`} className="td-summary-box">
+                  <h3 className="td-detail-label">Summary</h3>
+                  <p className="td-summary-text">{item.text}</p>
+                </div>
+              )
+            case 'error':
+              return (
+                <div key={`error-${i}`} className="td-error-box">
+                  <CircleAlert size={14} />
+                  <span>{item.text}</span>
+                </div>
+              )
+            default:
+              return null
+          }
+        })}
+        <div ref={chatBottomRef} />
+      </div>
+
+      {showInput && (
+        <div className="td-chat-input-area">
+          {task.status === 'waiting' && (
+            <div className="td-waiting-indicator">Agent is waiting for your reply...</div>
+          )}
+          <div className="td-chat-input-row">
+            <input
+              className="td-chat-input"
+              placeholder="Type a message..."
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && replyText.trim()) onSendReply() }}
+              disabled={sendingReply}
+            />
+            <button
+              className="td-btn td-btn-primary td-chat-send"
+              disabled={!replyText.trim() || sendingReply}
+              onClick={onSendReply}
+              type="button"
+            >
+              <Send size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ── Task Detail Modal ──────────────────────────── */
 
 function TaskDetailModal({
   task,
   steps,
+  messages,
   project,
   token,
   onClose,
   onDelete,
   onRetry,
   retrying,
+  replyText,
+  setReplyText,
+  sendingReply,
+  onSendReply,
 }: {
   task: Task
   steps: TaskStep[]
+  messages: TaskMessage[]
   project: Project
   token: string | null
   onClose: () => void
   onDelete: (taskId: string) => void
   onRetry: (taskId: string) => void
   retrying: boolean
+  replyText: string
+  setReplyText: (v: string) => void
+  sendingReply: boolean
+  onSendReply: () => void
 }) {
-  const hasExecution = steps.length > 0 || task.summary || task.errorMessage || task.runId
+  const hasExecution = steps.length > 0 || messages.length > 0 || task.summary || task.errorMessage || task.runId
   const [activeTab, setActiveTab] = useState<'details' | 'execution'>(
     hasExecution ? 'execution' : 'details',
   )
@@ -453,52 +643,19 @@ function TaskDetailModal({
 
         {activeTab === 'execution' && (
           <div className="td-tab-execution">
-            {/* Steps timeline */}
-            {steps.length > 0 && (
-              <div className="td-steps-timeline">
-                {steps.map((step) => (
-                  <div key={step.id} className={`td-step td-step-${step.status}`}>
-                    <span className="td-step-icon">
-                      {step.status === 'completed' ? (
-                        <Check size={12} />
-                      ) : step.status === 'running' ? (
-                        <LoaderCircle size={12} className="spin" />
-                      ) : (
-                        <CircleAlert size={12} />
-                      )}
-                    </span>
-                    <span className="td-step-label">{step.label}</span>
-                    {step.durationMs != null && (
-                      <span className="td-step-duration">{formatDuration(step.durationMs)}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Summary */}
-            {task.summary && (
-              <div className="td-summary-box">
-                <h3 className="td-detail-label">Summary</h3>
-                <p className="td-summary-text">{task.summary}</p>
-              </div>
-            )}
-
-            {/* Error */}
-            {task.errorMessage && (
-              <div className="td-error-box">
-                <CircleAlert size={14} />
-                <span>{task.errorMessage}</span>
-              </div>
-            )}
-
-            {/* Embedded run timeline */}
-            {task.runId && token && (
+            {messages.length > 0 || steps.length > 0 ? (
+              <ChatView
+                task={task}
+                messages={messages}
+                steps={steps}
+                replyText={replyText}
+                setReplyText={setReplyText}
+                sendingReply={sendingReply}
+                onSendReply={onSendReply}
+              />
+            ) : task.runId && token ? (
               <RunTimeline agentId={project.agentId} runId={task.runId} token={token} />
-            )}
-
-            {/* Empty state */}
-            {steps.length === 0 && !task.summary && !task.errorMessage && !task.runId && (
+            ) : (
               <p className="td-muted-placeholder">No execution data yet.</p>
             )}
           </div>
@@ -662,8 +819,11 @@ export function ProjectDetailPage() {
   const [formError, setFormError] = useState<string | null>(null)
 
   const [taskSteps, setTaskSteps] = useState<Record<string, TaskStep[]>>({})
+  const [taskMessages, setTaskMessages] = useState<Record<string, TaskMessage[]>>({})
   const [retryingId, setRetryingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [replyText, setReplyText] = useState('')
+  const [sendingReply, setSendingReply] = useState(false)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -677,13 +837,18 @@ export function ProjectDetailPage() {
       setTasks(data.tasks)
       setError(null)
 
-      // Load steps for non-pending tasks
+      // Load steps and messages for non-pending tasks
       for (const task of data.tasks) {
         if (task.status !== 'pending') {
           const stepsRes = await fetchApi(`/api/projects/${projectId}/tasks/${task.id}/steps`)
           if (stepsRes.ok) {
             const stepsData = await stepsRes.json() as { steps: TaskStep[] }
             setTaskSteps(prev => ({ ...prev, [task.id]: stepsData.steps }))
+          }
+          const msgsRes = await fetchApi(`/api/projects/${projectId}/tasks/${task.id}/messages`)
+          if (msgsRes.ok) {
+            const msgsData = await msgsRes.json() as { messages: TaskMessage[] }
+            setTaskMessages(prev => ({ ...prev, [task.id]: msgsData.messages }))
           }
         }
       }
@@ -745,6 +910,14 @@ export function ProjectDetailPage() {
               return { ...prev, [data.taskId]: [...steps, data.step] }
             })
           }
+          if (data.type === 'task-message') {
+            setTaskMessages(prev => {
+              const msgs = prev[data.taskId] || []
+              // Avoid duplicates
+              if (msgs.some(m => m.id === data.message.id)) return prev
+              return { ...prev, [data.taskId]: [...msgs, data.message] }
+            })
+          }
         } catch {
           // ignore parse errors
         }
@@ -795,6 +968,28 @@ export function ProjectDetailPage() {
       setError((err as Error).message)
     } finally {
       setRetryingId(null)
+    }
+  }
+
+  const handleSendReply = async () => {
+    if (!replyText.trim() || !selectedTask) return
+    setSendingReply(true)
+    try {
+      const res = await fetchApi(`/api/projects/${projectId}/tasks/${selectedTask.id}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: replyText.trim() }),
+      })
+      if (res.ok) {
+        const data = await res.json() as { message: TaskMessage }
+        setTaskMessages(prev => ({
+          ...prev,
+          [selectedTask.id]: [...(prev[selectedTask.id] || []), data.message]
+        }))
+        setReplyText('')
+      }
+    } finally {
+      setSendingReply(false)
     }
   }
 
@@ -943,12 +1138,17 @@ export function ProjectDetailPage() {
         <TaskDetailModal
           task={selectedTask}
           steps={taskSteps[selectedTask.id] || []}
+          messages={taskMessages[selectedTask.id] || []}
           project={project}
           token={token}
-          onClose={() => setSelectedTask(null)}
+          onClose={() => { setSelectedTask(null); setReplyText('') }}
           onDelete={handleDeleteRequest}
           onRetry={(id) => void handleRetry(id)}
           retrying={retryingId === selectedTask.id}
+          replyText={replyText}
+          setReplyText={setReplyText}
+          sendingReply={sendingReply}
+          onSendReply={() => void handleSendReply()}
         />
       )}
 
