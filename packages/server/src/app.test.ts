@@ -25,8 +25,6 @@ import {
   updateAgentLastSeen,
   createProject,
   createTask,
-  findTaskById,
-  findTasksByProjectId,
   updateTaskStatus,
 } from './db.js'
 

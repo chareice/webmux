@@ -5,7 +5,7 @@ import type { AgentUpgradePolicy, ServerToAgentMessage } from '@webmux/shared'
 
 import { hashSecret } from './auth.js'
 import { AgentHub } from './agent-hub.js'
-import { createAgent, createProject, createRunWithInitialTurn, createTask, createUser, findRunById, findRunTurnById, findTaskById, findPendingTasksByProjectId, initDb } from './db.js'
+import { createAgent, createProject, createRunWithInitialTurn, createTask, createUser, findRunById, findRunTurnById, findTaskById, initDb } from './db.js'
 import type { TaskDispatcher } from './task-dispatcher.js'
 
 function createSocket() {

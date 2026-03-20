@@ -60,7 +60,6 @@ import {
   findRunTurnById,
   findRunTurnDetails,
   findActiveRunTurnByRunId,
-  findQueuedRunTurnsByRunId,
   findRunsByAgentId,
   findRunsByUserId,
   markRunRead,

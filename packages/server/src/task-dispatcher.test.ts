@@ -26,7 +26,7 @@ function setupFixtures() {
 
 describe('TaskDispatcher', () => {
   it('dispatches all pending tasks when agent is online', () => {
-    const { agent, project } = setupFixtures()
+    const { project } = setupFixtures()
     const t1 = createTask(db, { projectId: project.id, title: 'T1', prompt: 'p1', priority: 0 })
     const t2 = createTask(db, { projectId: project.id, title: 'T2', prompt: 'p2', priority: 0 })
 

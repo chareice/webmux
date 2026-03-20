@@ -19,7 +19,6 @@ import { verifySecret } from './auth.js'
 import { describeMinimumVersionFailure } from './agent-upgrade.js'
 import {
   appendRunTimelineEvent,
-  createRunTurn,
   findActiveRunsByAgentId,
   findAgentById,
   findRunById,
@@ -38,7 +37,7 @@ import {
   updateTaskRunInfo,
   updateTaskWorktreeInfo,
 } from './db.js'
-import type { RunRow, RunTurnRow, TaskRow } from './db.js'
+import type { RunRow, TaskRow } from './db.js'
 
 export interface TurnCompletionNotification {
   userId: string
