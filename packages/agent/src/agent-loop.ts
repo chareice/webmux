@@ -27,7 +27,7 @@ export interface AgentLoopOptions {
   onTaskFailed: (error: string) => void
   onMessage: (message: { id: string; role: 'agent'; content: string; createdAt: number }) => void
   onWaiting?: () => void
-  createRun: (tool: RunTool, prompt: string, repoPath: string) => Promise<{ summary: string; runId: string }>
+  createRun: (tool: RunTool, prompt: string, repoPath: string, toolThreadId?: string) => Promise<{ summary: string; runId: string; toolThreadId?: string }>
   conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>
 }
 
@@ -112,6 +112,7 @@ export class AgentLoop {
   private aborted = false
   private pendingWait = false
   private userReplyResolve: ((reply: string) => void) | null = null
+  private toolThreadIds = new Map<string, string>() // tool name → threadId for session reuse
 
   constructor(private options: AgentLoopOptions) {
     this.client = new LlmClient(options.llmConfig)
@@ -299,15 +300,23 @@ Important:
       case 'run_claude_code': {
         const prompt = args.prompt as string
         const dir = (args.directory as string) || this.options.repoPath
-        const { summary, runId } = await this.options.createRun('claude', prompt, dir)
-        return summary || `Claude Code session completed (run: ${runId})`
+        const threadId = this.toolThreadIds.get('claude')
+        const result = await this.options.createRun('claude', prompt, dir, threadId)
+        if (result.toolThreadId) {
+          this.toolThreadIds.set('claude', result.toolThreadId)
+        }
+        return result.summary || `Claude Code session completed (run: ${result.runId})`
       }
 
       case 'run_codex': {
         const prompt = args.prompt as string
         const dir = (args.directory as string) || this.options.repoPath
-        const { summary, runId } = await this.options.createRun('codex', prompt, dir)
-        return summary || `Codex session completed (run: ${runId})`
+        const threadId = this.toolThreadIds.get('codex')
+        const result = await this.options.createRun('codex', prompt, dir, threadId)
+        if (result.toolThreadId) {
+          this.toolThreadIds.set('codex', result.toolThreadId)
+        }
+        return result.summary || `Codex session completed (run: ${result.runId})`
       }
 
       case 'reply_message': {

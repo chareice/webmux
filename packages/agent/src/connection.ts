@@ -412,8 +412,8 @@ export class AgentConnection {
         this.sendMessage({ type: 'task-waiting', taskId })
       },
       conversationHistory,
-      createRun: (runTool, runPrompt, runRepoPath) => {
-        return this.createRunForAgentLoop(runTool, runPrompt, runRepoPath)
+      createRun: (runTool, runPrompt, runRepoPath, toolThreadId) => {
+        return this.createRunForAgentLoop(runTool, runPrompt, runRepoPath, toolThreadId)
       },
     })
 
@@ -503,15 +503,18 @@ export class AgentConnection {
     tool: RunTool,
     prompt: string,
     repoPath: string,
-  ): Promise<{ summary: string; runId: string }> {
+    toolThreadId?: string,
+  ): Promise<{ summary: string; runId: string; toolThreadId?: string }> {
     return new Promise((resolve, reject) => {
       const runId = crypto.randomUUID()
       const turnId = crypto.randomUUID()
       let latestSummary = ''
+      let resolvedThreadId = toolThreadId
 
       const run = new RunWrapper({
         runId,
         tool,
+        toolThreadId,
         repoPath,
         prompt,
         onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => {
@@ -523,13 +526,17 @@ export class AgentConnection {
         onFinish: (finalStatus: RunStatus) => {
           this.runs.delete(runId)
           if (finalStatus === 'success') {
-            resolve({ summary: latestSummary, runId })
+            resolve({ summary: latestSummary, runId, toolThreadId: resolvedThreadId })
           } else {
             reject(new Error(`Run ${finalStatus}`))
           }
         },
         onItem: (item) => {
           this.sendMessage({ type: 'run-item', runId, turnId, item })
+        },
+        onThreadReady: (nextToolThreadId) => {
+          resolvedThreadId = nextToolThreadId
+          this.sendMessage({ type: 'run-status', runId, turnId, status: 'running', toolThreadId: nextToolThreadId })
         },
       })
 
