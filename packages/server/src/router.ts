@@ -22,6 +22,12 @@ import type {
   Task,
   TaskStatus,
   RunTool,
+  LlmConfig,
+  CreateLlmConfigRequest,
+  UpdateLlmConfigRequest,
+  TaskStep,
+  StepType,
+  StepStatus,
 } from '@webmux/shared'
 import {
   appendAuthTokenToRedirectTarget,
@@ -78,8 +84,14 @@ import {
   updateTaskPrompt,
   deleteTask,
   resetTaskToPending,
+  findLlmConfigsByUser,
+  findLlmConfigById,
+  createLlmConfig,
+  updateLlmConfig,
+  deleteLlmConfig,
+  findStepsByTaskId,
 } from './db.js'
-import type { ProjectRow, TaskRow } from './db.js'
+import type { ProjectRow, TaskRow, LlmConfigRow, TaskStepRow } from './db.js'
 import type { AgentHub } from './agent-hub.js'
 import { runRowToRun } from './agent-hub.js'
 import type { TaskDispatcher } from './task-dispatcher.js'
@@ -974,6 +986,34 @@ export function registerRoutes(
     }
   }
 
+  function llmConfigRowToLlmConfig(row: LlmConfigRow): LlmConfig {
+    return {
+      id: row.id,
+      apiBaseUrl: row.api_base_url,
+      apiKey: row.api_key,
+      model: row.model,
+      projectId: row.project_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  function taskStepRowToTaskStep(row: TaskStepRow): TaskStep {
+    return {
+      id: row.id,
+      taskId: row.task_id,
+      type: row.type as StepType,
+      label: row.label,
+      status: row.status as StepStatus,
+      detail: row.detail ?? undefined,
+      toolName: row.tool_name,
+      runId: row.run_id ?? undefined,
+      durationMs: row.duration_ms ?? undefined,
+      createdAt: row.created_at,
+      completedAt: row.completed_at ?? undefined,
+    }
+  }
+
   // --- Project routes ---
 
   app.post('/api/projects', { preHandler: authPreHandler }, async (request, reply) => {
@@ -1152,5 +1192,87 @@ export function registerRoutes(
     taskDispatcher.dispatchPendingTasksForProject(id)
 
     return { task: taskRowToTask(findTaskById(db, taskId)!) }
+  })
+
+  // --- Task Steps ---
+
+  app.get('/api/projects/:id/tasks/:taskId/steps', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, taskId } = request.params as { id: string; taskId: string }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const task = findTaskById(db, taskId)
+    if (!task || task.project_id !== id) {
+      return reply.status(404).send({ error: 'Task not found' })
+    }
+
+    const steps = findStepsByTaskId(db, taskId)
+    return { steps: steps.map(taskStepRowToTaskStep) }
+  })
+
+  // --- LLM Config routes ---
+
+  app.get('/api/llm-configs', { preHandler: authPreHandler }, async (request, reply) => {
+    const configs = findLlmConfigsByUser(db, request.user!.userId)
+    return reply.send({ configs: configs.map(llmConfigRowToLlmConfig) })
+  })
+
+  app.post('/api/llm-configs', { preHandler: authPreHandler }, async (request, reply) => {
+    const body = request.body as CreateLlmConfigRequest | undefined
+
+    if (!body?.apiBaseUrl?.trim() || !body?.apiKey?.trim() || !body?.model?.trim()) {
+      return reply.status(400).send({ error: 'Missing required fields: apiBaseUrl, apiKey, model' })
+    }
+
+    const config = createLlmConfig(db, request.user!.userId, {
+      api_base_url: body.apiBaseUrl.trim(),
+      api_key: body.apiKey.trim(),
+      model: body.model.trim(),
+      project_id: body.projectId?.trim(),
+    })
+
+    return reply.status(201).send({ config: llmConfigRowToLlmConfig(config) })
+  })
+
+  app.patch('/api/llm-configs/:id', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const body = request.body as UpdateLlmConfigRequest | undefined
+
+    const config = findLlmConfigById(db, id)
+    if (!config) {
+      return reply.status(404).send({ error: 'LLM config not found' })
+    }
+
+    if (config.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your config' })
+    }
+
+    updateLlmConfig(db, id, {
+      api_base_url: body?.apiBaseUrl?.trim(),
+      api_key: body?.apiKey?.trim(),
+      model: body?.model?.trim(),
+    })
+
+    const updated = findLlmConfigById(db, id)!
+    return { config: llmConfigRowToLlmConfig(updated) }
+  })
+
+  app.delete('/api/llm-configs/:id', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+
+    const config = findLlmConfigById(db, id)
+    if (!config) {
+      return reply.status(404).send({ error: 'LLM config not found' })
+    }
+
+    if (config.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your config' })
+    }
+
+    deleteLlmConfig(db, id)
+    return reply.status(204).send()
   })
 }
