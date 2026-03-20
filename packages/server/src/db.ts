@@ -72,6 +72,7 @@ export interface TaskRow {
   worktree_path: string | null
   run_id: string | null
   error_message: string | null
+  summary: string | null
   created_at: number
   updated_at: number
   claimed_at: number | null
@@ -181,6 +182,7 @@ export function initDb(dbPath: string): Database.Database {
       worktree_path   TEXT,
       run_id          TEXT,
       error_message   TEXT,
+      summary         TEXT,
       created_at      INTEGER NOT NULL,
       updated_at      INTEGER NOT NULL,
       claimed_at      INTEGER,
@@ -1010,6 +1012,7 @@ export function createTask(
     worktree_path: null,
     run_id: null,
     error_message: null,
+    summary: null,
     created_at: now,
     updated_at: now,
     claimed_at: null,

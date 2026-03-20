@@ -113,6 +113,7 @@ describe('TaskDispatcher', () => {
       tool: 'claude',
       title: 'Fix bug',
       prompt: 'Fix the login bug',
+      llmConfig: null,
     })
   })
 

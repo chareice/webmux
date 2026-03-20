@@ -589,7 +589,7 @@ export class AgentHub {
   }
 
   private handleTaskCompleted(
-    message: { type: 'task-completed'; taskId: string; summary?: string },
+    message: { type: 'task-completed'; taskId: string; summary: string },
     db: Database,
   ): void {
     updateTaskStatus(db, message.taskId, 'completed')
@@ -738,6 +738,7 @@ function taskRowToTask(row: TaskRow): Task {
     worktreePath: row.worktree_path,
     runId: row.run_id,
     errorMessage: row.error_message,
+    summary: row.summary,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     claimedAt: row.claimed_at,

@@ -401,7 +401,7 @@ export class AgentConnection {
       onFinish: (finalStatus) => {
         this.tasks.delete(taskId)
         if (finalStatus === 'success') {
-          this.sendMessage({ type: 'task-completed', taskId })
+          this.sendMessage({ type: 'task-completed', taskId, summary: 'Task completed' })
         } else {
           this.sendMessage({
             type: 'task-failed',

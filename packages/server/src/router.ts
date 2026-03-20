@@ -966,6 +966,7 @@ export function registerRoutes(
       worktreePath: row.worktree_path,
       runId: row.run_id,
       errorMessage: row.error_message,
+      summary: row.summary,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       claimedAt: row.claimed_at,

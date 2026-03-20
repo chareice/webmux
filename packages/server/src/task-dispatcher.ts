@@ -71,6 +71,7 @@ export class TaskDispatcher {
       tool: tool as RunTool,
       title: task.title,
       prompt: task.prompt,
+      llmConfig: null,
     }
 
     const sent = this.hub.sendToAgent(agentId, msg)
