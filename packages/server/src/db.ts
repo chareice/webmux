@@ -61,6 +61,18 @@ export interface ProjectRow {
   updated_at: number
 }
 
+export interface ProjectActionRow {
+  id: string
+  project_id: string
+  name: string
+  description: string
+  prompt: string
+  tool: string
+  sort_order: number
+  created_at: number
+  updated_at: number
+}
+
 export interface TaskRow {
   id: string
   project_id: string
@@ -204,6 +216,21 @@ export function initDb(dbPath: string): Database.Database {
     );
 
     CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
+
+    CREATE TABLE IF NOT EXISTS project_actions (
+      id          TEXT PRIMARY KEY,
+      project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name        TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      prompt      TEXT NOT NULL,
+      tool        TEXT NOT NULL DEFAULT 'claude',
+      sort_order  INTEGER NOT NULL DEFAULT 0,
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_actions_project_id
+      ON project_actions(project_id);
 
     CREATE TABLE IF NOT EXISTS tasks (
       id              TEXT PRIMARY KEY,
@@ -1069,6 +1096,84 @@ export function updateProject(
 
 export function deleteProject(db: Database.Database, projectId: string): void {
   db.prepare('DELETE FROM projects WHERE id = ?').run(projectId)
+}
+
+// --- Project Actions ---
+
+export function createProjectAction(
+  db: Database.Database,
+  opts: { projectId: string; name: string; description?: string; prompt: string; tool?: string; sortOrder?: number },
+): ProjectActionRow {
+  const id = crypto.randomUUID()
+  const now = Date.now()
+  const description = opts.description ?? ''
+  const tool = opts.tool ?? 'claude'
+  const sortOrder = opts.sortOrder ?? 0
+
+  db.prepare(
+    `INSERT INTO project_actions (id, project_id, name, description, prompt, tool, sort_order, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, opts.projectId, opts.name, description, opts.prompt, tool, sortOrder, now, now)
+
+  return {
+    id,
+    project_id: opts.projectId,
+    name: opts.name,
+    description,
+    prompt: opts.prompt,
+    tool,
+    sort_order: sortOrder,
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+export function findProjectActionById(db: Database.Database, actionId: string): ProjectActionRow | undefined {
+  return db.prepare('SELECT * FROM project_actions WHERE id = ?').get(actionId) as ProjectActionRow | undefined
+}
+
+export function findProjectActionsByProjectId(db: Database.Database, projectId: string): ProjectActionRow[] {
+  return db
+    .prepare('SELECT * FROM project_actions WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC')
+    .all(projectId) as ProjectActionRow[]
+}
+
+export function updateProjectAction(
+  db: Database.Database,
+  actionId: string,
+  opts: { name?: string; description?: string; prompt?: string; tool?: string; sortOrder?: number },
+): void {
+  const now = Date.now()
+  const sets: string[] = ['updated_at = ?']
+  const params: (string | number)[] = [now]
+
+  if (opts.name !== undefined) {
+    sets.push('name = ?')
+    params.push(opts.name)
+  }
+  if (opts.description !== undefined) {
+    sets.push('description = ?')
+    params.push(opts.description)
+  }
+  if (opts.prompt !== undefined) {
+    sets.push('prompt = ?')
+    params.push(opts.prompt)
+  }
+  if (opts.tool !== undefined) {
+    sets.push('tool = ?')
+    params.push(opts.tool)
+  }
+  if (opts.sortOrder !== undefined) {
+    sets.push('sort_order = ?')
+    params.push(opts.sortOrder)
+  }
+
+  params.push(actionId)
+  db.prepare(`UPDATE project_actions SET ${sets.join(', ')} WHERE id = ?`).run(...params)
+}
+
+export function deleteProjectAction(db: Database.Database, actionId: string): void {
+  db.prepare('DELETE FROM project_actions WHERE id = ?').run(actionId)
 }
 
 // --- Tasks ---
