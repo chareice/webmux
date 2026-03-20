@@ -120,6 +120,38 @@ function StatusCircle({ status, size = 18 }: { status: TaskStatus; size?: number
 }
 
 
+/* ── Step Item (expandable) ─────────────────────── */
+
+function StepItem({ step }: { step: TaskStep }) {
+  const [expanded, setExpanded] = useState(false)
+  const hasDetail = !!step.detail
+
+  return (
+    <div className={`td-activity-item td-activity-${step.status} ${hasDetail ? 'td-activity-clickable' : ''}`}>
+      <div className="td-activity-row" onClick={() => hasDetail && setExpanded(!expanded)}>
+        <span className="td-activity-icon">
+          {step.status === 'completed' ? (
+            <Check size={12} />
+          ) : step.status === 'running' ? (
+            <LoaderCircle size={12} className="spin" />
+          ) : (
+            <CircleAlert size={12} />
+          )}
+        </span>
+        <span className="td-activity-label">{step.label}</span>
+        {step.durationMs != null && (
+          <span className="td-activity-duration">{formatDuration(step.durationMs)}</span>
+        )}
+      </div>
+      {expanded && step.detail && (
+        <div className="td-activity-detail">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{step.detail}</ReactMarkdown>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ── Modal Overlay ──────────────────────────────── */
 
 function ModalOverlay({
@@ -304,21 +336,7 @@ function TaskDetailModal({
             return (
               <div key={`sg-${i}`} className="td-activity-group">
                 {stepsInGroup.map(step => (
-                  <div key={step.id} className={`td-activity-item td-activity-${step.status}`}>
-                    <span className="td-activity-icon">
-                      {step.status === 'completed' ? (
-                        <Check size={12} />
-                      ) : step.status === 'running' ? (
-                        <LoaderCircle size={12} className="spin" />
-                      ) : (
-                        <CircleAlert size={12} />
-                      )}
-                    </span>
-                    <span className="td-activity-label">{step.label}</span>
-                    {step.durationMs != null && (
-                      <span className="td-activity-duration">{formatDuration(step.durationMs)}</span>
-                    )}
-                  </div>
+                  <StepItem key={step.id} step={step} />
                 ))}
               </div>
             )

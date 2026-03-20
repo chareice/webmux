@@ -4142,11 +4142,23 @@
 }
 
 .td-activity-item {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.td-activity-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.78rem;
-  color: var(--muted);
+}
+
+.td-activity-clickable .td-activity-row {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 0;
+}
+.td-activity-clickable .td-activity-row:hover {
+  color: var(--text-primary);
 }
 
 .td-activity-icon { width: 14px; text-align: center; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
@@ -4155,6 +4167,19 @@
 .td-activity-failed .td-activity-icon { color: var(--danger); }
 .td-activity-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .td-activity-duration { font-size: 0.7rem; color: var(--muted); opacity: 0.7; flex-shrink: 0; }
+
+.td-activity-detail {
+  margin-top: 6px;
+  margin-left: 20px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  max-height: 300px;
+  overflow-y: auto;
+}
 
 .td-thinking-indicator {
   display: flex;
