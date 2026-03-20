@@ -20,9 +20,11 @@ import { describeMinimumVersionFailure } from './agent-upgrade.js'
 import {
   appendRunTimelineEvent,
   createRunWithInitialTurn,
+  createTaskMessage,
   createTaskStep,
   findActiveRunsByAgentId,
   findAgentById,
+  findMessagesByTaskId,
   findProjectById,
   findRunById,
   findActiveRunTurnByRunId,
@@ -310,6 +312,22 @@ export class AgentHub {
       case 'task-step-update':
         this.handleTaskStepUpdate(message, db)
         break
+
+      case 'task-message': {
+        const { taskId, message: msg } = message as any
+        // Store the message in DB
+        createTaskMessage(db, taskId, msg.role, msg.content, msg.id)
+        // Broadcast to web clients
+        this.broadcastTaskMessage(db, taskId, msg)
+        break
+      }
+
+      case 'task-waiting': {
+        const { taskId } = message as any
+        updateTaskStatus(db, taskId, 'waiting')
+        this.broadcastTaskSnapshot(db, taskId)
+        break
+      }
 
       // auth is handled separately; ignore here
       case 'auth':
@@ -674,6 +692,39 @@ export class AgentHub {
     for (const client of clients) {
       this.safeSend(client, event)
     }
+  }
+
+  private broadcastTaskMessage(db: Database, taskId: string, msg: any): void {
+    const task = findTaskById(db, taskId)
+    if (!task) return
+    const clients = this.projectClients.get(task.project_id)
+    if (!clients?.size) return
+    const taskMessage = {
+      id: msg.id,
+      taskId,
+      role: msg.role,
+      content: msg.content,
+      createdAt: msg.createdAt,
+    }
+    const event = { type: 'task-message', taskId, message: taskMessage }
+    for (const client of clients) {
+      this.safeSend(client, event)
+    }
+  }
+
+  public sendUserReplyToAgent(db: Database, taskId: string): void {
+    const task = findTaskById(db, taskId)
+    if (!task) return
+    const project = findProjectById(db, task.project_id)
+    if (!project) return
+    const messages = findMessagesByTaskId(db, taskId)
+    const lastUserMsg = messages.filter(m => m.role === 'user').pop()
+    if (!lastUserMsg) return
+    this.sendToAgent(project.agent_id, {
+      type: 'task-user-reply',
+      taskId,
+      content: lastUserMsg.content,
+    })
   }
 
   private requestCommand<TResult>(

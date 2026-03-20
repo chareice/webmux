@@ -58,6 +58,42 @@ export class TaskDispatcher {
     }
   }
 
+  /** Dispatch a specific task with optional conversation history (for re-dispatch after completion). */
+  public dispatchSingleTask(
+    db: Database,
+    taskId: string,
+    conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>,
+  ): void {
+    const row = db.prepare(`
+      SELECT t.*, p.agent_id, p.repo_path, p.default_tool, p.user_id
+      FROM tasks t JOIN projects p ON t.project_id = p.id
+      WHERE t.id = ?
+    `).get(taskId) as (TaskRow & { agent_id: string; repo_path: string; default_tool: string; user_id: string }) | undefined
+
+    if (!row) return
+
+    const llmConfig = resolveLlmConfig(db, row.user_id, row.project_id)
+
+    const message: ServerToAgentMessage = {
+      type: 'task-dispatch',
+      taskId: row.id,
+      projectId: row.project_id,
+      repoPath: row.repo_path,
+      tool: row.default_tool as RunTool,
+      title: row.title,
+      prompt: row.prompt,
+      llmConfig: llmConfig
+        ? { apiBaseUrl: llmConfig.api_base_url, apiKey: llmConfig.api_key, model: llmConfig.model }
+        : null,
+      conversationHistory,
+    }
+
+    const sent = this.hub.sendToAgent(row.agent_id, message)
+    if (sent) {
+      updateTaskStatus(db, taskId, 'dispatched')
+    }
+  }
+
   private dispatchTask(
     agentId: string,
     task: TaskRow,

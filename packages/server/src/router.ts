@@ -74,6 +74,8 @@ import {
   updateQueuedTurnPrompt,
   upsertNotificationDevice,
   createProject,
+  createTaskMessage,
+  findMessagesByTaskId,
   findProjectById,
   findProjectsByUserId,
   updateProject,
@@ -82,6 +84,8 @@ import {
   findTaskById,
   findTasksByProjectId,
   updateTaskPrompt,
+  updateTaskStatus,
+  updateTaskSummary,
   deleteTask,
   resetTaskToPending,
   findLlmConfigsByUser,
@@ -91,7 +95,7 @@ import {
   deleteLlmConfig,
   findStepsByTaskId,
 } from './db.js'
-import type { ProjectRow, TaskRow, LlmConfigRow, TaskStepRow } from './db.js'
+import type { ProjectRow, TaskRow, TaskMessageRow, LlmConfigRow, TaskStepRow } from './db.js'
 import type { AgentHub } from './agent-hub.js'
 import { runRowToRun } from './agent-hub.js'
 import type { TaskDispatcher } from './task-dispatcher.js'
@@ -1210,6 +1214,88 @@ export function registerRoutes(
 
     const steps = findStepsByTaskId(db, taskId)
     return { steps: steps.map(taskStepRowToTaskStep) }
+  })
+
+  // --- Task Messages ---
+
+  // Get messages for a task
+  app.get('/api/projects/:id/tasks/:taskId/messages', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, taskId } = request.params as { id: string; taskId: string }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const task = findTaskById(db, taskId)
+    if (!task || task.project_id !== id) {
+      return reply.status(404).send({ error: 'Task not found' })
+    }
+
+    const rows = findMessagesByTaskId(db, taskId)
+    const messages = rows.map(row => ({
+      id: row.id,
+      taskId: row.task_id,
+      role: row.role,
+      content: row.content,
+      createdAt: row.created_at,
+    }))
+
+    return { messages }
+  })
+
+  // User sends a message to a task
+  app.post('/api/projects/:id/tasks/:taskId/messages', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, taskId } = request.params as { id: string; taskId: string }
+    const { content } = request.body as { content: string }
+
+    if (!content?.trim()) {
+      return reply.status(400).send({ error: 'Content is required' })
+    }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const task = findTaskById(db, taskId)
+    if (!task || task.project_id !== id) {
+      return reply.status(404).send({ error: 'Task not found' })
+    }
+
+    // Store user message
+    const msgRow = createTaskMessage(db, taskId, 'user', content.trim())
+    const message = {
+      id: msgRow.id,
+      taskId: msgRow.task_id,
+      role: msgRow.role,
+      content: msgRow.content,
+      createdAt: msgRow.created_at,
+    }
+
+    if (task.status === 'waiting') {
+      // Agent is waiting — send reply to agent, update status to running
+      updateTaskStatus(db, taskId, 'running')
+      hub.sendUserReplyToAgent(db, taskId)
+      hub.broadcastTaskSnapshot(db, taskId)
+    } else if (task.status === 'completed' || task.status === 'failed') {
+      // Task is done — re-dispatch with conversation history
+      updateTaskStatus(db, taskId, 'dispatched')
+      // Clear previous summary/error
+      updateTaskSummary(db, taskId, '')
+
+      // Get all messages for conversation history
+      const allMessages = findMessagesByTaskId(db, taskId)
+      const conversationHistory = allMessages.map(m => ({
+        role: m.role as 'agent' | 'user',
+        content: m.content,
+      }))
+
+      // Re-dispatch via task dispatcher
+      taskDispatcher.dispatchSingleTask(db, taskId, conversationHistory)
+    }
+
+    return reply.status(201).send({ message })
   })
 
   // --- LLM Config routes ---
