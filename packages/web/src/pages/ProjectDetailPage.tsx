@@ -357,9 +357,6 @@ function TaskDetailModal({
           return null
         })}
 
-        {task.status === 'waiting' && (
-          <div className="td-waiting-indicator">Waiting for your reply...</div>
-        )}
 
         {(task.status === 'dispatched' || task.status === 'running') && (
           <div className="td-thinking-indicator">
