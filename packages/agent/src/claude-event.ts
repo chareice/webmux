@@ -352,6 +352,7 @@ export class ClaudeMessageParser {
       case 'files_persisted':
       case 'elicitation_complete':
       case 'init':
+      default:
         return { items: [] }
     }
   }
