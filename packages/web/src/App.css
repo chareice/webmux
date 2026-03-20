@@ -1689,11 +1689,7 @@
   gap: 0;
 }
 
-/* ── Desktop table header ────────────────────────── */
-
-.threads-table-header {
-  display: none;
-}
+/* (old table header removed - no longer needed) */
 
 /* ── New thread dropdown ─────────────────────────── */
 
@@ -1734,50 +1730,68 @@
   background: var(--accent-dim);
 }
 
-/* ── Thread row (used on both mobile + desktop) ─── */
+/* ── Thread row (compact two-line layout) ──────── */
 
 .thread-row {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.85rem 1rem;
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  gap: 0.2rem;
+  padding: 0.45rem 0.75rem;
   cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease;
-  margin-bottom: 0.5rem;
+  transition: background 100ms ease;
+  border-bottom: 1px solid var(--border-soft);
+  border-left: 3px solid transparent;
+  position: relative;
 }
 
 .thread-row:last-child {
-  margin-bottom: 0;
+  border-bottom: none;
 }
 
 .thread-row:hover {
-  border-color: var(--accent);
   background: rgba(122, 162, 247, 0.04);
 }
 
-.thread-row-tool {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
+/* Status left border color */
+.thread-row.status-accent  { border-left-color: var(--accent); }
+.thread-row.status-success { border-left-color: var(--success); }
+.thread-row.status-danger  { border-left-color: var(--danger); }
+.thread-row.status-warning { border-left-color: var(--warning); }
+.thread-row.status-muted   { border-left-color: transparent; }
+
+/* Unread emphasis */
+.thread-row.unread .thread-prompt-text {
+  color: var(--ink);
+  font-weight: 600;
 }
 
-.thread-tool-label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--muted);
+/* Active pulse animation on left border */
+.thread-row.active {
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-left-color: var(--accent); }
+  50% { border-left-color: rgba(122, 162, 247, 0.3); }
+}
+
+/* ── Meta line (line 1) ──────────────────────────── */
+
+.thread-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
 }
 
 .thread-tool-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 6px;
-  font-size: 0.72rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 4px;
+  font-size: 0.6rem;
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -1792,75 +1806,83 @@
   color: var(--success);
 }
 
-.thread-row-info {
-  display: flex;
+.thread-branch {
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
-.thread-repo-name {
-  font-size: 0.95rem;
-  font-weight: 600;
+  gap: 0.2rem;
+  font-size: 0.75rem;
   color: var(--ink);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 16rem;
 }
 
-.thread-branch {
-  font-size: 0.78rem;
+.thread-branch svg {
+  flex-shrink: 0;
   color: var(--muted);
-  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
 }
 
-.thread-branch-empty {
-  font-size: 0.78rem;
-  color: var(--muted);
+.thread-meta-sep {
+  color: var(--border-strong);
+  font-size: 0.72rem;
 }
 
 .thread-agent-name {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   color: var(--muted);
+  white-space: nowrap;
 }
 
-.thread-row-prompt {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.85rem;
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.thread-row-status {
+.thread-row-right {
   display: flex;
   align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.thread-diff-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--warning);
+  background: rgba(224, 175, 104, 0.12);
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  line-height: 1;
 }
 
 .thread-row-time {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--muted);
+  white-space: nowrap;
 }
 
-.thread-row-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+/* Delete button: hidden by default, show on hover */
+.thread-row-delete {
+  opacity: 0;
+  transition: opacity 100ms ease;
+  padding: 0.15rem;
 }
+
+.thread-row:hover .thread-row-delete {
+  opacity: 1;
+}
+
+/* ── Status badge (shared) ───────────────────────── */
 
 .thread-status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.55rem;
+  gap: 0.25rem;
+  padding: 0.1rem 0.4rem;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   font-weight: 600;
   flex-shrink: 0;
+  line-height: 1;
 }
 
 .thread-status-badge.accent {
@@ -1889,8 +1911,8 @@
 }
 
 .thread-status-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 999px;
 }
 
@@ -1899,6 +1921,43 @@
 .thread-status-dot.danger { background: var(--danger); }
 .thread-status-dot.warning { background: var(--warning); }
 .thread-status-dot.muted { background: var(--muted); }
+
+/* ── Content line (line 2: prompt → summary) ─────── */
+
+.thread-row-content {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.thread-prompt-text {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.thread-arrow {
+  color: var(--border-strong);
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+
+.thread-summary-text {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+  opacity: 0.7;
+}
 
 /* ── New Thread page ─────────────────────────────── */
 
@@ -3338,35 +3397,7 @@
 
 /* ── Mobile: thread row compact meta ───────────── */
 
-.thread-row-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.thread-meta-repo {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.thread-meta-sep {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.thread-meta-tool {
-  font-size: 0.78rem;
-  color: var(--muted);
-}
-
-.thread-meta-time {
-  font-size: 0.72rem;
-  color: var(--muted);
-  margin-left: auto;
-}
+/* (thread-row-meta styles moved to main thread-row section above) */
 
 /* ── Mobile overrides: threads ───────────────────── */
 
@@ -3382,14 +3413,18 @@
     font-size: 1.2rem;
   }
 
-  .threads-table-header {
-    display: none;
+  .thread-row {
+    padding: 0.5rem 0.6rem;
+    gap: 0.15rem;
   }
 
-  .thread-row {
-    padding: 0.65rem 0.75rem;
-    gap: 0.35rem;
-    margin-bottom: 0.4rem;
+  .thread-branch {
+    max-width: 10rem;
+  }
+
+  /* Always show delete on mobile (no hover) */
+  .thread-row-delete {
+    opacity: 0.6;
   }
 
   .new-thread-page {
@@ -3408,78 +3443,10 @@
 /* ── Desktop overrides: threads ──────────────────── */
 
 @media (min-width: 961px) {
-  /* ── Threads list: table layout ─── */
-
-  .threads-table-header {
-    display: grid;
-    grid-template-columns: 5.5rem 1fr 2fr 6rem 5.5rem 3rem;
-    gap: 0.5rem;
-    padding: 0.35rem 1rem;
-    font-size: 0.68rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    border-bottom: 1px solid var(--border-soft);
-    margin-bottom: 0;
-  }
-
-  .threads-list {
-    gap: 0;
-  }
+  /* ── Threads list: compact rows ─── */
 
   .thread-row {
-    display: grid;
-    grid-template-columns: 5.5rem 1fr 2fr 6rem 5.5rem 3rem;
-    gap: 0.5rem;
-    align-items: center;
-    flex-direction: row;
-    padding: 0.55rem 1rem;
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
-    border-top: none;
-    border-bottom: 1px solid var(--border-soft);
-    margin-bottom: 0;
-    background: transparent;
-  }
-
-  .thread-row:first-child {
-    border-top: none;
-  }
-
-  .thread-row:hover {
-    background: rgba(122, 162, 247, 0.04);
-    border-color: var(--border-soft);
-  }
-
-  .thread-row-tool {
-    gap: 0.35rem;
-  }
-
-  .thread-tool-badge {
-    width: 1.6rem;
-    height: 1.6rem;
-    font-size: 0.65rem;
-  }
-
-  .thread-row-info {
-    flex-wrap: nowrap;
-    gap: 0.4rem;
-    overflow: hidden;
-  }
-
-  .thread-repo-name {
-    font-size: 0.85rem;
-  }
-
-  .thread-row-prompt {
-    -webkit-line-clamp: 1;
-    font-size: 0.82rem;
-  }
-
-  .thread-row-time {
-    font-size: 0.72rem;
+    padding: 0.4rem 1rem;
   }
 
   /* ── Thread detail: two-column layout ─── */
@@ -3636,42 +3603,7 @@
   scrollbar-color: var(--border-soft) transparent;
 }
 
-/* ── Thread row conversation preview ────────────── */
-
-.thread-row-conversation {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.thread-convo-line {
-  display: flex;
-  gap: 0.35rem;
-  font-size: 0.82rem;
-  line-height: 1.4;
-  min-width: 0;
-}
-
-.thread-convo-role {
-  font-weight: 700;
-  font-size: 0.72rem;
-  flex-shrink: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.thread-convo-role.user { color: var(--accent); }
-.thread-convo-role.assistant { color: var(--success); }
-
-.thread-convo-text {
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
+/* (old thread-row-conversation styles removed - replaced by thread-row-content) */
 
 /* ── Projects page ──────────────────────────────── */
 
