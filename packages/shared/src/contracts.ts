@@ -45,8 +45,9 @@ export type AgentMessage =
   | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEventPayload }
   | { type: 'task-claimed'; taskId: string; branchName?: string; worktreePath?: string }
   | { type: 'task-running'; taskId: string; runId: string; turnId: string; branchName?: string; worktreePath?: string }
-  | { type: 'task-completed'; taskId: string; summary?: string }
+  | { type: 'task-completed'; taskId: string; summary: string }
   | { type: 'task-failed'; taskId: string; error: string }
+  | { type: 'task-step-update'; taskId: string; step: Omit<TaskStep, 'taskId'> }
 
 // Server → Agent
 export type ServerToAgentMessage =
@@ -74,6 +75,7 @@ export type ServerToAgentMessage =
       tool: RunTool
       title: string
       prompt: string
+      llmConfig: { apiBaseUrl: string; apiKey: string; model: string } | null
     }
 
 // REST API types
@@ -235,6 +237,7 @@ export type RunEvent =
   | { type: 'run-turn'; runId: string; turn: RunTurn }
   | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEvent }
   | { type: 'task-status'; task: Task }
+  | { type: 'task-step'; taskId: string; step: TaskStep }
   | { type: 'project-status'; project: Project }
 
 // --- Project + Task types ---
@@ -263,10 +266,55 @@ export interface Task {
   worktreePath: string | null
   runId: string | null
   errorMessage: string | null
+  summary: string | null
   createdAt: number
   updatedAt: number
   claimedAt: number | null
   completedAt: number | null
+}
+
+// --- LLM Config types ---
+
+export interface LlmConfig {
+  id: string
+  apiBaseUrl: string
+  apiKey: string
+  model: string
+  projectId: string | null   // null = user default
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CreateLlmConfigRequest {
+  apiBaseUrl: string
+  apiKey: string
+  model: string
+  projectId?: string
+}
+
+export interface UpdateLlmConfigRequest {
+  apiBaseUrl?: string
+  apiKey?: string
+  model?: string
+}
+
+// --- Task Step types ---
+
+export type StepStatus = 'running' | 'completed' | 'failed'
+export type StepType = 'think' | 'code' | 'review' | 'message' | 'command' | 'read_file'
+
+export interface TaskStep {
+  id: string
+  taskId: string
+  type: StepType
+  label: string
+  status: StepStatus
+  detail?: string
+  toolName: string
+  runId?: string
+  durationMs?: number
+  createdAt: number
+  completedAt?: number
 }
 
 // --- Project REST API types ---

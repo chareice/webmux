@@ -19,8 +19,11 @@ import { verifySecret } from './auth.js'
 import { describeMinimumVersionFailure } from './agent-upgrade.js'
 import {
   appendRunTimelineEvent,
+  createRunWithInitialTurn,
+  createTaskStep,
   findActiveRunsByAgentId,
   findAgentById,
+  findProjectById,
   findRunById,
   findActiveRunTurnByRunId,
   findQueuedRunTurnsByRunId,
@@ -33,7 +36,9 @@ import {
   updateRunStatus,
   updateRunToolThreadId,
   updateRunTurnStatus,
+  updateTaskStep,
   updateTaskStatus,
+  updateTaskSummary,
   updateTaskRunInfo,
   updateTaskWorktreeInfo,
 } from './db.js'
@@ -300,6 +305,10 @@ export class AgentHub {
 
       case 'task-failed':
         this.handleTaskFailed(message, db)
+        break
+
+      case 'task-step-update':
+        this.handleTaskStepUpdate(message, db)
         break
 
       // auth is handled separately; ignore here
@@ -578,6 +587,25 @@ export class AgentHub {
     const task = findTaskById(db, message.taskId)
     if (!task) return
 
+    // Create run record if it doesn't exist (task-created runs aren't registered via normal flow)
+    if (message.runId) {
+      const existingRun = findRunById(db, message.runId)
+      if (!existingRun) {
+        const project = findProjectById(db, task.project_id)
+        if (project) {
+          createRunWithInitialTurn(db, {
+            runId: message.runId,
+            turnId: message.turnId,
+            agentId: project.agent_id,
+            userId: project.user_id,
+            tool: project.default_tool,
+            repoPath: project.repo_path,
+            prompt: task.prompt,
+          })
+        }
+      }
+    }
+
     updateTaskStatus(db, message.taskId, 'running')
     updateTaskRunInfo(db, message.taskId, message.runId)
 
@@ -589,10 +617,11 @@ export class AgentHub {
   }
 
   private handleTaskCompleted(
-    message: { type: 'task-completed'; taskId: string; summary?: string },
+    message: { type: 'task-completed'; taskId: string; summary: string },
     db: Database,
   ): void {
     updateTaskStatus(db, message.taskId, 'completed')
+    updateTaskSummary(db, message.taskId, message.summary)
     this.broadcastTaskSnapshot(db, message.taskId)
   }
 
@@ -602,6 +631,49 @@ export class AgentHub {
   ): void {
     updateTaskStatus(db, message.taskId, 'failed', message.error)
     this.broadcastTaskSnapshot(db, message.taskId)
+  }
+
+  private handleTaskStepUpdate(
+    message: { type: 'task-step-update'; taskId: string; step: any },
+    db: Database,
+  ): void {
+    const { taskId, step } = message
+    if (step.status === 'running') {
+      // Create new step record
+      createTaskStep(db, {
+        id: step.id,
+        task_id: taskId,
+        type: step.type,
+        label: step.label,
+        status: 'running',
+        detail: step.detail || null,
+        tool_name: step.toolName,
+        run_id: step.runId || null,
+        created_at: step.createdAt,
+      })
+    } else {
+      // Update existing step (completed or failed)
+      updateTaskStep(db, step.id, {
+        status: step.status,
+        detail: step.detail || null,
+        run_id: step.runId || null,
+        duration_ms: step.durationMs || null,
+        completed_at: step.completedAt || null,
+      })
+    }
+    // Broadcast to web clients
+    this.broadcastStepUpdate(db, taskId, step)
+  }
+
+  private broadcastStepUpdate(db: Database, taskId: string, step: any): void {
+    const task = findTaskById(db, taskId)
+    if (!task) return
+    const clients = this.projectClients.get(task.project_id)
+    if (!clients?.size) return
+    const event = { type: 'task-step', taskId, step }
+    for (const client of clients) {
+      this.safeSend(client, event)
+    }
   }
 
   private requestCommand<TResult>(
@@ -738,6 +810,7 @@ function taskRowToTask(row: TaskRow): Task {
     worktreePath: row.worktree_path,
     runId: row.run_id,
     errorMessage: row.error_message,
+    summary: row.summary,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     claimedAt: row.claimed_at,

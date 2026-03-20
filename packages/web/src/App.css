@@ -1525,6 +1525,9 @@
   color: var(--muted);
   text-decoration: none;
   transition: background 120ms ease, color 120ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .top-bar-nav-link:hover {
@@ -3974,4 +3977,220 @@
   .new-project-page {
     padding: 1rem;
   }
+}
+
+/* ── LLM Config page ──────────────────────────────── */
+
+.llm-config-page {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  max-width: 60rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.llm-config-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.llm-config-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.llm-config-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.llm-config-scope {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+
+.llm-config-scope.default {
+  background: rgba(122, 162, 247, 0.12);
+  color: var(--accent);
+}
+
+.llm-config-scope.project {
+  background: rgba(224, 175, 104, 0.12);
+  color: var(--warning);
+}
+
+.llm-config-model {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.llm-config-card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.llm-config-detail {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.llm-config-detail-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-width: 5rem;
+  flex-shrink: 0;
+}
+
+.llm-config-detail-value {
+  color: var(--ink);
+  font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
+  font-size: 0.82rem;
+  word-break: break-all;
+}
+
+.llm-config-key {
+  color: var(--muted);
+}
+
+.llm-config-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.15rem;
+}
+
+.llm-config-form-card {
+  padding: 1rem 1.15rem;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  margin-bottom: 1rem;
+}
+
+.llm-config-form-title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.llm-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.llm-config-select {
+  appearance: auto;
+  cursor: pointer;
+}
+
+.llm-config-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.llm-config-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+@media (max-width: 960px) {
+  .llm-config-page {
+    padding: 1rem;
+  }
+}
+
+/* ── Task Steps + Summary ─────────────────────────── */
+
+.project-task-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.task-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 2px 0;
+}
+
+.task-step-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.task-step-completed .task-step-icon {
+  color: var(--success);
+}
+
+.task-step-running .task-step-icon {
+  color: var(--accent);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.task-step-failed .task-step-icon {
+  color: var(--danger);
+}
+
+.task-step-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-step-duration {
+  font-size: 0.75rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.project-task-summary {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  margin-top: 4px;
+  background: var(--accent-dim);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.task-summary-text {
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }

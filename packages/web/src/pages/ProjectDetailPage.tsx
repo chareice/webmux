@@ -3,7 +3,7 @@ import { useNavigate, useParams, Link } from 'react-router-dom'
 import { ArrowLeft, Plus, LoaderCircle, RotateCcw, Trash2, ExternalLink } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
-import type { Project, Task, TaskStatus, RunEvent } from '@webmux/shared'
+import type { Project, Task, TaskStatus, TaskStep, RunEvent } from '@webmux/shared'
 
 const ACTIVE_TASK_STATUSES: TaskStatus[] = ['dispatched', 'running']
 const AUTO_REFRESH_INTERVAL = 5000
@@ -56,6 +56,8 @@ export function ProjectDetailPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
+  const [taskSteps, setTaskSteps] = useState<Record<string, TaskStep[]>>({})
+
   const [retryingId, setRetryingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -70,6 +72,17 @@ export function ProjectDetailPage() {
       setProject(data.project)
       setTasks(data.tasks)
       setError(null)
+
+      // Load steps for non-pending tasks
+      for (const task of data.tasks) {
+        if (task.status !== 'pending') {
+          const stepsRes = await fetchApi(`/api/projects/${projectId}/tasks/${task.id}/steps`)
+          if (stepsRes.ok) {
+            const stepsData = await stepsRes.json() as { steps: TaskStep[] }
+            setTaskSteps(prev => ({ ...prev, [task.id]: stepsData.steps }))
+          }
+        }
+      }
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -113,6 +126,18 @@ export function ProjectDetailPage() {
           const data = JSON.parse(event.data) as RunEvent
           if (data.type === 'task-status') {
             setTasks((prev) => prev.map((t) => (t.id === data.task.id ? data.task : t)))
+          }
+          if (data.type === 'task-step') {
+            setTaskSteps(prev => {
+              const steps = prev[data.taskId] || []
+              const existing = steps.findIndex(s => s.id === data.step.id)
+              if (existing >= 0) {
+                const updated = [...steps]
+                updated[existing] = data.step
+                return { ...prev, [data.taskId]: updated }
+              }
+              return { ...prev, [data.taskId]: [...steps, data.step] }
+            })
           }
         } catch {
           // ignore parse errors
@@ -271,6 +296,33 @@ export function ProjectDetailPage() {
                   <div className="project-task-details">
                     <span className="project-task-prompt">{task.prompt}</span>
                   </div>
+                  {(taskSteps[task.id]?.length > 0 || task.summary) && (
+                    <div className="project-task-steps">
+                      {taskSteps[task.id]?.map(step => (
+                        <div key={step.id} className={`task-step task-step-${step.status}`}>
+                          <span className="task-step-icon">
+                            {step.status === 'completed' ? '\u2713' :
+                             step.status === 'running' ? '\u25CF' : '\u2717'}
+                          </span>
+                          <span className="task-step-label">{step.label}</span>
+                          {step.durationMs != null && (
+                            <span className="task-step-duration">
+                              {step.durationMs < 1000
+                                ? `${step.durationMs}ms`
+                                : step.durationMs < 60000
+                                  ? `${Math.round(step.durationMs / 1000)}s`
+                                  : `${Math.round(step.durationMs / 60000)}m`}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                      {task.summary && (
+                        <div className="project-task-summary">
+                          <span className="task-summary-text">{task.summary}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="project-task-meta">
                     {task.branchName ? (
                       <span className="project-task-branch">{task.branchName}</span>

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { initDb, createUser, createAgent, createProject, createTask, findTaskById } from './db.js'
+import { initDb, createUser, createAgent, createProject, createTask, createLlmConfig, findTaskById } from './db.js'
 import { TaskDispatcher } from './task-dispatcher.js'
 import type { AgentHub } from './agent-hub.js'
 import type Database from 'libsql'
@@ -113,6 +113,7 @@ describe('TaskDispatcher', () => {
       tool: 'claude',
       title: 'Fix bug',
       prompt: 'Fix the login bug',
+      llmConfig: null,
     })
   })
 
@@ -131,5 +132,72 @@ describe('TaskDispatcher', () => {
     dispatcher.dispatchPendingTasks() // should not dispatch again (status is now 'dispatched')
 
     expect(sendToAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('includes LLM config in task-dispatch when configured', () => {
+    const { user, agent, project } = setupFixtures()
+    createTask(db, { projectId: project.id, title: 'T1', prompt: 'p1', priority: 0 })
+
+    // Create a default LLM config for the user
+    createLlmConfig(db, user.id, {
+      api_base_url: 'https://api.openai.com/v1',
+      api_key: 'sk-test-key',
+      model: 'gpt-4',
+    })
+
+    const sendToAgent = vi.fn().mockReturnValue(true)
+    const hub = {
+      getAgent: vi.fn().mockReturnValue({ socket: {} }),
+      sendToAgent,
+    } as unknown as AgentHub
+
+    const dispatcher = new TaskDispatcher(db, hub)
+    dispatcher.dispatchPendingTasksForProject(project.id)
+
+    expect(sendToAgent).toHaveBeenCalledWith(agent.id, expect.objectContaining({
+      type: 'task-dispatch',
+      llmConfig: {
+        apiBaseUrl: 'https://api.openai.com/v1',
+        apiKey: 'sk-test-key',
+        model: 'gpt-4',
+      },
+    }))
+  })
+
+  it('includes project-specific LLM config over default when available', () => {
+    const { user, agent, project } = setupFixtures()
+    createTask(db, { projectId: project.id, title: 'T1', prompt: 'p1', priority: 0 })
+
+    // Create a default LLM config
+    createLlmConfig(db, user.id, {
+      api_base_url: 'https://default.api/v1',
+      api_key: 'sk-default',
+      model: 'gpt-3.5',
+    })
+
+    // Create a project-specific LLM config
+    createLlmConfig(db, user.id, {
+      api_base_url: 'https://project.api/v1',
+      api_key: 'sk-project',
+      model: 'gpt-4',
+      project_id: project.id,
+    })
+
+    const sendToAgent = vi.fn().mockReturnValue(true)
+    const hub = {
+      getAgent: vi.fn().mockReturnValue({ socket: {} }),
+      sendToAgent,
+    } as unknown as AgentHub
+
+    const dispatcher = new TaskDispatcher(db, hub)
+    dispatcher.dispatchPendingTasksForProject(project.id)
+
+    expect(sendToAgent).toHaveBeenCalledWith(agent.id, expect.objectContaining({
+      llmConfig: {
+        apiBaseUrl: 'https://project.api/v1',
+        apiKey: 'sk-project',
+        model: 'gpt-4',
+      },
+    }))
   })
 })

@@ -7,11 +7,13 @@ import {
   type AgentUpgradePolicy,
   type RunImageAttachmentUpload,
   type RunStatus,
+  type RunTool,
   type RunTurnOptions,
   type ServerToAgentMessage,
 } from '@webmux/shared'
 import { upgradeService } from './service.js'
 import { RunWrapper } from './run-wrapper.js'
+import { AgentLoop, type StepUpdate } from './agent-loop.js'
 import { browseRepositories } from './repositories.js'
 import { AGENT_PACKAGE_NAME, AGENT_VERSION } from './version.js'
 
@@ -56,6 +58,7 @@ export class AgentConnection {
   private reconnectDelay = INITIAL_RECONNECT_DELAY_MS
   private runs = new Map<string, { turnId: string; wrapper: RunWrapper }>()
   private tasks = new Map<string, { runId: string; turnId: string; wrapper: RunWrapper }>()
+  private taskLoops = new Map<string, AgentLoop>()
   private stopped = false
 
   constructor(
@@ -172,7 +175,7 @@ export class AgentConnection {
         break
 
       case 'task-dispatch':
-        this.handleTaskDispatch(msg.taskId, msg.projectId, msg.repoPath, msg.tool, msg.title, msg.prompt)
+        this.handleTaskDispatch(msg.taskId, msg.projectId, msg.repoPath, msg.tool, msg.title, msg.prompt, msg.llmConfig)
         break
 
       default:
@@ -274,6 +277,10 @@ export class AgentConnection {
       task.wrapper.dispose()
       this.tasks.delete(taskId)
     }
+    for (const [taskId, loop] of this.taskLoops) {
+      loop.abort()
+      this.taskLoops.delete(taskId)
+    }
   }
 
   private handleRunStart(
@@ -356,9 +363,58 @@ export class AgentConnection {
 
   private handleTaskDispatch(
     taskId: string,
+    projectId: string,
+    repoPath: string,
+    tool: RunTool,
+    title: string,
+    prompt: string,
+    llmConfig: { apiBaseUrl: string; apiKey: string; model: string } | null,
+  ): void {
+    // Fall back to legacy behavior if no LLM config
+    if (!llmConfig) {
+      return this.handleTaskDispatchLegacy(taskId, projectId, repoPath, tool, title, prompt)
+    }
+
+    // Acknowledge claim immediately
+    this.sendMessage({ type: 'task-claimed', taskId })
+
+    const loop = new AgentLoop({
+      taskId,
+      title,
+      prompt,
+      repoPath,
+      defaultTool: tool,
+      llmConfig,
+      onStepUpdate: (step: StepUpdate) => {
+        this.sendMessage({ type: 'task-step-update', taskId, step })
+      },
+      onTaskComplete: (summary: string) => {
+        this.sendMessage({ type: 'task-completed', taskId, summary })
+        this.taskLoops.delete(taskId)
+      },
+      onTaskFailed: (error: string) => {
+        this.sendMessage({ type: 'task-failed', taskId, error })
+        this.taskLoops.delete(taskId)
+      },
+      createRun: (runTool, runPrompt, runRepoPath) => {
+        return this.createRunForAgentLoop(runTool, runPrompt, runRepoPath)
+      },
+    })
+
+    this.taskLoops.set(taskId, loop)
+
+    // Mark task as running (no specific runId for agent loop itself)
+    this.sendMessage({ type: 'task-running', taskId, runId: taskId, turnId: taskId })
+
+    // Start the loop (don't await — runs in background)
+    void loop.run()
+  }
+
+  private handleTaskDispatchLegacy(
+    taskId: string,
     _projectId: string,
     repoPath: string,
-    tool: 'codex' | 'claude',
+    tool: RunTool,
     title: string,
     prompt: string,
   ): void {
@@ -401,7 +457,7 @@ export class AgentConnection {
       onFinish: (finalStatus) => {
         this.tasks.delete(taskId)
         if (finalStatus === 'success') {
-          this.sendMessage({ type: 'task-completed', taskId })
+          this.sendMessage({ type: 'task-completed', taskId, summary: 'Task completed' })
         } else {
           this.sendMessage({
             type: 'task-failed',
@@ -424,6 +480,49 @@ export class AgentConnection {
       const message = err instanceof Error ? err.message : String(err)
       this.sendMessage({ type: 'task-failed', taskId, error: `Failed to start: ${message}` })
       this.tasks.delete(taskId)
+    })
+  }
+
+  private createRunForAgentLoop(
+    tool: RunTool,
+    prompt: string,
+    repoPath: string,
+  ): Promise<{ summary: string; runId: string }> {
+    return new Promise((resolve, reject) => {
+      const runId = crypto.randomUUID()
+      const turnId = crypto.randomUUID()
+      let latestSummary = ''
+
+      const run = new RunWrapper({
+        runId,
+        tool,
+        repoPath,
+        prompt,
+        onEvent: (status: RunStatus, summary?: string, hasDiff?: boolean) => {
+          if (summary) {
+            latestSummary = summary
+          }
+          this.sendMessage({ type: 'run-status', runId, turnId, status, summary, hasDiff })
+        },
+        onFinish: (finalStatus: RunStatus) => {
+          this.runs.delete(runId)
+          if (finalStatus === 'success') {
+            resolve({ summary: latestSummary, runId })
+          } else {
+            reject(new Error(`Run ${finalStatus}`))
+          }
+        },
+        onItem: (item) => {
+          this.sendMessage({ type: 'run-item', runId, turnId, item })
+        },
+      })
+
+      this.runs.set(runId, { turnId, wrapper: run })
+
+      run.start().catch((err) => {
+        this.runs.delete(runId)
+        reject(err)
+      })
     })
   }
 
