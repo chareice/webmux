@@ -302,8 +302,10 @@ Important:
         const prompt = args.prompt as string
         const dir = (args.directory as string) || this.options.repoPath
         const threadId = this.toolThreadIds.get('claude')
+        console.log(`[agent-loop] run_claude_code: ${threadId ? `resuming session ${threadId}` : 'new session'}`)
         const result = await this.options.createRun('claude', prompt, dir, threadId)
         if (result.toolThreadId) {
+          console.log(`[agent-loop] claude session ready: ${result.toolThreadId}`)
           this.toolThreadIds.set('claude', result.toolThreadId)
         }
         return result.summary || `Claude Code session completed (run: ${result.runId})`
