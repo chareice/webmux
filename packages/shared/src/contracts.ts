@@ -245,6 +245,7 @@ export type RunEvent =
   | { type: 'task-step'; taskId: string; step: TaskStep }
   | { type: 'task-message'; taskId: string; message: TaskMessage }
   | { type: 'project-status'; project: Project }
+  | { type: 'action-status'; action: ProjectAction }
 
 // --- Project + Task types ---
 
@@ -334,6 +335,20 @@ export interface TaskMessage {
   createdAt: number
 }
 
+// --- Project Action types ---
+
+export interface ProjectAction {
+  id: string
+  projectId: string
+  name: string
+  description: string
+  prompt: string
+  tool: RunTool
+  sortOrder: number
+  createdAt: number
+  updatedAt: number
+}
+
 // --- Project REST API types ---
 
 export interface CreateProjectRequest {
@@ -357,6 +372,7 @@ export interface ProjectListResponse {
 export interface ProjectDetailResponse {
   project: Project
   tasks: Task[]
+  actions: ProjectAction[]
 }
 
 // --- Task REST API types ---
@@ -377,4 +393,29 @@ export interface UpdateTaskRequest {
 export interface TaskDetailResponse {
   task: Task
   run: Run | null
+}
+
+// --- Project Action REST API types ---
+
+export interface CreateProjectActionRequest {
+  name: string
+  description?: string
+  prompt: string
+  tool?: RunTool
+}
+
+export interface UpdateProjectActionRequest {
+  name?: string
+  description?: string
+  prompt?: string
+  tool?: RunTool
+  sortOrder?: number
+}
+
+export interface GenerateProjectActionRequest {
+  description: string
+}
+
+export interface ProjectActionListResponse {
+  actions: ProjectAction[]
 }
