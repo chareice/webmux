@@ -95,7 +95,7 @@ import {
   deleteLlmConfig,
   findStepsByTaskId,
 } from './db.js'
-import type { ProjectRow, TaskRow, TaskMessageRow, LlmConfigRow, TaskStepRow } from './db.js'
+import type { ProjectRow, TaskRow, LlmConfigRow, TaskStepRow } from './db.js'
 import type { AgentHub } from './agent-hub.js'
 import { runRowToRun } from './agent-hub.js'
 import type { TaskDispatcher } from './task-dispatcher.js'
