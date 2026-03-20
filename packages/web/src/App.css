@@ -4122,3 +4122,75 @@
     padding: 1rem;
   }
 }
+
+/* ── Task Steps + Summary ─────────────────────────── */
+
+.project-task-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.task-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 2px 0;
+}
+
+.task-step-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.task-step-completed .task-step-icon {
+  color: var(--success);
+}
+
+.task-step-running .task-step-icon {
+  color: var(--accent);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.task-step-failed .task-step-icon {
+  color: var(--danger);
+}
+
+.task-step-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-step-duration {
+  font-size: 0.75rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.project-task-summary {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  margin-top: 4px;
+  background: var(--accent-dim);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.task-summary-text {
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
