@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@rolldown/binding-linux-x64-gnu": "1.0.0-rc.9",
     "concurrently": "^9.2.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -36,7 +37,6 @@
     "@rolldown/binding-darwin-arm64": "1.0.0-rc.9",
     "@rolldown/binding-darwin-x64": "1.0.0-rc.9",
     "@rolldown/binding-linux-arm64-gnu": "1.0.0-rc.9",
-    "@rolldown/binding-linux-x64-gnu": "1.0.0-rc.9",
     "@rolldown/binding-wasm32-wasi": "1.0.0-rc.9",
     "@rolldown/binding-win32-arm64-msvc": "1.0.0-rc.9",
     "@rolldown/binding-win32-x64-msvc": "1.0.0-rc.9"

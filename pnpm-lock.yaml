@@ -11,6 +11,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.4
         version: 9.39.4
+      '@rolldown/binding-linux-x64-gnu':
+        specifier: 1.0.0-rc.9
+        version: 1.0.0-rc.9
       concurrently:
         specifier: ^9.2.1
         version: 9.2.1
@@ -40,9 +43,6 @@ importers:
         specifier: 1.0.0-rc.9
         version: 1.0.0-rc.9
       '@rolldown/binding-linux-arm64-gnu':
-        specifier: 1.0.0-rc.9
-        version: 1.0.0-rc.9
-      '@rolldown/binding-linux-x64-gnu':
         specifier: 1.0.0-rc.9
         version: 1.0.0-rc.9
       '@rolldown/binding-wasm32-wasi':
@@ -3296,8 +3296,7 @@ snapshots:
   '@rolldown/binding-linux-s390x-gnu@1.0.0-rc.9':
     optional: true
 
-  '@rolldown/binding-linux-x64-gnu@1.0.0-rc.9':
-    optional: true
+  '@rolldown/binding-linux-x64-gnu@1.0.0-rc.9': {}
 
   '@rolldown/binding-linux-x64-musl@1.0.0-rc.9':
     optional: true

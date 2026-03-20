@@ -377,8 +377,21 @@ export class AgentConnection {
     attachments?: RunImageAttachmentUpload[],
   ): void {
     this.sendMessage({ type: 'task-claimed', taskId })
-    this.taskSessions.set(taskId, { repoPath, tool })
-    this.startTaskRun(taskId, repoPath, tool, `Task: ${title}\n\n${prompt}`, undefined, attachments)
+
+    // Preserve existing toolThreadId when re-dispatching after agent reconnection
+    const existingSession = this.taskSessions.get(taskId)
+    const toolThreadId = existingSession?.toolThreadId
+
+    this.taskSessions.set(taskId, { repoPath, tool, toolThreadId })
+
+    if (toolThreadId) {
+      // Resume existing code agent session
+      this.startTaskRun(taskId, repoPath, tool,
+        'The previous session was interrupted due to a connection issue. Please continue where you left off.',
+        toolThreadId, attachments)
+    } else {
+      this.startTaskRun(taskId, repoPath, tool, `Task: ${title}\n\n${prompt}`, undefined, attachments)
+    }
   }
 
   /**
