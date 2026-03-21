@@ -186,6 +186,14 @@ export class AgentConnection {
         break
       }
 
+      case 'task-interrupt': {
+        const entry = this.tasks.get(msg.taskId)
+        if (entry) {
+          entry.wrapper.interrupt()
+        }
+        break
+      }
+
       default:
         console.warn('[agent] Unknown message type:', (msg as { type: string }).type)
     }
@@ -440,14 +448,13 @@ export class AgentConnection {
       onFinish: (finalStatus) => {
         this.tasks.delete(taskId)
         this.runs.delete(runId)
-        if (finalStatus === 'success') {
-          // Don't auto-complete — enter waiting state so user can follow up
+        if (finalStatus === 'success' || finalStatus === 'interrupted') {
           this.sendMessage({ type: 'task-waiting', taskId })
         } else {
           this.sendMessage({
             type: 'task-failed',
             taskId,
-            error: finalStatus === 'interrupted' ? 'Run interrupted' : 'Run failed',
+            error: 'Run failed',
           })
         }
       },
