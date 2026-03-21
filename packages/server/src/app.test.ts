@@ -986,6 +986,67 @@ describe('project and task routes', () => {
     await app.close()
   })
 
+  it('re-dispatches completed tasks with the latest follow-up prompt and attachments', async () => {
+    const db = initDb(':memory:')
+    const { user, agent, token } = setupUserAndAgent(db)
+
+    const project = createProject(db, {
+      userId: user.id,
+      agentId: agent.id,
+      name: 'Follow-up Project',
+      repoPath: '/tmp/follow-up',
+    })
+    const task = createTask(db, {
+      projectId: project.id,
+      title: 'Finished task',
+      prompt: 'Implement the feature',
+    })
+    updateTaskStatus(db, task.id, 'completed')
+
+    const attachments = [
+      {
+        id: 'img-1',
+        name: 'error.png',
+        mimeType: 'image/png',
+        sizeBytes: 4,
+        base64: 'AAAA',
+      },
+    ]
+
+    const sendToAgent = vi.fn().mockReturnValue(true)
+    const hub = {
+      getAgent: () => ({ id: agent.id }),
+      removeAgent() {},
+      sendToAgent,
+    } as unknown as AgentHub
+
+    const { app } = buildApp({
+      db,
+      hub,
+      config: createTestConfig('http://127.0.0.1:4317'),
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${project.id}/tasks/${task.id}/messages`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        content: 'Please also add tests',
+        attachments,
+      },
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(sendToAgent).toHaveBeenCalledWith(agent.id, expect.objectContaining({
+      type: 'task-dispatch',
+      taskId: task.id,
+      prompt: 'Implement the feature\n\nUser follow-up:\nPlease also add tests',
+      attachments,
+    }))
+
+    await app.close()
+  })
+
   it('retries a failed task', async () => {
     const db = initDb(':memory:')
     const { user, agent, token } = setupUserAndAgent(db)
