@@ -28,6 +28,10 @@ import type {
   TaskStep,
   StepType,
   StepStatus,
+  CreateProjectActionRequest,
+  UpdateProjectActionRequest,
+  GenerateProjectActionRequest,
+  ProjectAction,
 } from '@webmux/shared'
 import {
   appendAuthTokenToRedirectTarget,
@@ -94,8 +98,13 @@ import {
   updateLlmConfig,
   deleteLlmConfig,
   findStepsByTaskId,
+  createProjectAction,
+  findProjectActionById,
+  findProjectActionsByProjectId,
+  updateProjectAction,
+  deleteProjectAction,
 } from './db.js'
-import type { ProjectRow, TaskRow, LlmConfigRow, TaskStepRow } from './db.js'
+import type { ProjectRow, TaskRow, LlmConfigRow, TaskStepRow, ProjectActionRow } from './db.js'
 import type { AgentHub } from './agent-hub.js'
 import { runRowToRun } from './agent-hub.js'
 import type { TaskDispatcher } from './task-dispatcher.js'
@@ -1019,6 +1028,20 @@ export function registerRoutes(
     }
   }
 
+  function actionRowToAction(row: ProjectActionRow): ProjectAction {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+      description: row.description,
+      prompt: row.prompt,
+      tool: row.tool as RunTool,
+      sortOrder: row.sort_order,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
   // --- Project routes ---
 
   app.post('/api/projects', { preHandler: authPreHandler }, async (request, reply) => {
@@ -1057,7 +1080,8 @@ export function registerRoutes(
     }
 
     const tasks = findTasksByProjectId(db, id)
-    return { project: projectRowToProject(project), tasks: tasks.map(taskRowToTask) }
+    const actions = findProjectActionsByProjectId(db, id)
+    return { project: projectRowToProject(project), tasks: tasks.map(taskRowToTask), actions: actions.map(actionRowToAction) }
   })
 
   app.patch('/api/projects/:id', { preHandler: authPreHandler }, async (request, reply) => {
@@ -1319,6 +1343,210 @@ export function registerRoutes(
     }
 
     return reply.status(201).send({ message })
+  })
+
+  // --- Project Action routes ---
+
+  // List actions for a project
+  app.get('/api/projects/:id/actions', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const actions = findProjectActionsByProjectId(db, id)
+    return { actions: actions.map(actionRowToAction) }
+  })
+
+  // Create action
+  app.post('/api/projects/:id/actions', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const body = request.body as CreateProjectActionRequest | undefined
+
+    const name = body?.name?.trim()
+    const prompt = body?.prompt?.trim()
+    if (!name || !prompt) {
+      return reply.status(400).send({ error: 'Missing required fields: name and prompt' })
+    }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const action = createProjectAction(db, {
+      projectId: id,
+      name,
+      description: body?.description?.trim(),
+      prompt,
+      tool: body?.tool,
+    })
+
+    return reply.status(201).send({ action: actionRowToAction(action) })
+  })
+
+  // Update action
+  app.patch('/api/projects/:id/actions/:actionId', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, actionId } = request.params as { id: string; actionId: string }
+    const body = request.body as UpdateProjectActionRequest | undefined
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const action = findProjectActionById(db, actionId)
+    if (!action || action.project_id !== id) {
+      return reply.status(404).send({ error: 'Action not found' })
+    }
+
+    updateProjectAction(db, actionId, {
+      name: body?.name?.trim(),
+      description: body?.description?.trim(),
+      prompt: body?.prompt?.trim(),
+      tool: body?.tool,
+      sortOrder: body?.sortOrder,
+    })
+
+    return { ok: true }
+  })
+
+  // Delete action
+  app.delete('/api/projects/:id/actions/:actionId', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, actionId } = request.params as { id: string; actionId: string }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const action = findProjectActionById(db, actionId)
+    if (!action || action.project_id !== id) {
+      return reply.status(404).send({ error: 'Action not found' })
+    }
+
+    deleteProjectAction(db, actionId)
+    return { ok: true }
+  })
+
+  // Execute action (run it on the agent)
+  app.post('/api/projects/:id/actions/:actionId/run', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, actionId } = request.params as { id: string; actionId: string }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const action = findProjectActionById(db, actionId)
+    if (!action || action.project_id !== id) {
+      return reply.status(404).send({ error: 'Action not found' })
+    }
+
+    const agentId = project.agent_id
+    const online = hub.getAgent(agentId)
+    if (!online) {
+      return reply.status(400).send({ error: 'Agent is offline' })
+    }
+
+    const runId = crypto.randomUUID()
+    const turnId = crypto.randomUUID()
+    const { run: runRow } = createRunWithInitialTurn(db, {
+      runId,
+      turnId,
+      agentId,
+      userId: request.user!.userId,
+      tool: action.tool as RunTool,
+      repoPath: project.repo_path,
+      prompt: action.prompt,
+      attachments: [],
+    })
+
+    const msg: ServerToAgentMessage = {
+      type: 'run-turn-start',
+      runId,
+      turnId,
+      tool: action.tool as RunTool,
+      repoPath: project.repo_path,
+      prompt: action.prompt,
+      toolThreadId: runRow.tool_thread_id ?? undefined,
+      attachments: [],
+    }
+    if (!hub.sendToAgent(agentId, msg)) {
+      deleteRun(db, runId)
+      return reply.status(503).send({
+        error: 'Agent became unavailable before the action could be executed',
+      })
+    }
+
+    hub.broadcastRunSnapshot(db, runId, turnId)
+    return { runId }
+  })
+
+  // Generate action via AI
+  app.post('/api/projects/:id/actions/generate', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const body = request.body as GenerateProjectActionRequest | undefined
+
+    const description = body?.description?.trim()
+    if (!description) {
+      return reply.status(400).send({ error: 'Missing required field: description' })
+    }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const agentId = project.agent_id
+    const online = hub.getAgent(agentId)
+    if (!online) {
+      return reply.status(400).send({ error: 'Agent is offline' })
+    }
+
+    const generatePrompt = `Analyze the project at the given repo path and create an action definition based on the user's description.
+
+User wants: ${description}
+
+You must output a JSON object with exactly these fields:
+{ "name": "...", "description": "...", "prompt": "..." }
+
+The "prompt" field should contain the complete instructions that will be sent to Claude Code when this action is executed later.
+Output ONLY the JSON, no markdown fences, no explanation.`
+
+    const runId = crypto.randomUUID()
+    const turnId = crypto.randomUUID()
+    const { run: runRow } = createRunWithInitialTurn(db, {
+      runId,
+      turnId,
+      agentId,
+      userId: request.user!.userId,
+      tool: (project.default_tool || 'claude') as RunTool,
+      repoPath: project.repo_path,
+      prompt: generatePrompt,
+      attachments: [],
+    })
+
+    const msg: ServerToAgentMessage = {
+      type: 'run-turn-start',
+      runId,
+      turnId,
+      tool: (project.default_tool || 'claude') as RunTool,
+      repoPath: project.repo_path,
+      prompt: generatePrompt,
+      toolThreadId: runRow.tool_thread_id ?? undefined,
+      attachments: [],
+    }
+    if (!hub.sendToAgent(agentId, msg)) {
+      deleteRun(db, runId)
+      return reply.status(503).send({
+        error: 'Agent became unavailable before the generation could start',
+      })
+    }
+
+    hub.broadcastRunSnapshot(db, runId, turnId)
+    return { runId }
   })
 
   // --- LLM Config routes ---

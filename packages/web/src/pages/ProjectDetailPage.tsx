@@ -8,6 +8,8 @@ import {
   Trash2,
   ExternalLink,
   X,
+  Check,
+  Pencil,
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
@@ -17,6 +19,8 @@ import type {
   Task,
   TaskStatus,
   RunEvent,
+  ProjectAction,
+  RunTool,
 } from '@webmux/shared'
 
 const ACTIVE_TASK_STATUSES: TaskStatus[] = ['dispatched', 'running', 'waiting']
@@ -259,6 +263,268 @@ function ConfirmDeleteModal({
   )
 }
 
+/* ── New Action Modal ───────────────────────────── */
+
+function NewActionModal({
+  onClose,
+  onCreateManual,
+  onGenerate,
+  isSubmitting,
+  formError,
+  defaultTool,
+}: {
+  onClose: () => void
+  onCreateManual: (name: string, prompt: string, description: string, tool: RunTool) => void
+  onGenerate: (description: string) => void
+  isSubmitting: boolean
+  formError: string | null
+  defaultTool: RunTool
+}) {
+  const [mode, setMode] = useState<'ai' | 'manual'>('ai')
+  const [aiDescription, setAiDescription] = useState('')
+  const [name, setName] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const [description, setDescription] = useState('')
+  const [tool, setTool] = useState<RunTool>(defaultTool)
+
+  return (
+    <ModalOverlay onClose={onClose} maxWidth={520}>
+      <div className="td-modal-header">
+        <h2 className="td-modal-title">New Action</h2>
+        <button className="td-modal-close" onClick={onClose} type="button">
+          <X size={18} />
+        </button>
+      </div>
+
+      <div className="td-modal-body">
+        <div className="td-action-mode-tabs">
+          <button
+            className={`td-action-mode-tab ${mode === 'ai' ? 'active' : ''}`}
+            onClick={() => setMode('ai')}
+            type="button"
+          >
+            AI Generate
+          </button>
+          <button
+            className={`td-action-mode-tab ${mode === 'manual' ? 'active' : ''}`}
+            onClick={() => setMode('manual')}
+            type="button"
+          >
+            Manual
+          </button>
+        </div>
+
+        {mode === 'ai' ? (
+          <>
+            <textarea
+              className="td-input td-input-desc"
+              placeholder="Describe the action you want (e.g., 'deploy to production', 'run database migration')"
+              rows={4}
+              value={aiDescription}
+              onChange={(e) => setAiDescription(e.target.value)}
+              autoFocus
+            />
+            {formError && <p className="td-form-error">{formError}</p>}
+            <div className="td-modal-footer">
+              <button className="td-btn td-btn-ghost" onClick={onClose} type="button">
+                Cancel
+              </button>
+              <button
+                className="td-btn td-btn-primary"
+                disabled={isSubmitting || !aiDescription.trim()}
+                onClick={() => onGenerate(aiDescription.trim())}
+                type="button"
+              >
+                {isSubmitting ? <LoaderCircle className="spin" size={14} /> : null}
+                {isSubmitting ? 'Generating...' : 'Generate with AI'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <input
+              className="td-input td-input-title"
+              placeholder="Action name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+            <input
+              className="td-input"
+              placeholder="Description (optional)"
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+            <textarea
+              className="td-input td-input-desc"
+              placeholder="Prompt (the instructions for this action)"
+              rows={4}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+            />
+            <div className="td-tool-selector">
+              <button
+                className={`td-tool-btn ${tool === 'claude' ? 'active' : ''}`}
+                onClick={() => setTool('claude')}
+                type="button"
+              >
+                Claude Code
+              </button>
+              <button
+                className={`td-tool-btn ${tool === 'codex' ? 'active' : ''}`}
+                onClick={() => setTool('codex')}
+                type="button"
+              >
+                Codex
+              </button>
+            </div>
+            {formError && <p className="td-form-error">{formError}</p>}
+            <div className="td-modal-footer">
+              <button className="td-btn td-btn-ghost" onClick={onClose} type="button">
+                Cancel
+              </button>
+              <button
+                className="td-btn td-btn-primary"
+                disabled={isSubmitting || !name.trim() || !prompt.trim()}
+                onClick={() => onCreateManual(name.trim(), prompt.trim(), description.trim(), tool)}
+                type="button"
+              >
+                {isSubmitting ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />}
+                {isSubmitting ? 'Creating...' : 'Create Action'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </ModalOverlay>
+  )
+}
+
+/* ── Edit Action Modal ─────────────────────────── */
+
+function EditActionModal({
+  action,
+  onClose,
+  onSave,
+  isSubmitting,
+  formError,
+}: {
+  action: ProjectAction
+  onClose: () => void
+  onSave: (data: { name: string; description: string; prompt: string; tool: RunTool }) => void
+  isSubmitting: boolean
+  formError: string | null
+}) {
+  const [name, setName] = useState(action.name)
+  const [description, setDescription] = useState(action.description)
+  const [prompt, setPrompt] = useState(action.prompt)
+  const [tool, setTool] = useState<RunTool>(action.tool)
+
+  return (
+    <ModalOverlay onClose={onClose} maxWidth={520}>
+      <div className="td-modal-header">
+        <h2 className="td-modal-title">Edit Action</h2>
+        <button className="td-modal-close" onClick={onClose} type="button">
+          <X size={18} />
+        </button>
+      </div>
+
+      <div className="td-modal-body">
+        <input
+          className="td-input td-input-title"
+          placeholder="Action name"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          autoFocus
+        />
+        <input
+          className="td-input"
+          placeholder="Description (optional)"
+          type="text"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        <textarea
+          className="td-input td-input-desc"
+          placeholder="Prompt"
+          rows={4}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+        />
+        <div className="td-tool-selector">
+          <button
+            className={`td-tool-btn ${tool === 'claude' ? 'active' : ''}`}
+            onClick={() => setTool('claude')}
+            type="button"
+          >
+            Claude Code
+          </button>
+          <button
+            className={`td-tool-btn ${tool === 'codex' ? 'active' : ''}`}
+            onClick={() => setTool('codex')}
+            type="button"
+          >
+            Codex
+          </button>
+        </div>
+        {formError && <p className="td-form-error">{formError}</p>}
+        <div className="td-modal-footer">
+          <button className="td-btn td-btn-ghost" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className="td-btn td-btn-primary"
+            disabled={isSubmitting || !name.trim() || !prompt.trim()}
+            onClick={() => onSave({ name: name.trim(), description: description.trim(), prompt: prompt.trim(), tool })}
+            type="button"
+          >
+            {isSubmitting ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}
+            {isSubmitting ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
+  )
+}
+
+/* ── Confirm Delete Action Modal ───────────────── */
+
+function ConfirmDeleteActionModal({
+  onClose,
+  onConfirm,
+  isDeleting,
+}: {
+  onClose: () => void
+  onConfirm: () => void
+  isDeleting: boolean
+}) {
+  return (
+    <ModalOverlay onClose={onClose} maxWidth={360}>
+      <div className="td-confirm-body">
+        <h2 className="td-confirm-title">Delete action?</h2>
+        <p className="td-confirm-subtitle">This action cannot be undone.</p>
+        <div className="td-modal-footer">
+          <button className="td-btn td-btn-ghost" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className="td-btn td-btn-danger"
+            disabled={isDeleting}
+            onClick={onConfirm}
+            type="button"
+          >
+            <Trash2 size={14} />
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
+  )
+}
+
 /* ── Main Page Component ────────────────────────── */
 
 export function ProjectDetailPage() {
@@ -268,12 +534,22 @@ export function ProjectDetailPage() {
 
   const [project, setProject] = useState<Project | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [actions, setActions] = useState<ProjectAction[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+
+  // Action modals
+  const [showNewActionModal, setShowNewActionModal] = useState(false)
+  const [editingAction, setEditingAction] = useState<ProjectAction | null>(null)
+  const [deleteActionId, setDeleteActionId] = useState<string | null>(null)
+  const [actionSubmitting, setActionSubmitting] = useState(false)
+  const [actionFormError, setActionFormError] = useState<string | null>(null)
+  const [deletingActionId, setDeletingActionId] = useState<string | null>(null)
+  const [executingActionId, setExecutingActionId] = useState<string | null>(null)
 
   // Form state
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -289,9 +565,10 @@ export function ProjectDetailPage() {
     try {
       const res = await fetchApi(`/api/projects/${projectId}`)
       if (!res.ok) throw new Error('Failed to load project')
-      const data = (await res.json()) as { project: Project; tasks: Task[] }
+      const data = (await res.json()) as { project: Project; tasks: Task[]; actions: ProjectAction[] }
       setProject(data.project)
       setTasks(data.tasks)
+      setActions(data.actions || [])
       setError(null)
     } catch (err) {
       setError((err as Error).message)
@@ -410,6 +687,114 @@ export function ProjectDetailPage() {
     }
   }
 
+  // ── Action handlers ──────────────────────────────
+
+  const handleExecuteAction = async (action: ProjectAction) => {
+    if (executingActionId) return
+    setExecutingActionId(action.id)
+    try {
+      const res = await fetchApi(`/api/projects/${projectId}/actions/${action.id}/run`, { method: 'POST' })
+      if (!res.ok) throw new Error('Failed to execute action')
+      const data = await res.json() as { runId: string }
+      navigate(`/agents/${project!.agentId}/threads/${data.runId}`)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setExecutingActionId(null)
+    }
+  }
+
+  const handleCreateActionManual = async (name: string, prompt: string, description: string, tool: RunTool) => {
+    setActionFormError(null)
+    setActionSubmitting(true)
+    try {
+      const body: { name: string; prompt: string; description?: string; tool?: RunTool } = { name, prompt, tool }
+      if (description) body.description = description
+
+      const res = await fetchApi(`/api/projects/${projectId}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null)
+        throw new Error((errData as any)?.error || 'Failed to create action')
+      }
+      const data = (await res.json()) as { action: ProjectAction }
+      setActions((prev) => [...prev, data.action])
+      setShowNewActionModal(false)
+    } catch (err) {
+      setActionFormError((err as Error).message)
+    } finally {
+      setActionSubmitting(false)
+    }
+  }
+
+  const handleGenerateAction = async (description: string) => {
+    setActionFormError(null)
+    setActionSubmitting(true)
+    try {
+      const res = await fetchApi(`/api/projects/${projectId}/actions/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description }),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null)
+        throw new Error((errData as any)?.error || 'Failed to generate action')
+      }
+      const data = (await res.json()) as { runId: string }
+      setShowNewActionModal(false)
+      navigate(`/agents/${project!.agentId}/threads/${data.runId}`)
+    } catch (err) {
+      setActionFormError((err as Error).message)
+    } finally {
+      setActionSubmitting(false)
+    }
+  }
+
+  const handleUpdateAction = async (data: { name: string; description: string; prompt: string; tool: RunTool }) => {
+    if (!editingAction) return
+    setActionFormError(null)
+    setActionSubmitting(true)
+    try {
+      const res = await fetchApi(`/api/projects/${projectId}/actions/${editingAction.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null)
+        throw new Error((errData as any)?.error || 'Failed to update action')
+      }
+      setActions((prev) =>
+        prev.map((a) => (a.id === editingAction.id ? { ...a, ...data } : a)),
+      )
+      setEditingAction(null)
+    } catch (err) {
+      setActionFormError((err as Error).message)
+    } finally {
+      setActionSubmitting(false)
+    }
+  }
+
+  const handleDeleteActionConfirm = async () => {
+    if (!deleteActionId) return
+    try {
+      setDeletingActionId(deleteActionId)
+      const res = await fetchApi(`/api/projects/${projectId}/actions/${deleteActionId}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error('Failed to delete action')
+      setActions((prev) => prev.filter((a) => a.id !== deleteActionId))
+      setDeleteActionId(null)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setDeletingActionId(null)
+    }
+  }
+
   const sortedTasks = [...tasks].sort((a, b) => b.priority - a.priority)
 
   if (isLoading) {
@@ -461,6 +846,60 @@ export function ProjectDetailPage() {
             <span className="project-info-item project-info-desc">{project.description}</span>
           </>
         ) : null}
+      </div>
+
+      {/* Actions */}
+      <div className="td-actions-bar">
+        <div className="td-actions-header">
+          <h3 className="td-actions-title">Actions</h3>
+          <button
+            className="td-action-add-btn"
+            onClick={() => { setActionFormError(null); setShowNewActionModal(true) }}
+            type="button"
+          >
+            <Plus size={14} /> New Action
+          </button>
+        </div>
+        {actions.length > 0 && (
+          <div className="td-actions-grid">
+            {actions.map((action) => (
+              <div key={action.id} className="td-action-card">
+                <div className="td-action-card-body">
+                  <span className="td-action-card-name">{action.name}</span>
+                  {action.description && (
+                    <span className="td-action-card-desc">{action.description}</span>
+                  )}
+                </div>
+                <div className="td-action-card-buttons">
+                  <button
+                    className="td-btn td-btn-primary td-btn-sm"
+                    onClick={() => void handleExecuteAction(action)}
+                    disabled={executingActionId === action.id}
+                    type="button"
+                  >
+                    {executingActionId === action.id ? <LoaderCircle size={12} className="spin" /> : 'Run'}
+                  </button>
+                  <button
+                    className="td-action-icon"
+                    onClick={() => { setActionFormError(null); setEditingAction(action) }}
+                    type="button"
+                    title="Edit"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    className="td-action-icon td-action-danger"
+                    onClick={() => setDeleteActionId(action.id)}
+                    type="button"
+                    title="Delete"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Task list */}
@@ -547,6 +986,35 @@ export function ProjectDetailPage() {
           onClose={() => setDeleteTargetId(null)}
           onConfirm={() => void handleDeleteConfirm()}
           isDeleting={deletingId === deleteTargetId}
+        />
+      )}
+
+      {showNewActionModal && (
+        <NewActionModal
+          onClose={() => setShowNewActionModal(false)}
+          onCreateManual={(n, p, d, t) => void handleCreateActionManual(n, p, d, t)}
+          onGenerate={(d) => void handleGenerateAction(d)}
+          isSubmitting={actionSubmitting}
+          formError={actionFormError}
+          defaultTool={(project.defaultTool || 'claude') as RunTool}
+        />
+      )}
+
+      {editingAction && (
+        <EditActionModal
+          action={editingAction}
+          onClose={() => setEditingAction(null)}
+          onSave={(data) => void handleUpdateAction(data)}
+          isSubmitting={actionSubmitting}
+          formError={actionFormError}
+        />
+      )}
+
+      {deleteActionId && (
+        <ConfirmDeleteActionModal
+          onClose={() => setDeleteActionId(null)}
+          onConfirm={() => void handleDeleteActionConfirm()}
+          isDeleting={deletingActionId === deleteActionId}
         />
       )}
     </div>
