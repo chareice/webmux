@@ -571,6 +571,71 @@ export function registerRoutes(
     }
   })
 
+  // Read global instructions for a tool
+  app.get('/api/agents/:id/instructions', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { tool } = request.query as { tool?: string }
+
+    if (!tool || (tool !== 'claude' && tool !== 'codex')) {
+      return reply.status(400).send({ error: 'Query param "tool" must be "claude" or "codex"' })
+    }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const online = hub.getAgent(id)
+    if (!online) {
+      return reply.status(409).send({ error: 'Agent is offline' })
+    }
+
+    try {
+      const result = await hub.requestReadInstructions(id, tool)
+      return result
+    } catch (err) {
+      return reply.status(502).send({ error: (err as Error).message })
+    }
+  })
+
+  // Write global instructions for a tool
+  app.put('/api/agents/:id/instructions', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { tool, content } = request.body as { tool?: string; content?: string }
+
+    if (!tool || (tool !== 'claude' && tool !== 'codex')) {
+      return reply.status(400).send({ error: '"tool" must be "claude" or "codex"' })
+    }
+    if (typeof content !== 'string') {
+      return reply.status(400).send({ error: '"content" must be a string' })
+    }
+
+    const agent = findAgentById(db, id)
+    if (!agent) {
+      return reply.status(404).send({ error: 'Agent not found' })
+    }
+
+    if (agent.user_id !== request.user!.userId) {
+      return reply.status(403).send({ error: 'Not your agent' })
+    }
+
+    const online = hub.getAgent(id)
+    if (!online) {
+      return reply.status(409).send({ error: 'Agent is offline' })
+    }
+
+    try {
+      await hub.requestWriteInstructions(id, tool, content)
+      return { ok: true }
+    } catch (err) {
+      return reply.status(502).send({ error: (err as Error).message })
+    }
+  })
+
   // --- Run routes ---
 
   // Start a thread
