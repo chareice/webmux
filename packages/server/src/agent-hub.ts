@@ -406,15 +406,19 @@ export class AgentHub {
       this.broadcastRunSnapshot(db, run.id, activeTurn?.id)
     }
 
-    // Fail any dispatched or running tasks for this agent
+    // Reset dispatched/running tasks back to pending so they will be
+    // automatically re-dispatched when the agent reconnects.
+    // 'waiting' tasks are left as-is — the agent preserves their session
+    // (toolThreadId) across reconnections, so user replies still work.
     const activeTasks = db.prepare(
       `SELECT t.id FROM tasks t
        JOIN projects p ON t.project_id = p.id
-       WHERE p.agent_id = ? AND t.status IN ('dispatched', 'running', 'waiting')`,
+       WHERE p.agent_id = ? AND t.status IN ('dispatched', 'running')`,
     ).all(agentId) as Array<{ id: string }>
 
     for (const { id } of activeTasks) {
-      updateTaskStatus(db, id, 'failed', 'Agent disconnected')
+      // Pass null to explicitly clear any stale error_message
+      updateTaskStatus(db, id, 'pending', null)
     }
   }
 

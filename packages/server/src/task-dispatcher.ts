@@ -5,6 +5,7 @@ import {
   findProjectsByAgentId,
   findPendingTasksByProjectId,
   findProjectById,
+  findMessagesByTaskId,
   resolveLlmConfig,
   updateTaskStatus,
 } from './db.js'
@@ -103,6 +104,13 @@ export class TaskDispatcher {
   ): boolean {
     const llmConfig = resolveLlmConfig(this.db, userId, task.project_id)
 
+    // Include existing conversation history when re-dispatching a task
+    // (e.g. after agent reconnection while task was in waiting/running state)
+    const existingMessages = findMessagesByTaskId(this.db, task.id)
+    const conversationHistory = existingMessages.length > 0
+      ? existingMessages.map(m => ({ role: m.role as 'agent' | 'user', content: m.content }))
+      : undefined
+
     const msg: ServerToAgentMessage = {
       type: 'task-dispatch',
       taskId: task.id,
@@ -114,6 +122,7 @@ export class TaskDispatcher {
       llmConfig: llmConfig
         ? { apiBaseUrl: llmConfig.api_base_url, apiKey: llmConfig.api_key, model: llmConfig.model }
         : null,
+      conversationHistory,
     }
 
     const sent = this.hub.sendToAgent(agentId, msg)

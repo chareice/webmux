@@ -5,7 +5,7 @@ import type { AgentUpgradePolicy, ServerToAgentMessage } from '@webmux/shared'
 
 import { hashSecret } from './auth.js'
 import { AgentHub } from './agent-hub.js'
-import { createAgent, createProject, createRunWithInitialTurn, createTask, createUser, findRunById, findRunTurnById, findStepsByTaskId, findTaskById, initDb } from './db.js'
+import { createAgent, createProject, createRunWithInitialTurn, createTask, createTaskMessage, createUser, findRunById, findRunTurnById, findStepsByTaskId, findTaskById, initDb, updateTaskStatus } from './db.js'
 import type { TaskDispatcher } from './task-dispatcher.js'
 
 function createSocket() {
@@ -457,7 +457,7 @@ describe('AgentHub task message handling', () => {
     expect(updated?.completed_at).not.toBeNull()
   })
 
-  it('agent disconnect marks dispatched and running tasks as failed', () => {
+  it('agent disconnect resets dispatched and running tasks to pending', () => {
     const { db, user, agent, project, task, hub } = setupTaskEnv()
 
     // Create a second task in running state
@@ -479,15 +479,111 @@ describe('AgentHub task message handling', () => {
 
     hub.removeAgent(agent.id, db)
 
-    // The first task (dispatched) should be failed
+    // The first task (dispatched) should be reset to pending
     const updatedTask1 = findTaskById(db, task.id)
-    expect(updatedTask1?.status).toBe('failed')
-    expect(updatedTask1?.error_message).toBe('Agent disconnected')
+    expect(updatedTask1?.status).toBe('pending')
+    expect(updatedTask1?.error_message).toBeNull()
 
-    // The second task (running) should also be failed
+    // The second task (running) should also be reset to pending
     const updatedTask2 = findTaskById(db, task2.id)
-    expect(updatedTask2?.status).toBe('failed')
-    expect(updatedTask2?.error_message).toBe('Agent disconnected')
+    expect(updatedTask2?.status).toBe('pending')
+    expect(updatedTask2?.error_message).toBeNull()
+  })
+
+  it('agent disconnect keeps waiting tasks as waiting', () => {
+    const { db, user, agent, project, hub } = setupTaskEnv()
+
+    const waitingTask = createTask(db, {
+      projectId: project.id,
+      title: 'Waiting for user',
+      prompt: 'Need input',
+    })
+    updateTaskStatus(db, waitingTask.id, 'waiting')
+
+    // Add some conversation history to the waiting task
+    createTaskMessage(db, waitingTask.id, 'agent', 'I need some clarification')
+
+    ;(hub as unknown as {
+      agents: Map<string, { socket: { close: () => void }; userId: string; name: string }>
+    }).agents.set(agent.id, {
+      socket: { close: vi.fn() },
+      userId: user.id,
+      name: agent.name,
+    })
+
+    hub.removeAgent(agent.id, db)
+
+    // Waiting tasks should remain in waiting state
+    const updated = findTaskById(db, waitingTask.id)
+    expect(updated?.status).toBe('waiting')
+  })
+
+  it('agent disconnect handles mixed task states correctly', () => {
+    const { db, user, agent, project, hub } = setupTaskEnv()
+
+    // Create tasks in various states
+    const pendingTask = createTask(db, { projectId: project.id, title: 'pending', prompt: 'p' })
+    // pendingTask stays in default pending state
+
+    const dispatchedTask = createTask(db, { projectId: project.id, title: 'dispatched', prompt: 'p' })
+    updateTaskStatus(db, dispatchedTask.id, 'dispatched')
+
+    const runningTask = createTask(db, { projectId: project.id, title: 'running', prompt: 'p' })
+    updateTaskStatus(db, runningTask.id, 'running')
+
+    const waitingTask = createTask(db, { projectId: project.id, title: 'waiting', prompt: 'p' })
+    updateTaskStatus(db, waitingTask.id, 'waiting')
+
+    const completedTask = createTask(db, { projectId: project.id, title: 'completed', prompt: 'p' })
+    updateTaskStatus(db, completedTask.id, 'completed')
+
+    const failedTask = createTask(db, { projectId: project.id, title: 'failed', prompt: 'p' })
+    updateTaskStatus(db, failedTask.id, 'failed', 'previous error')
+
+    ;(hub as unknown as {
+      agents: Map<string, { socket: { close: () => void }; userId: string; name: string }>
+    }).agents.set(agent.id, {
+      socket: { close: vi.fn() },
+      userId: user.id,
+      name: agent.name,
+    })
+
+    hub.removeAgent(agent.id, db)
+
+    expect(findTaskById(db, pendingTask.id)?.status).toBe('pending')
+    expect(findTaskById(db, dispatchedTask.id)?.status).toBe('pending')
+    expect(findTaskById(db, runningTask.id)?.status).toBe('pending')
+    expect(findTaskById(db, waitingTask.id)?.status).toBe('waiting')
+    expect(findTaskById(db, completedTask.id)?.status).toBe('completed')
+    expect(findTaskById(db, failedTask.id)?.status).toBe('failed')
+  })
+
+  it('agent disconnect clears stale error_message when resetting to pending', () => {
+    const { db, user, agent, project, hub } = setupTaskEnv()
+
+    // Simulate a task that was previously failed with an error, retried, and now running
+    const task = createTask(db, { projectId: project.id, title: 'retried task', prompt: 'p' })
+    updateTaskStatus(db, task.id, 'failed', 'previous failure reason')
+    // Simulate retry: status goes back to running but error_message is stale
+    db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(task.id)
+
+    // Verify the stale error_message is still there
+    expect(findTaskById(db, task.id)?.error_message).toBe('previous failure reason')
+
+    ;(hub as unknown as {
+      agents: Map<string, { socket: { close: () => void }; userId: string; name: string }>
+    }).agents.set(agent.id, {
+      socket: { close: vi.fn() },
+      userId: user.id,
+      name: agent.name,
+    })
+
+    hub.removeAgent(agent.id, db)
+
+    const updated = findTaskById(db, task.id)
+    expect(updated?.status).toBe('pending')
+    // Stale error_message must be cleared
+    expect(updated?.error_message).toBeNull()
   })
 
   it('ignores task-claimed for nonexistent task', () => {
