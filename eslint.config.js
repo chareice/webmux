@@ -8,7 +8,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
   globalIgnores(['coverage', 'dist']),
   {
-    files: ['server/**/*.ts', 'shared/**/*.ts', 'vite.config.ts', 'vitest.config.ts'],
+    files: ['shared/**/*.ts', 'vite.config.ts', 'vitest.config.ts'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,

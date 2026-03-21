@@ -3,8 +3,6 @@ FROM node:22-slim AS frontend
 RUN corepack enable pnpm
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN mkdir -p packages/agent && echo '{"name":"@webmux/agent","version":"0.0.0","private":true}' > packages/agent/package.json
-RUN mkdir -p packages/server && echo '{"name":"@webmux/server","version":"0.0.0","private":true}' > packages/server/package.json
 COPY packages/shared packages/shared
 COPY packages/web packages/web
 RUN pnpm install --no-frozen-lockfile

@@ -2,8 +2,6 @@
   "files": [],
   "references": [
     { "path": "./packages/shared" },
-    { "path": "./packages/server" },
-    { "path": "./packages/agent" },
     { "path": "./packages/web" }
   ]
 }
