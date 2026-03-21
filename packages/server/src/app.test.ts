@@ -1008,7 +1008,7 @@ describe('project and task routes', () => {
         id: 'img-1',
         name: 'error.png',
         mimeType: 'image/png',
-        sizeBytes: 4,
+        sizeBytes: 3,
         base64: 'AAAA',
       },
     ]
