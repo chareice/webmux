@@ -1242,6 +1242,32 @@ export function registerRoutes(
     return { ok: true }
   })
 
+  // Interrupt a running task (user action)
+  app.post('/api/projects/:id/tasks/:taskId/interrupt', { preHandler: authPreHandler }, async (request, reply) => {
+    const { id, taskId } = request.params as { id: string; taskId: string }
+
+    const project = findProjectById(db, id)
+    if (!project || project.user_id !== request.user!.userId) {
+      return reply.status(404).send({ error: 'Project not found' })
+    }
+
+    const task = findTaskById(db, taskId)
+    if (!task || task.project_id !== id) {
+      return reply.status(404).send({ error: 'Task not found' })
+    }
+
+    if (task.status !== 'running' && task.status !== 'dispatched') {
+      return reply.status(409).send({ error: 'Task is not running' })
+    }
+
+    const msg: ServerToAgentMessage = { type: 'task-interrupt', taskId }
+    if (!hub.sendToAgent(project.agent_id, msg)) {
+      return reply.status(502).send({ error: 'Agent is not connected' })
+    }
+
+    return { ok: true }
+  })
+
   // --- Task Steps ---
 
   app.get('/api/projects/:id/tasks/:taskId/steps', { preHandler: authPreHandler }, async (request, reply) => {
