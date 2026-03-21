@@ -17,7 +17,11 @@ import {
   User,
   ImagePlus,
   ChevronDown,
+  ChevronRight,
   Pencil,
+  Terminal,
+  Clock,
+  Hourglass,
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
@@ -162,9 +166,10 @@ function StatusCircle({ status, size = 18 }: { status: TaskStatus; size?: number
 function StepItem({ step }: { step: TaskStep }) {
   const [expanded, setExpanded] = useState(false)
   const hasDetail = !!step.detail
+  const isCommand = step.type === 'command' || step.type === 'read_file'
 
   return (
-    <div className={`td-activity-item td-activity-${step.status} ${hasDetail ? 'td-activity-clickable' : ''}`}>
+    <div className={`td-activity-item td-activity-${step.status} ${hasDetail ? 'td-activity-clickable' : ''} ${isCommand ? 'td-activity-command' : ''}`}>
       <div className="td-activity-row" onClick={() => hasDetail && setExpanded(!expanded)}>
         <span className="td-activity-icon">
           {step.status === 'completed' ? (
@@ -175,9 +180,21 @@ function StepItem({ step }: { step: TaskStep }) {
             <CircleAlert size={12} />
           )}
         </span>
-        <span className="td-activity-label">{step.label}</span>
+        {isCommand ? (
+          <span className="td-activity-label td-activity-label-code">
+            <Terminal size={11} className="td-activity-terminal-icon" />
+            <code>{step.label}</code>
+          </span>
+        ) : (
+          <span className="td-activity-label">{step.label}</span>
+        )}
         {step.durationMs != null && (
           <span className="td-activity-duration">{formatDuration(step.durationMs)}</span>
+        )}
+        {hasDetail && (
+          <span className={`td-activity-chevron ${expanded ? 'td-activity-chevron-open' : ''}`}>
+            <ChevronRight size={12} />
+          </span>
         )}
       </div>
       {expanded && step.detail && (
@@ -220,6 +237,7 @@ type TimelineItem =
   | { type: 'step-group'; data: TaskStep[]; timestamp: number }
   | { type: 'summary'; text: string; timestamp: number }
   | { type: 'error'; text: string; timestamp: number }
+  | { type: 'turn-separator'; timestamp: number }
 
 function buildUnifiedTimeline(
   messages: TaskMessage[],
@@ -269,7 +287,24 @@ function buildUnifiedTimeline(
     result.push({ type: 'step-group', data: currentStepGroup, timestamp: groupTimestamp })
   }
 
-  return result
+  // Insert turn separators between exchanges (user message followed by agent content)
+  const withSeparators: TimelineItem[] = []
+  for (let i = 0; i < result.length; i++) {
+    const item = result[i]
+    const prev = i > 0 ? result[i - 1] : null
+    // Insert a separator before a user message if the previous item was agent content
+    if (
+      item.type === 'message' &&
+      (item.data as TaskMessage).role === 'user' &&
+      prev != null &&
+      (prev.type === 'step-group' || (prev.type === 'message' && (prev.data as TaskMessage).role === 'agent') || prev.type === 'summary')
+    ) {
+      withSeparators.push({ type: 'turn-separator', timestamp: item.timestamp })
+    }
+    withSeparators.push(item)
+  }
+
+  return withSeparators
 }
 
 /* ── Task Detail Modal ──────────────────────────── */
@@ -320,11 +355,14 @@ function TaskDetailModal({
     }
   }, [timeline.length])
 
+  const isTerminal = task.status === 'completed' || task.status === 'failed'
+  const isInputDisabled = sendingReply || isTerminal
+
   return (
-    <ModalOverlay onClose={onClose}>
-      <div className="td-modal-header">
+    <ModalOverlay onClose={onClose} maxWidth={720}>
+      <div className="td-modal-header td-modal-header-tinted">
         <div className="td-modal-title-row">
-          <StatusCircle status={task.status} size={22} />
+          <StatusCircle status={task.status} size={24} />
           <h2 className="td-modal-title">{task.title}</h2>
         </div>
         <button className="td-modal-close" onClick={onClose} type="button">
@@ -333,12 +371,15 @@ function TaskDetailModal({
       </div>
 
       <div className="td-modal-meta-bar">
-        <span className={`td-status-badge-sm td-status-${task.status}`}>
+        <span className={`td-status-badge-lg td-status-${task.status}`}>
           {taskStatusLabel(task.status)}
         </span>
         {task.priority !== 0 && <span className="td-meta-pill">P{task.priority}</span>}
-        {task.branchName && <span className="td-meta-pill">{task.branchName}</span>}
-        <span className="td-meta-time">{timeAgo(task.createdAt)}</span>
+        {task.branchName && <span className="td-meta-pill td-meta-pill-branch">{task.branchName}</span>}
+        <span className="td-meta-time">
+          <Clock size={11} />
+          {timeAgo(task.createdAt)}
+        </span>
       </div>
 
       <div className="td-timeline" ref={chatRef}>
@@ -347,10 +388,22 @@ function TaskDetailModal({
         )}
 
         {timeline.length === 0 && task.status === 'pending' && (
-          <div className="td-timeline-empty">Task is pending...</div>
+          <div className="td-timeline-pending">
+            <Hourglass size={28} className="td-pending-icon" />
+            <span className="td-pending-text">Waiting for agent to pick up this task...</span>
+          </div>
         )}
 
         {timeline.map((item, i) => {
+          if (item.type === 'turn-separator') {
+            return (
+              <div key={`sep-${i}`} className="td-turn-separator">
+                <span className="td-turn-separator-line" />
+                <span className="td-turn-separator-label">{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                <span className="td-turn-separator-line" />
+              </div>
+            )
+          }
           if (item.type === 'message') {
             const msg = item.data as TaskMessage
             const isAgent = msg.role === 'agent'
@@ -359,11 +412,11 @@ function TaskDetailModal({
                 <div className="td-chat-bubble-header">
                   {isAgent ? <Bot size={14} /> : <User size={14} />}
                   <span className="td-chat-bubble-role">{isAgent ? 'Agent' : 'You'}</span>
+                  <span className="td-chat-bubble-time">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
                 <div className="td-chat-bubble-content td-markdown">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                 </div>
-                <div className="td-chat-bubble-meta">{timeAgo(msg.createdAt)}</div>
               </div>
             )
           }
@@ -395,80 +448,88 @@ function TaskDetailModal({
       </div>
 
       <div className="td-modal-bottom">
-        {attachments.length > 0 && (
-          <div className="td-attachment-previews">
-            {attachments.map((a) => (
-              <div key={a.id} className="td-attachment-thumb">
-                <img src={a.previewUrl} alt={a.file.name} />
-                <button className="td-attachment-remove" onClick={() => onRemoveAttachment(a.id)} type="button">
-                  <X size={10} />
-                </button>
+        {!isTerminal && (
+          <>
+            {attachments.length > 0 && (
+              <div className="td-attachment-previews">
+                {attachments.map((a) => (
+                  <div key={a.id} className="td-attachment-thumb">
+                    <img src={a.previewUrl} alt={a.file.name} />
+                    <button className="td-attachment-remove" onClick={() => onRemoveAttachment(a.id)} type="button">
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+            <div className="td-chat-input-row">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="visually-hidden"
+                onChange={(e) => { onFilesSelected(e.target.files); if (fileInputRef.current) fileInputRef.current.value = '' }}
+              />
+              <button
+                className="td-chat-attach"
+                disabled={attachments.length >= MAX_ATTACHMENTS || isInputDisabled}
+                onClick={() => fileInputRef.current?.click()}
+                title={`Attach images (${attachments.length}/${MAX_ATTACHMENTS})`}
+                type="button"
+              >
+                <ImagePlus size={16} />
+              </button>
+              <input
+                className="td-chat-input"
+                placeholder={isTerminal ? 'Task is finished' : 'Type a message...'}
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && (replyText.trim() || attachments.length > 0)) { e.preventDefault(); onSendReply() } }}
+                onPaste={(e) => {
+                  const files = e.clipboardData?.files
+                  if (files?.length) { e.preventDefault(); onFilesSelected(files) }
+                }}
+                disabled={isInputDisabled}
+              />
+              <button
+                className="td-chat-send"
+                disabled={(!replyText.trim() && attachments.length === 0) || isInputDisabled}
+                onClick={onSendReply}
+                type="button"
+              >
+                <Send size={16} />
+              </button>
+            </div>
+          </>
         )}
-        <div className="td-chat-input-row">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="visually-hidden"
-            onChange={(e) => { onFilesSelected(e.target.files); if (fileInputRef.current) fileInputRef.current.value = '' }}
-          />
-          <button
-            className="td-chat-attach"
-            disabled={attachments.length >= MAX_ATTACHMENTS}
-            onClick={() => fileInputRef.current?.click()}
-            title={`Attach images (${attachments.length}/${MAX_ATTACHMENTS})`}
-            type="button"
-          >
-            <ImagePlus size={16} />
-          </button>
-          <input
-            className="td-chat-input"
-            placeholder="Type a message..."
-            value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && (replyText.trim() || attachments.length > 0)) { e.preventDefault(); onSendReply() } }}
-            onPaste={(e) => {
-              const files = e.clipboardData?.files
-              if (files?.length) { e.preventDefault(); onFilesSelected(files) }
-            }}
-            disabled={sendingReply}
-          />
-          <button
-            className="td-chat-send"
-            disabled={(!replyText.trim() && attachments.length === 0) || sendingReply}
-            onClick={onSendReply}
-            type="button"
-          >
-            <Send size={16} />
-          </button>
-        </div>
         <div className="td-modal-actions-row">
-          {task.runId && (
-            <Link
-              className="td-btn td-btn-ghost td-btn-sm"
-              to={`/agents/${project.agentId}/threads/${task.runId}`}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ExternalLink size={14} /> View Run
-            </Link>
-          )}
-          {task.status !== 'completed' && task.status !== 'pending' && (
-            <button className="td-btn td-btn-success td-btn-sm" onClick={() => onMarkComplete(task.id)} type="button">
-              <Check size={14} /> Complete
+          <div className="td-actions-left">
+            {task.runId && (
+              <Link
+                className="td-btn td-btn-ghost td-btn-sm"
+                to={`/agents/${project.agentId}/threads/${task.runId}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink size={14} /> View Run
+              </Link>
+            )}
+            {task.status === 'failed' && (
+              <button className="td-btn td-btn-secondary td-btn-sm" disabled={retrying} onClick={() => onRetry(task.id)} type="button">
+                <RotateCcw size={14} /> Retry
+              </button>
+            )}
+          </div>
+          <div className="td-actions-right">
+            {task.status !== 'completed' && task.status !== 'pending' && (
+              <button className={`td-btn td-btn-success ${task.status === 'waiting' ? 'td-btn-primary-action' : 'td-btn-sm'}`} onClick={() => onMarkComplete(task.id)} type="button">
+                <Check size={14} /> Complete
+              </button>
+            )}
+            <button className="td-btn td-btn-danger td-btn-sm td-btn-danger-subtle" onClick={() => onDelete(task.id)} type="button">
+              <Trash2 size={14} /> Delete
             </button>
-          )}
-          {task.status === 'failed' && (
-            <button className="td-btn td-btn-secondary td-btn-sm" disabled={retrying} onClick={() => onRetry(task.id)} type="button">
-              <RotateCcw size={14} /> Retry
-            </button>
-          )}
-          <button className="td-btn td-btn-danger td-btn-sm" onClick={() => onDelete(task.id)} type="button">
-            <Trash2 size={14} /> Delete
-          </button>
+          </div>
         </div>
       </div>
     </ModalOverlay>
