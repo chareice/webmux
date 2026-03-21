@@ -12,7 +12,7 @@ RUN pnpm --filter @webmux/shared build
 RUN pnpm --filter @webmux/web build
 
 # Stage 2: Build Rust server
-FROM rust:1.87-slim AS builder
+FROM rust:slim AS builder
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY rust/ .
