@@ -966,3 +966,70 @@ describe('tasks', () => {
     expect(found?.error_message).toBeNull()
   })
 })
+
+describe('server restart task recovery', () => {
+  it('resets dispatched/running tasks to pending on server restart', () => {
+    // Use a file-based database so we can re-init to simulate server restart
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'webmux-restart-'))
+    const dbPath = path.join(tempDir, 'webmux.db')
+
+    // First init: create data
+    const db1 = initDb(dbPath)
+    const user = createUser(db1, {
+      provider: 'github',
+      providerId: '1',
+      displayName: 'owner',
+      avatarUrl: null,
+    })
+    const agent = createAgent(db1, { userId: user.id, name: 'runner', agentSecretHash: 'hash' })
+    updateAgentStatus(db1, agent.id, 'online')
+    const project = createProject(db1, {
+      userId: user.id,
+      agentId: agent.id,
+      name: 'test-project',
+      repoPath: '/tmp/p',
+    })
+
+    // Create tasks in various states
+    const dispatchedTask = createTask(db1, { projectId: project.id, title: 'dispatched', prompt: 'go' })
+    updateTaskStatus(db1, dispatchedTask.id, 'dispatched')
+
+    const runningTask = createTask(db1, { projectId: project.id, title: 'running', prompt: 'go' })
+    updateTaskStatus(db1, runningTask.id, 'running')
+
+    const waitingTask = createTask(db1, { projectId: project.id, title: 'waiting', prompt: 'go' })
+    updateTaskStatus(db1, waitingTask.id, 'waiting')
+
+    const pendingTask = createTask(db1, { projectId: project.id, title: 'pending', prompt: 'go' })
+
+    const completedTask = createTask(db1, { projectId: project.id, title: 'completed', prompt: 'go' })
+    updateTaskStatus(db1, completedTask.id, 'completed')
+
+    const failedTask = createTask(db1, { projectId: project.id, title: 'failed', prompt: 'go' })
+    updateTaskStatus(db1, failedTask.id, 'failed', 'previous error')
+
+    db1.close()
+
+    // Second init: simulates server restart
+    const db2 = initDb(dbPath)
+
+    // dispatched and running tasks should be reset to pending
+    expect(findTaskById(db2, dispatchedTask.id)?.status).toBe('pending')
+    expect(findTaskById(db2, dispatchedTask.id)?.error_message).toBeNull()
+
+    expect(findTaskById(db2, runningTask.id)?.status).toBe('pending')
+    expect(findTaskById(db2, runningTask.id)?.error_message).toBeNull()
+
+    // waiting tasks should remain waiting
+    expect(findTaskById(db2, waitingTask.id)?.status).toBe('waiting')
+
+    // pending/completed/failed should be unchanged
+    expect(findTaskById(db2, pendingTask.id)?.status).toBe('pending')
+    expect(findTaskById(db2, completedTask.id)?.status).toBe('completed')
+    expect(findTaskById(db2, failedTask.id)?.status).toBe('failed')
+    expect(findTaskById(db2, failedTask.id)?.error_message).toBe('previous error')
+
+    db2.close()
+    rmSync(tempDir, { recursive: true, force: true })
+  })
+})
