@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/webmux-shared",
+    "crates/webmux-server",
+    "crates/webmux-agent",
+]

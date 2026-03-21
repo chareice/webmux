@@ -29,3 +29,6 @@ dist-ssr
 *.db-wal
 *.db-shm
 *.tsbuildinfo
+
+# Rust
+rust/target/

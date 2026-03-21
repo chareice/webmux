@@ -1,0 +1,202 @@
+use std::process::Stdio;
+
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, Command};
+use tokio::sync::mpsc;
+use tracing::{debug, warn};
+
+use super::event::ClaudeMessage;
+use webmux_shared::RunImageAttachmentUpload;
+
+/// Options for spawning a Claude CLI subprocess.
+pub struct ClaudeClientOptions {
+    pub cwd: String,
+    pub resume: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+/// Handle returned from `start_claude`. Receives parsed events via channel.
+pub struct ClaudeHandle {
+    child: Option<Child>,
+    pub rx: mpsc::Receiver<ClaudeStreamEvent>,
+}
+
+/// Events produced by the Claude subprocess.
+pub enum ClaudeStreamEvent {
+    /// A parsed JSONL message from stdout.
+    Message(ClaudeMessage),
+    /// The subprocess exited.
+    Done,
+    /// An error occurred.
+    Error(String),
+}
+
+impl ClaudeHandle {
+    /// Send SIGINT to the Claude process (interrupt).
+    pub fn interrupt(&mut self) {
+        #[cfg(unix)]
+        {
+            if let Some(child) = &self.child {
+                if let Some(id) = child.id() {
+                    // Safety: sending SIGINT to a known child process
+                    unsafe {
+                        libc::kill(id as libc::pid_t, libc::SIGINT);
+                    }
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            // On non-unix, fall back to killing the process
+            self.close();
+        }
+    }
+
+    /// Kill the subprocess.
+    pub fn close(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.start_kill();
+        }
+    }
+}
+
+impl Drop for ClaudeHandle {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+/// Build a prompt string that embeds base64 image attachments as data URIs
+/// in a markdown image tag. (The Claude CLI `--print --output-format stream-json`
+/// does not support multi-content messages directly, so we inline images into
+/// the prompt text.)
+pub fn build_claude_prompt_with_images(
+    prompt: &str,
+    attachments: &[RunImageAttachmentUpload],
+) -> String {
+    if attachments.is_empty() {
+        return prompt.to_string();
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    for attachment in attachments {
+        parts.push(format!(
+            "![{}](data:{};base64,{})",
+            attachment.name, attachment.mime_type, attachment.base64
+        ));
+    }
+    let trimmed = prompt.trim();
+    if !trimmed.is_empty() {
+        parts.push(trimmed.to_string());
+    }
+    parts.join("\n\n")
+}
+
+/// Spawn the `claude` CLI process and return a handle.
+///
+/// The process is started with `--print --output-format stream-json` so that
+/// it emits one JSON object per line on stdout. We read those lines, parse
+/// them as `ClaudeMessage`, and forward them over a channel.
+pub fn start_claude(
+    prompt: &str,
+    options: &ClaudeClientOptions,
+) -> Result<ClaudeHandle, String> {
+    let claude_bin = std::env::var("WEBMUX_CLAUDE_PATH")
+        .unwrap_or_else(|_| "claude".to_string());
+
+    let mut cmd = Command::new(&claude_bin);
+    cmd.arg("--print")
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--dangerously-skip-permissions")
+        .arg("--cwd")
+        .arg(&options.cwd);
+
+    if let Some(model) = &options.model {
+        cmd.arg("--model").arg(model);
+    }
+
+    if let Some(resume) = &options.resume {
+        cmd.arg("--resume").arg(resume);
+    }
+
+    if let Some(effort) = &options.effort {
+        cmd.arg("--effort").arg(effort);
+    }
+
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to spawn claude: {e}"))?;
+
+    // Write prompt to stdin
+    let prompt_owned = prompt.to_string();
+    let mut stdin = child.stdin.take().expect("stdin is piped");
+    tokio::spawn(async move {
+        if let Err(e) = stdin.write_all(prompt_owned.as_bytes()).await {
+            warn!("failed to write prompt to claude stdin: {e}");
+        }
+        drop(stdin); // close stdin
+    });
+
+    // Read stderr in background (for diagnostics)
+    let stderr = child.stderr.take().expect("stderr is piped");
+    tokio::spawn(async move {
+        let reader = BufReader::new(stderr);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            debug!(target: "claude_stderr", "{}", line);
+        }
+    });
+
+    // Read stdout JSONL and parse
+    let stdout = child.stdout.take().expect("stdout is piped");
+    let (tx, rx) = mpsc::channel::<ClaudeStreamEvent>(256);
+
+    tokio::spawn(async move {
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+
+        loop {
+            match lines.next_line().await {
+                Ok(Some(line)) => {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    match serde_json::from_str::<ClaudeMessage>(trimmed) {
+                        Ok(msg) => {
+                            if tx.send(ClaudeStreamEvent::Message(msg)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            warn!("failed to parse claude JSONL: {e} — line: {trimmed}");
+                        }
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    let _ = tx
+                        .send(ClaudeStreamEvent::Error(format!(
+                            "failed to read claude stdout: {e}"
+                        )))
+                        .await;
+                    break;
+                }
+            }
+        }
+
+        let _ = tx.send(ClaudeStreamEvent::Done).await;
+    });
+
+    Ok(ClaudeHandle {
+        child: Some(child),
+        rx,
+    })
+}
+
