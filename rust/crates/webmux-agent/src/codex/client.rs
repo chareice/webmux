@@ -65,10 +65,7 @@ pub fn start_codex(
     let mut cmd = Command::new(&codex_bin);
     cmd.arg("exec").arg("--experimental-json");
 
-    if let Some(ref resume_id) = options.resume_thread_id {
-        cmd.arg("resume").arg(resume_id);
-    }
-
+    // Configuration options must come BEFORE the resume subcommand
     cmd.arg("--sandbox")
         .arg("workspace-write")
         .arg("--skip-git-repo-check")
@@ -83,6 +80,11 @@ pub fn start_codex(
 
     if let Some(ref effort) = options.reasoning_effort {
         cmd.arg("--reasoning-effort").arg(effort);
+    }
+
+    // resume subcommand goes after all options
+    if let Some(ref resume_id) = options.resume_thread_id {
+        cmd.arg("resume").arg(resume_id);
     }
 
     cmd.stdin(Stdio::piped())
