@@ -1136,7 +1136,7 @@ export function updateTaskStatus(
   db: Database.Database,
   taskId: string,
   status: string,
-  errorMessage?: string,
+  errorMessage?: string | null,
 ): void {
   const now = Date.now()
   const sets: string[] = ['status = ?', 'updated_at = ?']

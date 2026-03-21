@@ -417,7 +417,8 @@ export class AgentHub {
     ).all(agentId) as Array<{ id: string }>
 
     for (const { id } of activeTasks) {
-      updateTaskStatus(db, id, 'pending')
+      // Pass null to explicitly clear any stale error_message
+      updateTaskStatus(db, id, 'pending', null)
     }
   }
 

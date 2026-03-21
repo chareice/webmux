@@ -558,6 +558,34 @@ describe('AgentHub task message handling', () => {
     expect(findTaskById(db, failedTask.id)?.status).toBe('failed')
   })
 
+  it('agent disconnect clears stale error_message when resetting to pending', () => {
+    const { db, user, agent, project, hub } = setupTaskEnv()
+
+    // Simulate a task that was previously failed with an error, retried, and now running
+    const task = createTask(db, { projectId: project.id, title: 'retried task', prompt: 'p' })
+    updateTaskStatus(db, task.id, 'failed', 'previous failure reason')
+    // Simulate retry: status goes back to running but error_message is stale
+    db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run(task.id)
+
+    // Verify the stale error_message is still there
+    expect(findTaskById(db, task.id)?.error_message).toBe('previous failure reason')
+
+    ;(hub as unknown as {
+      agents: Map<string, { socket: { close: () => void }; userId: string; name: string }>
+    }).agents.set(agent.id, {
+      socket: { close: vi.fn() },
+      userId: user.id,
+      name: agent.name,
+    })
+
+    hub.removeAgent(agent.id, db)
+
+    const updated = findTaskById(db, task.id)
+    expect(updated?.status).toBe('pending')
+    // Stale error_message must be cleared
+    expect(updated?.error_message).toBeNull()
+  })
+
   it('ignores task-claimed for nonexistent task', () => {
     const { db, agent, hub } = setupTaskEnv()
 

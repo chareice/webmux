@@ -373,7 +373,7 @@ export class AgentConnection {
     title: string,
     prompt: string,
     _llmConfig: { apiBaseUrl: string; apiKey: string; model: string } | null,
-    _conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>,
+    conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>,
     attachments?: RunImageAttachmentUpload[],
   ): void {
     this.sendMessage({ type: 'task-claimed', taskId })
@@ -385,10 +385,19 @@ export class AgentConnection {
     this.taskSessions.set(taskId, { repoPath, tool, toolThreadId })
 
     if (toolThreadId) {
-      // Resume existing code agent session
+      // Resume existing code agent session (same-process reconnect)
       this.startTaskRun(taskId, repoPath, tool,
         'The previous session was interrupted due to a connection issue. Please continue where you left off.',
         toolThreadId, attachments)
+    } else if (conversationHistory && conversationHistory.length > 0) {
+      // No toolThreadId but has conversation history (agent process restarted).
+      // Inject history into the prompt so the new session has context.
+      const historyBlock = conversationHistory
+        .map(m => `[${m.role}]: ${m.content}`)
+        .join('\n\n')
+      this.startTaskRun(taskId, repoPath, tool,
+        `Task: ${title}\n\n${prompt}\n\n--- Previous conversation ---\n${historyBlock}\n\nPlease continue from where the previous session left off.`,
+        undefined, attachments)
     } else {
       this.startTaskRun(taskId, repoPath, tool, `Task: ${title}\n\n${prompt}`, undefined, attachments)
     }
