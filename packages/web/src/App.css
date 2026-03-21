@@ -4001,6 +4001,7 @@
 .td-task-list {
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .td-empty-hint {
@@ -4012,19 +4013,34 @@
 .td-task-row {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
-  padding: 0.65rem 0.5rem;
+  gap: 0.75rem;
+  padding: 0.75rem 0.65rem;
   border-bottom: 1px solid var(--border-soft);
+  border-left: 3px solid transparent;
+  border-radius: 4px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.td-task-row:last-child {
+  border-bottom: none;
 }
 
 .td-task-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(122, 162, 247, 0.04);
 }
 
-.td-task-row:hover .td-task-actions {
-  opacity: 1;
+/* Status left border color per task status */
+.td-task-running  { border-left-color: var(--accent); }
+.td-task-waiting  { border-left-color: var(--warning); }
+.td-task-dispatched { border-left-color: var(--warning); }
+.td-task-failed   { border-left-color: var(--danger); }
+.td-task-completed { border-left-color: transparent; }
+.td-task-pending  { border-left-color: transparent; }
+
+/* Active pulse for running tasks */
+.td-task-running {
+  animation: pulse-border 2s ease-in-out infinite;
 }
 
 .td-task-body {
@@ -4032,7 +4048,14 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+}
+
+.td-task-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
 .td-task-title {
@@ -4044,9 +4067,46 @@
   text-overflow: ellipsis;
 }
 
+/* Completed tasks: dimmed text, no strikethrough */
 .td-task-completed .td-task-title {
-  text-decoration: line-through;
   color: var(--muted);
+  opacity: 0.8;
+}
+
+/* Status badge inline with title */
+.td-task-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  flex-shrink: 0;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+
+/* Tool label (Claude/Codex) */
+.td-task-tool-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+
+.td-tool-claude {
+  background: rgba(122, 162, 247, 0.15);
+  color: var(--accent);
+}
+
+.td-tool-codex {
+  background: rgba(158, 206, 106, 0.15);
+  color: var(--success);
 }
 
 .td-task-summary-preview {
@@ -4064,13 +4124,18 @@
   flex-shrink: 0;
 }
 
+/* Action buttons: always visible but subtle */
 .td-task-actions {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  opacity: 0;
+  gap: 0.25rem;
+  opacity: 0.45;
   transition: opacity 0.12s;
   flex-shrink: 0;
+}
+
+.td-task-row:hover .td-task-actions {
+  opacity: 1;
 }
 
 .td-action-icon {

@@ -1721,14 +1721,22 @@ export function ProjectsPage() {
                   ) : (
                     sortedTasks.map((task) => (
                       <div
-                        className={`td-task-row ${task.status === 'completed' ? 'td-task-completed' : ''}`}
+                        className={`td-task-row td-task-${task.status}`}
                         key={task.id}
                         onClick={() => setSelectedTask(task)}
                       >
                         <StatusCircle status={task.status} />
                         <div className="td-task-body">
-                          <span className="td-task-title">{task.title}</span>
-                          {task.status === 'completed' && task.summary && (
+                          <div className="td-task-title-row">
+                            <span className="td-task-title">{task.title}</span>
+                            <span className={`td-task-status-badge td-status-${task.status}`}>
+                              {taskStatusLabel(task.status)}
+                            </span>
+                            <span className={`td-task-tool-label td-tool-${task.tool}`}>
+                              {task.tool === 'codex' ? 'Codex' : 'Claude'}
+                            </span>
+                          </div>
+                          {task.summary && (
                             <span className="td-task-summary-preview">{task.summary}</span>
                           )}
                         </div>
