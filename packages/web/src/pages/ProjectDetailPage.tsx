@@ -549,6 +549,7 @@ export function ProjectDetailPage() {
   const [actionSubmitting, setActionSubmitting] = useState(false)
   const [actionFormError, setActionFormError] = useState<string | null>(null)
   const [deletingActionId, setDeletingActionId] = useState<string | null>(null)
+  const [executingActionId, setExecutingActionId] = useState<string | null>(null)
 
   // Form state
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -689,6 +690,8 @@ export function ProjectDetailPage() {
   // ── Action handlers ──────────────────────────────
 
   const handleExecuteAction = async (action: ProjectAction) => {
+    if (executingActionId) return
+    setExecutingActionId(action.id)
     try {
       const res = await fetchApi(`/api/projects/${projectId}/actions/${action.id}/run`, { method: 'POST' })
       if (!res.ok) throw new Error('Failed to execute action')
@@ -696,6 +699,8 @@ export function ProjectDetailPage() {
       navigate(`/agents/${project!.agentId}/threads/${data.runId}`)
     } catch (err) {
       setError((err as Error).message)
+    } finally {
+      setExecutingActionId(null)
     }
   }
 
@@ -869,9 +874,10 @@ export function ProjectDetailPage() {
                   <button
                     className="td-btn td-btn-primary td-btn-sm"
                     onClick={() => void handleExecuteAction(action)}
+                    disabled={executingActionId === action.id}
                     type="button"
                   >
-                    Run
+                    {executingActionId === action.id ? <LoaderCircle size={12} className="spin" /> : 'Run'}
                   </button>
                   <button
                     className="td-action-icon"

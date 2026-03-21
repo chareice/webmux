@@ -245,7 +245,6 @@ export type RunEvent =
   | { type: 'task-step'; taskId: string; step: TaskStep }
   | { type: 'task-message'; taskId: string; message: TaskMessage }
   | { type: 'project-status'; project: Project }
-  | { type: 'action-status'; action: ProjectAction }
 
 // --- Project + Task types ---
 
