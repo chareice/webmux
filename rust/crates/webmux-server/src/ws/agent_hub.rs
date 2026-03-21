@@ -3,8 +3,8 @@ use tokio::sync::mpsc;
 use tracing::error;
 
 use webmux_shared::{
-    AgentMessage, RepositoryBrowseResultPayload, Run,
-    RunEvent, RunTimelineEventPayload, RunTool,
+    AgentMessage, InstructionsResultPayload, InstructionsWrittenPayload,
+    RepositoryBrowseResultPayload, Run, RunEvent, RunTimelineEventPayload, RunTool,
     ServerToAgentMessage, Task, TaskMessage as SharedTaskMessage, TaskMessageRole, TaskStatus,
     TaskStep as SharedTaskStep,
 };
@@ -346,6 +346,14 @@ pub fn handle_agent_message(
             handle_repository_browse_result(hub, payload);
         }
 
+        AgentMessage::InstructionsResult(payload) => {
+            handle_instructions_result(hub, payload);
+        }
+
+        AgentMessage::InstructionsWritten(payload) => {
+            handle_instructions_written(hub, payload);
+        }
+
         AgentMessage::Error { message: msg } => {
             error!("[agent-hub] Agent {} error: {}", agent_id, msg);
         }
@@ -450,6 +458,54 @@ fn handle_repository_browse_result(
             hub.resolve_pending_command(&request_id, Ok(result));
         }
         RepositoryBrowseResultPayload::Err {
+            request_id,
+            error,
+            ..
+        } => {
+            hub.resolve_pending_command(&request_id, Err(error));
+        }
+    }
+}
+
+fn handle_instructions_result(
+    hub: &mut AgentHub,
+    payload: InstructionsResultPayload,
+) {
+    match payload {
+        InstructionsResultPayload::Ok {
+            request_id,
+            tool,
+            content,
+            ..
+        } => {
+            let result = serde_json::json!({
+                "tool": tool,
+                "content": content,
+            });
+            hub.resolve_pending_command(&request_id, Ok(result));
+        }
+        InstructionsResultPayload::Err {
+            request_id,
+            error,
+            ..
+        } => {
+            hub.resolve_pending_command(&request_id, Err(error));
+        }
+    }
+}
+
+fn handle_instructions_written(
+    hub: &mut AgentHub,
+    payload: InstructionsWrittenPayload,
+) {
+    match payload {
+        InstructionsWrittenPayload::Ok {
+            request_id,
+            ..
+        } => {
+            hub.resolve_pending_command(&request_id, Ok(serde_json::json!({ "ok": true })));
+        }
+        InstructionsWrittenPayload::Err {
             request_id,
             error,
             ..

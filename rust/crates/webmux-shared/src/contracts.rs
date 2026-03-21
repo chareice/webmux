@@ -97,6 +97,12 @@ pub enum AgentMessage {
     #[serde(rename = "repository-browse-result")]
     RepositoryBrowseResult(RepositoryBrowseResultPayload),
 
+    #[serde(rename = "instructions-result")]
+    InstructionsResult(InstructionsResultPayload),
+
+    #[serde(rename = "instructions-written")]
+    InstructionsWritten(InstructionsWrittenPayload),
+
     #[serde(rename = "error")]
     Error { message: String },
 
@@ -207,6 +213,45 @@ pub enum RepositoryBrowseResultPayload {
     },
 }
 
+/// Payload for the instructions-result variant (ok: true | ok: false).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum InstructionsResultPayload {
+    Ok {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        ok: serde_json::Value, // always true
+        tool: RunTool,
+        content: Option<String>,
+    },
+    Err {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        ok: serde_json::Value, // always false
+        tool: RunTool,
+        error: String,
+    },
+}
+
+/// Payload for the instructions-written variant (ok: true | ok: false).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum InstructionsWrittenPayload {
+    Ok {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        ok: serde_json::Value, // always true
+        tool: RunTool,
+    },
+    Err {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        ok: serde_json::Value, // always false
+        tool: RunTool,
+        error: String,
+    },
+}
+
 /// Message payload for agent task messages (role is always "agent").
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -258,6 +303,21 @@ pub enum ServerToAgentMessage {
         request_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         path: Option<String>,
+    },
+
+    #[serde(rename = "read-instructions")]
+    ReadInstructions {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        tool: RunTool,
+    },
+
+    #[serde(rename = "write-instructions")]
+    WriteInstructions {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        tool: RunTool,
+        content: String,
     },
 
     #[serde(rename = "run-turn-start")]
