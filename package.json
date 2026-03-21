@@ -4,10 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n web,server \"cd packages/web && pnpm dev\" \"cd packages/server && WEBMUX_DEV_MODE=true JWT_SECRET=dev-secret pnpm dev\"",
-    "start": "pnpm --filter @webmux/server start",
+    "dev": "pnpm --filter @webmux/web dev",
     "build": "pnpm -r build",
-    "e2e": "pnpm build && bash scripts/e2e.sh",
     "test:mobile": "cd packages/mobile && pnpm test",
     "typecheck": "tsc -b",
     "lint": "eslint packages/",
@@ -16,7 +14,6 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@rolldown/binding-linux-x64-gnu": "1.0.0-rc.9",
-    "concurrently": "^9.2.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
@@ -27,10 +24,7 @@
   "packageManager": "pnpm@10.23.0",
   "pnpm": {
     "onlyBuiltDependencies": [
-      "bcrypt",
-      "libsql",
-      "esbuild",
-      "node-pty"
+      "esbuild"
     ]
   },
   "optionalDependencies": {
