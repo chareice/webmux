@@ -17,9 +17,10 @@ use crate::auth::AuthUser;
 use crate::db::projects::find_project_by_id;
 use crate::db::runs::find_run_by_id;
 use crate::db::tasks::{
-    create_task, create_task_message, delete_task, find_messages_by_task_id, find_steps_by_task_id,
-    find_task_by_id, reset_task_to_pending, update_task_prompt, update_task_status,
-    update_task_summary, CreateTaskOpts, UpdateTaskPromptOpts,
+    count_task_messages, create_task, create_task_message, delete_last_task_messages, delete_task,
+    find_messages_by_task_id, find_steps_by_task_id, find_task_by_id, reset_task_to_pending,
+    update_task_prompt, update_task_status, update_task_summary, CreateTaskOpts,
+    UpdateTaskPromptOpts,
 };
 use crate::db::types::{TaskMessageRow, TaskStepRow};
 use crate::routes::projects::task_row_to_task;
@@ -90,8 +91,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/projects/{project_id}/tasks/{task_id}", patch(update_task_handler))
         // DELETE /api/projects/:id/tasks/:taskId — delete task
         .route("/projects/{project_id}/tasks/{task_id}", delete(delete_task_handler))
-        // POST /api/projects/:id/tasks/:taskId/retry — retry failed task
+        // POST /api/projects/:id/tasks/:taskId/retry — retry failed/waiting/completed task
         .route("/projects/{project_id}/tasks/{task_id}/retry", post(retry_task))
+        // POST /api/projects/:id/tasks/:taskId/rewind — undo last conversation turn
+        .route("/projects/{project_id}/tasks/{task_id}/rewind", post(rewind_task))
         // POST /api/projects/:id/tasks/:taskId/complete — mark task completed
         .route("/projects/{project_id}/tasks/{task_id}/complete", post(complete_task))
         // GET /api/projects/:id/tasks/:taskId/steps — get task steps
@@ -616,8 +619,8 @@ async fn retry_task(
             Some(p) => p,
         };
 
-        if task.status != "failed" {
-            return Err("not_failed".to_string());
+        if task.status != "failed" && task.status != "waiting" && task.status != "completed" {
+            return Err("not_retryable".to_string());
         }
 
         reset_task_to_pending(&conn, &id, additional_prompt.as_deref())
@@ -643,9 +646,94 @@ async fn retry_task(
             Json(serde_json::json!({ "error": "Task not found" })),
         )
             .into_response(),
-        Ok(Err(e)) if e == "not_failed" => (
+        Ok(Err(e)) if e == "not_retryable" => (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": "Can only retry failed tasks" })),
+            Json(serde_json::json!({ "error": "Can only retry failed, waiting, or completed tasks" })),
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /api/projects/:id/tasks/:taskId/rewind
+async fn rewind_task(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Path((_project_id, id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    let user_id = auth_user.user_id.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = db.get().map_err(|e| e.to_string())?;
+        let task = find_task_by_id(&conn, &id).map_err(|e| e.to_string())?;
+        let task = match task {
+            None => return Err("not_found".to_string()),
+            Some(t) => t,
+        };
+
+        let project =
+            find_project_by_id(&conn, &task.project_id).map_err(|e| e.to_string())?;
+        match project {
+            None => return Err("not_found".to_string()),
+            Some(p) if p.user_id != user_id => return Err("not_found".to_string()),
+            _ => {}
+        }
+
+        if task.status != "waiting" && task.status != "completed" {
+            return Err("not_rewindable".to_string());
+        }
+
+        let msg_count = count_task_messages(&conn, &id).map_err(|e| e.to_string())?;
+        if msg_count < 2 {
+            return Err("not_enough_messages".to_string());
+        }
+
+        // Delete the last 2 messages (user reply + agent response)
+        delete_last_task_messages(&conn, &id, 2).map_err(|e| e.to_string())?;
+
+        let remaining = count_task_messages(&conn, &id).map_err(|e| e.to_string())?;
+        if remaining > 0 {
+            update_task_status(&conn, &id, "waiting", None).map_err(|e| e.to_string())?;
+        } else {
+            // No messages left — reset to pending for re-dispatch
+            update_task_status(&conn, &id, "pending", None).map_err(|e| e.to_string())?;
+        }
+
+        let updated_task = find_task_by_id(&conn, &id)
+            .map_err(|e| e.to_string())?
+            .unwrap();
+
+        Ok(task_row_to_task(&updated_task))
+    })
+    .await;
+
+    match result {
+        Ok(Ok(task)) => {
+            (StatusCode::OK, Json(serde_json::json!({ "task": task }))).into_response()
+        }
+        Ok(Err(e)) if e == "not_found" => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Task not found" })),
+        )
+            .into_response(),
+        Ok(Err(e)) if e == "not_rewindable" => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "Can only rewind waiting or completed tasks" })),
+        )
+            .into_response(),
+        Ok(Err(e)) if e == "not_enough_messages" => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "Not enough messages to rewind" })),
         )
             .into_response(),
         Ok(Err(e)) => (

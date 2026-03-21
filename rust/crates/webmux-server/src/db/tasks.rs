@@ -453,3 +453,30 @@ pub fn find_messages_by_task_id(
     let rows = stmt.query_map(params![task_id], row_to_task_message)?;
     rows.collect()
 }
+
+pub fn delete_last_task_messages(
+    conn: &Connection,
+    task_id: &str,
+    count: usize,
+) -> rusqlite::Result<usize> {
+    let ids: Vec<String> = conn
+        .prepare("SELECT id FROM task_messages WHERE task_id = ?1 ORDER BY created_at DESC LIMIT ?2")?
+        .query_map(params![task_id, count as i64], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for id in &ids {
+        conn.execute("DELETE FROM task_messages WHERE id = ?1", params![id])?;
+    }
+    Ok(ids.len())
+}
+
+pub fn count_task_messages(
+    conn: &Connection,
+    task_id: &str,
+) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM task_messages WHERE task_id = ?1",
+        params![task_id],
+        |row| row.get(0),
+    )
+}

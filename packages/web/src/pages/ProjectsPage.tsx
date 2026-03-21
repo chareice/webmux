@@ -22,6 +22,7 @@ import {
   Terminal,
   Clock,
   Hourglass,
+  Undo2,
 } from 'lucide-react'
 import { fetchApi, useAuth } from '../auth.tsx'
 import { createReconnectableSocket } from '../lib/reconnectable-socket.ts'
@@ -317,6 +318,7 @@ function TaskDetailModal({
   onClose,
   onDelete,
   onRetry,
+  onRewind,
   onMarkComplete,
   retrying,
   replyText,
@@ -334,6 +336,7 @@ function TaskDetailModal({
   onClose: () => void
   onDelete: (taskId: string) => void
   onRetry: (taskId: string) => void
+  onRewind: (taskId: string) => void
   onMarkComplete: (taskId: string) => void
   retrying: boolean
   replyText: string
@@ -514,9 +517,14 @@ function TaskDetailModal({
                 <ExternalLink size={14} /> View Run
               </Link>
             )}
-            {task.status === 'failed' && (
+            {(['failed', 'waiting', 'completed'].includes(task.status)) && (
               <button className="td-btn td-btn-secondary td-btn-sm" disabled={retrying} onClick={() => onRetry(task.id)} type="button">
                 <RotateCcw size={14} /> Retry
+              </button>
+            )}
+            {(['waiting', 'completed'].includes(task.status)) && messages.length >= 2 && (
+              <button className="td-btn td-btn-ghost td-btn-sm" disabled={retrying} onClick={() => onRewind(task.id)} type="button">
+                <Undo2 size={14} /> Rewind
               </button>
             )}
           </div>
@@ -1249,6 +1257,30 @@ export function ProjectsPage() {
     }
   }
 
+  const handleRewind = async (taskId: string) => {
+    if (!activeProject) return
+    try {
+      setRetryingId(taskId)
+      const res = await fetchApi(`/api/projects/${activeProject.id}/tasks/${taskId}/rewind`, {
+        method: 'POST',
+      })
+      if (!res.ok) throw new Error('Failed to rewind task')
+      const data = (await res.json()) as { task: Task }
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? data.task : t)))
+      setSelectedTask(data.task)
+      // Refresh messages
+      const msgsRes = await fetchApi(`/api/projects/${activeProject.id}/tasks/${taskId}/messages`)
+      if (msgsRes.ok) {
+        const msgsData = (await msgsRes.json()) as { messages: TaskMessage[] }
+        setTaskMessages(prev => ({ ...prev, [taskId]: msgsData.messages }))
+      }
+    } catch (err) {
+      setTasksError((err as Error).message)
+    } finally {
+      setRetryingId(null)
+    }
+  }
+
   const handleMarkComplete = async (taskId: string) => {
     if (!activeProject) return
     try {
@@ -1813,7 +1845,7 @@ export function ProjectsPage() {
                               <ExternalLink size={14} />
                             </Link>
                           )}
-                          {task.status === 'failed' && (
+                          {(['failed', 'waiting', 'completed'].includes(task.status)) && (
                             <button
                               className="td-action-icon"
                               onClick={(e) => { e.stopPropagation(); void handleRetry(task.id) }}
@@ -1856,6 +1888,7 @@ export function ProjectsPage() {
           onClose={() => { setSelectedTask(null); setReplyText('') }}
           onDelete={handleDeleteTask}
           onRetry={(id) => void handleRetry(id)}
+          onRewind={(id) => void handleRewind(id)}
           onMarkComplete={(id) => void handleMarkComplete(id)}
           retrying={retryingId === selectedTask.id}
           replyText={replyText}
