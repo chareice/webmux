@@ -671,6 +671,7 @@ function NewActionModal({
   isSubmitting,
   formError,
   defaultTool,
+  generatingStatus,
 }: {
   onClose: () => void
   onCreateManual: (name: string, prompt: string, description: string, tool: RunTool) => void
@@ -678,6 +679,7 @@ function NewActionModal({
   isSubmitting: boolean
   formError: string | null
   defaultTool: RunTool
+  generatingStatus: 'idle' | 'generating' | 'done'
 }) {
   const [mode, setMode] = useState<'ai' | 'manual'>('ai')
   const [aiDescription, setAiDescription] = useState('')
@@ -687,113 +689,129 @@ function NewActionModal({
   const [tool, setTool] = useState<RunTool>(defaultTool)
 
   return (
-    <ModalOverlay onClose={onClose} maxWidth={520}>
+    <ModalOverlay onClose={generatingStatus === 'generating' ? () => {} : onClose} maxWidth={520}>
       <div className="td-modal-header">
         <h2 className="td-modal-title">New Action</h2>
-        <button className="td-modal-close" onClick={onClose} type="button">
-          <X size={18} />
-        </button>
+        {generatingStatus !== 'generating' && (
+          <button className="td-modal-close" onClick={onClose} type="button">
+            <X size={18} />
+          </button>
+        )}
       </div>
 
       <div className="td-modal-body">
-        <div className="td-action-mode-tabs">
-          <button
-            className={`td-action-mode-tab ${mode === 'ai' ? 'active' : ''}`}
-            onClick={() => setMode('ai')}
-            type="button"
-          >
-            AI Generate
-          </button>
-          <button
-            className={`td-action-mode-tab ${mode === 'manual' ? 'active' : ''}`}
-            onClick={() => setMode('manual')}
-            type="button"
-          >
-            Manual
-          </button>
-        </div>
-
-        {mode === 'ai' ? (
-          <>
-            <textarea
-              className="td-input td-input-desc"
-              placeholder="Describe the action you want (e.g., 'deploy to production', 'run database migration')"
-              rows={4}
-              value={aiDescription}
-              onChange={(e) => setAiDescription(e.target.value)}
-              autoFocus
-            />
-            {formError && <p className="td-form-error">{formError}</p>}
-            <div className="td-modal-footer">
-              <button className="td-btn td-btn-ghost" onClick={onClose} type="button">
-                Cancel
-              </button>
-              <button
-                className="td-btn td-btn-primary"
-                disabled={isSubmitting || !aiDescription.trim()}
-                onClick={() => onGenerate(aiDescription.trim())}
-                type="button"
-              >
-                {isSubmitting ? <LoaderCircle className="spin" size={14} /> : null}
-                {isSubmitting ? 'Generating...' : 'Generate with AI'}
-              </button>
-            </div>
-          </>
+        {generatingStatus === 'generating' ? (
+          <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+            <LoaderCircle className="spin" size={28} style={{ marginBottom: '1rem' }} />
+            <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: 0 }}>
+              AI is analyzing the project and generating action definition...
+            </p>
+            <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: '0.5rem', opacity: 0.7 }}>
+              This may take a minute
+            </p>
+          </div>
         ) : (
           <>
-            <input
-              className="td-input td-input-title"
-              placeholder="Action name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-            />
-            <input
-              className="td-input"
-              placeholder="Description (optional)"
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-            <textarea
-              className="td-input td-input-desc"
-              placeholder="Prompt (the instructions for this action)"
-              rows={4}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-            <div className="td-tool-selector">
+            <div className="td-action-mode-tabs">
               <button
-                className={`td-tool-btn ${tool === 'claude' ? 'active' : ''}`}
-                onClick={() => setTool('claude')}
+                className={`td-action-mode-tab ${mode === 'ai' ? 'active' : ''}`}
+                onClick={() => setMode('ai')}
                 type="button"
               >
-                Claude Code
+                AI Generate
               </button>
               <button
-                className={`td-tool-btn ${tool === 'codex' ? 'active' : ''}`}
-                onClick={() => setTool('codex')}
+                className={`td-action-mode-tab ${mode === 'manual' ? 'active' : ''}`}
+                onClick={() => setMode('manual')}
                 type="button"
               >
-                Codex
+                Manual
               </button>
             </div>
-            {formError && <p className="td-form-error">{formError}</p>}
-            <div className="td-modal-footer">
-              <button className="td-btn td-btn-ghost" onClick={onClose} type="button">
-                Cancel
-              </button>
-              <button
-                className="td-btn td-btn-primary"
-                disabled={isSubmitting || !name.trim() || !prompt.trim()}
-                onClick={() => onCreateManual(name.trim(), prompt.trim(), description.trim(), tool)}
-                type="button"
-              >
-                {isSubmitting ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />}
-                {isSubmitting ? 'Creating...' : 'Create Action'}
-              </button>
-            </div>
+
+            {mode === 'ai' ? (
+              <>
+                <textarea
+                  className="td-input td-input-desc"
+                  placeholder="Describe the action you want (e.g., 'deploy to production', 'run database migration')"
+                  rows={4}
+                  value={aiDescription}
+                  onChange={(e) => setAiDescription(e.target.value)}
+                  autoFocus
+                />
+                {formError && <p className="td-form-error">{formError}</p>}
+                <div className="td-modal-footer">
+                  <button className="td-btn td-btn-ghost" onClick={onClose} type="button">
+                    Cancel
+                  </button>
+                  <button
+                    className="td-btn td-btn-primary"
+                    disabled={isSubmitting || !aiDescription.trim()}
+                    onClick={() => onGenerate(aiDescription.trim())}
+                    type="button"
+                  >
+                    {isSubmitting ? <LoaderCircle className="spin" size={14} /> : null}
+                    {isSubmitting ? 'Starting...' : 'Generate with AI'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <input
+                  className="td-input td-input-title"
+                  placeholder="Action name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoFocus
+                />
+                <input
+                  className="td-input"
+                  placeholder="Description (optional)"
+                  type="text"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+                <textarea
+                  className="td-input td-input-desc"
+                  placeholder="Prompt (the instructions for this action)"
+                  rows={4}
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                />
+                <div className="td-tool-selector">
+                  <button
+                    className={`td-tool-btn ${tool === 'claude' ? 'active' : ''}`}
+                    onClick={() => setTool('claude')}
+                    type="button"
+                  >
+                    Claude Code
+                  </button>
+                  <button
+                    className={`td-tool-btn ${tool === 'codex' ? 'active' : ''}`}
+                    onClick={() => setTool('codex')}
+                    type="button"
+                  >
+                    Codex
+                  </button>
+                </div>
+                {formError && <p className="td-form-error">{formError}</p>}
+                <div className="td-modal-footer">
+                  <button className="td-btn td-btn-ghost" onClick={onClose} type="button">
+                    Cancel
+                  </button>
+                  <button
+                    className="td-btn td-btn-primary"
+                    disabled={isSubmitting || !name.trim() || !prompt.trim()}
+                    onClick={() => onCreateManual(name.trim(), prompt.trim(), description.trim(), tool)}
+                    type="button"
+                  >
+                    {isSubmitting ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />}
+                    {isSubmitting ? 'Creating...' : 'Create Action'}
+                  </button>
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
@@ -824,7 +842,7 @@ function EditActionModal({
   return (
     <ModalOverlay onClose={onClose} maxWidth={520}>
       <div className="td-modal-header">
-        <h2 className="td-modal-title">Edit Action</h2>
+        <h2 className="td-modal-title">{action.id ? 'Edit Action' : 'Confirm Action'}</h2>
         <button className="td-modal-close" onClick={onClose} type="button">
           <X size={18} />
         </button>
@@ -880,8 +898,8 @@ function EditActionModal({
             onClick={() => onSave({ name: name.trim(), description: description.trim(), prompt: prompt.trim(), tool })}
             type="button"
           >
-            {isSubmitting ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}
-            {isSubmitting ? 'Saving...' : 'Save'}
+            {isSubmitting ? <LoaderCircle className="spin" size={14} /> : action.id ? <Check size={14} /> : <Plus size={14} />}
+            {isSubmitting ? 'Saving...' : action.id ? 'Save' : 'Create Action'}
           </button>
         </div>
       </div>
@@ -922,6 +940,7 @@ export function ProjectsPage() {
   const [actionFormError, setActionFormError] = useState<string | null>(null)
   const [deletingActionId, setDeletingActionId] = useState<string | null>(null)
   const [executingActionId, setExecutingActionId] = useState<string | null>(null)
+  const [generatingStatus, setGeneratingStatus] = useState<'idle' | 'generating' | 'done'>('idle')
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false)
@@ -1330,10 +1349,84 @@ export function ProjectsPage() {
         throw new Error((errData as any)?.error || 'Failed to generate action')
       }
       const data = (await res.json()) as { runId: string }
-      setShowNewActionModal(false)
-      navigate(`/agents/${activeProject.agentId}/threads/${data.runId}`)
+      setActionSubmitting(false)
+      setGeneratingStatus('generating')
+
+      // Poll for run completion
+      const pollInterval = 3000
+      const maxPolls = 120 // 6 minutes max
+      for (let i = 0; i < maxPolls; i++) {
+        await new Promise(r => setTimeout(r, pollInterval))
+        const runRes = await fetchApi(`/api/agents/${activeProject.agentId}/threads/${data.runId}`)
+        if (!runRes.ok) continue
+        const runData = (await runRes.json()) as {
+          run: { status: string }
+          turns: Array<{ items: Array<{ type: string; role?: string; text?: string }> }>
+        }
+        const status = runData.run.status
+        if (status === 'success' || status === 'failed') {
+          if (status === 'failed') {
+            throw new Error('AI generation failed')
+          }
+          // Extract JSON from assistant messages in the last turn
+          const lastTurn = runData.turns[runData.turns.length - 1]
+          if (lastTurn) {
+            const assistantMessages = lastTurn.items
+              .filter(item => item.type === 'message' && item.role === 'assistant' && item.text)
+              .map(item => item.text!)
+
+            let parsed: { name?: string; description?: string; prompt?: string } | null = null
+            for (const text of assistantMessages) {
+              try {
+                // Try to extract JSON from the text (may be wrapped in markdown fences)
+                const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/) || [null, text]
+                const jsonStr = jsonMatch[1] ?? text
+                const obj = JSON.parse(jsonStr.trim())
+                if (obj.name && obj.prompt) {
+                  parsed = obj
+                  break
+                }
+              } catch {
+                // Try finding JSON object in the text
+                const braceMatch = text.match(/\{[\s\S]*"name"[\s\S]*"prompt"[\s\S]*\}/)
+                if (braceMatch) {
+                  try {
+                    const obj = JSON.parse(braceMatch[0])
+                    if (obj.name && obj.prompt) {
+                      parsed = obj
+                      break
+                    }
+                  } catch { /* skip */ }
+                }
+              }
+            }
+
+            if (parsed) {
+              // Switch to edit mode with pre-filled data
+              setGeneratingStatus('idle')
+              setShowNewActionModal(false)
+              setEditingAction({
+                id: '',
+                projectId: activeProject.id,
+                name: parsed.name || '',
+                description: parsed.description || '',
+                prompt: parsed.prompt || '',
+                tool: activeProject.defaultTool as RunTool,
+                sortOrder: 0,
+                createdAt: 0,
+                updatedAt: 0,
+              })
+              return
+            }
+          }
+          // If we couldn't parse JSON, show error
+          throw new Error('Could not parse AI response. Try creating the action manually.')
+        }
+      }
+      throw new Error('Generation timed out. Try creating the action manually.')
     } catch (err) {
       setActionFormError((err as Error).message)
+      setGeneratingStatus('idle')
     } finally {
       setActionSubmitting(false)
     }
@@ -1344,18 +1437,34 @@ export function ProjectsPage() {
     setActionFormError(null)
     setActionSubmitting(true)
     try {
-      const res = await fetchApi(`/api/projects/${activeProject.id}/actions/${editingAction.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      })
-      if (!res.ok) {
-        const errData = await res.json().catch(() => null)
-        throw new Error((errData as any)?.error || 'Failed to update action')
+      if (!editingAction.id) {
+        // This is a new action from AI generation — create instead of update
+        const res = await fetchApi(`/api/projects/${activeProject.id}/actions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        })
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null)
+          throw new Error((errData as any)?.error || 'Failed to create action')
+        }
+        const resData = (await res.json()) as { action: ProjectAction }
+        setActions((prev) => [...prev, resData.action])
+      } else {
+        // Normal update
+        const res = await fetchApi(`/api/projects/${activeProject.id}/actions/${editingAction.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        })
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null)
+          throw new Error((errData as any)?.error || 'Failed to update action')
+        }
+        setActions((prev) =>
+          prev.map((a) => (a.id === editingAction.id ? { ...a, ...data } : a)),
+        )
       }
-      setActions((prev) =>
-        prev.map((a) => (a.id === editingAction.id ? { ...a, ...data } : a)),
-      )
       setEditingAction(null)
     } catch (err) {
       setActionFormError((err as Error).message)
@@ -1722,6 +1831,7 @@ export function ProjectsPage() {
           isSubmitting={actionSubmitting}
           formError={actionFormError}
           defaultTool={(activeProject.defaultTool || 'claude') as 'claude' | 'codex'}
+          generatingStatus={generatingStatus}
         />
       )}
 
