@@ -235,7 +235,7 @@ describe('TaskDispatcher conversation history on re-dispatch', () => {
 
   it('does not include conversation history for new tasks without messages', () => {
     const { agent, project } = setupFixtures()
-    const task = createTask(db, { projectId: project.id, title: 'New task', prompt: 'Do something new', priority: 0 })
+    createTask(db, { projectId: project.id, title: 'New task', prompt: 'Do something new', priority: 0 })
 
     const sendToAgent = vi.fn().mockReturnValue(true)
     const hub = {

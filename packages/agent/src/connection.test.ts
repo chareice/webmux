@@ -9,7 +9,7 @@ const { mockRunWrapperInstances } = vi.hoisted(() => ({
 vi.mock('./run-wrapper.js', () => {
   return {
     RunWrapper: class MockRunWrapper {
-      private opts: Record<string, unknown>
+      public opts: Record<string, unknown>
       start = vi.fn().mockResolvedValue(undefined)
       dispose = vi.fn()
       constructor(opts: Record<string, unknown>) {
