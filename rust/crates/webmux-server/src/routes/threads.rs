@@ -8,7 +8,7 @@ use axum::{
     routing::{delete, get, patch, post},
 };
 use webmux_shared::{
-    ContinueRunRequest, Run, RunDetailResponse, RunImageAttachment, RunImageAttachmentUpload,
+    ContinueRunRequest, Run, RunDetailResponse, RunImageAttachmentUpload,
     RunListResponse, RunTool, ServerToAgentMessage, StartRunRequest,
     UpdateQueuedTurnRequest,
 };
@@ -67,12 +67,6 @@ fn normalize_attachments(
         });
     }
     Ok(result)
-}
-
-fn uploads_to_metadata(uploads: &[RunImageAttachmentUpload]) -> Vec<RunImageAttachment> {
-    uploads.iter().map(|u| RunImageAttachment {
-        id: u.id.clone(), name: u.name.clone(), mime_type: u.mime_type.clone(), size_bytes: u.size_bytes,
-    }).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +232,7 @@ async fn start_run(
     let tool = body.tool.clone();
     let options = body.options.clone();
     let tool_str = serde_json::to_string(&tool).unwrap_or("\"claude\"".into()).trim_matches('"').to_string();
-    let attachment_meta = uploads_to_metadata(&attachments);
+    let db_attachments = attachments.clone();
 
     let db = state.db.clone();
     let rid = run_id.clone();
@@ -253,7 +247,7 @@ async fn start_run(
         let (run_row, _) = create_run_with_initial_turn(&conn, CreateRunWithInitialTurnOpts {
             run_id: &rid, turn_id: &tid, agent_id: &aid, user_id: &uid,
             tool: &tool_str, repo_path: &rp, prompt: &p, branch: None,
-            attachments: Some(&attachment_meta),
+            attachments: Some(&db_attachments),
         }).map_err(|e| e.to_string())?;
         let turns = find_run_turn_details(&conn, &rid).map_err(|e| e.to_string())?;
         Ok::<_, String>((run_row, turns))
@@ -302,7 +296,7 @@ async fn continue_run(
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Missing prompt or attachments" }))).into_response();
     }
 
-    let attachment_meta = uploads_to_metadata(&attachments);
+    let db_attachments = attachments.clone();
     let options = body.options.clone();
     let turn_id = uuid::Uuid::new_v4().to_string();
 
@@ -326,7 +320,7 @@ async fn continue_run(
         if active.is_some() {
             // Queue the turn
             create_queued_run_turn(&conn, CreateQueuedRunTurnOpts {
-                id: &tid, run_id: &id2, prompt: &p, attachments: Some(&attachment_meta),
+                id: &tid, run_id: &id2, prompt: &p, attachments: Some(&db_attachments),
             }).map_err(|_| "internal")?;
             let run = find_run_by_id(&conn, &id2).map_err(|_| "internal")?.unwrap();
             let turns = find_run_turn_details(&conn, &id2).map_err(|_| "internal")?;
@@ -335,7 +329,7 @@ async fn continue_run(
 
         // Create active turn
         create_run_turn(&conn, CreateRunTurnOpts {
-            id: &tid, run_id: &id2, prompt: &p, attachments: Some(&attachment_meta),
+            id: &tid, run_id: &id2, prompt: &p, attachments: Some(&db_attachments),
         }).map_err(|_| "internal")?;
         let run = find_run_by_id(&conn, &id2).map_err(|_| "internal")?.unwrap();
         let turns = find_run_turn_details(&conn, &id2).map_err(|_| "internal")?;

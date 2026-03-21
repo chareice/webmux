@@ -227,6 +227,11 @@ fn dispatch_task(
     let tool: RunTool = serde_json::from_str(&format!("\"{}\"", tool_str))
         .unwrap_or(RunTool::Claude);
 
+    // Load persisted attachments for this task
+    let attachments = crate::db::tasks::find_task_attachments_for_dispatch(conn, &task.id)
+        .ok()
+        .filter(|a| !a.is_empty());
+
     let msg = ServerToAgentMessage::TaskDispatch {
         task_id: task.id.clone(),
         project_id: task.project_id.clone(),
@@ -239,7 +244,7 @@ fn dispatch_task(
             api_key: c.api_key,
             model: c.model,
         }),
-        attachments: None,
+        attachments,
     };
 
     let sent = hub.send_to_agent(agent_id, &msg);

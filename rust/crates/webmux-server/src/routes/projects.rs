@@ -60,6 +60,7 @@ pub fn task_row_to_task(row: &TaskRow) -> Task {
         run_id: row.run_id.clone(),
         error_message: row.error_message.clone(),
         summary: row.summary.clone(),
+        attachments: None,
         created_at: row.created_at as f64,
         updated_at: row.updated_at as f64,
         claimed_at: row.claimed_at.map(|t| t as f64),

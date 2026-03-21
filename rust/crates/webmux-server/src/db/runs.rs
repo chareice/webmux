@@ -1,5 +1,5 @@
 use rusqlite::{Connection, params};
-use webmux_shared::{RunImageAttachment, RunTimelineEvent, RunTimelineEventPayload, RunTurn, RunTurnDetail};
+use webmux_shared::{RunImageAttachment, RunImageAttachmentUpload, RunTimelineEvent, RunTimelineEventPayload, RunTurn, RunTurnDetail};
 
 use super::types::{RunRow, RunTurnRow, RunTurnAttachmentRow};
 
@@ -102,7 +102,7 @@ pub struct CreateRunWithInitialTurnOpts<'a> {
     pub repo_path: &'a str,
     pub prompt: &'a str,
     pub branch: Option<&'a str>,
-    pub attachments: Option<&'a [RunImageAttachment]>,
+    pub attachments: Option<&'a [RunImageAttachmentUpload]>,
 }
 
 pub fn create_run_with_initial_turn(
@@ -233,7 +233,7 @@ pub struct CreateRunTurnOpts<'a> {
     pub id: &'a str,
     pub run_id: &'a str,
     pub prompt: &'a str,
-    pub attachments: Option<&'a [RunImageAttachment]>,
+    pub attachments: Option<&'a [RunImageAttachmentUpload]>,
 }
 
 pub fn create_run_turn(
@@ -286,7 +286,7 @@ pub fn create_run_turn(
 fn create_run_turn_attachments(
     conn: &Connection,
     turn_id: &str,
-    attachments: &[RunImageAttachment],
+    attachments: &[RunImageAttachmentUpload],
 ) -> rusqlite::Result<()> {
     let mut stmt = conn.prepare(
         "INSERT INTO run_turn_attachments (
@@ -294,8 +294,9 @@ fn create_run_turn_attachments(
             turn_id,
             name,
             mime_type,
-            size_bytes
-        ) VALUES (?, ?, ?, ?, ?)",
+            size_bytes,
+            data
+        ) VALUES (?, ?, ?, ?, ?, ?)",
     )?;
 
     for attachment in attachments {
@@ -305,6 +306,7 @@ fn create_run_turn_attachments(
             attachment.name,
             attachment.mime_type,
             attachment.size_bytes,
+            attachment.base64,
         ])?;
     }
 
@@ -640,7 +642,7 @@ pub struct CreateQueuedRunTurnOpts<'a> {
     pub id: &'a str,
     pub run_id: &'a str,
     pub prompt: &'a str,
-    pub attachments: Option<&'a [RunImageAttachment]>,
+    pub attachments: Option<&'a [RunImageAttachmentUpload]>,
 }
 
 pub fn create_queued_run_turn(

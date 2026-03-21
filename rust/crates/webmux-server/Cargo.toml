@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 webmux-shared = { path = "../webmux-shared" }
 axum = { version = "0.8", features = ["ws"] }
+base64 = "0.22"
 axum-extra = { version = "0.10", features = ["typed-header"] }
 bcrypt = "0.17"
 chrono = "0.4"
