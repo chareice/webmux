@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { initDb, createUser, createAgent, createProject, createTask, createTaskMessage, createLlmConfig, findTaskById, updateTaskStatus } from './db.js'
+import { initDb, createUser, createAgent, createProject, createTask, createLlmConfig, findTaskById } from './db.js'
 import { TaskDispatcher } from './task-dispatcher.js'
 import type { AgentHub } from './agent-hub.js'
 import type Database from 'libsql'
@@ -128,8 +128,8 @@ describe('TaskDispatcher', () => {
     } as unknown as AgentHub
 
     const dispatcher = new TaskDispatcher(db, hub)
-    dispatcher.dispatchPendingTasks() // dispatches once
-    dispatcher.dispatchPendingTasks() // should not dispatch again (status is now 'dispatched')
+    dispatcher.dispatchPendingTasks()
+    dispatcher.dispatchPendingTasks()
 
     expect(sendToAgent).toHaveBeenCalledTimes(1)
   })
@@ -198,78 +198,6 @@ describe('TaskDispatcher', () => {
         apiKey: 'sk-project',
         model: 'gpt-4',
       },
-    }))
-  })
-})
-
-describe('TaskDispatcher conversation history on re-dispatch', () => {
-  it('includes conversation history when re-dispatching a task with existing messages', () => {
-    const { agent, project } = setupFixtures()
-
-    // Create a task and simulate it was previously running with messages
-    const task = createTask(db, { projectId: project.id, title: 'Fix bug', prompt: 'Fix the login bug', priority: 0 })
-    createTaskMessage(db, task.id, 'agent', 'I found the bug in auth.ts')
-    createTaskMessage(db, task.id, 'user', 'Please also check the tests')
-
-    // Reset task to pending (simulating agent reconnection)
-    updateTaskStatus(db, task.id, 'pending')
-
-    const sendToAgent = vi.fn().mockReturnValue(true)
-    const hub = {
-      getAgent: vi.fn().mockReturnValue({ socket: {} }),
-      sendToAgent,
-    } as unknown as AgentHub
-
-    const dispatcher = new TaskDispatcher(db, hub)
-    dispatcher.dispatchPendingTasksForAgent(agent.id)
-
-    expect(sendToAgent).toHaveBeenCalledWith(agent.id, expect.objectContaining({
-      type: 'task-dispatch',
-      taskId: task.id,
-      conversationHistory: [
-        { role: 'agent', content: 'I found the bug in auth.ts' },
-        { role: 'user', content: 'Please also check the tests' },
-      ],
-    }))
-  })
-
-  it('does not include conversation history for new tasks without messages', () => {
-    const { agent, project } = setupFixtures()
-    createTask(db, { projectId: project.id, title: 'New task', prompt: 'Do something new', priority: 0 })
-
-    const sendToAgent = vi.fn().mockReturnValue(true)
-    const hub = {
-      getAgent: vi.fn().mockReturnValue({ socket: {} }),
-      sendToAgent,
-    } as unknown as AgentHub
-
-    const dispatcher = new TaskDispatcher(db, hub)
-    dispatcher.dispatchPendingTasksForAgent(agent.id)
-
-    const call = sendToAgent.mock.calls[0]
-    expect(call[1].conversationHistory).toBeUndefined()
-  })
-
-  it('includes conversation history via dispatchPendingTasks (global dispatch)', () => {
-    const { agent, project } = setupFixtures()
-
-    const task = createTask(db, { projectId: project.id, title: 'Task with history', prompt: 'Do work', priority: 0 })
-    createTaskMessage(db, task.id, 'agent', 'Working on it...')
-    updateTaskStatus(db, task.id, 'pending')
-
-    const sendToAgent = vi.fn().mockReturnValue(true)
-    const hub = {
-      getAgent: vi.fn().mockReturnValue({ socket: {} }),
-      sendToAgent,
-    } as unknown as AgentHub
-
-    const dispatcher = new TaskDispatcher(db, hub)
-    dispatcher.dispatchPendingTasks()
-
-    expect(sendToAgent).toHaveBeenCalledWith(agent.id, expect.objectContaining({
-      conversationHistory: [
-        { role: 'agent', content: 'Working on it...' },
-      ],
     }))
   })
 })

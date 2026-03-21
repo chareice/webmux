@@ -134,6 +134,7 @@ export function registerRoutes(
 ): void {
   const MAX_IMAGE_ATTACHMENTS = 4
   const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024
+  const buildTaskFollowUpPrompt = (prompt: string, followUp: string): string => `${prompt}\n\nUser follow-up:\n${followUp}`
 
   const redirectAfterAuth = (jwt: string, state?: string): string => {
     const redirectTo = decodeOAuthState(state).redirectTo
@@ -1326,20 +1327,16 @@ export function registerRoutes(
       hub.sendUserReplyToAgent(db, taskId, attachments)
       hub.broadcastTaskSnapshot(db, taskId)
     } else if (task.status === 'completed' || task.status === 'failed') {
-      // Task is done — re-dispatch with conversation history
+      // Task is done — re-dispatch with the latest follow-up appended to the prompt
       updateTaskStatus(db, taskId, 'dispatched')
       // Clear previous summary/error
       updateTaskSummary(db, taskId, '')
 
-      // Get all messages for conversation history
-      const allMessages = findMessagesByTaskId(db, taskId)
-      const conversationHistory = allMessages.map(m => ({
-        role: m.role as 'agent' | 'user',
-        content: m.content,
-      }))
-
       // Re-dispatch via task dispatcher
-      taskDispatcher.dispatchSingleTask(db, taskId, conversationHistory)
+      taskDispatcher.dispatchSingleTask(db, taskId, {
+        prompt: buildTaskFollowUpPrompt(task.prompt, content.trim()),
+        attachments,
+      })
     }
 
     return reply.status(201).send({ message })

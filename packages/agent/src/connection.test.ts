@@ -227,11 +227,9 @@ describe('AgentConnection task session recovery on reconnect', () => {
     expect(opts.prompt).toBe('Task: New task\n\nDo something')
   })
 
-  it('includes conversation history in prompt when no toolThreadId but history exists (agent restart)', async () => {
+  it('ignores conversation history when no toolThreadId exists', async () => {
     const { priv } = createTestConnection()
 
-    // No existing session (agent process restarted, taskSessions lost)
-    // But server sends conversationHistory from DB
     priv.handleMessage({
       type: 'task-dispatch',
       taskId: 'task-1',
@@ -251,13 +249,9 @@ describe('AgentConnection task session recovery on reconnect', () => {
 
     expect(mockRunWrapperInstances).toHaveLength(1)
     const opts = mockRunWrapperInstances[0].opts
-    // Should NOT have a toolThreadId (new session)
     expect(opts.toolThreadId).toBeUndefined()
-    // Prompt should include conversation history as context
     const prompt = opts.prompt as string
-    expect(prompt).toContain('Fix the login bug')
-    expect(prompt).toContain('I found the issue in auth.ts')
-    expect(prompt).toContain('Great, please also fix the tests')
+    expect(prompt).toBe('Task: Fix bug\n\nFix the login bug')
   })
 
   it('sends task-claimed message on dispatch', async () => {

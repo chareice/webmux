@@ -1,11 +1,10 @@
 import type { Database } from 'libsql'
-import type { ServerToAgentMessage, RunTool } from '@webmux/shared'
+import type { RunImageAttachmentUpload, ServerToAgentMessage, RunTool } from '@webmux/shared'
 import type { AgentHub } from './agent-hub.js'
 import {
   findProjectsByAgentId,
   findPendingTasksByProjectId,
   findProjectById,
-  findMessagesByTaskId,
   resolveLlmConfig,
   updateTaskStatus,
 } from './db.js'
@@ -59,11 +58,14 @@ export class TaskDispatcher {
     }
   }
 
-  /** Dispatch a specific task with optional conversation history (for re-dispatch after completion). */
+  /** Dispatch a specific task, optionally overriding the prompt/attachments for follow-up turns. */
   public dispatchSingleTask(
     db: Database,
     taskId: string,
-    conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>,
+    options?: {
+      prompt?: string
+      attachments?: RunImageAttachmentUpload[]
+    },
   ): void {
     const row = db.prepare(`
       SELECT t.*, p.agent_id, p.repo_path, p.default_tool, p.user_id
@@ -82,11 +84,11 @@ export class TaskDispatcher {
       repoPath: row.repo_path,
       tool: (row.tool || row.default_tool) as RunTool,
       title: row.title,
-      prompt: row.prompt,
+      prompt: options?.prompt ?? row.prompt,
       llmConfig: llmConfig
         ? { apiBaseUrl: llmConfig.api_base_url, apiKey: llmConfig.api_key, model: llmConfig.model }
         : null,
-      conversationHistory,
+      attachments: options?.attachments,
     }
 
     const sent = this.hub.sendToAgent(row.agent_id, message)
@@ -104,13 +106,6 @@ export class TaskDispatcher {
   ): boolean {
     const llmConfig = resolveLlmConfig(this.db, userId, task.project_id)
 
-    // Include existing conversation history when re-dispatching a task
-    // (e.g. after agent reconnection while task was in waiting/running state)
-    const existingMessages = findMessagesByTaskId(this.db, task.id)
-    const conversationHistory = existingMessages.length > 0
-      ? existingMessages.map(m => ({ role: m.role as 'agent' | 'user', content: m.content }))
-      : undefined
-
     const msg: ServerToAgentMessage = {
       type: 'task-dispatch',
       taskId: task.id,
@@ -122,7 +117,6 @@ export class TaskDispatcher {
       llmConfig: llmConfig
         ? { apiBaseUrl: llmConfig.api_base_url, apiKey: llmConfig.api_key, model: llmConfig.model }
         : null,
-      conversationHistory,
     }
 
     const sent = this.hub.sendToAgent(agentId, msg)
