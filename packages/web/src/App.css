@@ -5755,3 +5755,123 @@ button.td-activity-row {
   background: rgba(255, 255, 255, 0.04);
 }
 
+/* Settings sub-navigation */
+.settings-subnav {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+.settings-subnav-link {
+  padding: 0.5rem 1rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.875rem;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.settings-subnav-link:hover {
+  color: var(--text-primary);
+}
+
+.settings-subnav-link.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+/* Instructions page */
+.instructions-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.instructions-agent-selector {
+  margin-bottom: 1rem;
+}
+
+.instructions-agent-selector select {
+  max-width: 300px;
+}
+
+.instructions-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0.5rem;
+}
+
+.instructions-tab {
+  padding: 0.5rem 1.25rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.15s, color 0.15s;
+}
+
+.instructions-tab:first-child {
+  border-radius: 6px 0 0 0;
+}
+
+.instructions-tab:last-child {
+  border-radius: 0 6px 0 0;
+}
+
+.instructions-tab.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.instructions-file-hint {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  margin: 0 0 0.75rem;
+  font-family: var(--font-mono);
+}
+
+.instructions-editor {
+  width: 100%;
+  min-height: 400px;
+  padding: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  resize: vertical;
+}
+
+.instructions-editor:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.instructions-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.instructions-dirty-hint {
+  font-size: 0.8rem;
+  color: var(--text-warning, #f59e0b);
+}
+
+.instructions-offline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 3rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+

@@ -47,6 +47,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agents/register-token", post(create_token))
         .route("/agents/register", post(register_agent))
         .route("/agents/{id}/repositories", get(browse_repositories))
+        .route("/agents/{id}/instructions", get(read_instructions))
+        .route("/agents/{id}/instructions", axum::routing::put(write_instructions))
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +261,162 @@ async fn register_agent(
         }
         Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Instructions read/write
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct ReadInstructionsQuery {
+    pub tool: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WriteInstructionsBody {
+    pub tool: Option<String>,
+    pub content: Option<String>,
+}
+
+/// GET /api/agents/:id/instructions — read global instructions for a tool
+async fn read_instructions(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Path(id): Path<String>,
+    Query(query): Query<ReadInstructionsQuery>,
+) -> impl IntoResponse {
+    let tool = match query.tool.as_deref() {
+        Some("claude") | Some("codex") => query.tool.as_deref().unwrap(),
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Query param \"tool\" must be \"claude\" or \"codex\"" }))).into_response(),
+    };
+
+    // Verify ownership
+    let db = state.db.clone();
+    let user_id = auth_user.user_id.clone();
+    let id2 = id.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> Result<(), (StatusCode, String)> {
+        let conn = db.get().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let agent = find_agent_by_id(&conn, &id2).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        match agent {
+            None => Err((StatusCode::NOT_FOUND, "Agent not found".to_string())),
+            Some(a) if a.user_id != user_id => Err((StatusCode::FORBIDDEN, "Not your agent".to_string())),
+            Some(_) => Ok(()),
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err((status, msg))) => {
+            return (status, Json(serde_json::json!({ "error": msg }))).into_response();
+        }
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response();
+        }
+    }
+
+    let hub = state.hub.read().await;
+    if !hub.is_agent_online(&id) {
+        return (StatusCode::CONFLICT, Json(serde_json::json!({ "error": "Agent is offline" }))).into_response();
+    }
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    let tool_enum: webmux_shared::RunTool = serde_json::from_str(&format!("\"{}\"", tool)).unwrap();
+    let msg = ServerToAgentMessage::ReadInstructions {
+        request_id: request_id.clone(),
+        tool: tool_enum,
+    };
+    if !hub.send_to_agent(&id, &msg) {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "Agent became unavailable" }))).into_response();
+    }
+
+    drop(hub);
+    {
+        let mut hub = state.hub.write().await;
+        hub.register_pending_command(request_id, &id, tx);
+    }
+
+    match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
+        Ok(Ok(Ok(value))) => (StatusCode::OK, Json(value)).into_response(),
+        Ok(Ok(Err(error))) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))).into_response(),
+        Ok(Err(_)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Internal error" }))).into_response(),
+        Err(_) => (StatusCode::GATEWAY_TIMEOUT, Json(serde_json::json!({ "error": "Read instructions timed out" }))).into_response(),
+    }
+}
+
+/// PUT /api/agents/:id/instructions — write global instructions for a tool
+async fn write_instructions(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Path(id): Path<String>,
+    Json(body): Json<WriteInstructionsBody>,
+) -> impl IntoResponse {
+    let tool = match body.tool.as_deref() {
+        Some("claude") | Some("codex") => body.tool.as_deref().unwrap(),
+        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "\"tool\" must be \"claude\" or \"codex\"" }))).into_response(),
+    };
+
+    let content = match &body.content {
+        Some(c) => c.clone(),
+        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "\"content\" must be a string" }))).into_response(),
+    };
+
+    let db = state.db.clone();
+    let user_id = auth_user.user_id.clone();
+    let id2 = id.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> Result<(), (StatusCode, String)> {
+        let conn = db.get().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let agent = find_agent_by_id(&conn, &id2).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        match agent {
+            None => Err((StatusCode::NOT_FOUND, "Agent not found".to_string())),
+            Some(a) if a.user_id != user_id => Err((StatusCode::FORBIDDEN, "Not your agent".to_string())),
+            Some(_) => Ok(()),
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err((status, msg))) => {
+            return (status, Json(serde_json::json!({ "error": msg }))).into_response();
+        }
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response();
+        }
+    }
+
+    let hub = state.hub.read().await;
+    if !hub.is_agent_online(&id) {
+        return (StatusCode::CONFLICT, Json(serde_json::json!({ "error": "Agent is offline" }))).into_response();
+    }
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    let tool_enum: webmux_shared::RunTool = serde_json::from_str(&format!("\"{}\"", tool)).unwrap();
+    let msg = ServerToAgentMessage::WriteInstructions {
+        request_id: request_id.clone(),
+        tool: tool_enum,
+        content,
+    };
+    if !hub.send_to_agent(&id, &msg) {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "Agent became unavailable" }))).into_response();
+    }
+
+    drop(hub);
+    {
+        let mut hub = state.hub.write().await;
+        hub.register_pending_command(request_id, &id, tx);
+    }
+
+    match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
+        Ok(Ok(Ok(_))) => (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response(),
+        Ok(Ok(Err(error))) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))).into_response(),
+        Ok(Err(_)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Internal error" }))).into_response(),
+        Err(_) => (StatusCode::GATEWAY_TIMEOUT, Json(serde_json::json!({ "error": "Write instructions timed out" }))).into_response(),
     }
 }
 

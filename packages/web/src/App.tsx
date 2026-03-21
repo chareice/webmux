@@ -11,6 +11,7 @@ import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { TaskDetailPage } from './pages/TaskDetailPage.tsx'
 import { NewProjectPage } from './pages/NewProjectPage.tsx'
 import { LlmConfigPage } from './pages/LlmConfigPage.tsx'
+import { InstructionsPage } from './pages/InstructionsPage.tsx'
 import './App.css'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -185,6 +186,16 @@ function App() {
             <ProtectedRoute>
               <AppLayout>
                 <LlmConfigPage />
+              </AppLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/instructions"
+          element={
+            <ProtectedRoute>
+              <AppLayout>
+                <InstructionsPage />
               </AppLayout>
             </ProtectedRoute>
           }
