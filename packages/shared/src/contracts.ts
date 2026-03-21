@@ -77,8 +77,6 @@ export type ServerToAgentMessage =
       tool: RunTool
       title: string
       prompt: string
-      llmConfig: { apiBaseUrl: string; apiKey: string; model: string } | null
-      conversationHistory?: Array<{ role: 'agent' | 'user'; content: string }>
       attachments?: RunImageAttachmentUpload[]
     }
   | { type: 'task-user-reply'; taskId: string; content: string; attachments?: RunImageAttachmentUpload[] }
@@ -278,31 +276,6 @@ export interface Task {
   updatedAt: number
   claimedAt: number | null
   completedAt: number | null
-}
-
-// --- LLM Config types ---
-
-export interface LlmConfig {
-  id: string
-  apiBaseUrl: string
-  apiKey: string
-  model: string
-  projectId: string | null   // null = user default
-  createdAt: number
-  updatedAt: number
-}
-
-export interface CreateLlmConfigRequest {
-  apiBaseUrl: string
-  apiKey: string
-  model: string
-  projectId?: string
-}
-
-export interface UpdateLlmConfigRequest {
-  apiBaseUrl?: string
-  apiKey?: string
-  model?: string
 }
 
 // --- Task Step types ---

@@ -22,9 +22,6 @@ import type {
   Task,
   TaskStatus,
   RunTool,
-  LlmConfig,
-  CreateLlmConfigRequest,
-  UpdateLlmConfigRequest,
   TaskStep,
   StepType,
   StepStatus,
@@ -88,14 +85,9 @@ import {
   updateTaskSummary,
   deleteTask,
   resetTaskToPending,
-  findLlmConfigsByUser,
-  findLlmConfigById,
-  createLlmConfig,
-  updateLlmConfig,
-  deleteLlmConfig,
   findStepsByTaskId,
 } from './db.js'
-import type { ProjectRow, TaskRow, LlmConfigRow, TaskStepRow } from './db.js'
+import type { ProjectRow, TaskRow, TaskStepRow } from './db.js'
 import type { AgentHub } from './agent-hub.js'
 import { runRowToRun } from './agent-hub.js'
 import type { TaskDispatcher } from './task-dispatcher.js'
@@ -991,18 +983,6 @@ export function registerRoutes(
     }
   }
 
-  function llmConfigRowToLlmConfig(row: LlmConfigRow): LlmConfig {
-    return {
-      id: row.id,
-      apiBaseUrl: row.api_base_url,
-      apiKey: row.api_key,
-      model: row.model,
-      projectId: row.project_id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }
-  }
-
   function taskStepRowToTaskStep(row: TaskStepRow): TaskStep {
     return {
       id: row.id,
@@ -1302,85 +1282,15 @@ export function registerRoutes(
       hub.sendUserReplyToAgent(db, taskId, attachments)
       hub.broadcastTaskSnapshot(db, taskId)
     } else if (task.status === 'completed' || task.status === 'failed') {
-      // Task is done — re-dispatch with conversation history
+      // Task is done — re-dispatch from the current task prompt
       updateTaskStatus(db, taskId, 'dispatched')
       // Clear previous summary/error
       updateTaskSummary(db, taskId, '')
 
-      // Get all messages for conversation history
-      const allMessages = findMessagesByTaskId(db, taskId)
-      const conversationHistory = allMessages.map(m => ({
-        role: m.role as 'agent' | 'user',
-        content: m.content,
-      }))
-
       // Re-dispatch via task dispatcher
-      taskDispatcher.dispatchSingleTask(db, taskId, conversationHistory)
+      taskDispatcher.dispatchSingleTask(db, taskId)
     }
 
     return reply.status(201).send({ message })
-  })
-
-  // --- LLM Config routes ---
-
-  app.get('/api/llm-configs', { preHandler: authPreHandler }, async (request, reply) => {
-    const configs = findLlmConfigsByUser(db, request.user!.userId)
-    return reply.send({ configs: configs.map(llmConfigRowToLlmConfig) })
-  })
-
-  app.post('/api/llm-configs', { preHandler: authPreHandler }, async (request, reply) => {
-    const body = request.body as CreateLlmConfigRequest | undefined
-
-    if (!body?.apiBaseUrl?.trim() || !body?.apiKey?.trim() || !body?.model?.trim()) {
-      return reply.status(400).send({ error: 'Missing required fields: apiBaseUrl, apiKey, model' })
-    }
-
-    const config = createLlmConfig(db, request.user!.userId, {
-      api_base_url: body.apiBaseUrl.trim(),
-      api_key: body.apiKey.trim(),
-      model: body.model.trim(),
-      project_id: body.projectId?.trim(),
-    })
-
-    return reply.status(201).send({ config: llmConfigRowToLlmConfig(config) })
-  })
-
-  app.patch('/api/llm-configs/:id', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id } = request.params as { id: string }
-    const body = request.body as UpdateLlmConfigRequest | undefined
-
-    const config = findLlmConfigById(db, id)
-    if (!config) {
-      return reply.status(404).send({ error: 'LLM config not found' })
-    }
-
-    if (config.user_id !== request.user!.userId) {
-      return reply.status(403).send({ error: 'Not your config' })
-    }
-
-    updateLlmConfig(db, id, {
-      api_base_url: body?.apiBaseUrl?.trim(),
-      api_key: body?.apiKey?.trim(),
-      model: body?.model?.trim(),
-    })
-
-    const updated = findLlmConfigById(db, id)!
-    return { config: llmConfigRowToLlmConfig(updated) }
-  })
-
-  app.delete('/api/llm-configs/:id', { preHandler: authPreHandler }, async (request, reply) => {
-    const { id } = request.params as { id: string }
-
-    const config = findLlmConfigById(db, id)
-    if (!config) {
-      return reply.status(404).send({ error: 'LLM config not found' })
-    }
-
-    if (config.user_id !== request.user!.userId) {
-      return reply.status(403).send({ error: 'Not your config' })
-    }
-
-    deleteLlmConfig(db, id)
-    return reply.status(204).send()
   })
 }

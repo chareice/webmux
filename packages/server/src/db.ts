@@ -80,17 +80,6 @@ export interface TaskRow {
   completed_at: number | null
 }
 
-export interface LlmConfigRow {
-  id: string
-  user_id: string
-  project_id: string | null
-  api_base_url: string
-  api_key: string
-  model: string
-  created_at: number
-  updated_at: number
-}
-
 export interface TaskStepRow {
   id: string
   task_id: string
@@ -226,20 +215,6 @@ export function initDb(dbPath: string): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-
-    CREATE TABLE IF NOT EXISTS llm_configs (
-      id            TEXT PRIMARY KEY,
-      user_id       TEXT NOT NULL,
-      project_id    TEXT,
-      api_base_url  TEXT NOT NULL,
-      api_key       TEXT NOT NULL,
-      model         TEXT NOT NULL,
-      created_at    INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-      updated_at    INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_llm_configs_user ON llm_configs(user_id);
 
     CREATE TABLE IF NOT EXISTS task_steps (
       id            TEXT PRIMARY KEY,
@@ -1255,95 +1230,6 @@ export function resetTaskToPending(
 
 export function updateTaskSummary(db: Database.Database, taskId: string, summary: string): void {
   db.prepare('UPDATE tasks SET summary = ?, updated_at = ? WHERE id = ?').run(summary, Date.now(), taskId)
-}
-
-// --- LLM Configs ---
-
-export function createLlmConfig(
-  db: Database.Database,
-  userId: string,
-  data: { api_base_url: string; api_key: string; model: string; project_id?: string },
-): LlmConfigRow {
-  const id = crypto.randomUUID()
-  const now = Date.now()
-  const projectId = data.project_id ?? null
-
-  db.prepare(
-    `INSERT INTO llm_configs (id, user_id, project_id, api_base_url, api_key, model, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, userId, projectId, data.api_base_url, data.api_key, data.model, now, now)
-
-  return {
-    id,
-    user_id: userId,
-    project_id: projectId,
-    api_base_url: data.api_base_url,
-    api_key: data.api_key,
-    model: data.model,
-    created_at: now,
-    updated_at: now,
-  }
-}
-
-export function findLlmConfigsByUser(db: Database.Database, userId: string): LlmConfigRow[] {
-  return db.prepare('SELECT * FROM llm_configs WHERE user_id = ? ORDER BY created_at DESC').all(userId) as LlmConfigRow[]
-}
-
-export function findLlmConfigById(db: Database.Database, id: string): LlmConfigRow | undefined {
-  return db.prepare('SELECT * FROM llm_configs WHERE id = ?').get(id) as LlmConfigRow | undefined
-}
-
-export function resolveLlmConfig(
-  db: Database.Database,
-  userId: string,
-  projectId: string | null,
-): LlmConfigRow | undefined {
-  // Try project-specific config first
-  if (projectId) {
-    const projectConfig = db.prepare(
-      'SELECT * FROM llm_configs WHERE user_id = ? AND project_id = ?',
-    ).get(userId, projectId) as LlmConfigRow | undefined
-    if (projectConfig) return projectConfig
-  }
-
-  // Fall back to default config (project_id IS NULL)
-  return db.prepare(
-    'SELECT * FROM llm_configs WHERE user_id = ? AND project_id IS NULL',
-  ).get(userId) as LlmConfigRow | undefined
-}
-
-export function updateLlmConfig(
-  db: Database.Database,
-  id: string,
-  data: { api_base_url?: string; api_key?: string; model?: string; project_id?: string | null },
-): void {
-  const now = Date.now()
-  const sets: string[] = ['updated_at = ?']
-  const params: (string | number | null)[] = [now]
-
-  if (data.api_base_url !== undefined) {
-    sets.push('api_base_url = ?')
-    params.push(data.api_base_url)
-  }
-  if (data.api_key !== undefined) {
-    sets.push('api_key = ?')
-    params.push(data.api_key)
-  }
-  if (data.model !== undefined) {
-    sets.push('model = ?')
-    params.push(data.model)
-  }
-  if (data.project_id !== undefined) {
-    sets.push('project_id = ?')
-    params.push(data.project_id)
-  }
-
-  params.push(id)
-  db.prepare(`UPDATE llm_configs SET ${sets.join(', ')} WHERE id = ?`).run(...params)
-}
-
-export function deleteLlmConfig(db: Database.Database, id: string): void {
-  db.prepare('DELETE FROM llm_configs WHERE id = ?').run(id)
 }
 
 // --- Task Steps ---

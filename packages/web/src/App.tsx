@@ -1,5 +1,5 @@
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { LogOut, Settings } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 
 import { AuthProvider, useAuth } from './auth.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
@@ -10,7 +10,6 @@ import { ThreadDetailPage } from './pages/ThreadDetailPage.tsx'
 import { ProjectsPage } from './pages/ProjectsPage.tsx'
 import { TaskDetailPage } from './pages/TaskDetailPage.tsx'
 import { NewProjectPage } from './pages/NewProjectPage.tsx'
-import { LlmConfigPage } from './pages/LlmConfigPage.tsx'
 import './App.css'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -60,13 +59,6 @@ function AppLayout({ children }: { children: React.ReactNode }) {
               to="/projects"
             >
               Projects
-            </Link>
-            <Link
-              className={`top-bar-nav-link ${location.pathname.startsWith('/settings') ? 'active' : ''}`}
-              to="/settings/llm"
-            >
-              <Settings size={14} />
-              Settings
             </Link>
           </div>
         </div>
@@ -175,16 +167,6 @@ function App() {
             <ProtectedRoute>
               <AppLayout>
                 <TaskDetailPage />
-              </AppLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings/llm"
-          element={
-            <ProtectedRoute>
-              <AppLayout>
-                <LlmConfigPage />
               </AppLayout>
             </ProtectedRoute>
           }
