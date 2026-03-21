@@ -107,11 +107,13 @@ pub fn start_claude(
 
     let mut cmd = Command::new(&claude_bin);
     cmd.arg("--print")
+        .arg("--verbose")
         .arg("--output-format")
         .arg("stream-json")
-        .arg("--dangerously-skip-permissions")
-        .arg("--cwd")
-        .arg(&options.cwd);
+        .arg("--dangerously-skip-permissions");
+
+    // Set working directory via process cwd, not CLI flag
+    cmd.current_dir(&options.cwd);
 
     if let Some(model) = &options.model {
         cmd.arg("--model").arg(model);
