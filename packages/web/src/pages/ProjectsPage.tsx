@@ -183,7 +183,6 @@ function StepItem({ step }: { step: TaskStep }) {
         </span>
         {isCommand ? (
           <span className="td-activity-label td-activity-label-code">
-            <Terminal size={11} className="td-activity-terminal-icon" />
             <code>{step.label}</code>
           </span>
         ) : (
@@ -194,7 +193,7 @@ function StepItem({ step }: { step: TaskStep }) {
         )}
         {hasDetail && (
           <span className={`td-activity-chevron ${expanded ? 'td-activity-chevron-open' : ''}`}>
-            <ChevronRight size={12} />
+            <ChevronDown size={12} />
           </span>
         )}
       </div>

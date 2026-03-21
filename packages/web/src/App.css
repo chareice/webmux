@@ -4499,39 +4499,33 @@ button.td-activity-row {
 .td-activity-failed .td-activity-icon { color: var(--danger); }
 .td-activity-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .td-activity-label-code {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
   min-width: 0;
+  flex: 1;
   overflow: hidden;
 }
 .td-activity-label-code code {
   font-family: "Iosevka Term", "JetBrains Mono", "SF Mono", monospace;
   font-size: 0.76rem;
   padding: 0;
-  color: var(--ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: block;
-  max-width: 100%;
+  color: var(--text-secondary);
+  word-break: break-all;
+  white-space: pre-wrap;
+  line-height: 1.5;
 }
-.td-activity-terminal-icon {
-  color: var(--muted);
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-.td-activity-duration { font-size: 0.7rem; color: var(--muted); opacity: 0.7; flex-shrink: 0; }
+.td-activity-duration { font-size: 0.7rem; color: var(--muted); opacity: 0.7; flex-shrink: 0; margin-left: auto; }
 .td-activity-chevron {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   color: var(--muted);
-  margin-left: 4px;
+  margin-left: 6px;
   transition: transform 0.15s ease;
 }
 .td-activity-chevron-open {
-  transform: rotate(90deg);
+  transform: rotate(180deg);
 }
 
 .td-activity-detail {
