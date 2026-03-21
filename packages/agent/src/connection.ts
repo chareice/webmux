@@ -15,6 +15,7 @@ import type { RunTimelineEventPayload } from '@webmux/shared'
 import { upgradeService } from './service.js'
 import { RunWrapper } from './run-wrapper.js'
 import { browseRepositories } from './repositories.js'
+import { readInstructions, writeInstructions } from './instructions.js'
 import { AGENT_PACKAGE_NAME, AGENT_VERSION } from './version.js'
 
 const HEARTBEAT_INTERVAL_MS = 30_000
@@ -162,6 +163,14 @@ export class AgentConnection {
         this.handleRepositoryBrowse(msg.requestId, msg.path)
         break
 
+      case 'read-instructions':
+        this.handleReadInstructions(msg.requestId, msg.tool)
+        break
+
+      case 'write-instructions':
+        this.handleWriteInstructions(msg.requestId, msg.tool, msg.content)
+        break
+
       case 'run-turn-start':
         this.handleRunStart(msg.runId, msg.turnId, msg.tool, msg.repoPath, msg.prompt, msg.toolThreadId, msg.attachments, msg.options)
         break
@@ -209,6 +218,26 @@ export class AgentConnection {
       const message = err instanceof Error ? err.message : String(err)
       console.error('[agent] Failed to browse repositories:', message)
       this.sendMessage({ type: 'repository-browse-result', requestId, ok: false, error: message })
+    }
+  }
+
+  private async handleReadInstructions(requestId: string, tool: RunTool): Promise<void> {
+    try {
+      const content = await readInstructions(tool)
+      this.sendMessage({ type: 'instructions-result', requestId, ok: true, tool, content })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.sendMessage({ type: 'instructions-result', requestId, ok: false, tool, error: message })
+    }
+  }
+
+  private async handleWriteInstructions(requestId: string, tool: RunTool, content: string): Promise<void> {
+    try {
+      await writeInstructions(tool, content)
+      this.sendMessage({ type: 'instructions-written', requestId, ok: true, tool })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.sendMessage({ type: 'instructions-written', requestId, ok: false, tool, error: message })
     }
   }
 
