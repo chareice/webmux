@@ -8,6 +8,7 @@ import type {
   RepositoryBrowseResponse,
   RunImageAttachmentUpload,
   RunTimelineEventPayload,
+  RunTool,
   ServerToAgentMessage,
   RunEvent,
   Run,
@@ -74,7 +75,7 @@ interface PendingCommand<T> {
   timer: ReturnType<typeof setTimeout>
   resolve: (value: T) => void
   reject: (reason: Error) => void
-  type: 'repository-browse'
+  type: 'repository-browse' | 'read-instructions' | 'write-instructions'
 }
 
 export class AgentHub {
@@ -279,6 +280,32 @@ export class AgentHub {
         break
       }
 
+      case 'instructions-result': {
+        const pending = this.pendingCommands.get(message.requestId)
+        if (!pending || pending.type !== 'read-instructions') break
+        this.pendingCommands.delete(message.requestId)
+        clearTimeout(pending.timer)
+        if (!message.ok) {
+          pending.reject(new Error(message.error))
+          break
+        }
+        pending.resolve({ tool: message.tool, content: message.content })
+        break
+      }
+
+      case 'instructions-written': {
+        const pending = this.pendingCommands.get(message.requestId)
+        if (!pending || pending.type !== 'write-instructions') break
+        this.pendingCommands.delete(message.requestId)
+        clearTimeout(pending.timer)
+        if (!message.ok) {
+          pending.reject(new Error(message.error))
+          break
+        }
+        pending.resolve({ tool: message.tool })
+        break
+      }
+
       case 'error': {
         console.error(`[agent-hub] Agent ${agentId} error: ${message.message}`)
         break
@@ -349,6 +376,22 @@ export class AgentHub {
       agentId,
       'repository-browse',
       { path: repositoryPath },
+    )
+  }
+
+  async requestReadInstructions(agentId: string, tool: RunTool): Promise<{ tool: RunTool; content: string | null }> {
+    return this.requestCommand<{ tool: RunTool; content: string | null }>(
+      agentId,
+      'read-instructions',
+      { tool },
+    )
+  }
+
+  async requestWriteInstructions(agentId: string, tool: RunTool, content: string): Promise<{ tool: RunTool }> {
+    return this.requestCommand<{ tool: RunTool }>(
+      agentId,
+      'write-instructions',
+      { tool, content },
     )
   }
 
@@ -735,8 +778,8 @@ export class AgentHub {
 
   private requestCommand<TResult>(
     agentId: string,
-    type: 'repository-browse',
-    payload: { path?: string },
+    type: 'repository-browse' | 'read-instructions' | 'write-instructions',
+    payload: Record<string, unknown>,
   ): Promise<TResult> {
     const requestId = crypto.randomUUID()
 
@@ -744,7 +787,7 @@ export class AgentHub {
       const timer = setTimeout(() => {
         this.pendingCommands.delete(requestId)
         reject(new Error(`Timed out waiting for ${type}`))
-      }, 5_000)
+      }, 10_000)
 
       this.pendingCommands.set(requestId, {
         agentId,
@@ -754,17 +797,10 @@ export class AgentHub {
         type,
       })
 
-      const message: ServerToAgentMessage = {
-        type,
-        requestId,
-        path: payload.path,
-      }
+      const message = { type, requestId, ...payload } as ServerToAgentMessage
 
       const sent = this.sendToAgent(agentId, message)
-
-      if (sent) {
-        return
-      }
+      if (sent) return
 
       clearTimeout(timer)
       this.pendingCommands.delete(requestId)
