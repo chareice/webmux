@@ -50,10 +50,24 @@ impl IntoResponse for AuthError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JwtPayload {
-    /// User ID (JWT `sub` claim)
+    /// User ID
     pub sub: String,
     /// Expiration timestamp (seconds since epoch)
     pub exp: i64,
+}
+
+/// JWT payload compatible with the TypeScript server format: { userId, displayName, role }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyJwtPayload {
+    pub user_id: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    pub exp: i64,
+    #[serde(default)]
+    pub iat: Option<i64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -63,11 +77,16 @@ pub struct JwtPayload {
 const JWT_EXPIRY_DAYS: i64 = 7;
 
 /// Create an HS256 JWT that expires in 7 days.
+/// Uses { userId } format matching the TypeScript server for compatibility.
 pub fn sign_jwt(user_id: &str, secret: &str) -> String {
-    let exp = Utc::now().timestamp() + JWT_EXPIRY_DAYS * 24 * 60 * 60;
-    let payload = JwtPayload {
-        sub: user_id.to_string(),
+    let now = Utc::now().timestamp();
+    let exp = now + JWT_EXPIRY_DAYS * 24 * 60 * 60;
+    let payload = LegacyJwtPayload {
+        user_id: user_id.to_string(),
+        display_name: None,
+        role: None,
         exp,
+        iat: Some(now),
     };
     jsonwebtoken::encode(
         &Header::new(Algorithm::HS256),
@@ -78,10 +97,24 @@ pub fn sign_jwt(user_id: &str, secret: &str) -> String {
 }
 
 /// Verify an HS256 JWT and return the decoded payload.
+/// Supports both { userId } (TypeScript) and { sub } (standard) formats.
 pub fn verify_jwt(token: &str, secret: &str) -> Result<JwtPayload, AuthError> {
     let mut validation = Validation::new(Algorithm::HS256);
-    // The TypeScript side doesn't set an issuer/audience — disable those checks.
-    validation.set_required_spec_claims(&["exp", "sub"]);
+    validation.set_required_spec_claims(&["exp"]);
+
+    // Try legacy { userId } format first (TypeScript server compatibility)
+    if let Ok(data) = jsonwebtoken::decode::<LegacyJwtPayload>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &validation,
+    ) {
+        return Ok(JwtPayload {
+            sub: data.claims.user_id,
+            exp: data.claims.exp,
+        });
+    }
+
+    // Fall back to standard { sub } format
     let data = jsonwebtoken::decode::<JwtPayload>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
