@@ -9,7 +9,7 @@ use axum::{
 };
 use webmux_shared::{
     CreateProjectActionRequest, GenerateProjectActionRequest, ProjectActionListResponse,
-    RunImageAttachment, RunTool, ServerToAgentMessage, UpdateProjectActionRequest,
+    RunImageAttachmentUpload, RunTool, ServerToAgentMessage, UpdateProjectActionRequest,
 };
 
 use crate::auth::AuthUser;
@@ -245,7 +245,7 @@ async fn generate_action(
 
     let db_result = tokio::task::spawn_blocking(move || {
         let conn = db2.get().map_err(|e| e.to_string())?;
-        let empty: Vec<RunImageAttachment> = Vec::new();
+        let empty: Vec<RunImageAttachmentUpload> = Vec::new();
         let (run_row, _) = create_run_with_initial_turn(&conn, CreateRunWithInitialTurnOpts {
             run_id: &rid, turn_id: &tid, agent_id: &aid, user_id: &uid,
             tool: &ts, repo_path: &rp, prompt: &p, branch: None, attachments: Some(&empty),
@@ -343,7 +343,7 @@ async fn run_action(
 
     let db_result = tokio::task::spawn_blocking(move || {
         let conn = db2.get().map_err(|e| e.to_string())?;
-        let empty: Vec<RunImageAttachment> = Vec::new();
+        let empty: Vec<RunImageAttachmentUpload> = Vec::new();
         let (run_row, _) = create_run_with_initial_turn(&conn, CreateRunWithInitialTurnOpts {
             run_id: &rid, turn_id: &tid, agent_id: &aid, user_id: &uid,
             tool: &ts, repo_path: &rp, prompt: &p, branch: None, attachments: Some(&empty),

@@ -235,6 +235,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     // Migrate: add tool column to tasks for existing databases
     let _ = conn.execute_batch("ALTER TABLE tasks ADD COLUMN tool TEXT");
 
+    // Migrate: add data column to run_turn_attachments for image persistence
+    let _ = conn.execute_batch("ALTER TABLE run_turn_attachments ADD COLUMN data TEXT");
+
+    // Ensure task_attachments table exists
+    ensure_task_attachments_table(conn)?;
+
     // --- Startup recovery ---
     startup_recovery(conn)?;
 
@@ -397,6 +403,25 @@ fn ensure_run_turn_attachments_table(conn: &Connection) -> rusqlite::Result<()> 
 
         CREATE INDEX IF NOT EXISTS idx_run_turn_attachments_turn_id
             ON run_turn_attachments(turn_id);
+        ",
+    )?;
+    Ok(())
+}
+
+fn ensure_task_attachments_table(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS task_attachments (
+            id          TEXT PRIMARY KEY,
+            task_id     TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL,
+            mime_type   TEXT NOT NULL,
+            size_bytes  INTEGER NOT NULL,
+            data        TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_task_attachments_task_id
+            ON task_attachments(task_id);
         ",
     )?;
     Ok(())

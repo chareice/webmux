@@ -1,5 +1,6 @@
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
+use webmux_shared::{RunImageAttachment, RunImageAttachmentUpload};
 
 use super::types::{TaskRow, TaskStepRow, TaskMessageRow};
 
@@ -480,3 +481,78 @@ pub fn count_task_messages(
         |row| row.get(0),
     )
 }
+
+// --- Task Attachment CRUD ---
+
+pub fn create_task_attachments(
+    conn: &Connection,
+    task_id: &str,
+    attachments: &[RunImageAttachmentUpload],
+) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO task_attachments (id, task_id, name, mime_type, size_bytes, data)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )?;
+    for a in attachments {
+        stmt.execute(params![a.id, task_id, a.name, a.mime_type, a.size_bytes, a.base64])?;
+    }
+    Ok(())
+}
+
+pub fn find_task_attachments(
+    conn: &Connection,
+    task_id: &str,
+) -> rusqlite::Result<Vec<RunImageAttachment>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, mime_type, size_bytes FROM task_attachments WHERE task_id = ? ORDER BY rowid ASC",
+    )?;
+    let rows = stmt.query_map(params![task_id], |row| {
+        Ok(RunImageAttachment {
+            id: row.get("id")?,
+            name: row.get("name")?,
+            mime_type: row.get("mime_type")?,
+            size_bytes: row.get("size_bytes")?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn find_task_attachments_for_dispatch(
+    conn: &Connection,
+    task_id: &str,
+) -> rusqlite::Result<Vec<RunImageAttachmentUpload>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, mime_type, size_bytes, data FROM task_attachments WHERE task_id = ? ORDER BY rowid ASC",
+    )?;
+    let rows = stmt.query_map(params![task_id], |row| {
+        Ok(RunImageAttachmentUpload {
+            id: row.get("id")?,
+            name: row.get("name")?,
+            mime_type: row.get("mime_type")?,
+            size_bytes: row.get("size_bytes")?,
+            base64: row.get("data")?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn find_attachment_data(
+    conn: &Connection,
+    attachment_id: &str,
+) -> rusqlite::Result<Option<(String, String)>> {
+    // Try task_attachments first, then run_turn_attachments
+    let result: Option<(String, String)> = conn.query_row(
+        "SELECT mime_type, data FROM task_attachments WHERE id = ?1",
+        params![attachment_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).ok();
+    if result.is_some() {
+        return Ok(result);
+    }
+    conn.query_row(
+        "SELECT mime_type, data FROM run_turn_attachments WHERE id = ?1",
+        params![attachment_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    ).optional()
+}
+

@@ -17,8 +17,9 @@ use crate::auth::AuthUser;
 use crate::db::projects::find_project_by_id;
 use crate::db::runs::find_run_by_id;
 use crate::db::tasks::{
-    count_task_messages, create_task, create_task_message, delete_last_task_messages, delete_task,
-    find_messages_by_task_id, find_steps_by_task_id, find_task_by_id, reset_task_to_pending,
+    count_task_messages, create_task, create_task_attachments, create_task_message,
+    delete_last_task_messages, delete_task, find_attachment_data, find_messages_by_task_id,
+    find_steps_by_task_id, find_task_attachments, find_task_by_id, reset_task_to_pending,
     update_task_prompt, update_task_status, update_task_summary, CreateTaskOpts,
     UpdateTaskPromptOpts,
 };
@@ -103,6 +104,8 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/projects/{project_id}/tasks/{task_id}/messages", get(get_task_messages))
         // POST /api/projects/:id/tasks/:taskId/messages — send task message
         .route("/projects/{project_id}/tasks/{task_id}/messages", post(send_task_message))
+        // GET /api/attachments/:attachmentId/image — serve attachment image
+        .route("/attachments/{attachment_id}/image", get(get_attachment_image))
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +146,7 @@ async fn create_task_handler(
     let db = state.db.clone();
     let user_id = auth_user.user_id.clone();
     let priority = body.priority;
+    let attachments = body.attachments;
 
     let result = tokio::task::spawn_blocking(move || {
         let conn = db.get().map_err(|e| e.to_string())?;
@@ -166,15 +170,30 @@ async fn create_task_handler(
         )
         .map_err(|e| e.to_string())?;
 
-        Ok((task_row_to_task(&task), project_id))
+        // Persist attachments to DB
+        if let Some(ref atts) = attachments {
+            if !atts.is_empty() {
+                create_task_attachments(&conn, &task.id, atts)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
+        let att_meta = find_task_attachments(&conn, &task.id)
+            .unwrap_or_default();
+
+        Ok((task_row_to_task(&task), project_id, att_meta))
     })
     .await;
 
     match result {
-        Ok(Ok((task, pid))) => {
-            // Trigger dispatch
+        Ok(Ok((mut task, pid, att_meta))) => {
+            // Dispatch — dispatcher now loads attachments from DB automatically
             let hub = state.hub.read().await;
             crate::ws::task_dispatcher::dispatch_pending_tasks_for_project(&hub, &state.db, &pid);
+
+            if !att_meta.is_empty() {
+                task.attachments = Some(att_meta);
+            }
 
             (
                 StatusCode::CREATED,
@@ -852,6 +871,60 @@ async fn send_task_message(
         Ok(Err(e)) if e == "not_found" => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "Task not found" })),
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /api/attachments/:attachmentId/image — serve attachment image binary
+async fn get_attachment_image(
+    State(state): State<Arc<AppState>>,
+    _auth_user: AuthUser,
+    Path(attachment_id): Path<String>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = db.get().map_err(|e| e.to_string())?;
+        find_attachment_data(&conn, &attachment_id).map_err(|e| e.to_string())
+    })
+    .await;
+
+    match result {
+        Ok(Ok(Some((mime_type, data)))) => {
+            use base64::Engine;
+            match base64::engine::general_purpose::STANDARD.decode(&data) {
+                Ok(bytes) => (
+                    StatusCode::OK,
+                    [
+                        (axum::http::header::CONTENT_TYPE, mime_type),
+                        (
+                            axum::http::header::CACHE_CONTROL,
+                            "private, max-age=31536000, immutable".to_string(),
+                        ),
+                    ],
+                    bytes,
+                )
+                    .into_response(),
+                Err(_) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": "Failed to decode attachment data" })),
+                )
+                    .into_response(),
+            }
+        }
+        Ok(Ok(None)) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Attachment not found" })),
         )
             .into_response(),
         Ok(Err(e)) => (

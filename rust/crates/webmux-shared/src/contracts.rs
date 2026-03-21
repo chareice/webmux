@@ -686,6 +686,8 @@ pub struct Task {
     pub run_id: Option<String>,
     pub error_message: Option<String>,
     pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<Vec<RunImageAttachment>>,
     pub created_at: f64,
     pub updated_at: f64,
     pub claimed_at: Option<f64>,
@@ -855,6 +857,8 @@ pub struct CreateTaskRequest {
     pub priority: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool: Option<RunTool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<Vec<RunImageAttachmentUpload>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
