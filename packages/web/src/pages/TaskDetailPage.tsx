@@ -420,6 +420,21 @@ export function TaskDetailPage() {
     }
   }
 
+  const handleInterrupt = async () => {
+    if (!task) return
+    try {
+      const res = await fetchApi(`/api/projects/${projectId}/tasks/${task.id}/interrupt`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        setError(data.error || 'Failed to interrupt task')
+      }
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   const handleDelete = async () => {
     if (!task) return
     const label = isTaskActive(task.status)
@@ -553,11 +568,11 @@ export function TaskDetailPage() {
             {active && (
               <button
                 className="secondary-button thread-interrupt-button"
-                onClick={() => void handleMarkComplete()}
+                onClick={() => void handleInterrupt()}
                 type="button"
               >
                 <StopCircle size={14} />
-                Mark Complete
+                Interrupt
               </button>
             )}
             {task.status !== 'completed' && task.status !== 'pending' && !active && (
@@ -664,11 +679,11 @@ export function TaskDetailPage() {
             {active && (
               <button
                 className="secondary-button thread-interrupt-button task-action-button--mobile"
-                onClick={() => void handleMarkComplete()}
+                onClick={() => void handleInterrupt()}
                 type="button"
               >
                 <StopCircle size={14} />
-                Mark Complete
+                Interrupt
               </button>
             )}
 

@@ -40,6 +40,10 @@ export type AgentMessage =
   | { type: 'heartbeat' }
   | { type: 'repository-browse-result'; requestId: string; ok: true; currentPath: string; parentPath: string | null; entries: RepositoryEntry[] }
   | { type: 'repository-browse-result'; requestId: string; ok: false; error: string }
+  | { type: 'instructions-result'; requestId: string; ok: true; tool: RunTool; content: string | null }
+  | { type: 'instructions-result'; requestId: string; ok: false; tool: RunTool; error: string }
+  | { type: 'instructions-written'; requestId: string; ok: true; tool: RunTool }
+  | { type: 'instructions-written'; requestId: string; ok: false; tool: RunTool; error: string }
   | { type: 'error'; message: string }
   | { type: 'run-status'; runId: string; turnId: string; status: RunStatus; summary?: string; hasDiff?: boolean; toolThreadId?: string }
   | { type: 'run-item'; runId: string; turnId: string; item: RunTimelineEventPayload }
@@ -56,6 +60,8 @@ export type ServerToAgentMessage =
   | { type: 'auth-ok'; upgradePolicy?: AgentUpgradePolicy }
   | { type: 'auth-fail'; message: string }
   | { type: 'repository-browse'; requestId: string; path?: string }
+  | { type: 'read-instructions'; requestId: string; tool: RunTool }
+  | { type: 'write-instructions'; requestId: string; tool: RunTool; content: string }
   | {
       type: 'run-turn-start'
       runId: string
@@ -81,6 +87,7 @@ export type ServerToAgentMessage =
       attachments?: RunImageAttachmentUpload[]
     }
   | { type: 'task-user-reply'; taskId: string; content: string; attachments?: RunImageAttachmentUpload[] }
+  | { type: 'task-interrupt'; taskId: string }
 
 // REST API types
 
@@ -277,6 +284,11 @@ export interface Task {
   updatedAt: number
   claimedAt: number | null
   completedAt: number | null
+}
+
+export interface InstructionsResponse {
+  tool: RunTool
+  content: string | null
 }
 
 // --- LLM Config types ---

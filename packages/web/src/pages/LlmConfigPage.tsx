@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { LoaderCircle, Plus, Pencil, Trash2, Key, Save, X } from 'lucide-react'
 import { fetchApi } from '../auth.tsx'
 import type { LlmConfig, Project } from '@webmux/shared'
@@ -23,6 +24,7 @@ const EMPTY_FORM: ConfigFormData = {
 }
 
 export function LlmConfigPage() {
+  const location = useLocation()
   const [configs, setConfigs] = useState<LlmConfig[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -199,6 +201,20 @@ export function LlmConfigPage() {
 
   return (
     <div className="llm-config-page">
+      <div className="settings-subnav">
+        <Link
+          className={`settings-subnav-link ${location.pathname === '/settings/llm' ? 'active' : ''}`}
+          to="/settings/llm"
+        >
+          LLM Config
+        </Link>
+        <Link
+          className={`settings-subnav-link ${location.pathname === '/settings/instructions' ? 'active' : ''}`}
+          to="/settings/instructions"
+        >
+          Instructions
+        </Link>
+      </div>
       <div className="threads-header">
         <h1>LLM Configuration</h1>
         <div className="threads-header-actions">

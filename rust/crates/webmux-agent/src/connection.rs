@@ -11,10 +11,10 @@ use uuid::Uuid;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
 use webmux_shared::{
-    AgentMessage, AgentTaskMessagePayload, CommandStatus, MessageRole,
-    RepositoryBrowseResultPayload, RunImageAttachmentUpload, RunStatus, RunTimelineEventPayload,
-    RunTimelineEventStatus, RunTool, RunTurnOptions, ServerToAgentMessage, StepStatus, StepType,
-    TaskStepWithoutTaskId,
+    AgentMessage, AgentTaskMessagePayload, CommandStatus, InstructionsResultPayload,
+    InstructionsWrittenPayload, MessageRole, RepositoryBrowseResultPayload,
+    RunImageAttachmentUpload, RunStatus, RunTimelineEventPayload, RunTimelineEventStatus, RunTool,
+    RunTurnOptions, ServerToAgentMessage, StepStatus, StepType, TaskStepWithoutTaskId,
 };
 
 use crate::repositories::browse_repositories;
@@ -189,6 +189,18 @@ impl AgentConnection {
                                     let root = workspace_root.clone();
                                     tokio::spawn(async move {
                                         handle_repository_browse(tx, &root, &request_id, path.as_deref()).await;
+                                    });
+                                }
+                                ServerToAgentMessage::ReadInstructions { request_id, tool } => {
+                                    let tx = internal_tx.clone();
+                                    tokio::spawn(async move {
+                                        handle_read_instructions(tx, &request_id, tool).await;
+                                    });
+                                }
+                                ServerToAgentMessage::WriteInstructions { request_id, tool, content } => {
+                                    let tx = internal_tx.clone();
+                                    tokio::spawn(async move {
+                                        handle_write_instructions(tx, &request_id, tool, &content).await;
                                     });
                                 }
                                 ServerToAgentMessage::RunTurnStart {
@@ -399,6 +411,120 @@ async fn handle_repository_browse(
                         request_id: request_id.to_string(),
                         ok: serde_json::Value::Bool(false),
                         error: e,
+                    },
+                ))
+                .await;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Instructions read/write
+// ---------------------------------------------------------------------------
+
+fn tool_instructions_path(tool: &RunTool) -> std::path::PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    match tool {
+        RunTool::Claude => home.join(".claude").join("CLAUDE.md"),
+        RunTool::Codex => home.join(".codex").join("AGENTS.md"),
+    }
+}
+
+async fn handle_read_instructions(
+    tx: mpsc::Sender<AgentMessage>,
+    request_id: &str,
+    tool: RunTool,
+) {
+    let path = tool_instructions_path(&tool);
+    let result = tokio::fs::read_to_string(&path).await;
+    match result {
+        Ok(content) => {
+            let _ = tx
+                .send(AgentMessage::InstructionsResult(
+                    InstructionsResultPayload::Ok {
+                        request_id: request_id.to_string(),
+                        ok: serde_json::Value::Bool(true),
+                        tool,
+                        content: Some(content),
+                    },
+                ))
+                .await;
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let _ = tx
+                .send(AgentMessage::InstructionsResult(
+                    InstructionsResultPayload::Ok {
+                        request_id: request_id.to_string(),
+                        ok: serde_json::Value::Bool(true),
+                        tool,
+                        content: None,
+                    },
+                ))
+                .await;
+        }
+        Err(e) => {
+            error!("Failed to read instructions: {e}");
+            let _ = tx
+                .send(AgentMessage::InstructionsResult(
+                    InstructionsResultPayload::Err {
+                        request_id: request_id.to_string(),
+                        ok: serde_json::Value::Bool(false),
+                        tool,
+                        error: e.to_string(),
+                    },
+                ))
+                .await;
+        }
+    }
+}
+
+async fn handle_write_instructions(
+    tx: mpsc::Sender<AgentMessage>,
+    request_id: &str,
+    tool: RunTool,
+    content: &str,
+) {
+    let path = tool_instructions_path(&tool);
+
+    // Ensure parent directory exists
+    if let Some(parent) = path.parent() {
+        if let Err(e) = tokio::fs::create_dir_all(parent).await {
+            error!("Failed to create instructions directory: {e}");
+            let _ = tx
+                .send(AgentMessage::InstructionsWritten(
+                    InstructionsWrittenPayload::Err {
+                        request_id: request_id.to_string(),
+                        ok: serde_json::Value::Bool(false),
+                        tool,
+                        error: e.to_string(),
+                    },
+                ))
+                .await;
+            return;
+        }
+    }
+
+    match tokio::fs::write(&path, content).await {
+        Ok(()) => {
+            let _ = tx
+                .send(AgentMessage::InstructionsWritten(
+                    InstructionsWrittenPayload::Ok {
+                        request_id: request_id.to_string(),
+                        ok: serde_json::Value::Bool(true),
+                        tool,
+                    },
+                ))
+                .await;
+        }
+        Err(e) => {
+            error!("Failed to write instructions: {e}");
+            let _ = tx
+                .send(AgentMessage::InstructionsWritten(
+                    InstructionsWrittenPayload::Err {
+                        request_id: request_id.to_string(),
+                        ok: serde_json::Value::Bool(false),
+                        tool,
+                        error: e.to_string(),
                     },
                 ))
                 .await;
