@@ -1,37 +1,30 @@
-FROM node:22-slim AS base
+# Stage 1: Build frontend
+FROM node:22-slim AS frontend
 RUN corepack enable pnpm
-
-# Build stage — only build server and web (no agent, no node-pty)
-FROM base AS build
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-# Create a stub agent package.json without node-pty so pnpm workspace resolves
 RUN mkdir -p packages/agent && echo '{"name":"@webmux/agent","version":"0.0.0","private":true}' > packages/agent/package.json
-
+RUN mkdir -p packages/server && echo '{"name":"@webmux/server","version":"0.0.0","private":true}' > packages/server/package.json
 COPY packages/shared packages/shared
-COPY packages/server packages/server
 COPY packages/web packages/web
 RUN pnpm install --no-frozen-lockfile
 RUN pnpm --filter @webmux/shared build
 RUN pnpm --filter @webmux/web build
-RUN pnpm --filter @webmux/server build
 
-# Production stage
-FROM base AS production
+# Stage 2: Build Rust server
+FROM rust:1.87-slim AS builder
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-ENV NODE_ENV=production
+COPY rust/ .
+RUN cargo build --release --bin webmux-server
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/shared/package.json packages/shared/
-COPY packages/server/package.json packages/server/
-RUN mkdir -p packages/agent && echo '{"name":"@webmux/agent","version":"0.0.0","private":true}' > packages/agent/package.json
-RUN mkdir -p packages/web && echo '{"name":"@webmux/web","version":"0.0.0","private":true}' > packages/web/package.json
-RUN pnpm install --no-frozen-lockfile --prod --filter @webmux/server
+# Stage 3: Production
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/webmux-server /usr/local/bin/
+COPY --from=frontend /app/packages/web/dist /app/web
 
-COPY --from=build /app/packages/server/dist packages/server/dist
-COPY --from=build /app/packages/shared/dist packages/shared/dist
-COPY --from=build /app/packages/web/dist packages/web/dist
-
+ENV WEBMUX_STATIC_DIR=/app/web
 EXPOSE 4317
 
-CMD ["node", "packages/server/dist/index.js"]
+CMD ["webmux-server"]

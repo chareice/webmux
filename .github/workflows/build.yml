@@ -1,4 +1,4 @@
-name: Build and Publish Packages
+name: Build and Publish Agent
 
 on:
   push:
@@ -9,36 +9,28 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  publish:
+  build-agent:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write
+      contents: write
 
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
+          workspaces: rust
 
-      - run: npm install --global pnpm@10.23.0
-      - run: pnpm install --frozen-lockfile
+      - run: cd rust && cargo build --release --bin webmux-agent
 
-      - run: pnpm --filter @webmux/shared build
-      - run: pnpm --filter @webmux/web build
-      - run: pnpm --filter @webmux/server build
-      - run: pnpm --filter @webmux/agent build
+      - name: Get version
+        id: version
+        run: echo "version=$(cd rust && cargo metadata --no-deps --format-version 1 | python3 -c 'import sys,json; pkgs=json.load(sys.stdin)["packages"]; print([p["version"] for p in pkgs if p["name"]=="webmux-agent"][0])')" >> $GITHUB_OUTPUT
 
-      # Copy web dist into server package for npm publish
-      - run: cp -r packages/web/dist packages/server/web
-
-      # Publish packages (skip if version already exists)
-      - run: pnpm --filter @webmux/server publish --no-git-checks --access public || true
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - run: pnpm --filter @webmux/agent publish --no-git-checks --access public || true
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Upload agent binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: webmux-agent-linux-x64
+          path: rust/target/release/webmux-agent
