@@ -81,6 +81,7 @@ export type ServerToAgentMessage =
       attachments?: RunImageAttachmentUpload[]
     }
   | { type: 'task-user-reply'; taskId: string; content: string; attachments?: RunImageAttachmentUpload[] }
+  | { type: 'task-interrupt'; taskId: string }
 
 // REST API types
 
