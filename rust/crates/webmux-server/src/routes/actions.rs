@@ -34,6 +34,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/projects/{project_id}/actions/generate", post(generate_action))
         .route("/projects/{project_id}/actions/{action_id}", patch(update_action))
         .route("/projects/{project_id}/actions/{action_id}", delete(delete_action))
+        .route("/projects/{project_id}/actions/{action_id}/run", post(run_action))
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +271,104 @@ async fn generate_action(
         let rid = run_id.clone();
         let _ = tokio::task::spawn_blocking(move || { if let Ok(c) = db.get() { let _ = delete_run(&c, &rid); } }).await;
         return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "Agent became unavailable before the generation could start" }))).into_response();
+    }
+
+    if let Ok(conn) = state.db.get() {
+        agent_hub::broadcast_run_snapshot(&hub, &conn, &run_id, Some(&turn_id));
+    }
+    drop(hub);
+
+    (StatusCode::OK, Json(serde_json::json!({ "runId": run_id }))).into_response()
+}
+
+/// POST /api/projects/:projectId/actions/:actionId/run — execute an action
+async fn run_action(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Path((project_id, action_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    let user_id = auth_user.user_id.clone();
+
+    let project_result = tokio::task::spawn_blocking({
+        let db = db.clone();
+        let pid = project_id.clone();
+        let uid = user_id.clone();
+        let aid = action_id.clone();
+        move || {
+            let conn = db.get().map_err(|e| e.to_string())?;
+            let project = find_project_by_id(&conn, &pid).map_err(|e| e.to_string())?;
+            match project {
+                None => return Err("project_not_found".to_string()),
+                Some(p) if p.user_id != uid => return Err("project_not_found".to_string()),
+                _ => {}
+            }
+            let action = find_project_action_by_id(&conn, &aid).map_err(|e| e.to_string())?;
+            match action {
+                None => return Err("action_not_found".to_string()),
+                Some(a) if a.project_id != pid => return Err("action_not_found".to_string()),
+                _ => {}
+            }
+            Ok((project.unwrap(), action.unwrap()))
+        }
+    }).await;
+
+    let (project, action) = match project_result {
+        Ok(Ok((p, a))) => (p, a),
+        Ok(Err(ref e)) if e == "project_not_found" => return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Project not found" }))).into_response(),
+        Ok(Err(ref e)) if e == "action_not_found" => return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Action not found" }))).into_response(),
+        Ok(Err(e)) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let agent_id = project.agent_id.clone();
+    let hub = state.hub.read().await;
+    if !hub.is_agent_online(&agent_id) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Agent is offline" }))).into_response();
+    }
+
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let turn_id = uuid::Uuid::new_v4().to_string();
+    let tool_str = action.tool.clone();
+    let tool: RunTool = serde_json::from_str(&format!("\"{}\"", tool_str)).unwrap_or(RunTool::Claude);
+
+    let db2 = state.db.clone();
+    let rid = run_id.clone();
+    let tid = turn_id.clone();
+    let aid = agent_id.clone();
+    let uid = user_id.clone();
+    let rp = project.repo_path.clone();
+    let p = action.prompt.clone();
+    let ts = tool_str.clone();
+
+    let db_result = tokio::task::spawn_blocking(move || {
+        let conn = db2.get().map_err(|e| e.to_string())?;
+        let empty: Vec<RunImageAttachment> = Vec::new();
+        let (run_row, _) = create_run_with_initial_turn(&conn, CreateRunWithInitialTurnOpts {
+            run_id: &rid, turn_id: &tid, agent_id: &aid, user_id: &uid,
+            tool: &ts, repo_path: &rp, prompt: &p, branch: None, attachments: Some(&empty),
+        }).map_err(|e| e.to_string())?;
+        Ok::<_, String>(run_row)
+    }).await;
+
+    let run_row = match db_result {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let msg = ServerToAgentMessage::RunTurnStart {
+        run_id: run_id.clone(), turn_id: turn_id.clone(), tool,
+        repo_path: project.repo_path.clone(), prompt: action.prompt.clone(),
+        tool_thread_id: run_row.tool_thread_id, attachments: Some(Vec::new()), options: None,
+    };
+
+    if !hub.send_to_agent(&agent_id, &msg) {
+        drop(hub);
+        let db = state.db.clone();
+        let rid = run_id.clone();
+        let _ = tokio::task::spawn_blocking(move || { if let Ok(c) = db.get() { let _ = delete_run(&c, &rid); } }).await;
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "Agent became unavailable before the action could be executed" }))).into_response();
     }
 
     if let Ok(conn) = state.db.get() {

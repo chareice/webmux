@@ -82,21 +82,24 @@ fn task_message_row_to_task_message(row: &TaskMessageRow) -> TaskMessage {
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route(
-            "/projects/{project_id}/tasks",
-            post(create_task_handler),
-        )
-        .route("/tasks/{id}", get(get_task_detail))
-        .route("/tasks/{id}/steps", get(get_task_steps))
-        .route("/tasks/{id}/messages", get(get_task_messages))
-        .route("/tasks/{id}", patch(update_task_handler))
-        .route("/tasks/{id}", delete(delete_task_handler))
-        .route("/tasks/{id}/cancel", post(cancel_task))
-        .route("/tasks/{id}/retry", post(retry_task))
-        .route(
-            "/tasks/{id}/messages",
-            post(send_task_message),
-        )
+        // POST /api/projects/:id/tasks — create task
+        .route("/projects/{project_id}/tasks", post(create_task_handler))
+        // GET /api/projects/:id/tasks — list tasks for project
+        .route("/projects/{project_id}/tasks", get(list_tasks))
+        // PATCH /api/projects/:id/tasks/:taskId — update task
+        .route("/projects/{project_id}/tasks/{task_id}", patch(update_task_handler))
+        // DELETE /api/projects/:id/tasks/:taskId — delete task
+        .route("/projects/{project_id}/tasks/{task_id}", delete(delete_task_handler))
+        // POST /api/projects/:id/tasks/:taskId/retry — retry failed task
+        .route("/projects/{project_id}/tasks/{task_id}/retry", post(retry_task))
+        // POST /api/projects/:id/tasks/:taskId/complete — mark task completed
+        .route("/projects/{project_id}/tasks/{task_id}/complete", post(complete_task))
+        // GET /api/projects/:id/tasks/:taskId/steps — get task steps
+        .route("/projects/{project_id}/tasks/{task_id}/steps", get(get_task_steps))
+        // GET /api/projects/:id/tasks/:taskId/messages — get task messages
+        .route("/projects/{project_id}/tasks/{task_id}/messages", get(get_task_messages))
+        // POST /api/projects/:id/tasks/:taskId/messages — send task message
+        .route("/projects/{project_id}/tasks/{task_id}/messages", post(send_task_message))
 }
 
 // ---------------------------------------------------------------------------
@@ -194,7 +197,56 @@ async fn create_task_handler(
     }
 }
 
-/// GET /api/tasks/:id
+/// GET /api/projects/:id/tasks — list tasks for a project
+async fn list_tasks(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Path(project_id): Path<String>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    let user_id = auth_user.user_id.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = db.get().map_err(|e| e.to_string())?;
+        let project =
+            find_project_by_id(&conn, &project_id).map_err(|e| e.to_string())?;
+        match project {
+            None => return Err("not_found".to_string()),
+            Some(p) if p.user_id != user_id => return Err("not_found".to_string()),
+            _ => {}
+        }
+
+        let task_rows =
+            crate::db::tasks::find_tasks_by_project_id(&conn, &project_id).map_err(|e| e.to_string())?;
+        let tasks: Vec<_> = task_rows.iter().map(task_row_to_task).collect();
+        Ok::<_, String>(tasks)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(tasks)) => {
+            (StatusCode::OK, Json(serde_json::json!({ "tasks": tasks }))).into_response()
+        }
+        Ok(Err(e)) if e == "not_found" => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Project not found" })),
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// Standalone task detail — not currently registered as a route (tasks are nested under projects)
+#[allow(dead_code)]
 async fn get_task_detail(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
@@ -256,11 +308,11 @@ async fn get_task_detail(
     }
 }
 
-/// GET /api/tasks/:id/steps
+/// GET /api/projects/:id/tasks/:taskId/steps
 async fn get_task_steps(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_project_id, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let user_id = auth_user.user_id.clone();
@@ -309,11 +361,11 @@ async fn get_task_steps(
     }
 }
 
-/// GET /api/tasks/:id/messages
+/// GET /api/projects/:id/tasks/:taskId/messages
 async fn get_task_messages(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_project_id, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let user_id = auth_user.user_id.clone();
@@ -362,11 +414,11 @@ async fn get_task_messages(
     }
 }
 
-/// PATCH /api/tasks/:id
+/// PATCH /api/projects/:id/tasks/:taskId
 async fn update_task_handler(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_project_id, id)): Path<(String, String)>,
     Json(body): Json<UpdateTaskRequest>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
@@ -435,11 +487,11 @@ async fn update_task_handler(
     }
 }
 
-/// DELETE /api/tasks/:id
+/// DELETE /api/projects/:id/tasks/:taskId
 async fn delete_task_handler(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_project_id, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let user_id = auth_user.user_id.clone();
@@ -485,11 +537,11 @@ async fn delete_task_handler(
     }
 }
 
-/// POST /api/tasks/:id/cancel
-async fn cancel_task(
+/// POST /api/projects/:id/tasks/:taskId/complete
+async fn complete_task(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_project_id, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let user_id = auth_user.user_id.clone();
@@ -535,11 +587,11 @@ async fn cancel_task(
     }
 }
 
-/// POST /api/tasks/:id/retry
+/// POST /api/projects/:id/tasks/:taskId/retry
 async fn retry_task(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_project_id, id)): Path<(String, String)>,
     body: Option<Json<RetryTaskRequest>>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
@@ -609,11 +661,11 @@ async fn retry_task(
     }
 }
 
-/// POST /api/tasks/:id/messages
+/// POST /api/projects/:id/tasks/:taskId/messages
 async fn send_task_message(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_project_id, id)): Path<(String, String)>,
     Json(body): Json<SendTaskMessageRequest>,
 ) -> impl IntoResponse {
     let content = body.content.trim().to_string();

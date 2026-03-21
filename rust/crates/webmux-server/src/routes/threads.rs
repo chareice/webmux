@@ -5,7 +5,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post},
 };
 use webmux_shared::{
     ContinueRunRequest, Run, RunDetailResponse, RunImageAttachment, RunImageAttachmentUpload,
@@ -14,10 +14,12 @@ use webmux_shared::{
 };
 
 use crate::auth::AuthUser;
+use crate::db::agents::find_agent_by_id;
 use crate::db::runs::{
     create_queued_run_turn, create_run_turn, create_run_with_initial_turn,
-    delete_run, delete_run_turn, find_active_run_turn_by_run_id, find_run_by_id,
-    find_run_turn_by_id, find_run_turn_details, find_runs_by_user_id, mark_run_read,
+    delete_queued_turns_by_run_id, delete_run, delete_run_turn,
+    find_active_run_turn_by_run_id, find_run_by_id, find_run_turn_by_id,
+    find_run_turn_details, find_runs_by_agent_id, find_runs_by_user_id, mark_run_read,
     update_queued_turn_prompt, CreateQueuedRunTurnOpts, CreateRunTurnOpts,
     CreateRunWithInitialTurnOpts,
 };
@@ -79,23 +81,37 @@ fn uploads_to_metadata(uploads: &[RunImageAttachmentUpload]) -> Vec<RunImageAtta
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/runs", get(list_runs))
-        .route("/runs/{id}", get(get_run_detail))
-        .route("/runs/{id}", delete(delete_run_handler))
-        .route("/runs", post(start_run))
-        .route("/runs/{id}/turns", post(continue_run))
-        .route("/runs/{id}/interrupt", post(interrupt_run))
-        .route("/runs/{id}/kill", post(kill_run))
-        .route("/runs/{id}/read", post(mark_read))
-        .route("/runs/{id}/turns/{turn_id}", put(update_queued_turn))
-        .route("/runs/{id}/turns/{turn_id}", delete(delete_queued_turn))
+        // GET /api/threads — list all threads for current user
+        .route("/threads", get(list_runs))
+        // GET /api/agents/:id/threads — list threads for a specific agent
+        .route("/agents/{id}/threads", get(list_agent_threads))
+        // GET /api/agents/:id/threads/:threadId — thread detail
+        .route("/agents/{id}/threads/{thread_id}", get(get_run_detail))
+        // POST /api/agents/:id/threads — start a new thread
+        .route("/agents/{id}/threads", post(start_run))
+        // POST /api/agents/:id/threads/:threadId/turns — continue a thread
+        .route("/agents/{id}/threads/{thread_id}/turns", post(continue_run))
+        // POST /api/agents/:id/threads/:threadId/interrupt — interrupt a thread
+        .route("/agents/{id}/threads/{thread_id}/interrupt", post(interrupt_run))
+        // POST /api/agents/:id/threads/:threadId/read — mark thread as read
+        .route("/agents/{id}/threads/{thread_id}/read", post(mark_read))
+        // DELETE /api/agents/:id/threads/:threadId — delete a thread
+        .route("/agents/{id}/threads/{thread_id}", delete(delete_run_handler))
+        // PATCH /api/agents/:id/threads/:threadId/turns/:turnId — update queued turn
+        .route("/agents/{id}/threads/{thread_id}/turns/{turn_id}", patch(update_queued_turn))
+        // DELETE /api/agents/:id/threads/:threadId/turns/:turnId — delete queued turn
+        .route("/agents/{id}/threads/{thread_id}/turns/{turn_id}", delete(delete_queued_turn))
+        // POST /api/agents/:id/threads/:threadId/discard-queue — discard all queued turns
+        .route("/agents/{id}/threads/{thread_id}/discard-queue", post(discard_queue))
+        // POST /api/agents/:id/threads/:threadId/resume-queue — resume next queued turn
+        .route("/agents/{id}/threads/{thread_id}/resume-queue", post(resume_queue))
 }
 
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
-/// GET /api/runs
+/// GET /api/threads — list all threads for current user
 async fn list_runs(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
@@ -117,23 +133,52 @@ async fn list_runs(
     }
 }
 
-/// GET /api/runs/:id
+/// GET /api/agents/:id/threads — list threads for a specific agent
+async fn list_agent_threads(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Path(agent_id): Path<String>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    let user_id = auth_user.user_id;
+
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = db.get().map_err(|e| e.to_string())?;
+        let agent = find_agent_by_id(&conn, &agent_id).map_err(|e| e.to_string())?;
+        match agent {
+            None => return Err("Agent not found".to_string()),
+            Some(a) if a.user_id != user_id => return Err("Not your agent".to_string()),
+            _ => {}
+        }
+        let rows = find_runs_by_agent_id(&conn, &agent_id).map_err(|e| e.to_string())?;
+        let runs: Vec<Run> = rows.iter().map(agent_hub::run_row_to_run).collect();
+        Ok::<_, String>(RunListResponse { runs })
+    }).await;
+
+    match result {
+        Ok(Ok(resp)) => (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response(),
+        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// GET /api/agents/:id/threads/:threadId — thread detail
 async fn get_run_detail(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_agent_id, thread_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let user_id = auth_user.user_id;
 
     let result = tokio::task::spawn_blocking(move || -> Result<RunDetailResponse, &'static str> {
         let conn = db.get().map_err(|_| "internal")?;
-        let row = find_run_by_id(&conn, &id).map_err(|_| "internal")?;
+        let row = find_run_by_id(&conn, &thread_id).map_err(|_| "internal")?;
         match row {
             None => Err("not_found"),
             Some(r) if r.user_id != user_id => Err("forbidden"),
             Some(r) => {
-                let turns = find_run_turn_details(&conn, &id).map_err(|_| "internal")?;
+                let turns = find_run_turn_details(&conn, &thread_id).map_err(|_| "internal")?;
                 Ok(RunDetailResponse { run: agent_hub::run_row_to_run(&r), turns })
             }
         }
@@ -148,10 +193,11 @@ async fn get_run_detail(
     }
 }
 
-/// POST /api/runs — Start a new run (finds user's first online agent)
+/// POST /api/agents/:id/threads — Start a new thread
 async fn start_run(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
+    Path(agent_id): Path<String>,
     Json(body): Json<StartRunRequest>,
 ) -> impl IntoResponse {
     let attachments = match normalize_attachments(body.attachments.as_deref()) {
@@ -165,26 +211,27 @@ async fn start_run(
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Missing required fields: tool, repoPath, and prompt or attachments" }))).into_response();
     }
 
-    // Find user's agents
+    // Verify agent belongs to user
     let db = state.db.clone();
     let user_id = auth_user.user_id.clone();
-    let agents_result = tokio::task::spawn_blocking(move || {
+    let aid = agent_id.clone();
+    let agent_result = tokio::task::spawn_blocking(move || {
         let conn = db.get().map_err(|e| e.to_string())?;
-        crate::db::agents::find_agents_by_user_id(&conn, &user_id).map_err(|e| e.to_string())
+        find_agent_by_id(&conn, &aid).map_err(|e| e.to_string())
     }).await;
 
-    let agents = match agents_result {
-        Ok(Ok(a)) => a,
+    let agent = match agent_result {
+        Ok(Ok(Some(a))) if a.user_id == user_id => a,
+        Ok(Ok(Some(_))) => return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Not your agent" }))).into_response(),
+        Ok(Ok(None)) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Agent not found" }))).into_response(),
         Ok(Err(e)) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
     };
 
     let hub = state.hub.read().await;
-    let online_agent = agents.iter().find(|a| hub.is_agent_online(&a.id));
-    let agent = match online_agent {
-        Some(a) => a.clone(),
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "No online agent available" }))).into_response(),
-    };
+    if !hub.is_agent_online(&agent.id) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Agent is offline" }))).into_response();
+    }
 
     let run_id = uuid::Uuid::new_v4().to_string();
     let turn_id = uuid::Uuid::new_v4().to_string();
@@ -238,11 +285,11 @@ async fn start_run(
     (StatusCode::CREATED, Json(serde_json::to_value(resp).unwrap())).into_response()
 }
 
-/// POST /api/runs/:id/turns
+/// POST /api/agents/:id/threads/:threadId/turns
 async fn continue_run(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_agent_id, id)): Path<(String, String)>,
     Json(body): Json<ContinueRunRequest>,
 ) -> impl IntoResponse {
     let attachments = match normalize_attachments(body.attachments.as_deref()) {
@@ -345,11 +392,11 @@ async fn continue_run(
     }
 }
 
-/// POST /api/runs/:id/interrupt
+/// POST /api/agents/:id/threads/:threadId/interrupt
 async fn interrupt_run(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_agent_id, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let user_id = auth_user.user_id;
@@ -391,7 +438,8 @@ async fn interrupt_run(
     }
 }
 
-/// POST /api/runs/:id/kill
+/// Kill run — not exposed as a public route, kept for internal use
+#[allow(dead_code)]
 async fn kill_run(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
@@ -435,11 +483,11 @@ async fn kill_run(
     }
 }
 
-/// POST /api/runs/:id/read
+/// POST /api/agents/:id/threads/:threadId/read
 async fn mark_read(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_agent_id, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let user_id = auth_user.user_id;
@@ -463,11 +511,11 @@ async fn mark_read(
     }
 }
 
-/// DELETE /api/runs/:id
+/// DELETE /api/agents/:id/threads/:threadId
 async fn delete_run_handler(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path(id): Path<String>,
+    Path((_agent_id, id)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let user_id = auth_user.user_id;
@@ -507,11 +555,11 @@ async fn delete_run_handler(
     }
 }
 
-/// PUT /api/runs/:id/turns/:turnId
+/// PATCH /api/agents/:id/threads/:threadId/turns/:turnId
 async fn update_queued_turn(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path((id, turn_id)): Path<(String, String)>,
+    Path((_agent_id, id, turn_id)): Path<(String, String, String)>,
     Json(body): Json<UpdateQueuedTurnRequest>,
 ) -> impl IntoResponse {
     let prompt = body.prompt.trim().to_string();
@@ -559,11 +607,11 @@ async fn update_queued_turn(
     }
 }
 
-/// DELETE /api/runs/:id/turns/:turnId
+/// DELETE /api/agents/:id/threads/:threadId/turns/:turnId
 async fn delete_queued_turn(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
-    Path((id, turn_id)): Path<(String, String)>,
+    Path((_agent_id, id, turn_id)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let user_id = auth_user.user_id;
@@ -597,6 +645,96 @@ async fn delete_queued_turn(
         }
         Ok(Err("not_found" | "forbidden")) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Run not found" }))).into_response(),
         Ok(Err("not_queued")) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": "Turn is not queued" }))).into_response(),
+        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// POST /api/agents/:id/threads/:threadId/discard-queue — discard all queued turns
+async fn discard_queue(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Path((_agent_id, thread_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    let user_id = auth_user.user_id;
+    let tid = thread_id.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> Result<i64, &'static str> {
+        let conn = db.get().map_err(|_| "internal")?;
+        let r = find_run_by_id(&conn, &tid).map_err(|_| "internal")?;
+        match r {
+            None => Err("not_found"),
+            Some(r) if r.user_id != user_id => Err("forbidden"),
+            Some(_) => {
+                let deleted = delete_queued_turns_by_run_id(&conn, &tid).map_err(|_| "internal")?;
+                Ok(deleted as i64)
+            }
+        }
+    }).await;
+
+    match result {
+        Ok(Ok(deleted)) => {
+            let hub = state.hub.read().await;
+            if let Ok(conn) = state.db.get() {
+                agent_hub::broadcast_run_snapshot(&hub, &conn, &thread_id, None);
+            }
+            (StatusCode::OK, Json(serde_json::json!({ "ok": true, "deleted": deleted }))).into_response()
+        }
+        Ok(Err("not_found")) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Run not found" }))).into_response(),
+        Ok(Err("forbidden")) => (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Not your run" }))).into_response(),
+        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// POST /api/agents/:id/threads/:threadId/resume-queue — dispatch next queued turn
+async fn resume_queue(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Path((agent_id, thread_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let db = state.db.clone();
+    let user_id = auth_user.user_id;
+    let tid = thread_id.clone();
+    let aid = agent_id.clone();
+
+    let result = tokio::task::spawn_blocking(move || -> Result<(), &'static str> {
+        let conn = db.get().map_err(|_| "internal")?;
+        let agent = find_agent_by_id(&conn, &aid).map_err(|_| "internal")?;
+        match agent {
+            None => return Err("agent_not_found"),
+            Some(a) if a.user_id != user_id => return Err("agent_not_found"),
+            _ => {}
+        }
+        let active = find_active_run_turn_by_run_id(&conn, &tid).map_err(|_| "internal")?;
+        if active.is_some() {
+            return Err("still_active");
+        }
+        Ok(())
+    }).await;
+
+    match result {
+        Ok(Ok(())) => {
+            let hub = state.hub.read().await;
+            if !hub.is_agent_online(&agent_id) {
+                return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Agent is offline" }))).into_response();
+            }
+            if let Ok(conn) = state.db.get() {
+                if !agent_hub::dispatch_next_queued_turn_pub(&hub, &conn, &agent_id, &thread_id) {
+                    return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "No queued turns" }))).into_response();
+                }
+                let run = find_run_by_id(&conn, &thread_id).ok().flatten();
+                let turns = find_run_turn_details(&conn, &thread_id).unwrap_or_default();
+                if let Some(r) = run {
+                    let resp = RunDetailResponse { run: agent_hub::run_row_to_run(&r), turns };
+                    return (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response();
+                }
+            }
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Internal error" }))).into_response()
+        }
+        Ok(Err("agent_not_found")) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Agent not found" }))).into_response(),
+        Ok(Err("still_active")) => (StatusCode::CONFLICT, Json(serde_json::json!({ "error": "Thread is still active" }))).into_response(),
         Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
     }
