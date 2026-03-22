@@ -36,3 +36,4 @@ packages/app/dist/
 
 # Rust
 rust/target/
+.gstack/
