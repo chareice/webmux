@@ -11,6 +11,7 @@ import { Platform } from 'react-native'
 
 import { configure, devLogin, getMe } from './api'
 import type { User } from './api'
+import { registerForPush, unregisterPush } from './push'
 import { storage } from './storage'
 
 const TOKEN_KEY = 'webmux:token'
@@ -165,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(async () => {
+    await unregisterPush()
     await storage.remove(TOKEN_KEY)
     await storage.remove(SERVER_URL_KEY)
     configure('', '')
@@ -172,6 +174,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
     setServerUrl('')
   }, [])
+
+  // Register for push notifications on mobile when logged in
+  useEffect(() => {
+    if (isLoggedIn && Platform.OS !== 'web') {
+      void registerForPush()
+    }
+  }, [isLoggedIn])
 
   const value = useMemo<AuthContextValue>(
     () => ({ user, token, serverUrl, isLoading, isLoggedIn, login, logout }),

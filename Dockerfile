@@ -4,10 +4,10 @@ RUN corepack enable pnpm
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared packages/shared
-COPY packages/web packages/web
+COPY packages/app packages/app
 RUN pnpm install --no-frozen-lockfile
 RUN pnpm --filter @webmux/shared build
-RUN pnpm --filter @webmux/web build
+RUN cd packages/app && npx expo export --platform web
 
 # Stage 2: Build Rust server
 FROM rust:slim AS builder
@@ -20,7 +20,7 @@ RUN cargo build --release --bin webmux-server
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/webmux-server /usr/local/bin/
-COPY --from=frontend /app/packages/web/dist /app/web
+COPY --from=frontend /app/packages/app/dist /app/web
 
 ENV WEBMUX_STATIC_DIR=/app/web
 EXPOSE 4317
