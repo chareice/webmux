@@ -87,7 +87,9 @@ async function request<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  if (!_baseUrl) {
+  // On web, empty baseUrl is valid (same-origin relative paths).
+  // On native, baseUrl must be set explicitly.
+  if (!_baseUrl && Platform.OS !== 'web') {
     throw new Error('API base URL is not configured')
   }
 
