@@ -549,6 +549,16 @@ export async function generateProjectAction(
   )
 }
 
+export async function runProjectAction(
+  projectId: string,
+  actionId: string,
+): Promise<{ runId: string }> {
+  return request<{ runId: string }>(
+    `/api/projects/${projectId}/actions/${actionId}/run`,
+    { method: 'POST' },
+  )
+}
+
 // --- Push Devices ---
 
 export async function registerPushDevice(
