@@ -30,5 +30,10 @@ dist-ssr
 *.db-shm
 *.tsbuildinfo
 
+# Expo
+packages/app/.expo/
+packages/app/dist/
+
 # Rust
 rust/target/
+.gstack/

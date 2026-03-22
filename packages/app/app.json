@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "webmux",
+    "slug": "webmux",
+    "version": "1.0.0",
+    "scheme": "webmux",
+    "userInterfaceStyle": "automatic",
+    "platforms": ["ios", "android", "web"],
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": ["expo-router"],
+    "android": {
+      "package": "com.webmux.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.webmux.app"
+    }
+  }
+}

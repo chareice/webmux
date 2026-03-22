@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @webmux/web dev",
+    "dev": "cd packages/app && npx expo start --web",
+    "dev:web": "cd packages/app && npx expo start --web",
+    "dev:android": "cd packages/app && npx expo start --android",
     "build": "pnpm -r build",
-    "test:mobile": "cd packages/mobile && pnpm test",
+    "build:web": "cd packages/app && npx expo export --platform web",
     "typecheck": "tsc -b",
     "lint": "eslint packages/",
     "test": "pnpm -r test"
