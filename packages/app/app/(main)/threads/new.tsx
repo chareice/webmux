@@ -13,6 +13,7 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import type {
   AgentInfo,
+  ImportableSessionSummary,
   RepositoryBrowseResponse,
   RepositoryEntry,
   RunTool,
@@ -20,12 +21,13 @@ import type {
   RunImageAttachmentUpload,
   Run,
 } from "@webmux/shared";
-import { repoName } from "@webmux/shared";
+import { repoName, timeAgo } from "@webmux/shared";
 import * as ImagePicker from "expo-image-picker";
 import {
   listAgents,
   listThreads,
   browseAgentRepositories,
+  listImportableSessions,
   startThread,
 } from "../../../lib/api";
 import { getRepoNameFromPath } from "../../../lib/repo-path-utils";
@@ -103,12 +105,23 @@ export default function NewThreadScreen() {
   const [prompt, setPrompt] = useState("");
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+  const [importableSessions, setImportableSessions] = useState<
+    ImportableSessionSummary[]
+  >([]);
+  const [selectedImportSession, setSelectedImportSession] =
+    useState<ImportableSessionSummary | null>(null);
 
   const [repoBrowser, setRepoBrowser] = useState<RepositoryBrowseResponse | null>(null);
   const [isRepoBrowserOpen, setIsRepoBrowserOpen] = useState(false);
+  const [isImportSessionOpen, setIsImportSessionOpen] = useState(false);
   const [isLoadingAgents, setIsLoadingAgents] = useState(true);
   const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+  const [isLoadingImportableSessions, setIsLoadingImportableSessions] =
+    useState(false);
   const [repoError, setRepoError] = useState<string | null>(null);
+  const [importableSessionsError, setImportableSessionsError] = useState<
+    string | null
+  >(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -189,6 +202,13 @@ export default function NewThreadScreen() {
   );
   const trimmedRepoPath = repoPath.trim();
 
+  useEffect(() => {
+    setSelectedImportSession(null);
+    setImportableSessions([]);
+    setImportableSessionsError(null);
+    setIsImportSessionOpen(false);
+  }, [selectedAgent, selectedTool, trimmedRepoPath]);
+
   const loadRepoBrowser = useCallback(
     async (aid: string, path?: string) => {
       setIsLoadingRepos(true);
@@ -200,6 +220,23 @@ export default function NewThreadScreen() {
         setRepoError((err as Error).message);
       } finally {
         setIsLoadingRepos(false);
+      }
+    },
+    [],
+  );
+
+  const loadImportableSessions = useCallback(
+    async (aid: string, tool: RunTool, path: string) => {
+      setIsLoadingImportableSessions(true);
+      setImportableSessionsError(null);
+      try {
+        const sessions = await listImportableSessions(aid, tool, path);
+        setImportableSessions(sessions);
+      } catch (err) {
+        setImportableSessions([]);
+        setImportableSessionsError((err as Error).message);
+      } finally {
+        setIsLoadingImportableSessions(false);
       }
     },
     [],
@@ -300,6 +337,9 @@ export default function NewThreadScreen() {
         tool: selectedTool,
         repoPath: repoPath.trim(),
         prompt: prompt.trim(),
+        ...(selectedImportSession
+          ? { existingSessionId: selectedImportSession.id }
+          : {}),
         ...(uploadAttachments.length > 0 ? { attachments: uploadAttachments } : {}),
       };
 
@@ -529,11 +569,80 @@ export default function NewThreadScreen() {
         {/* Prompt */}
         <View className="mb-5">
           <Text className="text-foreground-secondary text-sm uppercase tracking-wider mb-2">
-            Prompt
+            Existing Session
+          </Text>
+
+          <Pressable
+            className={`border rounded-lg px-4 py-3 ${
+              selectedAgent && trimmedRepoPath
+                ? "bg-surface border-border"
+                : "bg-surface-light border-border/60"
+            }`}
+            disabled={!selectedAgent || !trimmedRepoPath}
+            onPress={() => {
+              if (!selectedAgent || !trimmedRepoPath) return;
+              setIsImportSessionOpen(true);
+              void loadImportableSessions(
+                selectedAgent,
+                selectedTool,
+                trimmedRepoPath,
+              );
+            }}
+          >
+            <Text className="text-foreground text-sm font-medium">
+              {selectedImportSession
+                ? selectedImportSession.title
+                : "Select an existing session to continue"}
+            </Text>
+            <Text className="text-foreground-secondary text-xs mt-0.5">
+              {selectedImportSession
+                ? `Last updated ${timeAgo(selectedImportSession.updatedAt)}`
+                : selectedAgent && trimmedRepoPath
+                  ? "Optional. Webmux will continue from the next message."
+                  : "Choose an agent and working directory first"}
+            </Text>
+          </Pressable>
+
+          {selectedImportSession ? (
+            <View className="mt-2 rounded-lg border border-border bg-surface px-3 py-2">
+              <Text className="text-foreground text-sm font-medium">
+                {selectedImportSession.title}
+              </Text>
+              {selectedImportSession.subtitle ? (
+                <Text
+                  className="text-foreground-secondary text-xs mt-1"
+                  numberOfLines={2}
+                >
+                  {selectedImportSession.subtitle}
+                </Text>
+              ) : null}
+              <View className="mt-2 flex-row items-center justify-between">
+                <Text className="text-foreground-secondary text-xs">
+                  Earlier history will not appear here.
+                </Text>
+                <Pressable
+                  className="bg-surface-light rounded px-2.5 py-1"
+                  onPress={() => setSelectedImportSession(null)}
+                >
+                  <Text className="text-foreground-secondary text-xs">Clear</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Prompt */}
+        <View className="mb-5">
+          <Text className="text-foreground-secondary text-sm uppercase tracking-wider mb-2">
+            {selectedImportSession ? "Next Message" : "Prompt"}
           </Text>
           <TextInput
             className="bg-surface border border-border rounded-lg px-4 py-3 text-foreground min-h-[120px]"
-            placeholder="What would you like the AI to do?"
+            placeholder={
+              selectedImportSession
+                ? "What should the AI do next in this session?"
+                : "What would you like the AI to do?"
+            }
             placeholderTextColor="#565f89"
             multiline
             textAlignVertical="top"
@@ -757,6 +866,92 @@ export default function NewThreadScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Import Existing Session Modal */}
+      <Modal
+        visible={isImportSessionOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsImportSessionOpen(false)}
+      >
+        <Pressable
+          className="flex-1 bg-black/60 items-center justify-center p-4"
+          onPress={() => setIsImportSessionOpen(false)}
+        >
+          <Pressable
+            className="bg-surface rounded-xl w-full max-w-lg border border-border"
+            onPress={() => {
+              /* prevent close */
+            }}
+            style={{ maxHeight: "80%" }}
+          >
+            <View className="flex-row items-center justify-between px-5 py-4 border-b border-border">
+              <View className="flex-1 pr-4">
+                <Text className="text-foreground text-lg font-bold">
+                  Import Existing Session
+                </Text>
+                <Text className="text-foreground-secondary text-xs mt-1">
+                  {selectedTool === "codex" ? "Codex" : "Claude Code"} sessions
+                  for {repoName(trimmedRepoPath || "/")}
+                </Text>
+              </View>
+              <Pressable
+                className="bg-surface-light rounded-md px-2.5 py-1"
+                onPress={() => setIsImportSessionOpen(false)}
+              >
+                <Text className="text-foreground-secondary text-sm">Close</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView className="px-5 py-3" style={{ maxHeight: 420 }}>
+              {isLoadingImportableSessions ? (
+                <View className="items-center py-8">
+                  <ActivityIndicator size="small" color="#7aa2f7" />
+                  <Text className="text-foreground-secondary mt-2 text-sm">
+                    Loading sessions...
+                  </Text>
+                </View>
+              ) : importableSessionsError ? (
+                <View className="bg-red/10 border border-red rounded-lg px-3 py-2 my-2">
+                  <Text className="text-red text-sm">
+                    {importableSessionsError}
+                  </Text>
+                </View>
+              ) : importableSessions.length === 0 ? (
+                <Text className="text-foreground-secondary text-sm py-4 text-center">
+                  No existing sessions found for this working directory.
+                </Text>
+              ) : (
+                importableSessions.map((session) => (
+                  <ImportableSessionRow
+                    key={session.id}
+                    session={session}
+                    selected={selectedImportSession?.id === session.id}
+                    onSelect={() => {
+                      setSelectedImportSession(session);
+                      setIsImportSessionOpen(false);
+                    }}
+                  />
+                ))
+              )}
+            </ScrollView>
+
+            <View className="px-5 py-3 border-t border-border">
+              <Pressable
+                className="bg-surface-light rounded-lg py-2.5 items-center"
+                onPress={() => {
+                  setSelectedImportSession(null);
+                  setIsImportSessionOpen(false);
+                }}
+              >
+                <Text className="text-foreground-secondary font-medium text-sm">
+                  Start fresh instead
+                </Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -793,5 +988,56 @@ function RepositoryEntryRow({
         <Text className="text-accent text-xs font-semibold">Select</Text>
       </Pressable>
     </View>
+  );
+}
+
+function ImportableSessionRow({
+  session,
+  selected,
+  onSelect,
+}: {
+  session: ImportableSessionSummary;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <Pressable
+      className={`rounded-lg border px-3 py-3 mb-2 ${
+        selected ? "border-accent bg-accent/10" : "border-border bg-surface-light"
+      }`}
+      onPress={onSelect}
+    >
+      <View className="flex-row items-start justify-between gap-3">
+        <View className="flex-1">
+          <Text className="text-foreground text-sm font-semibold">
+            {session.title}
+          </Text>
+          {session.subtitle ? (
+            <Text
+              className="text-foreground-secondary text-xs mt-1"
+              numberOfLines={2}
+            >
+              {session.subtitle}
+            </Text>
+          ) : null}
+          <Text className="text-foreground-secondary text-[11px] mt-2">
+            {timeAgo(session.updatedAt)}
+          </Text>
+        </View>
+        <View
+          className={`rounded-full px-2 py-1 ${
+            selected ? "bg-accent/20" : "bg-surface"
+          }`}
+        >
+          <Text
+            className={`text-[11px] font-semibold ${
+              selected ? "text-accent" : "text-foreground-secondary"
+            }`}
+          >
+            {selected ? "Selected" : "Select"}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
   );
 }

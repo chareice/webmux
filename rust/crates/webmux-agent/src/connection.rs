@@ -11,7 +11,8 @@ use uuid::Uuid;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
 use webmux_shared::{
-    AgentMessage, AgentTaskMessagePayload, CommandStatus, InstructionsResultPayload,
+    AgentMessage, AgentTaskMessagePayload, CommandStatus, ImportableSessionsResultPayload,
+    InstructionsResultPayload,
     InstructionsWrittenPayload, MessageRole, RepositoryBrowseResultPayload,
     RunImageAttachmentUpload, RunStatus, RunTimelineEventPayload, RunTimelineEventStatus, RunTool,
     RunTurnOptions, ServerToAgentMessage, StepStatus, StepType, TaskStepWithoutTaskId,
@@ -21,6 +22,7 @@ use crate::repositories::browse_repositories;
 use crate::run_wrapper::{
     start_run, ActiveHandle, RunCallbacks, RunWrapperOptions,
 };
+use crate::session_store::list_importable_sessions;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const INITIAL_RECONNECT_DELAY: Duration = Duration::from_secs(1);
@@ -189,6 +191,12 @@ impl AgentConnection {
                                     let root = workspace_root.clone();
                                     tokio::spawn(async move {
                                         handle_repository_browse(tx, &root, &request_id, path.as_deref()).await;
+                                    });
+                                }
+                                ServerToAgentMessage::ListImportableSessions { request_id, tool, repo_path } => {
+                                    let tx = internal_tx.clone();
+                                    tokio::spawn(async move {
+                                        handle_importable_sessions(tx, &request_id, tool, &repo_path).await;
                                     });
                                 }
                                 ServerToAgentMessage::ReadInstructions { request_id, tool } => {
@@ -421,6 +429,64 @@ async fn handle_repository_browse(
 // ---------------------------------------------------------------------------
 // Instructions read/write
 // ---------------------------------------------------------------------------
+
+async fn handle_importable_sessions(
+    tx: mpsc::Sender<AgentMessage>,
+    request_id: &str,
+    tool: RunTool,
+    repo_path: &str,
+) {
+    let request_id = request_id.to_string();
+    let repo_path = repo_path.to_string();
+    let tool_for_lookup = tool.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        list_importable_sessions(&tool_for_lookup, &repo_path)
+    })
+        .await;
+
+    match result {
+        Ok(Ok(sessions)) => {
+            let _ = tx
+                .send(AgentMessage::ImportableSessionsResult(
+                    ImportableSessionsResultPayload::Ok {
+                        request_id,
+                        ok: serde_json::Value::Bool(true),
+                        tool,
+                        sessions,
+                    },
+                ))
+                .await;
+        }
+        Ok(Err(error)) => {
+            error!("Failed to list importable sessions: {error}");
+            let _ = tx
+                .send(AgentMessage::ImportableSessionsResult(
+                    ImportableSessionsResultPayload::Err {
+                        request_id,
+                        ok: serde_json::Value::Bool(false),
+                        tool,
+                        error,
+                    },
+                ))
+                .await;
+        }
+        Err(error) => {
+            let message = error.to_string();
+            error!("Session listing task failed: {message}");
+            let _ = tx
+                .send(AgentMessage::ImportableSessionsResult(
+                    ImportableSessionsResultPayload::Err {
+                        request_id,
+                        ok: serde_json::Value::Bool(false),
+                        tool,
+                        error: message,
+                    },
+                ))
+                .await;
+        }
+    }
+}
 
 fn tool_instructions_path(tool: &RunTool) -> std::path::PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));

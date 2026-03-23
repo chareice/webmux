@@ -201,8 +201,17 @@ async fn start_run(
 
     let prompt = body.prompt.trim().to_string();
     let repo_path = body.repo_path.trim().to_string();
+    let existing_session_id = body
+        .existing_session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     if (prompt.is_empty() && attachments.is_empty()) || repo_path.is_empty() {
         return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Missing required fields: tool, repoPath, and prompt or attachments" }))).into_response();
+    }
+    if existing_session_id.is_some() && body.options.as_ref().and_then(|opts| opts.clear_session).unwrap_or(false) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Cannot import an existing session while clearSession is enabled" }))).into_response();
     }
 
     // Verify agent belongs to user
@@ -233,6 +242,7 @@ async fn start_run(
     let options = body.options.clone();
     let tool_str = serde_json::to_string(&tool).unwrap_or("\"claude\"".into()).trim_matches('"').to_string();
     let db_attachments = attachments.clone();
+    let imported_session_id = existing_session_id.clone();
 
     let db = state.db.clone();
     let rid = run_id.clone();
@@ -246,7 +256,7 @@ async fn start_run(
         let conn = db.get().map_err(|e| e.to_string())?;
         let (run_row, _) = create_run_with_initial_turn(&conn, CreateRunWithInitialTurnOpts {
             run_id: &rid, turn_id: &tid, agent_id: &aid, user_id: &uid,
-            tool: &tool_str, repo_path: &rp, prompt: &p, branch: None,
+            tool: &tool_str, tool_thread_id: imported_session_id.as_deref(), repo_path: &rp, prompt: &p, branch: None,
             attachments: Some(&db_attachments),
         }).map_err(|e| e.to_string())?;
         let turns = find_run_turn_details(&conn, &rid).map_err(|e| e.to_string())?;

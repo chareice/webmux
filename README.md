@@ -12,6 +12,7 @@ Android app.
 - Authenticates users with GitHub, Google, or dev mode
 - Registers remote agents with one-time enrollment tokens
 - Starts coding threads against a selected repository and tool
+- Imports an existing local Codex or Claude session and continues it from the next message
 - Streams structured timeline updates for thread runs in real time
 - Groups work into projects with queued tasks and project actions
 - Manages global LLM settings and per-agent instruction files
@@ -50,6 +51,12 @@ pnpm dev:android
 The Rust server still runs separately during local development. In dev mode the
 server enables `/api/auth/dev`, and the app can auto-login with a temporary
 account.
+
+When you start a new thread, Webmux can also import an existing Codex or
+Claude session that already lives on the selected agent. The original history
+stays in the tool; Webmux starts recording from the first new message you send
+after importing. The agent and the original CLI should not continue the same
+session at the same time.
 
 ## Checks
 
@@ -145,6 +152,7 @@ that exact release. Manual `start` runs do not mutate themselves.
 - `PATCH /api/agents/:id`
 - `DELETE /api/agents/:id`
 - `GET /api/agents/:id/repositories`
+- `GET /api/agents/:id/importable-sessions`
 - `GET /api/threads`
 - `GET /api/agents/:id/threads`
 - `POST /api/agents/:id/threads`

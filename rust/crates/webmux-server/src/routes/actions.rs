@@ -248,7 +248,7 @@ async fn generate_action(
         let empty: Vec<RunImageAttachmentUpload> = Vec::new();
         let (run_row, _) = create_run_with_initial_turn(&conn, CreateRunWithInitialTurnOpts {
             run_id: &rid, turn_id: &tid, agent_id: &aid, user_id: &uid,
-            tool: &ts, repo_path: &rp, prompt: &p, branch: None, attachments: Some(&empty),
+            tool: &ts, tool_thread_id: None, repo_path: &rp, prompt: &p, branch: None, attachments: Some(&empty),
         }).map_err(|e| e.to_string())?;
         Ok::<_, String>(run_row)
     }).await;
@@ -346,7 +346,7 @@ async fn run_action(
         let empty: Vec<RunImageAttachmentUpload> = Vec::new();
         let (run_row, _) = create_run_with_initial_turn(&conn, CreateRunWithInitialTurnOpts {
             run_id: &rid, turn_id: &tid, agent_id: &aid, user_id: &uid,
-            tool: &ts, repo_path: &rp, prompt: &p, branch: None, attachments: Some(&empty),
+            tool: &ts, tool_thread_id: None, repo_path: &rp, prompt: &p, branch: None, attachments: Some(&empty),
         }).map_err(|e| e.to_string())?;
         Ok::<_, String>(run_row)
     }).await;
