@@ -16,6 +16,7 @@
     "@webmux/shared": "workspace:*",
     "expo": "~55.0.8",
     "expo-application": "^55.0.10",
+    "expo-clipboard": "~55.0.9",
     "expo-constants": "~55.0.9",
     "expo-device": "~55.0.10",
     "expo-image-picker": "^55.0.13",
