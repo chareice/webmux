@@ -8,13 +8,16 @@ use axum::{
     routing::{delete, get, patch, post},
 };
 use serde::Deserialize;
-use webmux_shared::{AgentInfo, AgentListResponse, AgentStatus, CreateRegistrationTokenResponse, RegisterAgentRequest, RegisterAgentResponse, ServerToAgentMessage};
+use webmux_shared::{
+    AgentInfo, AgentListResponse, AgentStatus, CreateRegistrationTokenResponse,
+    RegisterAgentRequest, RegisterAgentResponse, ServerToAgentMessage,
+};
 
-use crate::auth::{AuthUser, hash_password, hash_token, generate_registration_token};
+use crate::auth::{AuthUser, generate_registration_token, hash_password, hash_token};
 use crate::db::agents::{
-    create_agent, create_registration_token, consume_registration_token,
-    delete_agent, find_agent_by_id, find_agents_by_user_id, rename_agent,
-    CreateAgentOpts, CreateRegistrationTokenOpts,
+    CreateAgentOpts, CreateRegistrationTokenOpts, consume_registration_token, create_agent,
+    create_registration_token, delete_agent, find_agent_by_id, find_agents_by_user_id,
+    rename_agent,
 };
 use crate::state::AppState;
 use crate::ws::agent_hub;
@@ -48,7 +51,18 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/agents/register", post(register_agent))
         .route("/agents/{id}/repositories", get(browse_repositories))
         .route("/agents/{id}/instructions", get(read_instructions))
-        .route("/agents/{id}/instructions", axum::routing::put(write_instructions))
+        .route(
+            "/agents/{id}/instructions",
+            axum::routing::put(write_instructions),
+        )
+        .route(
+            "/agents/{id}/instructions/{tool}",
+            get(read_instructions_with_path_tool),
+        )
+        .route(
+            "/agents/{id}/instructions/{tool}",
+            axum::routing::put(write_instructions_with_path_tool),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -56,10 +70,7 @@ pub fn routes() -> Router<Arc<AppState>> {
 // ---------------------------------------------------------------------------
 
 /// GET /api/agents
-async fn list_agents(
-    State(state): State<Arc<AppState>>,
-    auth_user: AuthUser,
-) -> impl IntoResponse {
+async fn list_agents(State(state): State<Arc<AppState>>, auth_user: AuthUser) -> impl IntoResponse {
     let db = state.db.clone();
     let user_id = auth_user.user_id.clone();
 
@@ -85,10 +96,27 @@ async fn list_agents(
                     last_seen_at: a.last_seen_at.map(|ts| (ts / 1000) as f64),
                 })
                 .collect();
-            (StatusCode::OK, Json(serde_json::to_value(AgentListResponse { agents: agent_infos }).unwrap())).into_response()
+            (
+                StatusCode::OK,
+                Json(
+                    serde_json::to_value(AgentListResponse {
+                        agents: agent_infos,
+                    })
+                    .unwrap(),
+                ),
+            )
+                .into_response()
         }
-        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -103,11 +131,16 @@ async fn delete_agent_handler(
     let id2 = id.clone();
 
     let result = tokio::task::spawn_blocking(move || -> Result<(), (StatusCode, String)> {
-        let conn = db.get().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let agent = find_agent_by_id(&conn, &id2).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let conn = db
+            .get()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let agent = find_agent_by_id(&conn, &id2)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         match agent {
             None => Err((StatusCode::NOT_FOUND, "Agent not found".to_string())),
-            Some(a) if a.user_id != user_id => Err((StatusCode::FORBIDDEN, "Not your agent".to_string())),
+            Some(a) if a.user_id != user_id => {
+                Err((StatusCode::FORBIDDEN, "Not your agent".to_string()))
+            }
             Some(_) => Ok(()),
         }
     })
@@ -122,14 +155,21 @@ async fn delete_agent_handler(
             }
             let db = state.db.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                if let Ok(conn) = db.get() { let _ = delete_agent(&conn, &id); }
-            }).await;
+                if let Ok(conn) = db.get() {
+                    let _ = delete_agent(&conn, &id);
+                }
+            })
+            .await;
             (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response()
         }
         Ok(Err((status, msg))) => {
             (status, Json(serde_json::json!({ "error": msg }))).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -142,7 +182,11 @@ async fn rename_agent_handler(
 ) -> impl IntoResponse {
     let name = body.name.as_deref().map(|s| s.trim()).unwrap_or("");
     if name.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Missing name" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Missing name" })),
+        )
+            .into_response();
     }
 
     let db = state.db.clone();
@@ -150,14 +194,20 @@ async fn rename_agent_handler(
     let name_owned = name.to_string();
 
     let result = tokio::task::spawn_blocking(move || -> Result<(), (StatusCode, String)> {
-        let conn = db.get().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let agent = find_agent_by_id(&conn, &id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let conn = db
+            .get()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let agent = find_agent_by_id(&conn, &id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         match agent {
             None => return Err((StatusCode::NOT_FOUND, "Agent not found".to_string())),
-            Some(a) if a.user_id != user_id => return Err((StatusCode::FORBIDDEN, "Not your agent".to_string())),
+            Some(a) if a.user_id != user_id => {
+                return Err((StatusCode::FORBIDDEN, "Not your agent".to_string()));
+            }
             _ => {}
         }
-        rename_agent(&conn, &id, &name_owned).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        rename_agent(&conn, &id, &name_owned)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         Ok(())
     })
     .await;
@@ -167,7 +217,11 @@ async fn rename_agent_handler(
         Ok(Err((status, msg))) => {
             (status, Json(serde_json::json!({ "error": msg }))).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -177,7 +231,9 @@ async fn create_token(
     auth_user: AuthUser,
     body: Option<Json<CreateTokenRequest>>,
 ) -> impl IntoResponse {
-    let agent_name = body.and_then(|b| b.name.clone()).unwrap_or_else(|| "unnamed".to_string());
+    let agent_name = body
+        .and_then(|b| b.name.clone())
+        .unwrap_or_else(|| "unnamed".to_string());
     let plain_token = generate_registration_token();
     let token_hash = hash_token(&plain_token);
     let now_ms = std::time::SystemTime::now()
@@ -199,9 +255,11 @@ async fn create_token(
                 token_hash: &token_hash,
                 expires_at,
             },
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
         Ok::<_, String>(())
-    }).await;
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {
@@ -212,8 +270,16 @@ async fn create_token(
             };
             (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
         }
-        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -224,7 +290,11 @@ async fn register_agent(
 ) -> impl IntoResponse {
     let token = body.token.trim().to_string();
     if token.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Missing token" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Missing token" })),
+        )
+            .into_response();
     }
 
     let token_hash = hash_token(&token);
@@ -234,8 +304,20 @@ async fn register_agent(
     let hash_result = tokio::task::spawn_blocking(move || hash_password(&secret_for_hash)).await;
     let agent_secret_hash = match hash_result {
         Ok(Ok(h)) => h,
-        Ok(Err(e)) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
     };
 
     let db = state.db.clone();
@@ -243,28 +325,49 @@ async fn register_agent(
 
     let result = tokio::task::spawn_blocking(move || {
         let conn = db.get().map_err(|e| e.to_string())?;
-        let reg_token = consume_registration_token(&conn, &token_hash).map_err(|e| e.to_string())?;
+        let reg_token =
+            consume_registration_token(&conn, &token_hash).map_err(|e| e.to_string())?;
         match reg_token {
             None => Err("Invalid, expired, or already used registration token".to_string()),
             Some(reg) => {
-                let name = if agent_name.is_empty() { reg.agent_name.clone() } else { agent_name };
-                let agent = create_agent(&conn, CreateAgentOpts {
-                    user_id: &reg.user_id,
-                    name: &name,
-                    agent_secret_hash: &agent_secret_hash,
-                }).map_err(|e| e.to_string())?;
+                let name = if agent_name.is_empty() {
+                    reg.agent_name.clone()
+                } else {
+                    agent_name
+                };
+                let agent = create_agent(
+                    &conn,
+                    CreateAgentOpts {
+                        user_id: &reg.user_id,
+                        name: &name,
+                        agent_secret_hash: &agent_secret_hash,
+                    },
+                )
+                .map_err(|e| e.to_string())?;
                 Ok(agent.id)
             }
         }
-    }).await;
+    })
+    .await;
 
     match result {
         Ok(Ok(agent_id)) => {
-            let resp = RegisterAgentResponse { agent_id, agent_secret };
+            let resp = RegisterAgentResponse {
+                agent_id,
+                agent_secret,
+            };
             (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
         }
-        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
     }
 }
 
@@ -290,9 +393,32 @@ async fn read_instructions(
     Path(id): Path<String>,
     Query(query): Query<ReadInstructionsQuery>,
 ) -> impl IntoResponse {
-    let tool = match query.tool.as_deref() {
-        Some("claude") | Some("codex") => query.tool.as_deref().unwrap(),
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Query param \"tool\" must be \"claude\" or \"codex\"" }))).into_response(),
+    read_instructions_inner(state, auth_user, id, query.tool).await
+}
+
+async fn read_instructions_with_path_tool(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Path((id, tool)): Path<(String, String)>,
+) -> impl IntoResponse {
+    read_instructions_inner(state, auth_user, id, Some(tool)).await
+}
+
+async fn read_instructions_inner(
+    state: Arc<AppState>,
+    auth_user: AuthUser,
+    id: String,
+    tool: Option<String>,
+) -> axum::response::Response {
+    let tool = match tool.as_deref() {
+        Some("claude") | Some("codex") => tool.as_deref().unwrap(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "\"tool\" must be \"claude\" or \"codex\"" })),
+            )
+                .into_response();
+        }
     };
 
     // Verify ownership
@@ -301,14 +427,20 @@ async fn read_instructions(
     let id2 = id.clone();
 
     let result = tokio::task::spawn_blocking(move || -> Result<(), (StatusCode, String)> {
-        let conn = db.get().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let agent = find_agent_by_id(&conn, &id2).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let conn = db
+            .get()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let agent = find_agent_by_id(&conn, &id2)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         match agent {
             None => Err((StatusCode::NOT_FOUND, "Agent not found".to_string())),
-            Some(a) if a.user_id != user_id => Err((StatusCode::FORBIDDEN, "Not your agent".to_string())),
+            Some(a) if a.user_id != user_id => {
+                Err((StatusCode::FORBIDDEN, "Not your agent".to_string()))
+            }
             Some(_) => Ok(()),
         }
-    }).await;
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {}
@@ -316,13 +448,21 @@ async fn read_instructions(
             return (status, Json(serde_json::json!({ "error": msg }))).into_response();
         }
         Err(e) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
         }
     }
 
     let hub = state.hub.read().await;
     if !hub.is_agent_online(&id) {
-        return (StatusCode::CONFLICT, Json(serde_json::json!({ "error": "Agent is offline" }))).into_response();
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "Agent is offline" })),
+        )
+            .into_response();
     }
 
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -334,7 +474,11 @@ async fn read_instructions(
         tool: tool_enum,
     };
     if !hub.send_to_agent(&id, &msg) {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "Agent became unavailable" }))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "Agent became unavailable" })),
+        )
+            .into_response();
     }
 
     drop(hub);
@@ -345,9 +489,21 @@ async fn read_instructions(
 
     match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
         Ok(Ok(Ok(value))) => (StatusCode::OK, Json(value)).into_response(),
-        Ok(Ok(Err(error))) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))).into_response(),
-        Ok(Err(_)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Internal error" }))).into_response(),
-        Err(_) => (StatusCode::GATEWAY_TIMEOUT, Json(serde_json::json!({ "error": "Read instructions timed out" }))).into_response(),
+        Ok(Ok(Err(error))) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response(),
+        Ok(Err(_)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Internal error" })),
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::GATEWAY_TIMEOUT,
+            Json(serde_json::json!({ "error": "Read instructions timed out" })),
+        )
+            .into_response(),
     }
 }
 
@@ -358,14 +514,45 @@ async fn write_instructions(
     Path(id): Path<String>,
     Json(body): Json<WriteInstructionsBody>,
 ) -> impl IntoResponse {
+    write_instructions_inner(state, auth_user, id, body).await
+}
+
+async fn write_instructions_with_path_tool(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Path((id, tool)): Path<(String, String)>,
+    Json(mut body): Json<WriteInstructionsBody>,
+) -> impl IntoResponse {
+    body.tool = Some(tool);
+    write_instructions_inner(state, auth_user, id, body).await
+}
+
+async fn write_instructions_inner(
+    state: Arc<AppState>,
+    auth_user: AuthUser,
+    id: String,
+    body: WriteInstructionsBody,
+) -> axum::response::Response {
     let tool = match body.tool.as_deref() {
         Some("claude") | Some("codex") => body.tool.as_deref().unwrap(),
-        _ => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "\"tool\" must be \"claude\" or \"codex\"" }))).into_response(),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "\"tool\" must be \"claude\" or \"codex\"" })),
+            )
+                .into_response();
+        }
     };
 
     let content = match &body.content {
         Some(c) => c.clone(),
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "\"content\" must be a string" }))).into_response(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "\"content\" must be a string" })),
+            )
+                .into_response();
+        }
     };
 
     let db = state.db.clone();
@@ -373,14 +560,20 @@ async fn write_instructions(
     let id2 = id.clone();
 
     let result = tokio::task::spawn_blocking(move || -> Result<(), (StatusCode, String)> {
-        let conn = db.get().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let agent = find_agent_by_id(&conn, &id2).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let conn = db
+            .get()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let agent = find_agent_by_id(&conn, &id2)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         match agent {
             None => Err((StatusCode::NOT_FOUND, "Agent not found".to_string())),
-            Some(a) if a.user_id != user_id => Err((StatusCode::FORBIDDEN, "Not your agent".to_string())),
+            Some(a) if a.user_id != user_id => {
+                Err((StatusCode::FORBIDDEN, "Not your agent".to_string()))
+            }
             Some(_) => Ok(()),
         }
-    }).await;
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {}
@@ -388,13 +581,21 @@ async fn write_instructions(
             return (status, Json(serde_json::json!({ "error": msg }))).into_response();
         }
         Err(e) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
         }
     }
 
     let hub = state.hub.read().await;
     if !hub.is_agent_online(&id) {
-        return (StatusCode::CONFLICT, Json(serde_json::json!({ "error": "Agent is offline" }))).into_response();
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "Agent is offline" })),
+        )
+            .into_response();
     }
 
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -407,7 +608,11 @@ async fn write_instructions(
         content,
     };
     if !hub.send_to_agent(&id, &msg) {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "Agent became unavailable" }))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "Agent became unavailable" })),
+        )
+            .into_response();
     }
 
     drop(hub);
@@ -418,9 +623,21 @@ async fn write_instructions(
 
     match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
         Ok(Ok(Ok(_))) => (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response(),
-        Ok(Ok(Err(error))) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": error }))).into_response(),
-        Ok(Err(_)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Internal error" }))).into_response(),
-        Err(_) => (StatusCode::GATEWAY_TIMEOUT, Json(serde_json::json!({ "error": "Write instructions timed out" }))).into_response(),
+        Ok(Ok(Err(error))) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response(),
+        Ok(Err(_)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Internal error" })),
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::GATEWAY_TIMEOUT,
+            Json(serde_json::json!({ "error": "Write instructions timed out" })),
+        )
+            .into_response(),
     }
 }
 
@@ -445,14 +662,20 @@ async fn browse_repositories(
     let id2 = id.clone();
 
     let result = tokio::task::spawn_blocking(move || -> Result<(), (StatusCode, String)> {
-        let conn = db.get().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let agent = find_agent_by_id(&conn, &id2).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let conn = db
+            .get()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        let agent = find_agent_by_id(&conn, &id2)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         match agent {
             None => Err((StatusCode::NOT_FOUND, "Agent not found".to_string())),
-            Some(a) if a.user_id != user_id => Err((StatusCode::FORBIDDEN, "Not your agent".to_string())),
+            Some(a) if a.user_id != user_id => {
+                Err((StatusCode::FORBIDDEN, "Not your agent".to_string()))
+            }
             Some(_) => Ok(()),
         }
-    }).await;
+    })
+    .await;
 
     match result {
         Ok(Ok(())) => {}
@@ -460,13 +683,21 @@ async fn browse_repositories(
             return (status, Json(serde_json::json!({ "error": msg }))).into_response();
         }
         Err(e) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
         }
     }
 
     let hub = state.hub.read().await;
     if !hub.is_agent_online(&id) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Agent is offline" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Agent is offline" })),
+        )
+            .into_response();
     }
 
     // Create a oneshot channel to receive the response
@@ -479,7 +710,11 @@ async fn browse_repositories(
         path: query.path,
     };
     if !hub.send_to_agent(&id, &msg) {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "Agent became unavailable" }))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "Agent became unavailable" })),
+        )
+            .into_response();
     }
 
     // Register the pending command (requires write lock)
@@ -492,8 +727,20 @@ async fn browse_repositories(
     // Wait for the response with a timeout
     match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
         Ok(Ok(Ok(value))) => (StatusCode::OK, Json(value)).into_response(),
-        Ok(Ok(Err(error))) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": error }))).into_response(),
-        Ok(Err(_)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Internal error" }))).into_response(),
-        Err(_) => (StatusCode::GATEWAY_TIMEOUT, Json(serde_json::json!({ "error": "Repository browse timed out" }))).into_response(),
+        Ok(Ok(Err(error))) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response(),
+        Ok(Err(_)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Internal error" })),
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::GATEWAY_TIMEOUT,
+            Json(serde_json::json!({ "error": "Repository browse timed out" })),
+        )
+            .into_response(),
     }
 }
