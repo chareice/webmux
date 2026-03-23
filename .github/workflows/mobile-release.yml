@@ -44,7 +44,7 @@ jobs:
           "$sdk_root/cmdline-tools/latest/bin/sdkmanager" platform-tools
 
       - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --shamefully-hoist
 
       - name: Build shared package
         run: pnpm --filter @webmux/shared build
