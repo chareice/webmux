@@ -24,6 +24,7 @@ module.exports = ({ config }) => {
     android: {
       package: "com.webmux.app",
       ...(googleServicesFile ? { googleServicesFile } : {}),
+      softwareKeyboardLayoutMode: "pan",
       versionCode,
     },
     ios: {
