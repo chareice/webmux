@@ -32,7 +32,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Prepare Android SDK
         run: |
