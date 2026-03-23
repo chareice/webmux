@@ -11,16 +11,18 @@ import { Linking, Platform } from 'react-native'
 
 import { configure, devLogin, getMe } from './api'
 import type { User } from './api'
+import { resolveAuthBootstrapState } from './auth-bootstrap'
 import {
-  extractAuthCallback,
   LAST_SERVER_URL_KEY,
   normalizeServerUrl,
 } from './auth-utils'
+import { withTimeout } from './async-utils'
 import { registerForPush, unregisterPush } from './push'
 import { storage } from './storage'
 
 const TOKEN_KEY = 'webmux:token'
 const SERVER_URL_KEY = 'webmux:server_url'
+const GET_ME_TIMEOUT_MS = 10_000
 
 export type { User }
 
@@ -73,69 +75,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     let subscription: { remove: () => void } | null = null
 
-    const handleAuthCallback = async (rawUrl: string): Promise<boolean> => {
-      const callback = extractAuthCallback(rawUrl)
-      if (!callback) {
-        return false
-      }
-
-      await persistSession(callback.serverUrl, callback.token)
-
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        const url = new URL(window.location.href)
-        url.searchParams.delete('token')
-        url.searchParams.delete('provider')
-        url.searchParams.delete('server')
-        window.history.replaceState({}, '', url.pathname + url.search + url.hash)
-      }
-
-      return true
-    }
-
     const restore = async () => {
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        if (await handleAuthCallback(window.location.href)) {
-          return
-        }
-      }
+      const bootstrap = await resolveAuthBootstrapState({
+        currentUrl:
+          Platform.OS === 'web' && typeof window !== 'undefined'
+            ? window.location.href
+            : null,
+        devLogin,
+        getInitialUrl: async () => Linking.getInitialURL(),
+        platformOs: Platform.OS,
+        readServerUrl: async () => storage.get(SERVER_URL_KEY),
+        readToken: async () => storage.get(TOKEN_KEY),
+      })
 
-      if (Platform.OS !== 'web') {
-        const initialUrl = await Linking.getInitialURL()
-        if (initialUrl && await handleAuthCallback(initialUrl)) {
-          return
-        }
-      }
+      try {
+        if (bootstrap.source === 'callback' && bootstrap.token) {
+          await persistSession(bootstrap.serverUrl, bootstrap.token)
 
-      // Restore from storage
-      const [storedToken, storedServerUrl] = await Promise.all([
-        storage.get(TOKEN_KEY),
-        storage.get(SERVER_URL_KEY),
-      ])
-
-      if (storedToken) {
-        if (!cancelled) {
-          setToken(storedToken)
-          setServerUrl(storedServerUrl ?? '')
-        }
-        return
-      }
-
-      // On web with no stored token: try dev login
-      if (Platform.OS === 'web') {
-        // Configure with empty baseUrl for same-origin requests
-        configure('', '')
-        const result = await devLogin()
-        if (result?.token) {
-          await storage.set(TOKEN_KEY, result.token)
-          if (!cancelled) {
-            setToken(result.token)
-            setServerUrl('')
+          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            const url = new URL(window.location.href)
+            url.searchParams.delete('token')
+            url.searchParams.delete('provider')
+            url.searchParams.delete('server')
+            window.history.replaceState({}, '', url.pathname + url.search + url.hash)
           }
           return
         }
+
+        if (bootstrap.source === 'storage' && bootstrap.token) {
+          if (!cancelled) {
+            setToken(bootstrap.token)
+            setServerUrl(bootstrap.serverUrl)
+          }
+          return
+        }
+
+        if (bootstrap.source === 'dev' && bootstrap.token) {
+          await persistSession('', bootstrap.token)
+          return
+        }
+      } catch {
+        await storage.remove(TOKEN_KEY)
+        await storage.remove(SERVER_URL_KEY)
       }
 
       if (!cancelled) {
+        setToken(null)
+        setUser(null)
+        setServerUrl('')
         setIsLoading(false)
       }
     }
@@ -144,7 +131,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (Platform.OS !== 'web') {
       subscription = Linking.addEventListener('url', (event) => {
-        void handleAuthCallback(event.url)
+        const restoreCallbackSession = async () => {
+          const bootstrap = await resolveAuthBootstrapState({
+            currentUrl: event.url,
+            devLogin,
+            getInitialUrl: async () => null,
+            platformOs: 'web',
+            readServerUrl: async () => null,
+            readToken: async () => null,
+          })
+
+          if (bootstrap.source !== 'callback' || !bootstrap.token) {
+            return
+          }
+
+          try {
+            await persistSession(bootstrap.serverUrl, bootstrap.token)
+          } catch {
+            await storage.remove(TOKEN_KEY)
+            await storage.remove(SERVER_URL_KEY)
+            if (!cancelled) {
+              setToken(null)
+              setUser(null)
+              setServerUrl('')
+              setIsLoading(false)
+            }
+          }
+        }
+
+        void restoreCallbackSession()
       })
     }
 
@@ -167,7 +182,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const loadUser = async () => {
       try {
-        const me = await getMe()
+        const me = await withTimeout(
+          getMe(),
+          GET_ME_TIMEOUT_MS,
+          'Loading user timed out',
+        )
         if (!cancelled) {
           setUser(me)
         }
