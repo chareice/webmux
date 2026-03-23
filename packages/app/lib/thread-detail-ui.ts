@@ -16,30 +16,32 @@ export async function copyMessageContent(
 }
 
 export function getComposerCardClassName(): string {
-  return "bg-background rounded-[18px] border border-border px-2.5 py-2.5";
+  return "bg-surface rounded-[22px] border border-border px-3 py-3";
 }
 
 export function getComposerIconButtonClassName({
   disabled,
 }: ComposerStateOptions): string {
   return [
-    "w-11 h-11 shrink-0 rounded-[14px] border border-border bg-surface-light items-center justify-center",
-    disabled ? "opacity-45" : "",
+    "w-12 h-12 shrink-0 rounded-[16px] border border-border bg-surface-light items-center justify-center",
+    disabled ? "opacity-45" : "active:opacity-85",
   ]
     .filter(Boolean)
     .join(" ");
 }
 
 export function getComposerInputClassName(): string {
-  return "flex-1 min-h-[42px] max-h-[120px] rounded-2xl border border-border bg-surface-light px-3.5 py-2.5 text-[15px] leading-5 text-foreground";
+  return "flex-1 min-h-[48px] max-h-[120px] rounded-[16px] border border-border bg-surface-light px-4 py-3 text-[15px] leading-5 text-foreground";
 }
 
 export function getComposerSubmitButtonClassName({
   disabled,
 }: ComposerStateOptions): string {
   return [
-    "h-11 min-w-[72px] shrink-0 items-center justify-center rounded-[14px] border px-4",
-    disabled ? "border-border bg-surface-light" : "border-accent bg-accent",
+    "h-12 min-w-[78px] shrink-0 items-center justify-center rounded-[16px] border px-5",
+    disabled
+      ? "border-accent/20 bg-accent/35"
+      : "border-accent bg-accent active:opacity-90",
   ].join(" ");
 }
 
@@ -47,8 +49,8 @@ export function getComposerSubmitTextClassName({
   disabled,
 }: ComposerStateOptions): string {
   return disabled
-    ? "text-foreground-secondary text-sm font-semibold"
-    : "text-white text-sm font-semibold";
+    ? "text-white/70 text-sm font-semibold"
+    : "text-background text-sm font-semibold";
 }
 
 export function getMessageCopyButtonClassName({
