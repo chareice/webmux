@@ -1103,9 +1103,9 @@ export default function ThreadDetailScreen() {
                         }
                       }}
                     >
-                      <Text className="text-foreground-secondary text-sm">
-                        +Img
-                      </Text>
+                      <ImageComposerIcon
+                        disabled={attachments.length >= MAX_ATTACHMENTS}
+                      />
                     </Pressable>
 
                     {/* Text input */}
@@ -1158,6 +1158,38 @@ export default function ThreadDetailScreen() {
             )}
           </View>
         </View>
+      </View>
+    </View>
+  );
+}
+
+function ImageComposerIcon({ disabled }: { disabled: boolean }) {
+  return (
+    <View className="relative h-5 w-5">
+      <View
+        className={`absolute bottom-0 left-0 h-4.5 w-4.5 rounded-[4px] border ${
+          disabled ? "border-foreground-secondary/35" : "border-accent/70"
+        }`}
+      />
+      <View
+        className={`absolute bottom-1 left-1 h-1.5 w-1.5 rounded-full ${
+          disabled ? "bg-foreground-secondary/35" : "bg-accent/70"
+        }`}
+      />
+      <View
+        className={`absolute right-[-1px] top-0 h-3 w-3 items-center justify-center rounded-full border ${
+          disabled
+            ? "border-foreground-secondary/35 bg-surface-light"
+            : "border-accent/35 bg-accent/15"
+        }`}
+      >
+        <Text
+          className={`text-[9px] leading-none ${
+            disabled ? "text-foreground-secondary" : "text-accent"
+          }`}
+        >
+          +
+        </Text>
       </View>
     </View>
   );
