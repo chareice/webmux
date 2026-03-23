@@ -50,17 +50,14 @@ pub fn routes() -> Router<Arc<AppState>> {
 
 /// GET /api/mobile/version
 async fn get_version(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    // Return version info from config (static or GitHub-fetched)
-    let latest_version = state.config.mobile_latest_version.clone();
-    let download_url = state.config.mobile_download_url.clone();
-    let min_version = state.config.mobile_min_version.clone();
+    let version = state.mobile_version_resolver.resolve().await;
 
     (
         StatusCode::OK,
         Json(serde_json::json!({
-            "latestVersion": latest_version,
-            "downloadUrl": download_url,
-            "minVersion": min_version,
+            "latestVersion": version.latest_version,
+            "downloadUrl": version.download_url,
+            "minVersion": version.min_version,
         })),
     )
         .into_response()
@@ -188,5 +185,94 @@ async fn unregister_push_device(
             Json(serde_json::json!({ "error": e.to_string() })),
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::routes;
+    use crate::db;
+    use crate::mobile_version::{MobileVersionConfig, MobileVersionResolver};
+    use crate::state::{AppState, ServerConfig};
+    use crate::ws::agent_hub::AgentHub;
+    use axum::body::{Body, to_bytes};
+    use http::{Request, StatusCode};
+    use serde_json::Value;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn mobile_version_endpoint_uses_resolver_output() {
+        let state = build_test_state(
+            ServerConfig {
+                jwt_secret: "test-secret".to_string(),
+                github_client_id: None,
+                github_client_secret: None,
+                google_client_id: None,
+                google_client_secret: None,
+                base_url: None,
+                dev_mode: false,
+                agent_package_name: None,
+                agent_target_version: None,
+                agent_min_version: None,
+                mobile_latest_version: None,
+                mobile_download_url: None,
+                mobile_min_version: None,
+                firebase_service_account_base64: None,
+            },
+            MobileVersionResolver::new(
+                None,
+                MobileVersionConfig {
+                    latest_version: Some("1.2.3".to_string()),
+                    download_url: Some("https://example.com/webmux.apk".to_string()),
+                    min_version: Some("1.0.0".to_string()),
+                },
+            ),
+        );
+
+        let response = routes()
+            .with_state(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/mobile/version")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(payload["latestVersion"], "1.2.3");
+        assert_eq!(
+            payload["downloadUrl"],
+            "https://example.com/webmux.apk"
+        );
+        assert_eq!(payload["minVersion"], "1.0.0");
+    }
+
+    fn build_test_state(
+        config: ServerConfig,
+        resolver: MobileVersionResolver,
+    ) -> Arc<AppState> {
+        let db_path = std::env::temp_dir().join(format!(
+            "webmux-mobile-version-test-{}.db",
+            Uuid::new_v4()
+        ));
+        let db = db::create_pool(db_path.to_str().unwrap()).unwrap();
+        let conn = db.get().unwrap();
+        db::init_db(&conn).unwrap();
+
+        Arc::new(AppState {
+            db,
+            hub: Arc::new(RwLock::new(AgentHub::new())),
+            config: Arc::new(config),
+            mobile_version_resolver: Arc::new(resolver),
+        })
     }
 }

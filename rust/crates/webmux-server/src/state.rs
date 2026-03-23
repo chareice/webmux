@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::db::DbPool;
+use crate::mobile_version::MobileVersionResolver;
 use crate::ws::agent_hub::AgentHub;
 
 /// Shared application state, passed to all handlers via axum's State extractor.
@@ -10,6 +11,7 @@ pub struct AppState {
     pub db: DbPool,
     pub hub: Arc<RwLock<AgentHub>>,
     pub config: Arc<ServerConfig>,
+    pub mobile_version_resolver: Arc<MobileVersionResolver>,
 }
 
 /// Server configuration loaded from environment variables at startup.
