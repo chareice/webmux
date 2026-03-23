@@ -5,6 +5,7 @@ import {
   copyMessageContent,
   getComposerCardClassName,
   getComposerIconButtonClassName,
+  getComposerToolbarClassName,
   getComposerSubmitButtonClassName,
   getComposerSubmitTextClassName,
 } from "./thread-detail-ui.ts";
@@ -43,26 +44,22 @@ test("copyMessageContent accepts clipboard writers that return a success flag", 
   assert.equal(copied, "copied");
 });
 
-test("getComposerCardClassName keeps the input row inside a bordered card", () => {
+test("getComposerCardClassName renders a bordered card", () => {
   const className = getComposerCardClassName();
 
-  assert.match(className, /bg-surface/);
+  assert.match(className, /bg-surface-light/);
   assert.match(className, /border-border/);
-  assert.match(className, /rounded-\[22px\]/);
+  assert.match(className, /rounded-2xl/);
 });
 
 test("getComposerSubmitButtonClassName uses a muted style when disabled", () => {
   assert.match(
     getComposerSubmitButtonClassName({ disabled: true }),
-    /bg-accent\/35/,
-  );
-  assert.match(
-    getComposerSubmitButtonClassName({ disabled: true }),
-    /rounded-\[16px\]/,
+    /bg-accent\/25/,
   );
   assert.match(
     getComposerSubmitTextClassName({ disabled: true }),
-    /text-white\/70/,
+    /text-white\/50/,
   );
 });
 
@@ -72,20 +69,22 @@ test("getComposerSubmitButtonClassName uses the accent style when enabled", () =
     /bg-accent/,
   );
   assert.match(
-    getComposerSubmitButtonClassName({ disabled: false }),
-    /min-w-\[78px\]/,
-  );
-  assert.match(
     getComposerSubmitTextClassName({ disabled: false }),
     /text-background/,
   );
 });
 
-test("getComposerIconButtonClassName keeps the image action compact and square", () => {
+test("getComposerIconButtonClassName renders a compact icon button", () => {
   const className = getComposerIconButtonClassName({ disabled: false });
 
-  assert.match(className, /w-12/);
-  assert.match(className, /h-12/);
-  assert.match(className, /rounded-\[16px\]/);
-  assert.match(className, /bg-surface-light/);
+  assert.match(className, /w-8/);
+  assert.match(className, /h-8/);
+  assert.match(className, /rounded-lg/);
+});
+
+test("getComposerToolbarClassName renders a toolbar row with separator", () => {
+  const className = getComposerToolbarClassName();
+
+  assert.match(className, /flex-row/);
+  assert.match(className, /border-t/);
 });
