@@ -8,6 +8,8 @@ import type {
   CreateRegistrationTokenResponse,
   CreateTaskRequest,
   GenerateProjectActionRequest,
+  ImportableSessionListResponse,
+  ImportableSessionSummary,
   InstructionsResponse,
   LlmConfig,
   Project,
@@ -34,6 +36,7 @@ import {
   buildInstructionsPath,
   buildSaveInstructionsBody,
 } from './instructions-api'
+import { buildImportableSessionsPath } from './importable-sessions-api'
 import { resolveRegistrationTokenResponse } from './registration-utils'
 
 // --- User type (not in @webmux/shared) ---
@@ -202,6 +205,17 @@ export async function browseAgentRepositories(
   return request<RepositoryBrowseResponse>(
     `/api/agents/${agentId}/repositories${query}`,
   )
+}
+
+export async function listImportableSessions(
+  agentId: string,
+  tool: RunTool,
+  repoPath: string,
+): Promise<ImportableSessionSummary[]> {
+  const response = await request<ImportableSessionListResponse>(
+    buildImportableSessionsPath(agentId, tool, repoPath),
+  )
+  return response.sessions
 }
 
 // --- Threads ---

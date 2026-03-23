@@ -4,6 +4,7 @@ mod connection;
 mod credentials;
 mod repositories;
 mod run_wrapper;
+mod session_store;
 mod service;
 
 use clap::{Parser, Subcommand};

@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 use tracing::error;
 
 use webmux_shared::{
-    AgentMessage, InstructionsResultPayload, InstructionsWrittenPayload,
+    AgentMessage, ImportableSessionsResultPayload, InstructionsResultPayload, InstructionsWrittenPayload,
     RepositoryBrowseResultPayload, Run, RunEvent, RunTimelineEventPayload, RunTool,
     ServerToAgentMessage, Task, TaskMessage as SharedTaskMessage, TaskMessageRole, TaskStatus,
     TaskStep as SharedTaskStep,
@@ -347,6 +347,10 @@ pub fn handle_agent_message(
             handle_repository_browse_result(hub, payload);
         }
 
+        AgentMessage::ImportableSessionsResult(payload) => {
+            handle_importable_sessions_result(hub, payload);
+        }
+
         AgentMessage::InstructionsResult(payload) => {
             handle_instructions_result(hub, payload);
         }
@@ -459,6 +463,33 @@ fn handle_repository_browse_result(
             hub.resolve_pending_command(&request_id, Ok(result));
         }
         RepositoryBrowseResultPayload::Err {
+            request_id,
+            error,
+            ..
+        } => {
+            hub.resolve_pending_command(&request_id, Err(error));
+        }
+    }
+}
+
+fn handle_importable_sessions_result(
+    hub: &mut AgentHub,
+    payload: ImportableSessionsResultPayload,
+) {
+    match payload {
+        ImportableSessionsResultPayload::Ok {
+            request_id,
+            tool,
+            sessions,
+            ..
+        } => {
+            let result = serde_json::json!({
+                "tool": tool,
+                "sessions": sessions,
+            });
+            hub.resolve_pending_command(&request_id, Ok(result));
+        }
+        ImportableSessionsResultPayload::Err {
             request_id,
             error,
             ..
@@ -652,6 +683,7 @@ fn handle_task_running(
                         agent_id: &project.agent_id,
                         user_id: &project.user_id,
                         tool: &project.default_tool,
+                        tool_thread_id: None,
                         repo_path: &project.repo_path,
                         prompt: &task.prompt,
                         branch: None,

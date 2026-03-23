@@ -60,6 +60,7 @@ pub struct CreateRunOpts<'a> {
     pub agent_id: &'a str,
     pub user_id: &'a str,
     pub tool: &'a str,
+    pub tool_thread_id: Option<&'a str>,
     pub repo_path: &'a str,
     pub prompt: &'a str,
     pub branch: Option<&'a str>,
@@ -71,8 +72,19 @@ pub fn create_run(conn: &Connection, opts: CreateRunOpts<'_>) -> rusqlite::Resul
 
     conn.execute(
         "INSERT INTO runs (id, agent_id, user_id, tool, tool_thread_id, repo_path, branch, prompt, status, created_at, updated_at, summary, has_diff, unread)
-         VALUES (?, ?, ?, ?, NULL, ?, ?, ?, 'starting', ?, ?, NULL, 0, 1)",
-        params![opts.id, opts.agent_id, opts.user_id, opts.tool, opts.repo_path, branch, opts.prompt, now, now],
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, NULL, 0, 1)",
+        params![
+            opts.id,
+            opts.agent_id,
+            opts.user_id,
+            opts.tool,
+            opts.tool_thread_id,
+            opts.repo_path,
+            branch,
+            opts.prompt,
+            now,
+            now
+        ],
     )?;
 
     Ok(RunRow {
@@ -80,7 +92,7 @@ pub fn create_run(conn: &Connection, opts: CreateRunOpts<'_>) -> rusqlite::Resul
         agent_id: opts.agent_id.to_string(),
         user_id: opts.user_id.to_string(),
         tool: opts.tool.to_string(),
-        tool_thread_id: None,
+        tool_thread_id: opts.tool_thread_id.map(|value| value.to_string()),
         repo_path: opts.repo_path.to_string(),
         branch: branch.to_string(),
         prompt: opts.prompt.to_string(),
@@ -102,6 +114,7 @@ pub struct CreateRunWithInitialTurnOpts<'a> {
     pub repo_path: &'a str,
     pub prompt: &'a str,
     pub branch: Option<&'a str>,
+    pub tool_thread_id: Option<&'a str>,
     pub attachments: Option<&'a [RunImageAttachmentUpload]>,
 }
 
@@ -116,6 +129,7 @@ pub fn create_run_with_initial_turn(
             agent_id: opts.agent_id,
             user_id: opts.user_id,
             tool: opts.tool,
+            tool_thread_id: opts.tool_thread_id,
             repo_path: opts.repo_path,
             prompt: opts.prompt,
             branch: opts.branch,
@@ -131,6 +145,52 @@ pub fn create_run_with_initial_turn(
         },
     )?;
     Ok((run, turn))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_run_persists_imported_session_id() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::init_db(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO users (id, provider, provider_id, display_name, role, created_at)
+             VALUES ('user-1', 'dev', 'user-1', 'User', 'user', 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO agents (id, user_id, name, agent_secret_hash, status, created_at)
+             VALUES ('agent-1', 'user-1', 'Agent', 'hash', 'online', 0)",
+            [],
+        )
+        .unwrap();
+
+        let run = create_run(
+            &conn,
+            CreateRunOpts {
+                id: "run-1",
+                agent_id: "agent-1",
+                user_id: "user-1",
+                tool: "codex",
+                tool_thread_id: Some("existing-session"),
+                repo_path: "/repo",
+                prompt: "Continue from existing session",
+                branch: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(run.tool_thread_id.as_deref(), Some("existing-session"));
+
+        let persisted = find_run_by_id(&conn, "run-1").unwrap().unwrap();
+        assert_eq!(
+            persisted.tool_thread_id.as_deref(),
+            Some("existing-session")
+        );
+    }
 }
 
 pub fn find_run_by_id(conn: &Connection, run_id: &str) -> rusqlite::Result<Option<RunRow>> {

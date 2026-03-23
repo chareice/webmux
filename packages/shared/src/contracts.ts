@@ -34,12 +34,22 @@ export interface RunImageAttachmentUpload extends RunImageAttachment {
   base64: string
 }
 
+export interface ImportableSessionSummary {
+  id: string
+  title: string
+  subtitle?: string
+  repoPath: string
+  updatedAt: number
+}
+
 // Agent → Server
 export type AgentMessage =
   | { type: 'auth'; agentId: string; agentSecret: string; version?: string }
   | { type: 'heartbeat' }
   | { type: 'repository-browse-result'; requestId: string; ok: true; currentPath: string; parentPath: string | null; entries: RepositoryEntry[] }
   | { type: 'repository-browse-result'; requestId: string; ok: false; error: string }
+  | { type: 'importable-sessions-result'; requestId: string; ok: true; tool: RunTool; sessions: ImportableSessionSummary[] }
+  | { type: 'importable-sessions-result'; requestId: string; ok: false; tool: RunTool; error: string }
   | { type: 'instructions-result'; requestId: string; ok: true; tool: RunTool; content: string | null }
   | { type: 'instructions-result'; requestId: string; ok: false; tool: RunTool; error: string }
   | { type: 'instructions-written'; requestId: string; ok: true; tool: RunTool }
@@ -60,6 +70,7 @@ export type ServerToAgentMessage =
   | { type: 'auth-ok'; upgradePolicy?: AgentUpgradePolicy }
   | { type: 'auth-fail'; message: string }
   | { type: 'repository-browse'; requestId: string; path?: string }
+  | { type: 'list-importable-sessions'; requestId: string; tool: RunTool; repoPath: string }
   | { type: 'read-instructions'; requestId: string; tool: RunTool }
   | { type: 'write-instructions'; requestId: string; tool: RunTool; content: string }
   | {
@@ -97,6 +108,10 @@ export interface LoginResponse {
 
 export interface AgentListResponse {
   agents: AgentInfo[]
+}
+
+export interface ImportableSessionListResponse {
+  sessions: ImportableSessionSummary[]
 }
 
 export interface CreateRegistrationTokenResponse {
@@ -219,6 +234,7 @@ export interface StartRunRequest {
   tool: RunTool
   repoPath: string
   prompt: string
+  existingSessionId?: string
   attachments?: RunImageAttachmentUpload[]
   options?: RunTurnOptions
 }

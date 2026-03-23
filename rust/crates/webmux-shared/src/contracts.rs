@@ -76,6 +76,17 @@ pub struct RunImageAttachmentUpload {
     pub base64: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportableSessionSummary {
+    pub id: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    pub repo_path: String,
+    pub updated_at: f64,
+}
+
 // --- Agent -> Server messages ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +107,9 @@ pub enum AgentMessage {
 
     #[serde(rename = "repository-browse-result")]
     RepositoryBrowseResult(RepositoryBrowseResultPayload),
+
+    #[serde(rename = "importable-sessions-result")]
+    ImportableSessionsResult(ImportableSessionsResultPayload),
 
     #[serde(rename = "instructions-result")]
     InstructionsResult(InstructionsResultPayload),
@@ -213,6 +227,26 @@ pub enum RepositoryBrowseResultPayload {
     },
 }
 
+/// Payload for the importable-sessions-result variant (ok: true | ok: false).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ImportableSessionsResultPayload {
+    Ok {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        ok: serde_json::Value,
+        tool: RunTool,
+        sessions: Vec<ImportableSessionSummary>,
+    },
+    Err {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        ok: serde_json::Value,
+        tool: RunTool,
+        error: String,
+    },
+}
+
 /// Payload for the instructions-result variant (ok: true | ok: false).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -303,6 +337,15 @@ pub enum ServerToAgentMessage {
         request_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         path: Option<String>,
+    },
+
+    #[serde(rename = "list-importable-sessions")]
+    ListImportableSessions {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        tool: RunTool,
+        #[serde(rename = "repoPath")]
+        repo_path: String,
     },
 
     #[serde(rename = "read-instructions")]
@@ -402,6 +445,12 @@ pub struct LoginResponse {
 #[serde(rename_all = "camelCase")]
 pub struct AgentListResponse {
     pub agents: Vec<AgentInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportableSessionListResponse {
+    pub sessions: Vec<ImportableSessionSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -627,6 +676,8 @@ pub struct StartRunRequest {
     pub tool: RunTool,
     pub repo_path: String,
     pub prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub existing_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachments: Option<Vec<RunImageAttachmentUpload>>,
     #[serde(skip_serializing_if = "Option::is_none")]
