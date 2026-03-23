@@ -48,6 +48,7 @@ import {
 } from "../../../../../lib/api";
 import MarkdownContent from "../../../../../components/MarkdownContent";
 import { buildProjectRoute } from "../../../../../lib/route-utils";
+import { getKeyboardAwareScrollProps } from "../../../../../lib/mobile-layout";
 import { createReconnectableSocket } from "../../../../../lib/websocket";
 
 // --- Constants ---
@@ -772,6 +773,7 @@ export default function TaskDetailScreen() {
             className="flex-1"
             contentContainerClassName="p-4 pb-8"
             keyboardShouldPersistTaps="handled"
+            {...getKeyboardAwareScrollProps(Platform.OS)}
           >
             {/* Empty states */}
             {timeline.length === 0 && task.status === "pending" ? (

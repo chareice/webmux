@@ -7,6 +7,7 @@ import {
   TextInput,
   ActivityIndicator,
   Modal,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import type {
@@ -25,6 +26,7 @@ import {
   getRepoNameFromPath,
   resolveProjectNameFromRepoPath,
 } from "../../../lib/repo-path-utils";
+import { getKeyboardAwareScrollProps } from "../../../lib/mobile-layout";
 import { getProjectsRoute } from "../../../lib/route-utils";
 
 // --- Constants ---
@@ -196,6 +198,7 @@ export default function NewProjectScreen() {
         className="flex-1"
         contentContainerClassName="p-4 pb-8"
         keyboardShouldPersistTaps="handled"
+        {...getKeyboardAwareScrollProps(Platform.OS)}
       >
         {/* Header */}
         <View className="flex-row items-center gap-3 mb-6">

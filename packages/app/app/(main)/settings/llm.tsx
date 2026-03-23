@@ -18,6 +18,7 @@ import {
   deleteLlmConfig,
   listProjects,
 } from "../../../lib/api";
+import { getKeyboardAwareScrollProps } from "../../../lib/mobile-layout";
 import { getSettingsRoute } from "../../../lib/route-utils";
 
 function maskApiKey(key: string): string {
@@ -233,7 +234,12 @@ export default function LlmConfigScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      <ScrollView className="flex-1" contentContainerClassName="p-4 pb-8">
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName="p-4 pb-8"
+        keyboardShouldPersistTaps="handled"
+        {...getKeyboardAwareScrollProps(Platform.OS)}
+      >
         {/* Header */}
         <View className="flex-row items-center justify-between mb-4">
           <View className="flex-row items-center gap-3">

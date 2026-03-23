@@ -29,6 +29,7 @@ import {
   startThread,
 } from "../../../lib/api";
 import { getRepoNameFromPath } from "../../../lib/repo-path-utils";
+import { getKeyboardAwareScrollProps } from "../../../lib/mobile-layout";
 import { getThreadsRoute } from "../../../lib/route-utils";
 
 // --- Constants ---
@@ -334,6 +335,7 @@ export default function NewThreadScreen() {
         className="flex-1"
         contentContainerClassName="p-4 pb-8"
         keyboardShouldPersistTaps="handled"
+        {...getKeyboardAwareScrollProps(Platform.OS)}
       >
         {/* Header */}
         <View className="flex-row items-center gap-3 mb-6">
