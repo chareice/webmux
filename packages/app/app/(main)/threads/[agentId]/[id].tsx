@@ -53,6 +53,7 @@ import {
   getComposerCardClassName,
   getComposerIconButtonClassName,
   getComposerInputClassName,
+  getComposerToolbarClassName,
   getComposerSubmitButtonClassName,
   getComposerSubmitTextClassName,
   getMessageCopyButtonClassName,
@@ -245,6 +246,7 @@ export default function ThreadDetailScreen() {
   >(null);
 
   const scrollViewRef = useRef<ScrollView>(null);
+  const textInputRef = useRef<TextInput>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -615,6 +617,64 @@ export default function ThreadDetailScreen() {
       return prev.filter((a) => a.id !== id);
     });
   };
+
+  // --- Paste image handling (web) ---
+
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !textInputRef.current) return;
+
+    // Access the underlying DOM node from React Native Web
+    const node = textInputRef.current as unknown as HTMLElement;
+    if (!node || !node.addEventListener) return;
+
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) imageFiles.push(file);
+        }
+      }
+
+      if (imageFiles.length === 0) return;
+
+      // Prevent the default text paste for image-only pastes
+      const hasText = Array.from(items).some((item) => item.type === "text/plain");
+      if (!hasText) e.preventDefault();
+
+      const remaining = MAX_ATTACHMENTS - attachmentsRef.current.length;
+      if (remaining <= 0) return;
+
+      const toAdd = imageFiles.slice(0, remaining);
+      void (async () => {
+        const newAttachments: DraftAttachment[] = [];
+        for (const file of toAdd) {
+          const base64 = await fileToBase64Web(file);
+          newAttachments.push({
+            id: generateId(),
+            name: file.name || "pasted-image.png",
+            mimeType: file.type,
+            sizeBytes: file.size,
+            previewUri: URL.createObjectURL(file),
+            base64,
+          });
+        }
+        setAttachments((prev) => [...prev, ...newAttachments]);
+      })();
+    };
+
+    node.addEventListener("paste", handlePaste as EventListener);
+    return () => {
+      node.removeEventListener("paste", handlePaste as EventListener);
+    };
+  }, [textInputRef.current]);
 
   // --- Tool detail view ---
 
@@ -1022,48 +1082,9 @@ export default function ThreadDetailScreen() {
             {/* Composer */}
             {active || canContinueTurn(latestTurn) ? (
               <>
-                <View className={getComposerCardClassName()}>
-                  {/* Attachment thumbnails */}
-                  {attachments.length > 0 ? (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      className="mb-2.5"
-                      contentContainerClassName="gap-2.5 pr-0.5"
-                    >
-                      {attachments.map((a) => (
-                        <View
-                          key={a.id}
-                          className="w-[72px] items-center"
-                        >
-                          <View className="relative h-[72px] w-[72px] overflow-hidden rounded-[14px] bg-surface-light">
-                            <Image
-                              source={{ uri: a.previewUri }}
-                              className="w-full h-full"
-                              resizeMode="cover"
-                            />
-                            <Pressable
-                              className="absolute top-1.5 right-1.5 h-[22px] w-[22px] items-center justify-center rounded-full bg-black/60"
-                              onPress={() => removeAttachment(a.id)}
-                            >
-                              <Text className="text-white text-[11px] font-bold">
-                                x
-                              </Text>
-                            </Pressable>
-                          </View>
-                          <Text
-                            className="mt-1.5 text-[11px] text-foreground-secondary"
-                            numberOfLines={1}
-                          >
-                            {formatFileSize(a.sizeBytes)}
-                          </Text>
-                        </View>
-                      ))}
-                    </ScrollView>
-                  ) : null}
-
-                  {/* Options panel (only when not active) */}
-                  {!active ? (
+                {/* Options panel (only when not active) */}
+                {!active ? (
+                  <View className="mb-2">
                     <TurnOptionsPanel
                       tool={run.tool}
                       options={turnOptions}
@@ -1071,6 +1092,39 @@ export default function ThreadDetailScreen() {
                       expanded={showOptions}
                       onToggle={() => setShowOptions((v) => !v)}
                     />
+                  </View>
+                ) : null}
+
+                <View className={getComposerCardClassName()}>
+                  {/* Attachment thumbnails */}
+                  {attachments.length > 0 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      className="mb-2"
+                      contentContainerClassName="gap-2 pr-0.5"
+                    >
+                      {attachments.map((a) => (
+                        <View
+                          key={a.id}
+                          className="relative h-16 w-16 overflow-hidden rounded-xl bg-surface"
+                        >
+                          <Image
+                            source={{ uri: a.previewUri }}
+                            className="w-full h-full"
+                            resizeMode="cover"
+                          />
+                          <Pressable
+                            className="absolute top-1 right-1 h-5 w-5 items-center justify-center rounded-full bg-black/60"
+                            onPress={() => removeAttachment(a.id)}
+                          >
+                            <Text className="text-white text-[10px] font-bold leading-none">
+                              ✕
+                            </Text>
+                          </Pressable>
+                        </View>
+                      ))}
+                    </ScrollView>
                   ) : null}
 
                   {/* Hidden file input for web */}
@@ -1089,8 +1143,24 @@ export default function ThreadDetailScreen() {
                     />
                   ) : null}
 
-                  {/* Input row */}
-                  <View className="flex-row items-end gap-2">
+                  {/* Text input (full width) */}
+                  <TextInput
+                    ref={textInputRef}
+                    className={getComposerInputClassName()}
+                    placeholder={
+                      active
+                        ? "Queue a follow-up message..."
+                        : "Message this thread..."
+                    }
+                    placeholderTextColor="#565f89"
+                    multiline
+                    textAlignVertical="top"
+                    value={followUp}
+                    onChangeText={setFollowUp}
+                  />
+
+                  {/* Toolbar row */}
+                  <View className={getComposerToolbarClassName()}>
                     {/* Image button */}
                     <Pressable
                       className={getComposerIconButtonClassName({
@@ -1109,21 +1179,6 @@ export default function ThreadDetailScreen() {
                         disabled={attachments.length >= MAX_ATTACHMENTS}
                       />
                     </Pressable>
-
-                    {/* Text input */}
-                    <TextInput
-                      className={getComposerInputClassName()}
-                      placeholder={
-                        active
-                          ? "Queue a follow-up message..."
-                          : "Message this thread..."
-                      }
-                      placeholderTextColor="#565f89"
-                      multiline
-                      textAlignVertical="top"
-                      value={followUp}
-                      onChangeText={setFollowUp}
-                    />
 
                     {/* Send button */}
                     <Pressable

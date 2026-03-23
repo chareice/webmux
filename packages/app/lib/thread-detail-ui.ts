@@ -16,32 +16,36 @@ export async function copyMessageContent(
 }
 
 export function getComposerCardClassName(): string {
-  return "bg-surface rounded-[22px] border border-border px-3 py-3";
+  return "bg-surface-light rounded-2xl border border-border px-3 pt-3 pb-2";
+}
+
+export function getComposerInputClassName(): string {
+  return "min-h-[40px] max-h-[160px] px-1 text-[15px] leading-5 text-foreground";
+}
+
+export function getComposerToolbarClassName(): string {
+  return "flex-row items-center mt-1.5 pt-1.5 border-t border-border/50";
 }
 
 export function getComposerIconButtonClassName({
   disabled,
 }: ComposerStateOptions): string {
   return [
-    "w-12 h-12 shrink-0 rounded-[16px] border border-border bg-surface-light items-center justify-center",
-    disabled ? "opacity-45" : "active:opacity-85",
+    "h-8 w-8 shrink-0 rounded-lg items-center justify-center",
+    disabled ? "opacity-35" : "active:bg-surface",
   ]
     .filter(Boolean)
     .join(" ");
-}
-
-export function getComposerInputClassName(): string {
-  return "flex-1 min-h-[48px] max-h-[120px] rounded-[16px] border border-border bg-surface-light px-4 py-3 text-[15px] leading-5 text-foreground";
 }
 
 export function getComposerSubmitButtonClassName({
   disabled,
 }: ComposerStateOptions): string {
   return [
-    "h-12 min-w-[78px] shrink-0 items-center justify-center rounded-[16px] border px-5",
+    "h-8 shrink-0 items-center justify-center rounded-lg px-4 ml-auto",
     disabled
-      ? "border-accent/20 bg-accent/35"
-      : "border-accent bg-accent active:opacity-90",
+      ? "bg-accent/25"
+      : "bg-accent active:opacity-90",
   ].join(" ");
 }
 
@@ -49,8 +53,8 @@ export function getComposerSubmitTextClassName({
   disabled,
 }: ComposerStateOptions): string {
   return disabled
-    ? "text-white/70 text-sm font-semibold"
-    : "text-background text-sm font-semibold";
+    ? "text-white/50 text-[13px] font-semibold"
+    : "text-background text-[13px] font-semibold";
 }
 
 export function getMessageCopyButtonClassName({
