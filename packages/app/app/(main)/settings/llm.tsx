@@ -18,6 +18,7 @@ import {
   deleteLlmConfig,
   listProjects,
 } from "../../../lib/api";
+import { getSettingsRoute } from "../../../lib/route-utils";
 
 function maskApiKey(key: string): string {
   if (key.length <= 4) return "****";
@@ -236,7 +237,7 @@ export default function LlmConfigScreen() {
         {/* Header */}
         <View className="flex-row items-center justify-between mb-4">
           <View className="flex-row items-center gap-3">
-            <Pressable onPress={() => router.back()}>
+            <Pressable onPress={() => router.replace(getSettingsRoute() as never)}>
               <Text className="text-accent text-base">{"< Back"}</Text>
             </Pressable>
             <Text className="text-foreground text-2xl font-bold">

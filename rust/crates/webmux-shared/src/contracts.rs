@@ -409,6 +409,8 @@ pub struct AgentListResponse {
 pub struct CreateRegistrationTokenResponse {
     pub token: String,
     pub expires_at: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

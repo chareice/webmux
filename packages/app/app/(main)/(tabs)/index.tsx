@@ -18,12 +18,15 @@ import {
   createRegistrationToken,
   deleteAgent,
   renameAgent,
-  getBaseUrl,
 } from "../../../lib/api";
+import { LAST_SERVER_URL_KEY } from "../../../lib/auth-utils";
+import { buildRegistrationCommand } from "../../../lib/registration-utils";
+import { storage } from "../../../lib/storage";
 
 interface CachedToken {
   token: string;
   expiresAt: number;
+  serverUrl?: string | null;
 }
 
 export default function AgentsScreen() {
@@ -38,6 +41,7 @@ export default function AgentsScreen() {
   const [registering, setRegistering] = useState(false);
   const [copied, setCopied] = useState(false);
   const cachedTokenRef = useRef<CachedToken | null>(null);
+  const [lastServerUrl, setLastServerUrl] = useState<string | null>(null);
   const [registrationCommand, setRegistrationCommand] = useState<string | null>(
     null
   );
@@ -61,12 +65,32 @@ export default function AgentsScreen() {
     void loadAgents();
   }, [loadAgents]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    void storage.get(LAST_SERVER_URL_KEY).then((value) => {
+      if (!cancelled) {
+        setLastServerUrl(value);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const buildCommand = (token: string) => {
-    const baseUrl =
+    const windowOrigin =
       Platform.OS === "web" && typeof window !== "undefined"
         ? window.location.origin
-        : getBaseUrl();
-    return `npx @webmux/agent register --server ${baseUrl} --token ${token}`;
+        : null;
+
+    return buildRegistrationCommand({
+      token,
+      serverUrl: cachedTokenRef.current?.serverUrl,
+      lastServerUrl,
+      windowOrigin,
+    });
   };
 
   const fetchNewToken = async () => {
@@ -77,6 +101,7 @@ export default function AgentsScreen() {
       cachedTokenRef.current = {
         token: data.token,
         expiresAt: data.expiresAt,
+        serverUrl: data.serverUrl ?? null,
       };
       setRegistrationCommand(buildCommand(data.token));
     } catch (err) {

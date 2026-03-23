@@ -9,6 +9,7 @@ import { URL } from 'node:url'
 const EXPO_PORT = 8099
 const PROXY_PORT = parseInt(process.env.PROXY_PORT || '4000', 10)
 const BACKEND = process.env.WEBMUX_PROXY_TARGET || 'http://127.0.0.1:4317'
+const PUBLIC_SERVER_URL = process.env.WEBMUX_PROXY_PUBLIC_URL || BACKEND
 const backendUrl = new URL(BACKEND)
 const backendIsHttps = backendUrl.protocol === 'https:'
 
@@ -28,7 +29,11 @@ function proxyRequest(req, res, target) {
   }
 
   const proxyReq = mod.request(options, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, proxyRes.headers)
+    const responseHeaders = { ...proxyRes.headers }
+    if (req.url.startsWith('/api/')) {
+      responseHeaders['x-webmux-server-url'] = PUBLIC_SERVER_URL
+    }
+    res.writeHead(proxyRes.statusCode, responseHeaders)
     proxyRes.pipe(res)
   })
 

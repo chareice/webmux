@@ -205,7 +205,11 @@ async fn create_token(
 
     match result {
         Ok(Ok(())) => {
-            let resp = CreateRegistrationTokenResponse { token: plain_token, expires_at: expires_at as f64 };
+            let resp = CreateRegistrationTokenResponse {
+                token: plain_token,
+                expires_at: expires_at as f64,
+                server_url: state.config.base_url.clone(),
+            };
             (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
         }
         Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),

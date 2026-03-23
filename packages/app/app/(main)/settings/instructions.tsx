@@ -10,6 +10,7 @@ import {
 import { useRouter } from "expo-router";
 import type { AgentInfo, RunTool } from "@webmux/shared";
 import { listAgents, getInstructions, saveInstructions } from "../../../lib/api";
+import { getSettingsRoute } from "../../../lib/route-utils";
 
 const TOOLS: { key: RunTool; label: string; file: string }[] = [
   { key: "claude", label: "Claude Code", file: "~/.claude/CLAUDE.md" },
@@ -115,7 +116,7 @@ export default function InstructionsScreen() {
       <ScrollView className="flex-1" contentContainerClassName="p-4 pb-8">
         {/* Header */}
         <View className="flex-row items-center gap-3 mb-4">
-          <Pressable onPress={() => router.back()}>
+          <Pressable onPress={() => router.replace(getSettingsRoute() as never)}>
             <Text className="text-accent text-base">{"< Back"}</Text>
           </Pressable>
           <Text className="text-foreground text-2xl font-bold">
