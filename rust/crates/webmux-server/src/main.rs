@@ -17,6 +17,7 @@ use tokio::sync::RwLock;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
 
+use crate::mobile_version::{MobileVersionConfig, MobileVersionResolver};
 use crate::state::{AppState, ServerConfig};
 use crate::ws::agent_hub::AgentHub;
 use crate::ws::handlers;
@@ -61,6 +62,8 @@ async fn main() {
     let mobile_latest_version = non_empty_env("WEBMUX_MOBILE_LATEST_VERSION");
     let mobile_download_url = non_empty_env("WEBMUX_MOBILE_DOWNLOAD_URL");
     let mobile_min_version = non_empty_env("WEBMUX_MOBILE_MIN_VERSION");
+    let mobile_github_repo = non_empty_env("WEBMUX_GITHUB_REPO")
+        .or_else(|| Some("chareice/webmux".to_string()));
 
     // Log warnings
     if dev_mode {
@@ -104,12 +107,21 @@ async fn main() {
         mobile_min_version,
         firebase_service_account_base64: firebase_base64,
     });
+    let mobile_version_resolver = Arc::new(MobileVersionResolver::new(
+        mobile_github_repo,
+        MobileVersionConfig {
+            latest_version: config.mobile_latest_version.clone(),
+            download_url: config.mobile_download_url.clone(),
+            min_version: config.mobile_min_version.clone(),
+        },
+    ));
 
     // Build AppState
     let state = Arc::new(AppState {
         db: db_pool,
         hub,
         config,
+        mobile_version_resolver,
     });
 
     // Build router
