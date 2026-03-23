@@ -17,7 +17,7 @@ export function getKeyboardAvoidingBehavior(
   }
 
   if (platformOs === "android") {
-    return "height";
+    return undefined;
   }
 
   return undefined;

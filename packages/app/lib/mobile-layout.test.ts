@@ -25,8 +25,8 @@ test("getKeyboardAvoidingBehavior uses padding on ios", () => {
   assert.equal(getKeyboardAvoidingBehavior("ios"), "padding");
 });
 
-test("getKeyboardAvoidingBehavior uses height on android", () => {
-  assert.equal(getKeyboardAvoidingBehavior("android"), "height");
+test("getKeyboardAvoidingBehavior leaves android to the native default", () => {
+  assert.equal(getKeyboardAvoidingBehavior("android"), undefined);
 });
 
 test("getKeyboardAwareScrollProps enables automatic keyboard insets on ios", () => {
