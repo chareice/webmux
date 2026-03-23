@@ -11,6 +11,7 @@ import {
   Image,
   useWindowDimensions,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import type {
@@ -47,6 +48,16 @@ import {
 } from "../../../../lib/api";
 import MarkdownContent from "../../../../components/MarkdownContent";
 import { getThreadsRoute } from "../../../../lib/route-utils";
+import {
+  copyMessageContent,
+  getComposerCardClassName,
+  getComposerIconButtonClassName,
+  getComposerInputClassName,
+  getComposerSubmitButtonClassName,
+  getComposerSubmitTextClassName,
+  getMessageCopyButtonClassName,
+  getMessageCopyTextClassName,
+} from "../../../../lib/thread-detail-ui";
 import { canContinueTurn, canRetryTurn } from "../../../../lib/thread-utils";
 import { createReconnectableSocket } from "../../../../lib/websocket";
 
@@ -221,6 +232,7 @@ export default function ThreadDetailScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isContinuing, setIsContinuing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
   // Queued turn editing
   const [editingTurnId, setEditingTurnId] = useState<string | null>(null);
@@ -233,6 +245,9 @@ export default function ThreadDetailScreen() {
 
   const scrollViewRef = useRef<ScrollView>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // --- Data Loading ---
 
@@ -357,6 +372,14 @@ export default function ThreadDetailScreen() {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 50);
   }, [turns]);
+
+  useEffect(() => {
+    return () => {
+      if (copyFeedbackTimeoutRef.current) {
+        clearTimeout(copyFeedbackTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // --- Handlers ---
 
@@ -514,6 +537,24 @@ export default function ThreadDetailScreen() {
       // Ignore
     }
   };
+
+  const handleCopyMessage = useCallback(async (messageId: string, content: string) => {
+    const copied = await copyMessageContent(content, Clipboard.setStringAsync);
+    if (!copied) {
+      return;
+    }
+
+    setCopiedMessageId(messageId);
+    if (copyFeedbackTimeoutRef.current) {
+      clearTimeout(copyFeedbackTimeoutRef.current);
+    }
+    copyFeedbackTimeoutRef.current = setTimeout(() => {
+      setCopiedMessageId((current) =>
+        current === messageId ? null : current,
+      );
+      copyFeedbackTimeoutRef.current = null;
+    }, 1600);
+  }, []);
 
   // --- Image attachment handling ---
 
@@ -784,16 +825,36 @@ export default function ThreadDetailScreen() {
             ) : (
               segments.map((segment) => {
                 if (segment.type === "user") {
+                  const copied = copiedMessageId === segment.id;
+
                   return (
                     <View
                       key={segment.id}
-                      className="bg-accent/10 rounded-xl p-3 mb-3 self-end max-w-[85%]"
+                      className="self-end mb-3 max-w-[88%] rounded-2xl border border-accent/10 bg-accent/10 px-3.5 py-3"
                     >
-                      <Text className="text-accent text-xs font-semibold mb-1">
-                        You
-                      </Text>
+                      <View className="mb-1.5 flex-row items-center gap-2">
+                        <Text className="flex-1 text-accent text-xs font-semibold">
+                          You
+                        </Text>
+                        <Pressable
+                          className={getMessageCopyButtonClassName({ copied })}
+                          disabled={!segment.text}
+                          onPress={() =>
+                            void handleCopyMessage(segment.id, segment.text)
+                          }
+                        >
+                          <Text
+                            className={getMessageCopyTextClassName({ copied })}
+                          >
+                            {copied ? "Copied" : "Copy"}
+                          </Text>
+                        </Pressable>
+                      </View>
                       {segment.text ? (
-                        <Text className="text-foreground text-sm leading-5">
+                        <Text
+                          className="text-foreground text-sm leading-5"
+                          selectable
+                        >
                           {segment.text}
                         </Text>
                       ) : null}
@@ -808,14 +869,33 @@ export default function ThreadDetailScreen() {
                 }
 
                 if (segment.type === "assistant") {
+                  const copied = copiedMessageId === `assistant-${segment.id}`;
+
                   return (
                     <View
                       key={segment.id}
-                      className="bg-surface rounded-xl p-3 mb-3 max-w-[85%]"
+                      className="mb-3 max-w-[88%] rounded-2xl border border-border bg-surface px-3.5 py-3"
                     >
-                      <Text className="text-foreground-secondary text-xs font-semibold mb-1">
-                        Assistant
-                      </Text>
+                      <View className="mb-1.5 flex-row items-center gap-2">
+                        <Text className="flex-1 text-foreground-secondary text-xs font-semibold">
+                          Assistant
+                        </Text>
+                        <Pressable
+                          className={getMessageCopyButtonClassName({ copied })}
+                          onPress={() =>
+                            void handleCopyMessage(
+                              `assistant-${segment.id}`,
+                              segment.text,
+                            )
+                          }
+                        >
+                          <Text
+                            className={getMessageCopyTextClassName({ copied })}
+                          >
+                            {copied ? "Copied" : "Copy"}
+                          </Text>
+                        </Pressable>
+                      </View>
                       <MessageContent content={segment.text} />
                     </View>
                   );
@@ -886,11 +966,11 @@ export default function ThreadDetailScreen() {
           </ScrollView>
 
           {/* Footer / Composer */}
-          <View className="bg-surface border-t border-border px-4 py-3">
+          <View className="bg-surface border-t border-border px-3.5 pt-3 pb-3">
             {/* Interrupt button (mobile, when active) */}
             {active && !isWideScreen ? (
               <Pressable
-                className="bg-orange/20 rounded-lg px-3 py-2 flex-row items-center justify-center gap-1 mb-2"
+                className="mb-2.5 flex-row items-center justify-center gap-1 rounded-xl bg-orange/20 px-4 py-3"
                 onPress={() => void handleInterrupt()}
               >
                 <Text className="text-orange text-sm font-semibold">
@@ -901,7 +981,7 @@ export default function ThreadDetailScreen() {
 
             {!active && canRetry ? (
               <Pressable
-                className={`bg-accent/20 rounded-lg px-3 py-2 flex-row items-center justify-center gap-1 mb-2 ${isRetrying ? "opacity-60" : ""}`}
+                className={`mb-2.5 flex-row items-center justify-center gap-1 rounded-xl bg-accent/20 px-4 py-3 ${isRetrying ? "opacity-60" : ""}`}
                 disabled={isRetrying}
                 onPress={() => void handleRetry()}
               >
@@ -940,120 +1020,130 @@ export default function ThreadDetailScreen() {
             {/* Composer */}
             {active || canContinueTurn(latestTurn) ? (
               <>
-                {/* Attachment thumbnails */}
-                {attachments.length > 0 ? (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    className="mb-2"
-                    contentContainerClassName="gap-2"
-                  >
-                    {attachments.map((a) => (
-                      <View
-                        key={a.id}
-                        className="relative w-16 h-16 rounded-lg overflow-hidden border border-border"
-                      >
-                        <Image
-                          source={{ uri: a.previewUri }}
-                          className="w-full h-full"
-                          resizeMode="cover"
-                        />
-                        <Pressable
-                          className="absolute top-0.5 right-0.5 bg-black/60 rounded-full w-4 h-4 items-center justify-center"
-                          onPress={() => removeAttachment(a.id)}
+                <View className={getComposerCardClassName()}>
+                  {/* Attachment thumbnails */}
+                  {attachments.length > 0 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      className="mb-2.5"
+                      contentContainerClassName="gap-2.5 pr-0.5"
+                    >
+                      {attachments.map((a) => (
+                        <View
+                          key={a.id}
+                          className="w-[72px] items-center"
                         >
-                          <Text className="text-white text-[8px] font-bold">
-                            x
-                          </Text>
-                        </Pressable>
-                        <View className="absolute bottom-0 left-0 right-0 bg-black/60 px-0.5">
+                          <View className="relative h-[72px] w-[72px] overflow-hidden rounded-[14px] bg-surface-light">
+                            <Image
+                              source={{ uri: a.previewUri }}
+                              className="w-full h-full"
+                              resizeMode="cover"
+                            />
+                            <Pressable
+                              className="absolute top-1.5 right-1.5 h-[22px] w-[22px] items-center justify-center rounded-full bg-black/60"
+                              onPress={() => removeAttachment(a.id)}
+                            >
+                              <Text className="text-white text-[11px] font-bold">
+                                x
+                              </Text>
+                            </Pressable>
+                          </View>
                           <Text
-                            className="text-white text-[7px]"
+                            className="mt-1.5 text-[11px] text-foreground-secondary"
                             numberOfLines={1}
                           >
                             {formatFileSize(a.sizeBytes)}
                           </Text>
                         </View>
-                      </View>
-                    ))}
-                  </ScrollView>
-                ) : null}
+                      ))}
+                    </ScrollView>
+                  ) : null}
 
-                {/* Options panel (only when not active) */}
-                {!active ? (
-                  <TurnOptionsPanel
-                    tool={run.tool}
-                    options={turnOptions}
-                    onChange={setTurnOptions}
-                    expanded={showOptions}
-                    onToggle={() => setShowOptions((v) => !v)}
-                  />
-                ) : null}
+                  {/* Options panel (only when not active) */}
+                  {!active ? (
+                    <TurnOptionsPanel
+                      tool={run.tool}
+                      options={turnOptions}
+                      onChange={setTurnOptions}
+                      expanded={showOptions}
+                      onToggle={() => setShowOptions((v) => !v)}
+                    />
+                  ) : null}
 
-                {/* Hidden file input for web */}
-                {Platform.OS === "web" ? (
-                  <input
-                    ref={fileInputRef as React.RefObject<HTMLInputElement>}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    style={{ display: "none" }}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      void handleFilesSelectedWeb(
-                        (e.target as HTMLInputElement).files
-                      )
-                    }
-                  />
-                ) : null}
-
-                {/* Input row */}
-                <View className="flex-row items-end gap-2">
-                  {/* Image button */}
-                  <Pressable
-                    className={`bg-surface-light rounded-lg px-2.5 py-2 ${attachments.length >= MAX_ATTACHMENTS ? "opacity-40" : ""}`}
-                    disabled={attachments.length >= MAX_ATTACHMENTS}
-                    onPress={() => {
-                      if (Platform.OS === "web") {
-                        fileInputRef.current?.click();
-                      } else {
-                        void handlePickImageNative();
+                  {/* Hidden file input for web */}
+                  {Platform.OS === "web" ? (
+                    <input
+                      ref={fileInputRef as React.RefObject<HTMLInputElement>}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: "none" }}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        void handleFilesSelectedWeb(
+                          (e.target as HTMLInputElement).files
+                        )
                       }
-                    }}
-                  >
-                    <Text className="text-foreground-secondary text-sm">
-                      +Img
-                    </Text>
-                  </Pressable>
+                    />
+                  ) : null}
 
-                  {/* Text input */}
-                  <TextInput
-                    className="flex-1 bg-surface-light border border-border rounded-lg px-3 py-2 text-foreground text-sm min-h-[36px] max-h-[100px]"
-                    placeholder={
-                      active
-                        ? "Queue a follow-up message..."
-                        : "Message this thread..."
-                    }
-                    placeholderTextColor="#565f89"
-                    multiline
-                    textAlignVertical="top"
-                    value={followUp}
-                    onChangeText={setFollowUp}
-                  />
-
-                  {/* Send button */}
-                  <Pressable
-                    className={`rounded-lg px-4 py-2 ${isContinuing || !hasContent ? "bg-accent/40" : "bg-accent"}`}
-                    disabled={isContinuing || !hasContent}
-                    onPress={() => void handleContinue()}
-                  >
-                    {isContinuing ? (
-                      <ActivityIndicator size="small" color="#1a1b26" />
-                    ) : (
-                      <Text className="text-background text-sm font-semibold">
-                        {active ? "Queue" : "Send"}
+                  {/* Input row */}
+                  <View className="flex-row items-end gap-2">
+                    {/* Image button */}
+                    <Pressable
+                      className={getComposerIconButtonClassName({
+                        disabled: attachments.length >= MAX_ATTACHMENTS,
+                      })}
+                      disabled={attachments.length >= MAX_ATTACHMENTS}
+                      onPress={() => {
+                        if (Platform.OS === "web") {
+                          fileInputRef.current?.click();
+                        } else {
+                          void handlePickImageNative();
+                        }
+                      }}
+                    >
+                      <Text className="text-foreground-secondary text-sm">
+                        +Img
                       </Text>
-                    )}
-                  </Pressable>
+                    </Pressable>
+
+                    {/* Text input */}
+                    <TextInput
+                      className={getComposerInputClassName()}
+                      placeholder={
+                        active
+                          ? "Queue a follow-up message..."
+                          : "Message this thread..."
+                      }
+                      placeholderTextColor="#565f89"
+                      multiline
+                      textAlignVertical="top"
+                      value={followUp}
+                      onChangeText={setFollowUp}
+                    />
+
+                    {/* Send button */}
+                    <Pressable
+                      className={`${getComposerSubmitButtonClassName({
+                        disabled: !hasContent,
+                      })} ${isContinuing ? "opacity-70" : ""}`}
+                      disabled={isContinuing || !hasContent}
+                      onPress={() => void handleContinue()}
+                    >
+                      {isContinuing ? (
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      ) : (
+                        <Text
+                          className={getComposerSubmitTextClassName({
+                            disabled: !hasContent,
+                          })}
+                        >
+                          {active ? "Queue" : "Send"}
+                        </Text>
+                      )}
+                    </Pressable>
+                  </View>
                 </View>
 
                 {/* Error banner */}
