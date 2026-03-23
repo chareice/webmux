@@ -1,4 +1,4 @@
-name: Build Mobile Release
+name: Build Android Release
 
 on:
   release:
@@ -19,10 +19,6 @@ jobs:
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       ANDROID_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_BASE64 }}
-
-    defaults:
-      run:
-        working-directory: packages/mobile
 
     steps:
       - uses: actions/checkout@v6
@@ -48,8 +44,11 @@ jobs:
           yes | "$sdk_root/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
           "$sdk_root/cmdline-tools/latest/bin/sdkmanager" platform-tools
 
-      - name: Install mobile dependencies
-        run: pnpm install --frozen-lockfile --ignore-workspace
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @webmux/shared build
 
       - name: Derive release version
         id: version
@@ -83,20 +82,23 @@ jobs:
             echo "asset_suffix=$asset_suffix"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Prepare Firebase config
+        run: bash packages/app/scripts/prepare-google-services.sh
+
+      - name: Generate Expo Android project
+        run: cd packages/app && pnpm exec expo prebuild --platform android --no-install --clean
+
       - name: Write Android SDK path
         run: |
           sdk_path="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          echo "sdk.dir=$sdk_path" > android/local.properties
-
-      - name: Prepare Firebase config
-        run: bash scripts/prepare-google-services.sh
+          echo "sdk.dir=$sdk_path" > packages/app/android/local.properties
 
       - name: Prepare release signing
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > packages/app/android/app/release.keystore
           {
-            echo "WEBMUX_UPLOAD_STORE_FILE=$GITHUB_WORKSPACE/packages/mobile/android/app/release.keystore"
+            echo "WEBMUX_UPLOAD_STORE_FILE=$GITHUB_WORKSPACE/packages/app/android/app/release.keystore"
             echo "WEBMUX_UPLOAD_STORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
             echo "WEBMUX_UPLOAD_KEY_ALIAS=$ANDROID_KEY_ALIAS"
             echo "WEBMUX_UPLOAD_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
@@ -104,7 +106,7 @@ jobs:
 
       - name: Build Android release APK
         run: |
-          cd android
+          cd packages/app/android
           chmod +x gradlew
           ./gradlew assembleRelease bundleRelease
 
@@ -112,13 +114,13 @@ jobs:
         id: asset
         run: |
           suffix="${{ steps.version.outputs.asset_suffix }}"
-          apk_name="webmux-${suffix}.apk"
-          apk_path="$PWD/$apk_name"
-          aab_name="webmux-${suffix}.aab"
-          aab_path="$PWD/$aab_name"
+          apk_name="webmux-android-${suffix}.apk"
+          apk_path="$GITHUB_WORKSPACE/$apk_name"
+          aab_name="webmux-android-${suffix}.aab"
+          aab_path="$GITHUB_WORKSPACE/$aab_name"
 
-          cp android/app/build/outputs/apk/release/app-release.apk "$apk_path"
-          cp android/app/build/outputs/bundle/release/app-release.aab "$aab_path"
+          cp packages/app/android/app/build/outputs/apk/release/app-release.apk "$apk_path"
+          cp packages/app/android/app/build/outputs/bundle/release/app-release.aab "$aab_path"
 
           {
             echo "apk_name=$apk_name"

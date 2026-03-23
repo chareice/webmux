@@ -4,14 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "cd packages/app && npx expo start --web",
-    "dev:web": "cd packages/app && npx expo start --web",
-    "dev:android": "cd packages/app && npx expo start --android",
-    "build": "pnpm -r build",
-    "build:web": "cd packages/app && npx expo export --platform web",
-    "typecheck": "tsc -b",
+    "dev": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app dev:web",
+    "dev:web": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app dev:web",
+    "dev:android": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app android",
+    "build": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app build",
+    "build:web": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app build:web",
+    "typecheck": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app exec tsc --noEmit",
     "lint": "eslint packages/",
-    "test": "pnpm -r test"
+    "test": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app test"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

@@ -1,1 +1,4 @@
 .expo/
+android/
+google-services.json
+ios/

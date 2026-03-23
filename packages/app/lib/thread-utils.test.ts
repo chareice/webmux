@@ -11,9 +11,12 @@ function makeTurn(
   return {
     attachments: [],
     createdAt: 1,
+    hasDiff: false,
     id: "turn-1",
+    index: 0,
     items: [],
     prompt: "hello",
+    runId: "run-1",
     status: "success",
     updatedAt: 1,
     ...overrides,
