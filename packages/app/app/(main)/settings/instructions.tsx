@@ -6,10 +6,12 @@ import {
   ScrollView,
   TextInput,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import type { AgentInfo, RunTool } from "@webmux/shared";
 import { listAgents, getInstructions, saveInstructions } from "../../../lib/api";
+import { getKeyboardAwareScrollProps } from "../../../lib/mobile-layout";
 import { getSettingsRoute } from "../../../lib/route-utils";
 
 const TOOLS: { key: RunTool; label: string; file: string }[] = [
@@ -113,7 +115,12 @@ export default function InstructionsScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      <ScrollView className="flex-1" contentContainerClassName="p-4 pb-8">
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName="p-4 pb-8"
+        keyboardShouldPersistTaps="handled"
+        {...getKeyboardAwareScrollProps(Platform.OS)}
+      >
         {/* Header */}
         <View className="flex-row items-center gap-3 mb-4">
           <Pressable onPress={() => router.replace(getSettingsRoute() as never)}>

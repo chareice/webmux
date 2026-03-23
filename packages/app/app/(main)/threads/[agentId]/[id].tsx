@@ -58,6 +58,7 @@ import {
   getMessageCopyButtonClassName,
   getMessageCopyTextClassName,
 } from "../../../../lib/thread-detail-ui";
+import { getKeyboardAwareScrollProps } from "../../../../lib/mobile-layout";
 import { canContinueTurn, canRetryTurn } from "../../../../lib/thread-utils";
 import { createReconnectableSocket } from "../../../../lib/websocket";
 
@@ -813,6 +814,7 @@ export default function ThreadDetailScreen() {
             className="flex-1"
             contentContainerClassName="p-4 pb-8"
             keyboardShouldPersistTaps="handled"
+            {...getKeyboardAwareScrollProps(Platform.OS)}
           >
             {segments.length === 0 && queuedTurns.length === 0 ? (
               <View className="items-center py-16">

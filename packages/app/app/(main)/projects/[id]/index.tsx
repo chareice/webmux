@@ -44,6 +44,7 @@ import {
   getBaseUrl,
   getToken,
 } from "../../../../lib/api";
+import { getKeyboardAwareScrollProps } from "../../../../lib/mobile-layout";
 import { getProjectsRoute } from "../../../../lib/route-utils";
 import { createReconnectableSocket } from "../../../../lib/websocket";
 
@@ -600,7 +601,11 @@ function EditActionModal({
         </Pressable>
       </View>
 
-      <ScrollView className="px-5 py-4" keyboardShouldPersistTaps="handled">
+      <ScrollView
+        className="px-5 py-4"
+        keyboardShouldPersistTaps="handled"
+        {...getKeyboardAwareScrollProps(Platform.OS)}
+      >
         <TextInput
           className="bg-surface-light border border-border rounded-lg px-4 py-3 text-foreground mb-3"
           placeholder="Action name"
@@ -1230,6 +1235,7 @@ export default function ProjectDetailScreen() {
         className="flex-1"
         contentContainerClassName="p-4 pb-8"
         keyboardShouldPersistTaps="handled"
+        {...getKeyboardAwareScrollProps(Platform.OS)}
       >
         {/* Header */}
         <View className="flex-row items-center gap-3 mb-2">
