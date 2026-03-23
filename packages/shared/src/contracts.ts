@@ -102,6 +102,7 @@ export interface AgentListResponse {
 export interface CreateRegistrationTokenResponse {
   token: string
   expiresAt: number
+  serverUrl?: string
 }
 
 export interface RegisterAgentRequest {

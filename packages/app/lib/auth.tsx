@@ -7,10 +7,15 @@ import {
   useState,
 } from 'react'
 import type { ReactNode } from 'react'
-import { Platform } from 'react-native'
+import { Linking, Platform } from 'react-native'
 
 import { configure, devLogin, getMe } from './api'
 import type { User } from './api'
+import {
+  extractAuthCallback,
+  LAST_SERVER_URL_KEY,
+  normalizeServerUrl,
+} from './auth-utils'
 import { registerForPush, unregisterPush } from './push'
 import { storage } from './storage'
 
@@ -47,31 +52,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isLoggedIn = !!token
 
-  // Restore session from storage on mount, and handle web OAuth callback
+  const persistSession = useCallback(async (nextServerUrl: string, nextToken: string) => {
+    const normalizedNextServerUrl = normalizeServerUrl(nextServerUrl)
+    const normalizedServerUrl =
+      Platform.OS === 'web' ? '' : normalizedNextServerUrl
+
+    await storage.set(TOKEN_KEY, nextToken)
+    await storage.set(SERVER_URL_KEY, normalizedServerUrl)
+    if (normalizedNextServerUrl) {
+      await storage.set(LAST_SERVER_URL_KEY, normalizedNextServerUrl)
+    }
+
+    configure(normalizedServerUrl, nextToken)
+    setServerUrl(normalizedServerUrl)
+    setToken(nextToken)
+  }, [])
+
+  // Restore session from storage on mount, and handle OAuth callbacks.
   useEffect(() => {
     let cancelled = false
+    let subscription: { remove: () => void } | null = null
+
+    const handleAuthCallback = async (rawUrl: string): Promise<boolean> => {
+      const callback = extractAuthCallback(rawUrl)
+      if (!callback) {
+        return false
+      }
+
+      await persistSession(callback.serverUrl, callback.token)
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('token')
+        url.searchParams.delete('provider')
+        url.searchParams.delete('server')
+        window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+      }
+
+      return true
+    }
 
     const restore = async () => {
-      // On web: check URL for ?token=xxx (OAuth callback)
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search)
-        const urlToken = params.get('token')
-        if (urlToken) {
-          await storage.set(TOKEN_KEY, urlToken)
-          // Remove token from URL without reload
-          const url = new URL(window.location.href)
-          url.searchParams.delete('token')
-          window.history.replaceState(
-            {},
-            '',
-            url.pathname + url.search + url.hash,
-          )
-          if (!cancelled) {
-            setToken(urlToken)
-            // On web, serverUrl defaults to '' (same-origin)
-            setServerUrl('')
-            setIsLoading(false)
-          }
+        if (await handleAuthCallback(window.location.href)) {
+          return
+        }
+      }
+
+      if (Platform.OS !== 'web') {
+        const initialUrl = await Linking.getInitialURL()
+        if (initialUrl && await handleAuthCallback(initialUrl)) {
           return
         }
       }
@@ -112,10 +142,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void restore()
 
+    if (Platform.OS !== 'web') {
+      subscription = Linking.addEventListener('url', (event) => {
+        void handleAuthCallback(event.url)
+      })
+    }
+
     return () => {
       cancelled = true
+      subscription?.remove()
     }
-  }, [])
+  }, [persistSession])
 
   // When token/serverUrl change, configure API client and load user
   useEffect(() => {
@@ -158,12 +195,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token, serverUrl])
 
   const login = useCallback(async (newServerUrl: string, newToken: string) => {
-    await storage.set(TOKEN_KEY, newToken)
-    await storage.set(SERVER_URL_KEY, newServerUrl)
-    configure(newServerUrl, newToken)
-    setServerUrl(newServerUrl)
-    setToken(newToken)
-  }, [])
+    await persistSession(newServerUrl, newToken)
+  }, [persistSession])
 
   const logout = useCallback(async () => {
     await unregisterPush()
@@ -177,8 +210,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Register for push notifications on mobile when logged in
   useEffect(() => {
-    if (isLoggedIn && Platform.OS !== 'web') {
-      void registerForPush()
+    if (!isLoggedIn || Platform.OS === 'web') {
+      return
+    }
+
+    let disposed = false
+    let cleanup: (() => void) | null = null
+
+    void registerForPush().then((teardown) => {
+      if (disposed) {
+        teardown()
+        return
+      }
+      cleanup = teardown
+    })
+
+    return () => {
+      disposed = true
+      cleanup?.()
     }
   }, [isLoggedIn])
 

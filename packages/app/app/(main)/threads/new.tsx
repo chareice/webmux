@@ -28,6 +28,7 @@ import {
   browseAgentRepositories,
   startThread,
 } from "../../../lib/api";
+import { getThreadsRoute } from "../../../lib/route-utils";
 
 // --- Constants ---
 
@@ -336,7 +337,7 @@ export default function NewThreadScreen() {
         <View className="flex-row items-center gap-3 mb-6">
           <Pressable
             className="bg-surface-light rounded-lg px-3 py-2"
-            onPress={() => router.back()}
+            onPress={() => router.replace(getThreadsRoute() as never)}
           >
             <Text className="text-foreground-secondary text-sm">Back</Text>
           </Pressable>

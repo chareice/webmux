@@ -44,6 +44,7 @@ import {
   getBaseUrl,
   getToken,
 } from "../../../../lib/api";
+import { getProjectsRoute } from "../../../../lib/route-utils";
 import { createReconnectableSocket } from "../../../../lib/websocket";
 
 // --- Constants ---
@@ -1029,7 +1030,7 @@ export default function ProjectDetailScreen() {
     setIsDeletingProject(true);
     try {
       await deleteProject(projectId);
-      router.back();
+      router.replace(getProjectsRoute() as never);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1213,7 +1214,7 @@ export default function ProjectDetailScreen() {
         </Text>
         <Pressable
           className="bg-surface-light rounded-lg px-4 py-2.5"
-          onPress={() => router.back()}
+          onPress={() => router.replace(getProjectsRoute() as never)}
         >
           <Text className="text-foreground font-medium">Back to Projects</Text>
         </Pressable>
@@ -1234,7 +1235,7 @@ export default function ProjectDetailScreen() {
         <View className="flex-row items-center gap-3 mb-2">
           <Pressable
             className="bg-surface-light rounded-lg px-3 py-2"
-            onPress={() => router.back()}
+            onPress={() => router.replace(getProjectsRoute() as never)}
           >
             <Text className="text-foreground-secondary text-sm">Back</Text>
           </Pressable>

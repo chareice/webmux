@@ -46,6 +46,8 @@ import {
   getBaseUrl,
   getToken,
 } from "../../../../../lib/api";
+import MarkdownContent from "../../../../../components/MarkdownContent";
+import { buildProjectRoute } from "../../../../../lib/route-utils";
 import { createReconnectableSocket } from "../../../../../lib/websocket";
 
 // --- Constants ---
@@ -175,11 +177,7 @@ function StepItemView({ step }: { step: TaskStep }) {
 }
 
 function MessageContent({ content }: { content: string }) {
-  return (
-    <Text className="text-foreground text-sm leading-5" selectable>
-      {content}
-    </Text>
-  );
+  return <MarkdownContent compact content={content} selectable />;
 }
 
 // --- Main Screen ---
@@ -522,7 +520,7 @@ export default function TaskDetailScreen() {
     const doDelete = async () => {
       try {
         await deleteTask(projectId, task.id);
-        router.back();
+        router.replace(buildProjectRoute(projectId) as never);
       } catch (err) {
         setError((err as Error).message);
       }
@@ -587,7 +585,7 @@ export default function TaskDetailScreen() {
         ) : null}
         <Pressable
           className="bg-surface-light rounded-lg px-4 py-2"
-          onPress={() => router.back()}
+          onPress={() => router.replace(buildProjectRoute(projectId) as never)}
         >
           <Text className="text-foreground-secondary text-sm">Go Back</Text>
         </Pressable>
@@ -608,7 +606,7 @@ export default function TaskDetailScreen() {
         <View className="flex-row items-center gap-2">
           <Pressable
             className="bg-surface-light rounded-md px-2.5 py-1"
-            onPress={() => router.back()}
+            onPress={() => router.replace(buildProjectRoute(projectId) as never)}
           >
             <Text className="text-foreground-secondary text-sm">Back</Text>
           </Pressable>

@@ -45,6 +45,9 @@ import {
   getBaseUrl,
   getToken,
 } from "../../../../lib/api";
+import MarkdownContent from "../../../../components/MarkdownContent";
+import { getThreadsRoute } from "../../../../lib/route-utils";
+import { canContinueTurn, canRetryTurn } from "../../../../lib/thread-utils";
 import { createReconnectableSocket } from "../../../../lib/websocket";
 
 // --- Constants ---
@@ -75,15 +78,6 @@ type ConversationSegment =
 
 function isRunActive(status: RunStatus): boolean {
   return status === "starting" || status === "running";
-}
-
-function canContinue(turn: RunTurnDetail | undefined): boolean {
-  if (!turn) return false;
-  return (
-    turn.status === "success" ||
-    turn.status === "failed" ||
-    turn.status === "interrupted"
-  );
 }
 
 function isTrivialActivity(item: RunTimelineEvent): boolean {
@@ -337,6 +331,7 @@ export default function ThreadDetailScreen() {
       : false;
   const interruptedWithQueue =
     latestTurn?.status === "interrupted" && queuedTurns.length > 0;
+  const canRetry = canRetryTurn(latestTurn, queuedTurns.length);
 
   const segments = groupIntoSegments(nonQueuedTurns);
 
@@ -384,7 +379,7 @@ export default function ThreadDetailScreen() {
     const doDelete = async () => {
       try {
         await deleteThread(agentId, threadId);
-        router.back();
+        router.replace(getThreadsRoute() as never);
       } catch (err) {
         setError((err as Error).message);
       }
@@ -453,6 +448,26 @@ export default function ThreadDetailScreen() {
       setError((err as Error).message);
     } finally {
       setIsContinuing(false);
+    }
+  };
+
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  const handleRetry = async () => {
+    if (!agentId || !threadId || !latestTurn?.prompt) return;
+
+    setIsRetrying(true);
+    try {
+      const data = await continueThread(agentId, threadId, {
+        prompt: latestTurn.prompt,
+      });
+      setRun(data.run);
+      setTurns(data.turns);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setIsRetrying(false);
     }
   };
 
@@ -596,7 +611,7 @@ export default function ThreadDetailScreen() {
         ) : null}
         <Pressable
           className="bg-surface-light rounded-lg px-4 py-2"
-          onPress={() => router.back()}
+          onPress={() => router.replace(getThreadsRoute() as never)}
         >
           <Text className="text-foreground-secondary text-sm">Go Back</Text>
         </Pressable>
@@ -615,7 +630,7 @@ export default function ThreadDetailScreen() {
         <View className="flex-row items-center gap-2">
           <Pressable
             className="bg-surface-light rounded-md px-2.5 py-1"
-            onPress={() => router.back()}
+            onPress={() => router.replace(getThreadsRoute() as never)}
           >
             <Text className="text-foreground-secondary text-sm">Back</Text>
           </Pressable>
@@ -725,6 +740,17 @@ export default function ThreadDetailScreen() {
                 >
                   <Text className="text-orange text-sm font-semibold">
                     Interrupt
+                  </Text>
+                </Pressable>
+              ) : null}
+              {!active && canRetry ? (
+                <Pressable
+                  className={`bg-accent/20 rounded-lg px-3 py-2 flex-row items-center justify-center gap-1 ${isRetrying ? "opacity-60" : ""}`}
+                  disabled={isRetrying}
+                  onPress={() => void handleRetry()}
+                >
+                  <Text className="text-accent text-sm font-semibold">
+                    {isRetrying ? "Retrying..." : "Retry"}
                   </Text>
                 </Pressable>
               ) : null}
@@ -873,6 +899,18 @@ export default function ThreadDetailScreen() {
               </Pressable>
             ) : null}
 
+            {!active && canRetry ? (
+              <Pressable
+                className={`bg-accent/20 rounded-lg px-3 py-2 flex-row items-center justify-center gap-1 mb-2 ${isRetrying ? "opacity-60" : ""}`}
+                disabled={isRetrying}
+                onPress={() => void handleRetry()}
+              >
+                <Text className="text-accent text-sm font-semibold">
+                  {isRetrying ? "Retrying..." : "Retry"}
+                </Text>
+              </Pressable>
+            ) : null}
+
             {/* Resume/Discard decision */}
             {interruptedWithQueue ? (
               <View className="flex-row items-center gap-2 mb-2">
@@ -900,7 +938,7 @@ export default function ThreadDetailScreen() {
             ) : null}
 
             {/* Composer */}
-            {active || canContinue(latestTurn) ? (
+            {active || canContinueTurn(latestTurn) ? (
               <>
                 {/* Attachment thumbnails */}
                 {attachments.length > 0 ? (
@@ -1055,11 +1093,7 @@ function SidebarSection({
 }
 
 function MessageContent({ content }: { content: string }) {
-  return (
-    <Text className="text-foreground text-sm leading-5" selectable>
-      {content}
-    </Text>
-  );
+  return <MarkdownContent compact content={content} selectable />;
 }
 
 function ToolsGroup({

@@ -1,6 +1,15 @@
-import { View, Text, Pressable, ScrollView, Platform } from "react-native";
+import { useState } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  Platform,
+  ActivityIndicator,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../../lib/auth";
+import { checkForUpdate, getCurrentVersionInfo } from "../../../lib/update";
 
 interface SettingsRow {
   label: string;
@@ -24,6 +33,12 @@ const SETTINGS_ROWS: SettingsRow[] = [
 export default function SettingsScreen() {
   const router = useRouter();
   const { serverUrl, logout } = useAuth();
+  const versionInfo = getCurrentVersionInfo();
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+
+  const versionLabel = versionInfo.buildNumber
+    ? `${versionInfo.version} (${versionInfo.buildNumber})`
+    : versionInfo.version;
 
   return (
     <View className="flex-1 bg-background">
@@ -68,6 +83,33 @@ export default function SettingsScreen() {
           </View>
         ) : null}
 
+        {Platform.OS !== "web" ? (
+          <View className="bg-surface rounded-xl p-4 border border-border mb-6">
+            <Text className="text-foreground-secondary text-sm mb-1">
+              App Version
+            </Text>
+            <Text className="text-foreground text-sm mb-3">{versionLabel}</Text>
+            <Pressable
+              className={`bg-surface-light rounded-lg py-3 items-center ${isCheckingUpdate ? "opacity-70" : ""}`}
+              disabled={isCheckingUpdate}
+              onPress={() => {
+                setIsCheckingUpdate(true);
+                void checkForUpdate().finally(() => {
+                  setIsCheckingUpdate(false);
+                });
+              }}
+            >
+              {isCheckingUpdate ? (
+                <ActivityIndicator color="#7aa2f7" size="small" />
+              ) : (
+                <Text className="text-accent font-semibold text-sm">
+                  Check for updates
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        ) : null}
+
         {/* Logout */}
         <Pressable
           className="bg-red/10 border border-red rounded-xl py-3 items-center"
@@ -78,7 +120,7 @@ export default function SettingsScreen() {
 
         {/* Version */}
         <Text className="text-foreground-secondary text-xs text-center mt-6">
-          webmux v1.0.0
+          webmux v{versionLabel}
         </Text>
       </ScrollView>
     </View>

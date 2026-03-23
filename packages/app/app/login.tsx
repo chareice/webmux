@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   View,
   Text,
   TextInput,
@@ -10,25 +11,74 @@ import {
 import { Redirect } from "expo-router";
 import { useAuth } from "../lib/auth";
 import { getOAuthUrl, configure } from "../lib/api";
+import {
+  LAST_SERVER_URL_KEY,
+  normalizeServerUrl,
+  OAUTH_PROVIDERS,
+  type OAuthProvider,
+} from "../lib/auth-utils";
+import { storage } from "../lib/storage";
 
 export default function LoginScreen() {
   const { isLoggedIn } = useAuth();
   const [serverUrl, setServerUrl] = useState("");
+  const [activeProvider, setActiveProvider] = useState<OAuthProvider | null>(null);
+  const [error, setError] = useState("");
 
   if (isLoggedIn) {
     return <Redirect href="/" />;
   }
 
-  const handleGitHubLogin = () => {
+  useEffect(() => {
     if (Platform.OS === "web") {
-      // On web: redirect to OAuth flow (same-origin)
-      window.location.href = getOAuthUrl("github");
-    } else {
-      // On native: configure API with serverUrl, then open OAuth in system browser
-      const normalizedUrl = serverUrl.replace(/\/+$/, "");
+      return;
+    }
+
+    let cancelled = false;
+
+    void storage.get(LAST_SERVER_URL_KEY).then((value) => {
+      if (!cancelled && value) {
+        setServerUrl(normalizeServerUrl(value));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLogin = async (provider: OAuthProvider) => {
+    setError("");
+    setActiveProvider(provider);
+
+    if (Platform.OS === "web") {
+      window.location.href = getOAuthUrl(provider);
+      return;
+    }
+
+    const normalizedUrl = normalizeServerUrl(serverUrl);
+    if (!normalizedUrl) {
+      setError("Please enter a server URL");
+      setActiveProvider(null);
+      return;
+    }
+
+    try {
+      const parsedUrl = new URL(normalizedUrl);
+      if (!/^https?:$/.test(parsedUrl.protocol)) {
+        throw new Error("Unsupported protocol");
+      }
+
       configure(normalizedUrl, "");
-      const oauthUrl = getOAuthUrl("github");
-      Linking.openURL(oauthUrl);
+      await storage.set(LAST_SERVER_URL_KEY, normalizedUrl);
+      setServerUrl(normalizedUrl);
+      await Linking.openURL(getOAuthUrl(provider));
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to open the login page",
+      );
+    } finally {
+      setActiveProvider(null);
     }
   };
 
@@ -55,6 +105,12 @@ export default function LoginScreen() {
               placeholderTextColor="#565f89"
               value={serverUrl}
               onChangeText={setServerUrl}
+              onBlur={() => {
+                const normalizedUrl = normalizeServerUrl(serverUrl);
+                if (normalizedUrl) {
+                  setServerUrl(normalizedUrl);
+                }
+              }}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
@@ -62,15 +118,41 @@ export default function LoginScreen() {
           </View>
         )}
 
-        {/* GitHub Login Button */}
-        <Pressable
-          onPress={handleGitHubLogin}
-          className="bg-accent rounded-lg py-3 px-4 items-center active:opacity-80"
-        >
-          <Text className="text-white font-semibold text-base">
-            Login with GitHub
-          </Text>
-        </Pressable>
+        {error ? (
+          <Text className="text-red text-sm mb-4">{error}</Text>
+        ) : null}
+
+        <View className="gap-3">
+          {OAUTH_PROVIDERS.map((provider) => {
+            const active = activeProvider === provider.value;
+            const isGitHub = provider.value === "github";
+
+            return (
+              <Pressable
+                key={provider.value}
+                onPress={() => void handleLogin(provider.value)}
+                className={`rounded-lg py-3 px-4 items-center active:opacity-80 ${
+                  isGitHub
+                    ? "bg-accent"
+                    : "bg-background border border-border"
+                } ${activeProvider ? "opacity-80" : ""}`}
+                disabled={activeProvider !== null}
+              >
+                {active ? (
+                  <ActivityIndicator color={isGitHub ? "#ffffff" : "#c0caf5"} />
+                ) : (
+                  <Text
+                    className={`font-semibold text-base ${
+                      isGitHub ? "text-white" : "text-foreground"
+                    }`}
+                  >
+                    {provider.label}
+                  </Text>
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
     </View>
   );

@@ -30,6 +30,7 @@ import type {
   UpdateProjectRequest,
   UpdateTaskRequest,
 } from '@webmux/shared'
+import { resolveRegistrationTokenResponse } from './registration-utils'
 
 // --- User type (not in @webmux/shared) ---
 
@@ -164,10 +165,29 @@ export async function renameAgent(agentId: string, name: string): Promise<void> 
 }
 
 export async function createRegistrationToken(): Promise<CreateRegistrationTokenResponse> {
-  return request<CreateRegistrationTokenResponse>('/api/agents/register-token', {
+  if (!_baseUrl && Platform.OS !== 'web') {
+    throw new Error('API base URL is not configured')
+  }
+
+  const response = await fetch(`${_baseUrl}/api/agents/register-token`, {
     method: 'POST',
     body: JSON.stringify({}),
+    headers: {
+      'Content-Type': 'application/json',
+      ...(_token ? { Authorization: `Bearer ${_token}` } : {}),
+    },
   })
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`API error ${response.status}: ${text || response.statusText}`)
+  }
+
+  const data = await response.json() as CreateRegistrationTokenResponse
+  return resolveRegistrationTokenResponse(
+    data,
+    response.headers.get('x-webmux-server-url'),
+  )
 }
 
 export async function browseAgentRepositories(
