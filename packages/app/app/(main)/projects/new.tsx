@@ -16,12 +16,15 @@ import type {
   RunTool,
   CreateProjectRequest,
 } from "@webmux/shared";
-import { repoName } from "@webmux/shared";
 import {
   listAgents,
   browseAgentRepositories,
   createProject,
 } from "../../../lib/api";
+import {
+  getRepoNameFromPath,
+  resolveProjectNameFromRepoPath,
+} from "../../../lib/repo-path-utils";
 import { getProjectsRoute } from "../../../lib/route-utils";
 
 // --- Constants ---
@@ -118,6 +121,7 @@ export default function NewProjectScreen() {
     () => agents.find((a) => a.id === selectedAgent) ?? null,
     [agents, selectedAgent],
   );
+  const trimmedRepoPath = repoPath.trim();
 
   const loadRepoBrowser = useCallback(
     async (aid: string, path?: string) => {
@@ -138,9 +142,7 @@ export default function NewProjectScreen() {
   // Auto-fill project name from repo path
   const handleSelectRepoPath = (path: string) => {
     setRepoPath(path);
-    if (!name.trim()) {
-      setName(repoName(path));
-    }
+    setName((currentName) => resolveProjectNameFromRepoPath(currentName, path));
   };
 
   const handleSubmit = async () => {
@@ -278,31 +280,65 @@ export default function NewProjectScreen() {
             Work Path
           </Text>
 
-          {/* Picker button */}
-          <Pressable
-            className="bg-surface border border-border rounded-lg px-4 py-3 flex-row items-center"
-            disabled={!selectedAgent}
-            onPress={() => {
-              if (!selectedAgent) return;
-              setIsRepoBrowserOpen(true);
-              if (!repoBrowser && !isLoadingRepos) {
-                void loadRepoBrowser(selectedAgent);
-              }
+          <TextInput
+            className="bg-surface border border-border rounded-lg px-4 py-3 text-foreground font-mono min-h-[88px]"
+            placeholder={
+              selectedAgent
+                ? "/home/chareice/projects/webmux"
+                : "Select an agent first"
+            }
+            placeholderTextColor="#565f89"
+            value={repoPath}
+            onChangeText={setRepoPath}
+            onBlur={() => {
+              setName((currentName) =>
+                resolveProjectNameFromRepoPath(currentName, repoPath),
+              );
             }}
-          >
-            <View className="flex-1">
-              <Text className="text-foreground text-sm font-medium">
-                {repoPath ? repoName(repoPath) : "Choose a directory"}
+            editable={!!selectedAgent}
+            multiline
+            textAlignVertical="top"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <View className="mt-2 gap-2">
+            <Pressable
+              className={`border rounded-lg px-4 py-3 flex-row items-center ${
+                selectedAgent
+                  ? "bg-surface border-border"
+                  : "bg-surface-light border-border/60"
+              }`}
+              disabled={!selectedAgent}
+              onPress={() => {
+                if (!selectedAgent) return;
+                setIsRepoBrowserOpen(true);
+                if (!repoBrowser && !isLoadingRepos) {
+                  void loadRepoBrowser(selectedAgent);
+                }
+              }}
+            >
+              <View className="flex-1">
+                <Text className="text-foreground text-sm font-medium">
+                  {trimmedRepoPath
+                    ? `Browse from ${getRepoNameFromPath(trimmedRepoPath)}`
+                    : "Browse directories"}
+                </Text>
+                <Text className="text-foreground-secondary text-xs mt-0.5">
+                  {selectedAgentInfo
+                    ? `Pick a path on ${selectedAgentInfo.name || selectedAgentInfo.id}`
+                    : "Select an agent first"}
+                </Text>
+              </View>
+              <Text className="text-foreground-secondary text-lg ml-2">{">"}</Text>
+            </Pressable>
+
+            {trimmedRepoPath ? (
+              <Text className="text-foreground-secondary text-xs">
+                Selected repository: {getRepoNameFromPath(trimmedRepoPath)}
               </Text>
-              <Text className="text-foreground-secondary text-xs mt-0.5">
-                {repoPath ||
-                  (selectedAgentInfo
-                    ? `Browse directories on ${selectedAgentInfo.name || selectedAgentInfo.id}`
-                    : "Select an agent first")}
-              </Text>
-            </View>
-            <Text className="text-foreground-secondary text-lg ml-2">{">"}</Text>
-          </Pressable>
+            ) : null}
+          </View>
 
           {isLoadingRepos && !repoBrowser ? (
             <View className="items-center py-2">
