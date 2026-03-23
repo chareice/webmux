@@ -30,6 +30,10 @@ import type {
   UpdateProjectRequest,
   UpdateTaskRequest,
 } from '@webmux/shared'
+import {
+  buildInstructionsPath,
+  buildSaveInstructionsBody,
+} from './instructions-api'
 import { resolveRegistrationTokenResponse } from './registration-utils'
 
 // --- User type (not in @webmux/shared) ---
@@ -494,9 +498,7 @@ export async function getInstructions(
   agentId: string,
   tool: RunTool,
 ): Promise<InstructionsResponse> {
-  return request<InstructionsResponse>(
-    `/api/agents/${agentId}/instructions/${tool}`,
-  )
+  return request<InstructionsResponse>(buildInstructionsPath(agentId, tool))
 }
 
 export async function saveInstructions(
@@ -504,9 +506,9 @@ export async function saveInstructions(
   tool: RunTool,
   content: string,
 ): Promise<void> {
-  await request(`/api/agents/${agentId}/instructions/${tool}`, {
+  await request(buildInstructionsPath(agentId, tool), {
     method: 'PUT',
-    body: JSON.stringify({ content }),
+    body: buildSaveInstructionsBody(tool, content),
   })
 }
 
