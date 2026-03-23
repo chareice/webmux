@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TARGET_PATH="$APP_ROOT/android/app/google-services.json"
+TARGET_PATH="$APP_ROOT/google-services.json"
 
 if [[ -n "${ANDROID_GOOGLE_SERVICES_JSON_BASE64:-}" ]]; then
   printf '%s' "$ANDROID_GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > "$TARGET_PATH"

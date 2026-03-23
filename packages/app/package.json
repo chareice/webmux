@@ -8,8 +8,9 @@
     "dev:web": "expo start --web",
     "build": "expo export --platform web",
     "build:web": "expo export --platform web",
-    "ios": "expo start --ios",
-    "android": "expo start --android",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "prebuild:android": "expo prebuild --platform android --no-install",
     "test": "NODE_NO_WARNINGS=1 node --test --experimental-strip-types $(find lib -name '*.test.ts' -print)"
   },
   "dependencies": {
@@ -25,6 +26,7 @@
     "expo-router": "~55.0.7",
     "expo-secure-store": "~14.2.3",
     "expo-status-bar": "~55.0.4",
+    "expo-system-ui": "~6.0.7",
     "nativewind": "^4.2.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -37,6 +39,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
+    "@types/node": "^24.6.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.1.11",
     "tailwindcss": "^3.4.19"

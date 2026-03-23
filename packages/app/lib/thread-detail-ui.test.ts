@@ -30,6 +30,18 @@ test("copyMessageContent skips empty messages", async () => {
   assert.equal(called, false);
 });
 
+test("copyMessageContent accepts clipboard writers that return a success flag", async () => {
+  let copied = "";
+
+  const result = await copyMessageContent(" copied ", async (value) => {
+    copied = value;
+    return true;
+  });
+
+  assert.equal(result, true);
+  assert.equal(copied, "copied");
+});
+
 test("getComposerCardClassName keeps the input row inside a bordered card", () => {
   const className = getComposerCardClassName();
 

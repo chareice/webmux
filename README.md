@@ -1,46 +1,36 @@
 # Webmux
 
-Webmux is a mobile-first control plane for `tmux` across your own machines.
+Webmux is an AI coding control plane for your own machines.
 
-You run the central server somewhere you control, register one or more remote agents, open the web UI from your phone or laptop, pick a machine, then attach to a real terminal backed by that machine's local `tmux` socket and PTY. The `tmux` session stays alive on the agent after the browser disconnects.
+You register one or more remote agents, connect a repository on that machine,
+start coding threads with Claude Code or Codex, and manage longer-running work
+through projects and tasks. The same Expo app powers both the web UI and the
+Android app.
 
 ## What it does today
 
 - Authenticates users with GitHub, Google, or dev mode
 - Registers remote agents with one-time enrollment tokens
-- Lists your agents and shows online or offline state
-- Lists `tmux` sessions for each connected agent
-- Creates and kills sessions with agent-side confirmation
-- Shows pane previews, current command, activity time, and unread indicators
-- Opens a live terminal over WebSocket with reconnect handling
-- Adds mobile shortcut keys like `Esc`, `Prefix`, arrows, `Ctrl+C`, and `Detach`
-- Keeps the terminal process on the agent machine, not in the browser
+- Starts coding threads against a selected repository and tool
+- Streams structured timeline updates for thread runs in real time
+- Groups work into projects with queued tasks and project actions
+- Manages global LLM settings and per-agent instruction files
+- Sends Android push notifications when a thread turn finishes
+- Serves the web app from the same Rust server that handles the API and WebSockets
 
 ## Stack
 
-- Frontend: React 19 + Vite + xterm.js
-- Backend: Fastify + bare `ws`
-- Persistence: SQLite via `better-sqlite3`
-- Agent runtime: Node.js CLI + `node-pty`
-- Session engine: `tmux`
-
-## Why this shape
-
-- `tmux` is the source of truth for session lifetime
-- `node-pty` gives the browser a real PTY, so `vim`, `fzf`, `htop`, and similar TUI apps work
-- The server stays focused on auth, enrollment, routing, and fan-out instead of owning terminal state
-- The WebSocket layer is kept small and explicit instead of hiding it behind a larger framework abstraction
-- The heavy terminal renderer is lazy-loaded so the session list stays fast on mobile
+- Frontend: Expo + Expo Router + React Native Web + NativeWind
+- Backend: Rust + Axum
+- Agent runtime: Rust CLI on your own machines
+- Persistence: SQLite
+- Realtime: WebSockets for agents, threads, and projects
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22+
 - `pnpm`
-- `tmux`
-- Build toolchain for native modules
-  - `python3`
-  - `make`
-  - `g++`
+- Rust toolchain
 
 ## Run locally
 
@@ -49,60 +39,85 @@ pnpm install
 pnpm dev
 ```
 
-This starts:
+This starts the Expo web app.
 
-- Vite on `http://127.0.0.1:5173`
-- The API/WebSocket server on `http://127.0.0.1:4317`
-
-In local dev, the server enables `/api/auth/dev` and the UI can auto-login as a temporary admin user.
-
-## Build and run
+For Android development:
 
 ```bash
-pnpm build
-pnpm start
+pnpm dev:android
 ```
+
+The Rust server still runs separately during local development. In dev mode the
+server enables `/api/auth/dev`, and the app can auto-login with a temporary
+account.
+
+## Checks
+
+```bash
+pnpm test
+pnpm lint
+pnpm typecheck
+pnpm build
+```
+
+`pnpm build` exports the web app to `packages/app/dist`.
 
 ## Deploy with Docker
 
 Pushes to `main` publish a server image to `ghcr.io/chareice/webmux-server`.
+The production image includes the Expo web export and the Rust server binary.
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-The checked-in `docker-compose.yml` follows the same image-based deployment model used on NAS and is compatible with Watchtower.
+The checked-in `docker-compose.yml` matches the deployment model used on NAS and
+is compatible with Watchtower.
 
-If the repository stays private, the first GHCR package will also be private by default. In that case the server host must authenticate to `ghcr.io` before `docker compose pull`, and Watchtower also needs access to the same registry credentials. If you switch the GHCR package visibility to public, NAS can pull updates anonymously and Watchtower can update it without extra secrets.
+## Android releases
+
+Publishing a GitHub release, or running the `Build Android Release` workflow
+manually, builds the Android app from `packages/app` and uploads both APK and
+AAB artifacts.
+
+Push notifications require Firebase config for both the Android app build and
+the server:
+
+- `ANDROID_GOOGLE_SERVICES_JSON_BASE64` for the Android release workflow
+- `WEBMUX_FIREBASE_SERVICE_ACCOUNT_BASE64` for the server
+
+If Android release metadata is not set explicitly, the server can still fall
+back to the latest GitHub release when the app checks for updates.
 
 ## Environment variables
 
 ```bash
 PORT=4317
+HOST=0.0.0.0
 JWT_SECRET=change-me
-WEBMUX_BASE_URL=https://webmux.example.com
 DATABASE_PATH=./webmux.db
-WEBMUX_AGENT_PACKAGE_NAME=@webmux/agent
-WEBMUX_AGENT_TARGET_VERSION=
-WEBMUX_AGENT_MIN_VERSION=
+WEBMUX_BASE_URL=https://webmux.example.com
+
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+
+WEBMUX_AGENT_PACKAGE_NAME=@webmux/agent
+WEBMUX_AGENT_TARGET_VERSION=
+WEBMUX_AGENT_MIN_VERSION=
+
 WEBMUX_FIREBASE_SERVICE_ACCOUNT_BASE64=
+WEBMUX_MOBILE_LATEST_VERSION=
+WEBMUX_MOBILE_DOWNLOAD_URL=
+WEBMUX_MOBILE_MIN_VERSION=
 ```
 
-`WEBMUX_AGENT_TARGET_VERSION` is the recommended agent release for managed upgrades.
-`WEBMUX_AGENT_MIN_VERSION` is the oldest agent version the server will accept.
-If both are empty, the server does not advertise or enforce agent upgrades.
-`WEBMUX_FIREBASE_SERVICE_ACCOUNT_BASE64` is an optional base64-encoded Firebase
-service account JSON used to send Android push notifications when a thread turn
-finishes. If it is empty, the server skips push delivery.
+## Managed agent service
 
-## Managed Agent Service
-
-Register the machine once, then either run it manually or install the managed user service:
+Register a machine once, then run the agent manually or install the managed
+user service:
 
 ```bash
 pnpm dlx @webmux/agent register \
@@ -114,59 +129,47 @@ pnpm dlx @webmux/agent start
 pnpm dlx @webmux/agent service install
 ```
 
-The managed service keeps a pinned agent runtime under `~/.webmux/releases/<version>` and points the systemd unit at that exact release. It does not run `latest` on startup and it does not depend on a global install.
-
-When the server advertises a newer `WEBMUX_AGENT_TARGET_VERSION`, a managed service with auto-upgrade enabled will install that exact version, rewrite the unit, and restart itself. Manual `start` runs never mutate themselves; they only log the recommended upgrade command.
-
-To switch a managed agent to a specific version manually:
-
-```bash
-pnpm dlx @webmux/agent service upgrade --to 0.1.5
-```
+When the server advertises a newer target version, managed agents can upgrade to
+that exact release. Manual `start` runs do not mutate themselves.
 
 ## API surface
 
-- `GET /api/health`
 - `GET /api/auth/me`
 - `GET /api/auth/github`
 - `GET /api/auth/google`
-- `GET /api/auth/dev` (dev only)
+- `GET /api/auth/dev`
 - `GET /api/agents`
-- `POST /api/mobile/push-devices`
-- `DELETE /api/mobile/push-devices/:installationId`
 - `POST /api/agents/register-token`
 - `POST /api/agents/register`
 - `PATCH /api/agents/:id`
 - `DELETE /api/agents/:id`
-- `GET /api/agents/:id/sessions`
-- `POST /api/agents/:id/sessions`
-- `DELETE /api/agents/:id/sessions/:name`
+- `GET /api/agents/:id/repositories`
+- `GET /api/threads`
+- `GET /api/agents/:id/threads`
+- `POST /api/agents/:id/threads`
+- `POST /api/agents/:id/threads/:threadId/turns`
+- `POST /api/agents/:id/threads/:threadId/interrupt`
+- `PATCH /api/agents/:id/threads/:threadId/turns/:turnId`
+- `DELETE /api/agents/:id/threads/:threadId`
+- `GET /api/projects`
+- `GET /api/projects/:id`
+- `POST /api/projects`
+- `PATCH /api/projects/:id`
+- `DELETE /api/projects/:id`
+- `GET /api/projects/:id/tasks/:taskId/messages`
+- `POST /api/projects/:id/tasks/:taskId/messages`
+- `GET /api/projects/:id/actions`
+- `POST /api/mobile/push-devices`
+- `DELETE /api/mobile/push-devices/:installationId`
+- `GET /api/mobile/version`
 - `WS /ws/agent`
-- `WS /ws/events?token=<jwt>`
-- `WS /ws/terminal?agent=<id>&session=<name>&token=<jwt>`
-
-## Development commands
-
-```bash
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm test:mobile
-pnpm build
-```
-
-GitHub Actions now runs the workspace checks and the mobile checks in separate
-jobs, because `packages/mobile` intentionally uses its own install flow outside
-the root pnpm workspace.
+- `WS /ws/thread`
+- `WS /ws/project`
 
 ## Notes
 
-- The agent uses a dedicated `tmux` socket name (`webmux`) so it does not need to share state with your personal terminal sessions unless you want it to.
-- Session names are intentionally constrained to a small safe charset.
-- Session list updates are pushed immediately on create, kill, attach, and detach, with periodic agent refresh to keep previews and activity markers current.
-- Agent upgrades are server-owned policy, not npm `latest`. Set `WEBMUX_AGENT_TARGET_VERSION` and `WEBMUX_AGENT_MIN_VERSION` during server deploys when you want to roll out or enforce a new agent release.
-- Android completion notifications need both mobile Firebase config and
-  `WEBMUX_FIREBASE_SERVICE_ACCOUNT_BASE64` on the server. Without those
-  credentials, the app still works but push delivery stays disabled.
-- The container publish workflow pushes `ghcr.io/chareice/webmux-server:main`, `:latest`, and `:sha-<commit>` on every `main` push.
-- The current UI is optimized for single-pane attach flows. Multi-pane map views, thumbnails, auth policies, and ACLs are still future work.
+- The unified Expo app is now the only frontend client in this repository.
+- The web app and Android app share the same UI and business logic in
+  `packages/app`.
+- The container publish workflow pushes `ghcr.io/chareice/webmux-server:main`,
+  `:latest`, and `:sha-<commit>` on every `main` push.

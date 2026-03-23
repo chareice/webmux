@@ -4,7 +4,7 @@ export interface ComposerStateOptions {
 
 export async function copyMessageContent(
   content: string,
-  writeText: (value: string) => Promise<void>,
+  writeText: (value: string) => Promise<void | boolean>,
 ): Promise<boolean> {
   const trimmed = content.trim();
   if (!trimmed) {
