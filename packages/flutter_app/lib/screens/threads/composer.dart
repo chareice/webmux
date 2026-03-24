@@ -9,6 +9,7 @@ import '../../models/run.dart';
 import '../../services/api_client.dart';
 import '../../widgets/todo_bar.dart';
 import '../../widgets/queue_bar.dart';
+import '../../utils/paste_handler.dart';
 
 /// The core input area for sending messages in a thread.
 class Composer extends StatefulWidget {
@@ -48,6 +49,7 @@ class _ComposerState extends State<Composer> {
   final _imagePicker = ImagePicker();
   final List<_Attachment> _attachments = [];
   bool _sending = false;
+  dynamic _pasteSubscription;
 
   bool get _isRunning =>
       widget.runStatus == 'running' || widget.runStatus == 'starting';
@@ -65,7 +67,24 @@ class _ComposerState extends State<Composer> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _pasteSubscription = setupWebPasteListener((bytes, mimeType, name) {
+      if (!mounted || _attachments.length >= 4) return;
+      setState(() {
+        _attachments.add(_Attachment(
+          name: name,
+          mimeType: mimeType,
+          bytes: bytes,
+          base64: base64Encode(bytes),
+        ));
+      });
+    });
+  }
+
+  @override
   void dispose() {
+    _pasteSubscription?.cancel();
     _textController.dispose();
     _focusNode.dispose();
     super.dispose();
