@@ -48,6 +48,10 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
   int _lastTurnsVersion = 0;
   int _turnsVersion = 0;
 
+  // Pagination: only show the last _visibleCount items initially.
+  static const int _pageSize = 100;
+  int _visibleCount = _pageSize;
+
   @override
   void initState() {
     super.initState();
@@ -384,7 +388,14 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
       );
     }
 
-    final displayItems = _getDisplayItems();
+    final allItems = _getDisplayItems();
+    // Only render the tail of the list for performance.
+    final hiddenCount =
+        (allItems.length - _visibleCount).clamp(0, allItems.length);
+    final visibleItems = hiddenCount > 0
+        ? allItems.sublist(hiddenCount)
+        : allItems;
+    final hasMore = hiddenCount > 0;
 
     return Column(
       children: [
@@ -392,7 +403,7 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
         if (_isRunning) _RunningStatusBar(status: _runStatus),
         // Message list.
         Expanded(
-          child: displayItems.isEmpty
+          child: allItems.isEmpty
               ? Center(
                   child: Text(
                     'No messages yet',
@@ -405,9 +416,28 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
                   controller: _scrollController,
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  itemCount: displayItems.length,
+                  itemCount: visibleItems.length + (hasMore ? 1 : 0),
                   itemBuilder: (context, index) {
-                    return _buildDisplayItem(displayItems[index]);
+                    if (hasMore && index == 0) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: TextButton(
+                            onPressed: () {
+                              setState(() {
+                                _visibleCount += _pageSize;
+                              });
+                            },
+                            child: Text(
+                              'Load $hiddenCount earlier messages',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                    final itemIndex = hasMore ? index - 1 : index;
+                    return _buildDisplayItem(visibleItems[itemIndex]);
                   },
                 ),
         ),
