@@ -427,8 +427,6 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
 
     return Column(
       children: [
-        // Status bar when running.
-        if (_isRunning) _RunningStatusBar(status: _runStatus),
         // Message list — reversed so newest messages appear at bottom without
         // needing to scroll. Index 0 in a reversed list = last item.
         Expanded(
@@ -474,6 +472,8 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
                   },
                 ),
         ),
+        // Running indicator — small breathing dot above composer.
+        if (_isRunning) _RunningIndicator(status: _runStatus),
         // Composer.
         Composer(
           agentId: widget.agentId,
@@ -601,37 +601,37 @@ class _StatusBadge extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Running status bar
+// Running indicator — compact breathing dot above composer
 // ---------------------------------------------------------------------------
 
-class _RunningStatusBar extends StatefulWidget {
-  const _RunningStatusBar({required this.status});
+class _RunningIndicator extends StatefulWidget {
+  const _RunningIndicator({required this.status});
   final String status;
 
   @override
-  State<_RunningStatusBar> createState() => _RunningStatusBarState();
+  State<_RunningIndicator> createState() => _RunningIndicatorState();
 }
 
-class _RunningStatusBarState extends State<_RunningStatusBar>
+class _RunningIndicatorState extends State<_RunningIndicator>
     with SingleTickerProviderStateMixin {
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
+  late AnimationController _controller;
+  late Animation<double> _opacity;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
+    _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat(reverse: true);
-    _pulseAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    _opacity = Tween<double>(begin: 0.3, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
@@ -639,32 +639,27 @@ class _RunningStatusBarState extends State<_RunningStatusBar>
   Widget build(BuildContext context) {
     final color = StatusIndicator.colorForStatus(widget.status);
     return AnimatedBuilder(
-      animation: _pulseAnimation,
+      animation: _opacity,
       builder: (context, child) {
         return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.08 * _pulseAnimation.value),
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(
-                  strokeWidth: 1.5,
-                  color: color.withOpacity(_pulseAnimation.value),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: color.withOpacity(_opacity.value),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Text(
-                'Running...',
+                'Agent is working...',
                 style: TextStyle(
-                  color: color.withOpacity(_pulseAnimation.value),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+                  color: WebmuxTheme.subtext.withOpacity(_opacity.value),
+                  fontSize: 11,
                 ),
               ),
             ],
