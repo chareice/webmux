@@ -2,28 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 class AppShell extends StatelessWidget {
-  const AppShell({super.key, required this.child});
+  const AppShell({super.key, required this.navigationShell});
 
-  final Widget child;
+  final StatefulNavigationShell navigationShell;
 
   static const double _desktopBreakpoint = 768;
 
-  int _currentIndex(BuildContext context) {
-    final location = GoRouterState.of(context).uri.toString();
-    if (location.startsWith('/threads')) return 1;
-    if (location.startsWith('/settings')) return 2;
-    return 0;
-  }
-
-  void _onTabSelected(BuildContext context, int index) {
-    switch (index) {
-      case 0:
-        context.go('/home');
-      case 1:
-        context.go('/threads');
-      case 2:
-        context.go('/settings');
-    }
+  void _onTabSelected(int index) {
+    // goBranch preserves the state of each branch.
+    navigationShell.goBranch(index, initialLocation: index == navigationShell.currentIndex);
   }
 
   @override
@@ -31,16 +18,14 @@ class AppShell extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isDesktop = constraints.maxWidth >= _desktopBreakpoint;
-        final selectedIndex = _currentIndex(context);
 
         if (isDesktop) {
           return Scaffold(
             body: Row(
               children: [
                 NavigationRail(
-                  selectedIndex: selectedIndex,
-                  onDestinationSelected: (index) =>
-                      _onTabSelected(context, index),
+                  selectedIndex: navigationShell.currentIndex,
+                  onDestinationSelected: _onTabSelected,
                   labelType: NavigationRailLabelType.all,
                   destinations: const [
                     NavigationRailDestination(
@@ -62,7 +47,7 @@ class AppShell extends StatelessWidget {
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 900),
-                      child: child,
+                      child: navigationShell,
                     ),
                   ),
                 ),
@@ -72,10 +57,10 @@ class AppShell extends StatelessWidget {
         }
 
         return Scaffold(
-          body: child,
+          body: navigationShell,
           bottomNavigationBar: BottomNavigationBar(
-            currentIndex: selectedIndex,
-            onTap: (index) => _onTabSelected(context, index),
+            currentIndex: navigationShell.currentIndex,
+            onTap: _onTabSelected,
             items: const [
               BottomNavigationBarItem(
                 icon: Icon(Icons.dashboard_rounded),
