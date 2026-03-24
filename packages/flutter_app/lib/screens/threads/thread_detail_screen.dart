@@ -40,6 +40,14 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
   late WebSocketService _wsService;
   StreamSubscription<RunEvent>? _wsSubscription;
 
+  // Throttle WebSocket-driven rebuilds to avoid jank on large threads.
+  Timer? _throttleTimer;
+  bool _hasPendingUpdate = false;
+  // Cache the flat display-item list; only recompute when _turns change.
+  List<_DisplayItem>? _cachedDisplayItems;
+  int _lastTurnsVersion = 0;
+  int _turnsVersion = 0;
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +63,7 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
   void dispose() {
     _wsSubscription?.cancel();
     _wsService.disconnect();
+    _throttleTimer?.cancel();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -100,6 +109,7 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
       setState(() {
         _run = detail.run;
         _turns = detail.turns;
+        _turnsVersion++;
         _loading = false;
       });
       // Scroll to bottom after data loaded.
@@ -131,88 +141,94 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
     switch (event.type) {
       case 'run-status':
         if (event.run != null && event.run!.id == widget.threadId) {
-          setState(() => _run = event.run);
+          _run = event.run;
+          _scheduleRebuild();
         }
         break;
 
       case 'run-turn':
         if (event.turn != null && event.runId == widget.threadId) {
-          setState(() {
-            // Check if turn already exists (update) or is new.
-            final idx =
-                _turns.indexWhere((t) => t.id == event.turn!.id);
-            if (idx >= 0) {
-              // Update existing turn status.
-              final old = _turns[idx];
-              _turns[idx] = RunTurnDetail(
-                id: event.turn!.id,
-                runId: event.turn!.runId,
-                index: event.turn!.index,
-                prompt: event.turn!.prompt,
-                attachments: event.turn!.attachments,
-                status: event.turn!.status,
-                createdAt: event.turn!.createdAt,
-                updatedAt: event.turn!.updatedAt,
-                summary: event.turn!.summary,
-                hasDiff: event.turn!.hasDiff,
-                items: old.items,
-              );
-            } else {
-              // New turn.
-              _turns.add(RunTurnDetail(
-                id: event.turn!.id,
-                runId: event.turn!.runId,
-                index: event.turn!.index,
-                prompt: event.turn!.prompt,
-                attachments: event.turn!.attachments,
-                status: event.turn!.status,
-                createdAt: event.turn!.createdAt,
-                updatedAt: event.turn!.updatedAt,
-                summary: event.turn!.summary,
-                hasDiff: event.turn!.hasDiff,
-                items: [],
-              ));
-            }
-          });
-          _maybeScrollToBottom();
+          final idx = _turns.indexWhere((t) => t.id == event.turn!.id);
+          if (idx >= 0) {
+            final old = _turns[idx];
+            _turns[idx] = RunTurnDetail(
+              id: event.turn!.id,
+              runId: event.turn!.runId,
+              index: event.turn!.index,
+              prompt: event.turn!.prompt,
+              attachments: event.turn!.attachments,
+              status: event.turn!.status,
+              createdAt: event.turn!.createdAt,
+              updatedAt: event.turn!.updatedAt,
+              summary: event.turn!.summary,
+              hasDiff: event.turn!.hasDiff,
+              items: old.items,
+            );
+          } else {
+            _turns.add(RunTurnDetail(
+              id: event.turn!.id,
+              runId: event.turn!.runId,
+              index: event.turn!.index,
+              prompt: event.turn!.prompt,
+              attachments: event.turn!.attachments,
+              status: event.turn!.status,
+              createdAt: event.turn!.createdAt,
+              updatedAt: event.turn!.updatedAt,
+              summary: event.turn!.summary,
+              hasDiff: event.turn!.hasDiff,
+              items: [],
+            ));
+          }
+          _turnsVersion++;
+          _scheduleRebuild();
         }
         break;
 
       case 'run-item':
         if (event.item != null && event.runId == widget.threadId) {
-          setState(() {
-            // Find the turn and append or update the item.
-            final turnIdx =
-                _turns.indexWhere((t) => t.id == event.turnId);
-            if (turnIdx >= 0) {
-              final turn = _turns[turnIdx];
-              final items = List<RunTimelineEvent>.from(turn.items);
-              final itemIdx =
-                  items.indexWhere((i) => i.id == event.item!.id);
-              if (itemIdx >= 0) {
-                items[itemIdx] = event.item!;
-              } else {
-                items.add(event.item!);
-              }
-              _turns[turnIdx] = RunTurnDetail(
-                id: turn.id,
-                runId: turn.runId,
-                index: turn.index,
-                prompt: turn.prompt,
-                attachments: turn.attachments,
-                status: turn.status,
-                createdAt: turn.createdAt,
-                updatedAt: turn.updatedAt,
-                summary: turn.summary,
-                hasDiff: turn.hasDiff,
-                items: items,
-              );
+          final turnIdx = _turns.indexWhere((t) => t.id == event.turnId);
+          if (turnIdx >= 0) {
+            final turn = _turns[turnIdx];
+            final items = List<RunTimelineEvent>.from(turn.items);
+            final itemIdx =
+                items.indexWhere((i) => i.id == event.item!.id);
+            if (itemIdx >= 0) {
+              items[itemIdx] = event.item!;
+            } else {
+              items.add(event.item!);
             }
-          });
-          _maybeScrollToBottom();
+            _turns[turnIdx] = RunTurnDetail(
+              id: turn.id,
+              runId: turn.runId,
+              index: turn.index,
+              prompt: turn.prompt,
+              attachments: turn.attachments,
+              status: turn.status,
+              createdAt: turn.createdAt,
+              updatedAt: turn.updatedAt,
+              summary: turn.summary,
+              hasDiff: turn.hasDiff,
+              items: items,
+            );
+          }
+          _turnsVersion++;
+          _scheduleRebuild();
         }
         break;
     }
+  }
+
+  /// Batch WebSocket-driven rebuilds: at most one setState per 300ms.
+  void _scheduleRebuild() {
+    _hasPendingUpdate = true;
+    if (_throttleTimer?.isActive ?? false) return;
+    _throttleTimer = Timer(const Duration(milliseconds: 300), () {
+      if (_hasPendingUpdate && mounted) {
+        _hasPendingUpdate = false;
+        setState(() {});
+        _maybeScrollToBottom();
+      }
+    });
   }
 
   void _maybeScrollToBottom() {
@@ -262,22 +278,23 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
         .toList();
   }
 
-  /// Build a flat list of display items from turns.
-  List<_DisplayItem> _buildDisplayItems() {
+  /// Build a flat list of display items from turns (cached).
+  List<_DisplayItem> _getDisplayItems() {
+    if (_cachedDisplayItems != null && _lastTurnsVersion == _turnsVersion) {
+      return _cachedDisplayItems!;
+    }
     final items = <_DisplayItem>[];
     for (final turn in _turns) {
-      if (turn.status == 'queued') continue; // Queued turns shown in composer.
-
-      // User prompt as a message.
+      if (turn.status == 'queued') continue;
       if (turn.prompt.isNotEmpty) {
         items.add(_DisplayItem.userMessage(turn.prompt));
       }
-
-      // Timeline events.
       for (final event in turn.items) {
         items.add(_DisplayItem.fromEvent(event));
       }
     }
+    _cachedDisplayItems = items;
+    _lastTurnsVersion = _turnsVersion;
     return items;
   }
 
@@ -353,7 +370,7 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
       );
     }
 
-    final displayItems = _buildDisplayItems();
+    final displayItems = _getDisplayItems();
 
     return Column(
       children: [
