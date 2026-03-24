@@ -26,47 +26,47 @@ class StatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Use a left border for the accent color instead of a separate Container
+    // inside a Row+IntrinsicHeight, which causes overflow issues.
     Widget card = Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: WebmuxTheme.border, width: 1),
       ),
-      child: Row(
-        children: [
-          if (accentColor != null)
-            showPulse
-                ? _PulsingAccent(color: accentColor!)
-                : Container(
-                    width: 3,
-                    decoration: BoxDecoration(
-                      color: accentColor,
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(8),
-                        bottomLeft: Radius.circular(8),
-                      ),
-                    ),
-                  ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: accentColor != null
+          ? Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: showPulse
+                      ? _PulsingAccent(color: accentColor!)
+                      : Container(
+                          width: 3,
+                          decoration: BoxDecoration(
+                            color: accentColor,
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(7),
+                              bottomLeft: Radius.circular(7),
+                            ),
+                          ),
+                        ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(
+                      left: 13, right: 10, top: 8, bottom: 8),
+                  child: child,
+                ),
+              ],
+            )
+          : Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               child: child,
             ),
-          ),
-        ],
-      ),
     );
-
-    // Wrap accent containers so the left bar stretches to full height.
-    if (accentColor != null) {
-      card = Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: IntrinsicHeight(child: card),
-      );
-    }
 
     if (onTap != null) {
       return GestureDetector(
@@ -228,18 +228,19 @@ class ActiveCard extends StatelessWidget {
               ),
             ],
           ),
-          if (latestOutput != null && latestOutput!.isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text(
-              latestOutput!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: WebmuxTheme.subtext,
-                fontSize: 12,
+          if (latestOutput != null && latestOutput!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                latestOutput!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: WebmuxTheme.subtext,
+                  fontSize: 11,
+                ),
               ),
             ),
-          ],
         ],
       ),
     );

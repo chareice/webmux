@@ -141,7 +141,7 @@ class _AgentCard extends ConsumerWidget {
     final lastSeen = agent.lastSeenAt != null
         ? timeago.format(
             DateTime.fromMillisecondsSinceEpoch(
-                (agent.lastSeenAt! * 1000).toInt()),
+                agent.lastSeenAt!.toInt()),
           )
         : 'Never';
 

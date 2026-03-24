@@ -609,7 +609,7 @@ class _TaskCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final createdAt = DateTime.fromMillisecondsSinceEpoch(
-        (task.createdAt * 1000).toInt());
+        task.createdAt.toInt());
 
     return Card(
       child: InkWell(

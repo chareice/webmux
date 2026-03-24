@@ -83,22 +83,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   // -- Categorized thread lists --
 
   List<Run> get _attentionThreads => _threads
-      .where((t) =>
-          t.status == 'waiting' ||
-          t.status == 'waiting_for_input' ||
-          t.status == 'failed' ||
-          t.status == 'error')
+      .where((t) => t.status == 'failed')
       .toList();
 
   List<Run> get _runningThreads => _threads
-      .where((t) => t.status == 'running' || t.status == 'starting')
+      .where((t) =>
+          t.status == 'running' ||
+          t.status == 'starting' ||
+          t.status == 'queued')
       .toList();
 
   List<Run> get _recentThreads => _threads
       .where((t) =>
-          t.status == 'completed' ||
-          t.status == 'interrupted' ||
-          t.status == 'cancelled')
+          t.status == 'success' ||
+          t.status == 'interrupted')
       .take(20)
       .toList();
 
@@ -122,8 +120,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   String _runningDuration(Run thread) {
-    final startMs = (thread.createdAt * 1000).toInt();
-    final start = DateTime.fromMillisecondsSinceEpoch(startMs);
+    final start = DateTime.fromMillisecondsSinceEpoch(thread.createdAt.toInt());
     final elapsed = DateTime.now().difference(start);
 
     if (elapsed.inHours > 0) {
@@ -138,8 +135,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   String _timeAgo(Run thread) {
-    final updatedMs = (thread.updatedAt * 1000).toInt();
-    final dt = DateTime.fromMillisecondsSinceEpoch(updatedMs);
+    final dt = DateTime.fromMillisecondsSinceEpoch(thread.updatedAt.toInt());
     return timeago.format(dt, locale: 'en_short');
   }
 

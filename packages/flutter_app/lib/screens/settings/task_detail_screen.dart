@@ -418,9 +418,9 @@ class _TaskHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final createdAt =
-        DateTime.fromMillisecondsSinceEpoch((task.createdAt * 1000).toInt());
+        DateTime.fromMillisecondsSinceEpoch(task.createdAt.toInt());
     final updatedAt =
-        DateTime.fromMillisecondsSinceEpoch((task.updatedAt * 1000).toInt());
+        DateTime.fromMillisecondsSinceEpoch(task.updatedAt.toInt());
     final color = StatusIndicator.colorForStatus(task.status);
 
     return Card(
@@ -638,7 +638,7 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final isUser = message.role == 'user';
     final createdAt = DateTime.fromMillisecondsSinceEpoch(
-        (message.createdAt * 1000).toInt());
+        message.createdAt.toInt());
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),

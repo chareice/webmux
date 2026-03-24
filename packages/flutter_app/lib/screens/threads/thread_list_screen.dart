@@ -280,7 +280,7 @@ class _ThreadTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final updatedAt = DateTime.fromMillisecondsSinceEpoch(
-      (run.updatedAt * 1000).toInt(),
+      run.updatedAt.toInt(),
     );
 
     final tile = Container(
