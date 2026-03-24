@@ -75,24 +75,23 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
 
   void _onScroll() {
     if (!_scrollController.hasClients) return;
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    final currentScroll = _scrollController.offset;
-    // Consider "scrolled up" if more than 100px from bottom.
-    _userScrolledUp = (maxScroll - currentScroll) > 100;
+    // In a reversed ListView, offset 0 is the bottom (newest).
+    // "Scrolled up" means offset > 100 (viewing older messages).
+    _userScrolledUp = _scrollController.offset > 100;
     _autoScrollEnabled = !_userScrolledUp;
   }
 
   void _scrollToBottom({bool animate = true}) {
     if (!_scrollController.hasClients) return;
+    // In a reversed ListView, bottom is offset 0.
     if (animate) {
       _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
+        0,
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOut,
       );
     } else {
-      _scrollController
-          .jumpTo(_scrollController.position.maxScrollExtent);
+      _scrollController.jumpTo(0);
     }
   }
 
@@ -115,10 +114,6 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
         _turns = detail.turns;
         _turnsVersion++;
         _loading = false;
-      });
-      // Scroll to bottom after data loaded.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToBottom(animate: false);
       });
     } catch (e) {
       if (!mounted) return;
@@ -428,7 +423,8 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
       children: [
         // Status bar when running.
         if (_isRunning) _RunningStatusBar(status: _runStatus),
-        // Message list.
+        // Message list — reversed so newest messages appear at bottom without
+        // needing to scroll. Index 0 in a reversed list = last item.
         Expanded(
           child: allItems.isEmpty
               ? Center(
@@ -441,14 +437,17 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
                 )
               : ListView.builder(
                   controller: _scrollController,
+                  reverse: true,
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   itemCount: visibleItems.length + (hasMore ? 1 : 0),
                   itemBuilder: (context, index) {
-                    if (hasMore && index == 0) {
+                    // Reversed: index 0 = newest (last item in visibleItems).
+                    // "Load more" button is at the end of the reversed list (top of screen).
+                    if (hasMore && index == visibleItems.length) {
                       return Center(
                         child: Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.only(top: 8),
                           child: TextButton(
                             onPressed: () {
                               setState(() {
@@ -463,7 +462,8 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
                         ),
                       );
                     }
-                    final itemIndex = hasMore ? index - 1 : index;
+                    // Reverse the index: 0 → last item, 1 → second-to-last, etc.
+                    final itemIndex = visibleItems.length - 1 - index;
                     return _buildDisplayItem(visibleItems[itemIndex]);
                   },
                 ),
