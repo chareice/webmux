@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/theme.dart';
@@ -61,9 +60,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     try {
       await ref.read(authProvider.notifier).devLogin(baseUrl);
-      if (mounted) {
-        context.go('/home');
-      }
+      // Router redirect handles navigation to /home on auth state change.
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -76,14 +73,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Router redirect handles navigation automatically based on auth state.
     final authState = ref.watch(authProvider);
-
-    // If already authenticated, redirect
-    if (authState.status == AuthStatus.authenticated) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) context.go('/home');
-      });
-    }
 
     return Scaffold(
       body: Center(
