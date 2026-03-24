@@ -774,37 +774,222 @@ class _EventGroupRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Event detail page — full list of events in a group
+// Event detail page — tabbed view of events in a group
 // ---------------------------------------------------------------------------
 
-class _EventDetailPage extends StatelessWidget {
+class _EventDetailPage extends StatefulWidget {
   const _EventDetailPage({required this.events});
   final List<RunTimelineEvent> events;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${events.length} Events'),
-      ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(12),
-        itemCount: events.length,
-        itemBuilder: (context, index) {
-          final event = events[index];
-          return _buildEventTile(event, theme);
-        },
-      ),
+  State<_EventDetailPage> createState() => _EventDetailPageState();
+}
+
+class _EventDetailPageState extends State<_EventDetailPage>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  late List<RunTimelineEvent> _commands;
+  late List<RunTimelineEvent> _activities;
+  late List<RunTimelineEvent> _todos;
+
+  @override
+  void initState() {
+    super.initState();
+    _commands = widget.events.where((e) => e.type == 'command').toList();
+    _activities = widget.events.where((e) => e.type == 'activity').toList();
+    _todos = widget.events.where((e) => e.type == 'todo').toList();
+
+    // Only show tabs that have content.
+    _tabController = TabController(
+      length: 1 +
+          (_commands.isNotEmpty ? 1 : 0) +
+          (_activities.isNotEmpty ? 1 : 0) +
+          (_todos.isNotEmpty ? 1 : 0),
+      vsync: this,
     );
   }
 
-  Widget _buildEventTile(RunTimelineEvent event, ThemeData theme) {
-    if (event.type == 'command') {
-      return _CommandTile(event: event);
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  List<Tab> _buildTabs() {
+    final tabs = <Tab>[
+      Tab(text: 'All (${widget.events.length})'),
+    ];
+    if (_commands.isNotEmpty) {
+      tabs.add(Tab(text: 'Commands (${_commands.length})'));
     }
-    // Activity
-    return _ActivityTile(event: event);
+    if (_activities.isNotEmpty) {
+      tabs.add(Tab(text: 'Activity (${_activities.length})'));
+    }
+    if (_todos.isNotEmpty) {
+      tabs.add(Tab(text: 'Todos (${_todos.length})'));
+    }
+    return tabs;
+  }
+
+  List<Widget> _buildTabViews() {
+    final views = <Widget>[
+      _EventList(events: widget.events),
+    ];
+    if (_commands.isNotEmpty) {
+      views.add(_EventList(events: _commands));
+    }
+    if (_activities.isNotEmpty) {
+      views.add(_EventList(events: _activities));
+    }
+    if (_todos.isNotEmpty) {
+      views.add(_EventList(events: _todos));
+    }
+    return views;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final errorCount = widget.events
+        .where((e) =>
+            e.activityStatus == 'error' || e.commandStatus == 'failed')
+        .length;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            Text('${widget.events.length} Events'),
+            if (errorCount > 0) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: WebmuxTheme.statusFailed.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '$errorCount errors',
+                  style: const TextStyle(
+                    color: WebmuxTheme.statusFailed,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: _buildTabs(),
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          unselectedLabelStyle: const TextStyle(fontSize: 13),
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: _buildTabViews(),
+      ),
+    );
+  }
+}
+
+class _EventList extends StatelessWidget {
+  const _EventList({required this.events});
+  final List<RunTimelineEvent> events;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: events.length,
+      itemBuilder: (context, index) {
+        final event = events[index];
+        if (event.type == 'command') {
+          return _CommandTile(event: event);
+        }
+        if (event.type == 'todo') {
+          return _TodoTile(event: event);
+        }
+        return _ActivityTile(event: event);
+      },
+    );
+  }
+}
+
+class _TodoTile extends StatelessWidget {
+  const _TodoTile({required this.event});
+  final RunTimelineEvent event;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final items = event.items ?? [];
+    final completed = items.where((i) => i.status == 'completed').length;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: WebmuxTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.checklist_rounded,
+                  size: 14, color: WebmuxTheme.statusWarning),
+              const SizedBox(width: 6),
+              Text(
+                'Todo ($completed/${items.length})',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...items.map((item) {
+            final isDone = item.status == 'completed';
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    isDone
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                    size: 16,
+                    color: isDone
+                        ? WebmuxTheme.statusSuccess
+                        : WebmuxTheme.subtext,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      item.text,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        decoration:
+                            isDone ? TextDecoration.lineThrough : null,
+                        color: isDone ? WebmuxTheme.subtext : null,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
   }
 }
 
