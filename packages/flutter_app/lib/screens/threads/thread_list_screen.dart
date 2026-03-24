@@ -4,8 +4,11 @@ import 'package:go_router/go_router.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
 import '../../app/theme.dart';
+import '../../models/agent.dart';
 import '../../models/run.dart';
+import '../../providers/api_provider.dart';
 import '../../providers/threads_provider.dart';
+import '../../services/api_client.dart';
 import '../../widgets/status_indicator.dart';
 
 class ThreadListScreen extends ConsumerStatefulWidget {
@@ -23,6 +26,24 @@ class _ThreadListScreenState extends ConsumerState<ThreadListScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _showNewThreadSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _NewThreadSheet(
+        apiClient: ref.read(apiClientProvider),
+        onCreated: (agentId, threadId) {
+          ref.read(threadsProvider.notifier).refresh();
+          context.push('/threads/$agentId/$threadId');
+        },
+      ),
+    );
   }
 
   List<Run> _filterThreads(List<Run> threads) {
@@ -64,6 +85,10 @@ class _ThreadListScreenState extends ConsumerState<ThreadListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Threads'),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showNewThreadSheet(context),
+        child: const Icon(Icons.add_rounded),
       ),
       body: Column(
         children: [
@@ -431,6 +456,235 @@ class _ThreadTile extends StatelessWidget {
       },
       onDismissed: (_) => onDelete(),
       child: tile,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// New thread bottom sheet
+// ---------------------------------------------------------------------------
+
+class _NewThreadSheet extends StatefulWidget {
+  const _NewThreadSheet({
+    required this.apiClient,
+    required this.onCreated,
+  });
+
+  final ApiClient apiClient;
+  final void Function(String agentId, String threadId) onCreated;
+
+  @override
+  State<_NewThreadSheet> createState() => _NewThreadSheetState();
+}
+
+class _NewThreadSheetState extends State<_NewThreadSheet> {
+  final _promptController = TextEditingController();
+  final _repoPathController = TextEditingController();
+  List<AgentInfo> _agents = [];
+  AgentInfo? _selectedAgent;
+  String _tool = 'claude';
+  bool _loading = true;
+  bool _sending = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAgents();
+  }
+
+  @override
+  void dispose() {
+    _promptController.dispose();
+    _repoPathController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agents = await widget.apiClient.listAgents();
+      if (!mounted) return;
+      setState(() {
+        _agents = agents;
+        // Auto-select first online agent, or first agent.
+        _selectedAgent = agents.firstWhere(
+          (a) => a.status == 'online',
+          orElse: () => agents.first,
+        );
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _create() async {
+    final prompt = _promptController.text.trim();
+    final repoPath = _repoPathController.text.trim();
+    if (prompt.isEmpty || _selectedAgent == null || repoPath.isEmpty) return;
+
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+
+    try {
+      final result = await widget.apiClient.startThread(
+        _selectedAgent!.id,
+        StartRunRequest(
+          tool: _tool,
+          repoPath: repoPath,
+          prompt: prompt,
+        ),
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      widget.onCreated(_selectedAgent!.id, result.run.id);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _sending = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('New Thread', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 16),
+
+          if (_loading)
+            const Center(child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ))
+          else if (_agents.isEmpty)
+            const Text('No agents available. Register an agent first.')
+          else ...[
+            // Agent selector
+            DropdownButtonFormField<AgentInfo>(
+              value: _selectedAgent,
+              decoration: const InputDecoration(
+                labelText: 'Agent',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: _agents.map((a) => DropdownMenuItem(
+                value: a,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 8, height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: a.status == 'online'
+                            ? WebmuxTheme.statusSuccess
+                            : WebmuxTheme.subtext,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(a.name),
+                  ],
+                ),
+              )).toList(),
+              onChanged: (v) => setState(() => _selectedAgent = v),
+            ),
+            const SizedBox(height: 12),
+
+            // Repo path
+            TextField(
+              controller: _repoPathController,
+              decoration: const InputDecoration(
+                labelText: 'Repository Path',
+                hintText: '/home/user/projects/my-project',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Tool selector
+            Row(
+              children: [
+                Text('Tool:', style: theme.textTheme.bodySmall),
+                const SizedBox(width: 12),
+                ChoiceChip(
+                  label: const Text('Claude'),
+                  selected: _tool == 'claude',
+                  onSelected: (_) => setState(() => _tool = 'claude'),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('Codex'),
+                  selected: _tool == 'codex',
+                  onSelected: (_) => setState(() => _tool = 'codex'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Prompt
+            TextField(
+              controller: _promptController,
+              maxLines: 4,
+              minLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Message',
+                hintText: 'What should the agent do?',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            if (_error != null) ...[
+              Text(
+                _error!,
+                style: const TextStyle(color: WebmuxTheme.statusFailed, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // Send button
+            FilledButton.icon(
+              onPressed: _sending ||
+                      _promptController.text.trim().isEmpty ||
+                      _repoPathController.text.trim().isEmpty ||
+                      _selectedAgent == null
+                  ? null
+                  : _create,
+              icon: _sending
+                  ? const SizedBox(
+                      width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send_rounded, size: 18),
+              label: const Text('Start Thread'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(44),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
