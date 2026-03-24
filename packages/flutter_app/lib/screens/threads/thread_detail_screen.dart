@@ -377,16 +377,6 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
               padding: const EdgeInsets.only(right: 12),
               child: _StatusBadge(status: _runStatus),
             ),
-          if (_isRunning)
-            IconButton(
-              icon: const Icon(Icons.stop_rounded),
-              tooltip: 'Interrupt',
-              onPressed: () async {
-                await ref
-                    .read(apiClientProvider)
-                    .interruptThread(widget.agentId, widget.threadId);
-              },
-            ),
         ],
       ),
       body: _buildBody(theme),
@@ -472,8 +462,16 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
                   },
                 ),
         ),
-        // Running indicator — small breathing dot above composer.
-        if (_isRunning) _RunningIndicator(status: _runStatus),
+        // Running indicator with interrupt button — above composer.
+        if (_isRunning)
+          _RunningIndicator(
+            status: _runStatus,
+            onInterrupt: () async {
+              await ref
+                  .read(apiClientProvider)
+                  .interruptThread(widget.agentId, widget.threadId);
+            },
+          ),
         // Composer.
         Composer(
           agentId: widget.agentId,
@@ -605,8 +603,9 @@ class _StatusBadge extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _RunningIndicator extends StatefulWidget {
-  const _RunningIndicator({required this.status});
+  const _RunningIndicator({required this.status, this.onInterrupt});
   final String status;
+  final VoidCallback? onInterrupt;
 
   @override
   State<_RunningIndicator> createState() => _RunningIndicatorState();
@@ -644,7 +643,6 @@ class _RunningIndicatorState extends State<_RunningIndicator>
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
             children: [
               Container(
                 width: 6,
@@ -660,6 +658,26 @@ class _RunningIndicatorState extends State<_RunningIndicator>
                 style: TextStyle(
                   color: WebmuxTheme.subtext.withOpacity(_opacity.value),
                   fontSize: 11,
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                height: 24,
+                child: TextButton.icon(
+                  onPressed: widget.onInterrupt,
+                  icon: Icon(Icons.stop_rounded, size: 14, color: WebmuxTheme.statusFailed.withOpacity(0.8)),
+                  label: Text(
+                    'Stop',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: WebmuxTheme.statusFailed.withOpacity(0.8),
+                    ),
+                  ),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                 ),
               ),
             ],
