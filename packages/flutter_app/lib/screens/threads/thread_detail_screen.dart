@@ -293,26 +293,14 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
 
   /// Build a flat list of display items from turns (cached).
   ///
-  /// Consecutive activity/command events are merged into a single
-  /// [_DisplayItemType.eventGroup] so the chat view stays clean.
+  /// Only user/assistant messages are shown inline. ALL other events
+  /// (activity, command, todo) are collapsed into a single group row
+  /// between messages. This keeps the chat clean and focused.
   List<_DisplayItem> _getDisplayItems() {
     if (_cachedDisplayItems != null && _lastTurnsVersion == _turnsVersion) {
       return _cachedDisplayItems!;
     }
 
-    // First pass: raw flat list.
-    final raw = <_DisplayItem>[];
-    for (final turn in _turns) {
-      if (turn.status == 'queued') continue;
-      if (turn.prompt.isNotEmpty) {
-        raw.add(_DisplayItem.userMessage(turn.prompt));
-      }
-      for (final event in turn.items) {
-        raw.add(_DisplayItem.fromEvent(event));
-      }
-    }
-
-    // Second pass: merge consecutive activity/command into groups.
     final items = <_DisplayItem>[];
     List<RunTimelineEvent> pendingGroup = [];
 
@@ -322,13 +310,31 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
       pendingGroup = [];
     }
 
-    for (final item in raw) {
-      if (item.type == _DisplayItemType.activity ||
-          item.type == _DisplayItemType.command) {
-        pendingGroup.add(item.event!);
-      } else {
+    for (final turn in _turns) {
+      if (turn.status == 'queued') continue;
+
+      // User prompt
+      if (turn.prompt.isNotEmpty) {
         flushGroup();
-        items.add(item);
+        items.add(_DisplayItem.userMessage(turn.prompt));
+      }
+
+      // Timeline events: only messages shown inline, everything else grouped.
+      for (final event in turn.items) {
+        if (event.type == 'message') {
+          flushGroup();
+          if (event.role == 'user') {
+            items.add(_DisplayItem._(
+                type: _DisplayItemType.userMessage, text: event.text ?? ''));
+          } else {
+            items.add(_DisplayItem._(
+                type: _DisplayItemType.assistantMessage,
+                text: event.text ?? ''));
+          }
+        } else {
+          // activity, command, todo → all go into the group
+          pendingGroup.add(event);
+        }
       }
     }
     flushGroup();
@@ -491,15 +497,13 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
         return MessageBubble(text: item.text!, isUser: true);
       case _DisplayItemType.assistantMessage:
         return MessageBubble(text: item.text!, isUser: false);
-      case _DisplayItemType.todo:
-        return _TodoCard(items: item.event!.items ?? []);
       case _DisplayItemType.eventGroup:
         return _EventGroupRow(events: item.events!);
-      // Individual activity/command should not appear after grouping,
-      // but handle them as fallback.
+      // These types are all folded into eventGroup now, but handle as fallback.
+      case _DisplayItemType.todo:
       case _DisplayItemType.command:
       case _DisplayItemType.activity:
-        return _EventGroupRow(events: [item.event!]);
+        return _EventGroupRow(events: item.event != null ? [item.event!] : []);
     }
   }
 }
@@ -684,16 +688,19 @@ class _EventGroupRow extends StatelessWidget {
     final theme = Theme.of(context);
     final commandCount = events.where((e) => e.type == 'command').length;
     final activityCount = events.where((e) => e.type == 'activity').length;
+    final todoCount = events.where((e) => e.type == 'todo').length;
     final errorCount = events
         .where((e) =>
             e.activityStatus == 'error' ||
             e.commandStatus == 'failed')
         .length;
 
+    final total = events.length;
     final parts = <String>[];
     if (commandCount > 0) parts.add('$commandCount commands');
     if (activityCount > 0) parts.add('$activityCount actions');
-    final summary = parts.join(', ');
+    if (todoCount > 0) parts.add('$todoCount todos');
+    final summary = parts.isNotEmpty ? parts.join(', ') : '$total events';
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
