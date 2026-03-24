@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app/theme.dart';
 import '../../providers/providers.dart';
 import '../../utils/url_token.dart';
+import '../../utils/web_navigation.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -45,12 +46,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final oauthUrl = '$base/api/auth/$provider';
 
     if (_isWebPlatform) {
-      // On web, navigate in the same window (not a new tab).
-      // The server will redirect back with ?token=xxx.
-      final uri = Uri.parse(oauthUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, webOnlyWindowName: '_self');
-      }
+      // On web, navigate directly in the same window.
+      // url_launcher's canLaunchUrl fails on relative URLs.
+      navigateToUrl(oauthUrl);
     } else {
       final uri = Uri.parse(oauthUrl);
       if (await canLaunchUrl(uri)) {
