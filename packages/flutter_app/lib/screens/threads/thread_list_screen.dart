@@ -5,6 +5,7 @@ import 'package:timeago/timeago.dart' as timeago;
 
 import '../../app/theme.dart';
 import '../../models/agent.dart';
+import '../../models/project.dart';
 import '../../models/run.dart';
 import '../../providers/api_provider.dart';
 import '../../providers/threads_provider.dart';
@@ -501,11 +502,12 @@ class _NewThreadSheetState extends State<_NewThreadSheet> {
   bool _loading = true;
   bool _sending = false;
   String? _error;
+  List<String> _recentPaths = [];
 
   @override
   void initState() {
     super.initState();
-    _loadAgents();
+    _loadData();
   }
 
   @override
@@ -515,17 +517,42 @@ class _NewThreadSheetState extends State<_NewThreadSheet> {
     super.dispose();
   }
 
-  Future<void> _loadAgents() async {
+  Future<void> _loadData() async {
     try {
-      final agents = await widget.apiClient.listAgents();
+      // Load agents, projects, and threads in parallel to collect repo paths.
+      final results = await Future.wait([
+        widget.apiClient.listAgents(),
+        widget.apiClient.listProjects(),
+        widget.apiClient.listAllThreads(),
+      ]);
+
+      final agents = results[0] as List<AgentInfo>;
+      final projects = results[1] as List<Project>;
+      final threads = results[2] as List<Run>;
+
+      // Collect unique repo paths from projects and recent threads.
+      final paths = <String>{};
+      for (final p in projects) {
+        if (p.repoPath.isNotEmpty) paths.add(p.repoPath);
+      }
+      for (final t in threads) {
+        if (t.repoPath.isNotEmpty) paths.add(t.repoPath);
+      }
+
       if (!mounted) return;
       setState(() {
         _agents = agents;
-        // Auto-select first online agent, or first agent.
-        _selectedAgent = agents.firstWhere(
-          (a) => a.status == 'online',
-          orElse: () => agents.first,
-        );
+        _selectedAgent = agents.isNotEmpty
+            ? agents.firstWhere(
+                (a) => a.status == 'online',
+                orElse: () => agents.first,
+              )
+            : null;
+        _recentPaths = paths.toList()..sort();
+        // Auto-fill first path if available.
+        if (_recentPaths.isNotEmpty) {
+          _repoPathController.text = _recentPaths.first;
+        }
         _loading = false;
       });
     } catch (e) {
@@ -624,15 +651,41 @@ class _NewThreadSheetState extends State<_NewThreadSheet> {
             ),
             const SizedBox(height: 12),
 
-            // Repo path
+            // Repo path — quick select from recent paths
+            if (_recentPaths.isNotEmpty) ...[
+              Text('Repository', style: theme.textTheme.bodySmall?.copyWith(
+                color: WebmuxTheme.subtext,
+              )),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _recentPaths.map((path) {
+                  final isSelected = _repoPathController.text == path;
+                  final label = path.split('/').last;
+                  return ChoiceChip(
+                    label: Text(label, style: const TextStyle(fontSize: 12)),
+                    selected: isSelected,
+                    onSelected: (_) {
+                      setState(() => _repoPathController.text = path);
+                    },
+                    tooltip: path,
+                    visualDensity: VisualDensity.compact,
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 8),
+            ],
+            // Manual repo path input
             TextField(
               controller: _repoPathController,
-              decoration: const InputDecoration(
-                labelText: 'Repository Path',
+              decoration: InputDecoration(
+                labelText: _recentPaths.isNotEmpty ? 'Or enter path' : 'Repository Path',
                 hintText: '/home/user/projects/my-project',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
                 isDense: true,
               ),
+              onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 12),
 
