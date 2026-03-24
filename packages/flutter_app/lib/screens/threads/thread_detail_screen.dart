@@ -244,9 +244,24 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
 
   void _onMessageSent(String prompt) {
     if (prompt.isEmpty) return;
-    // Add user message to display list immediately without reloading.
+    // Optimistically add a fake turn with the user's prompt so it appears
+    // immediately. The real turn will arrive via WebSocket or next reload.
+    final now = DateTime.now().millisecondsSinceEpoch.toDouble();
     setState(() {
-      _cachedDisplayItems = null; // Invalidate cache.
+      _turns.add(RunTurnDetail(
+        id: 'optimistic-${now.toInt()}',
+        runId: widget.threadId,
+        index: _turns.length,
+        prompt: prompt,
+        attachments: const [],
+        status: 'starting',
+        createdAt: now,
+        updatedAt: now,
+        summary: null,
+        hasDiff: false,
+        items: const [],
+      ));
+      _cachedDisplayItems = null;
       _turnsVersion++;
     });
     _maybeScrollToBottom();
