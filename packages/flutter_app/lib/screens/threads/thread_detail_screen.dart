@@ -244,8 +244,7 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
 
   void _onMessageSent(String prompt) {
     if (prompt.isEmpty) return;
-    // Optimistically add a fake turn with the user's prompt so it appears
-    // immediately. The real turn will arrive via WebSocket or next reload.
+    // Optimistically add a fake turn so message appears immediately.
     final now = DateTime.now().millisecondsSinceEpoch.toDouble();
     setState(() {
       _turns.add(RunTurnDetail(
@@ -265,6 +264,26 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
       _turnsVersion++;
     });
     _maybeScrollToBottom();
+    // Also reload from server in background to get real data.
+    _silentReload();
+  }
+
+  /// Reload thread data without showing loading state.
+  Future<void> _silentReload() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final detail =
+          await api.getThreadDetail(widget.agentId, widget.threadId);
+      if (!mounted) return;
+      setState(() {
+        _run = detail.run;
+        _turns = detail.turns;
+        _turnsVersion++;
+        _cachedDisplayItems = null;
+      });
+    } catch (_) {
+      // Silent — don't show errors for background reload.
+    }
   }
 
   // -------------------------------------------------------------------------
