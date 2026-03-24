@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/theme.dart';
 import 'app/router.dart';
 import 'providers/auth_provider.dart';
+import 'utils/url_token.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,9 +22,16 @@ class _WebmuxAppState extends ConsumerState<WebmuxApp> {
   @override
   void initState() {
     super.initState();
-    // Kick off auth check on startup – loads saved credentials if any.
-    Future.microtask(() {
-      ref.read(authProvider.notifier).checkAuth();
+    Future.microtask(() async {
+      // On web, check if the URL contains a token from OAuth redirect.
+      final urlToken = extractTokenFromUrl();
+      if (urlToken != null && urlToken.isNotEmpty) {
+        clearTokenFromUrl();
+        // Web is same-origin, so baseUrl is empty.
+        await ref.read(authProvider.notifier).login('', urlToken);
+      } else {
+        ref.read(authProvider.notifier).checkAuth();
+      }
     });
   }
 

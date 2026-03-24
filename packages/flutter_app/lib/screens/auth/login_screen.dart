@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/theme.dart';
 import '../../providers/providers.dart';
+import '../../utils/url_token.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -19,13 +20,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _loading = false;
   String? _error;
 
+  /// On web, we don't need a server URL (same-origin).
+  bool get _isWebPlatform => isWeb;
+
   @override
   void dispose() {
     _serverUrlController.dispose();
     super.dispose();
   }
 
-  String get _normalizedUrl {
+  String get _baseUrl {
+    if (_isWebPlatform) return ''; // Same-origin on web.
     var url = _serverUrlController.text.trim();
     while (url.endsWith('/')) {
       url = url.substring(0, url.length - 1);
@@ -34,33 +39,40 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _launchOAuth(String provider) async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_isWebPlatform && !_formKey.currentState!.validate()) return;
 
-    final baseUrl = _normalizedUrl;
-    final oauthUrl = '$baseUrl/api/auth/$provider';
-    final uri = Uri.parse(oauthUrl);
+    final base = _baseUrl;
+    final oauthUrl = '$base/api/auth/$provider';
 
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (_isWebPlatform) {
+      // On web, navigate in the same window (not a new tab).
+      // The server will redirect back with ?token=xxx.
+      final uri = Uri.parse(oauthUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, webOnlyWindowName: '_self');
+      }
     } else {
-      if (mounted) {
-        setState(() => _error = 'Could not open browser');
+      final uri = Uri.parse(oauthUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          setState(() => _error = 'Could not open browser');
+        }
       }
     }
   }
 
   Future<void> _handleDevLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_isWebPlatform && !_formKey.currentState!.validate()) return;
 
-    final baseUrl = _normalizedUrl;
     setState(() {
       _loading = true;
       _error = null;
     });
 
     try {
-      await ref.read(authProvider.notifier).devLogin(baseUrl);
-      // Router redirect handles navigation to /home on auth state change.
+      await ref.read(authProvider.notifier).devLogin(_baseUrl);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -73,7 +85,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Router redirect handles navigation automatically based on auth state.
     final authState = ref.watch(authProvider);
 
     return Scaffold(
@@ -112,29 +123,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 48),
 
-                  // Server URL field
-                  TextFormField(
-                    controller: _serverUrlController,
-                    decoration: const InputDecoration(
-                      labelText: 'Server URL',
-                      hintText: 'https://webmux.example.com',
-                      prefixIcon: Icon(Icons.dns_rounded),
+                  // Server URL field — only on native (mobile) platforms
+                  if (!_isWebPlatform) ...[
+                    TextFormField(
+                      controller: _serverUrlController,
+                      decoration: const InputDecoration(
+                        labelText: 'Server URL',
+                        hintText: 'https://webmux.example.com',
+                        prefixIcon: Icon(Icons.dns_rounded),
+                      ),
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Please enter a server URL';
+                        }
+                        final trimmed = value.trim();
+                        if (!trimmed.startsWith('http://') &&
+                            !trimmed.startsWith('https://')) {
+                          return 'URL must start with http:// or https://';
+                        }
+                        return null;
+                      },
                     ),
-                    keyboardType: TextInputType.url,
-                    autocorrect: false,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please enter a server URL';
-                      }
-                      final trimmed = value.trim();
-                      if (!trimmed.startsWith('http://') &&
-                          !trimmed.startsWith('https://')) {
-                        return 'URL must start with http:// or https://';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 24),
+                    const SizedBox(height: 24),
+                  ],
 
                   // OAuth buttons
                   FilledButton.icon(
