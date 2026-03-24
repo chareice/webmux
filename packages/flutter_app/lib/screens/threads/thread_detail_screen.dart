@@ -240,6 +240,20 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
   }
 
   // -------------------------------------------------------------------------
+  // Optimistic update on message sent
+  // -------------------------------------------------------------------------
+
+  void _onMessageSent(String prompt) {
+    if (prompt.isEmpty) return;
+    // Add user message to display list immediately without reloading.
+    setState(() {
+      _cachedDisplayItems = null; // Invalidate cache.
+      _turnsVersion++;
+    });
+    _maybeScrollToBottom();
+  }
+
+  // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
 
@@ -408,7 +422,7 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
           repoPath: _run?.repoPath ?? '',
           todoItems: _latestTodoItems,
           queuedTurns: _queuedTurns,
-          onMessageSent: _loadData,
+          onMessageSent: _onMessageSent,
         ),
       ],
     );

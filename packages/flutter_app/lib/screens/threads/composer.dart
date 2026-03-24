@@ -35,7 +35,8 @@ class Composer extends StatefulWidget {
   final String repoPath;
   final List<TodoEntry> todoItems;
   final List<RunTurn> queuedTurns;
-  final VoidCallback? onMessageSent;
+  /// Called after a message is sent successfully, with the prompt text.
+  final void Function(String prompt)? onMessageSent;
 
   @override
   State<Composer> createState() => _ComposerState();
@@ -149,9 +150,10 @@ class _ComposerState extends State<Composer> {
         );
       }
 
+      final sentPrompt = prompt;
       _textController.clear();
       setState(() => _attachments.clear());
-      widget.onMessageSent?.call();
+      widget.onMessageSent?.call(sentPrompt);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -191,7 +193,7 @@ class _ComposerState extends State<Composer> {
               agentId: widget.agentId,
               threadId: widget.threadId,
               apiClient: widget.apiClient,
-              onChanged: widget.onMessageSent,
+              onChanged: widget.onMessageSent != null ? () => widget.onMessageSent!('') : null,
             ),
             // Attachment preview
             if (_attachments.isNotEmpty) _buildAttachmentBar(),
