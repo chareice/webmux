@@ -86,38 +86,53 @@ class _ThreadListScreenState extends ConsumerState<ThreadListScreen> {
       appBar: AppBar(
         title: const Text('Threads'),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showNewThreadSheet(context),
-        child: const Icon(Icons.add_rounded),
-      ),
       body: Column(
         children: [
-          // Search bar
+          // Search bar + new thread button
           Padding(
             padding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search threads...',
-                prefixIcon:
-                    const Icon(Icons.search_rounded, size: 20),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear_rounded, size: 18),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _searchQuery = '');
-                        },
-                      )
-                    : null,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 10),
-              ),
-              onChanged: (value) {
-                setState(() => _searchQuery = value);
-              },
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search threads...',
+                      prefixIcon:
+                          const Icon(Icons.search_rounded, size: 20),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear_rounded, size: 18),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                            )
+                          : null,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                    ),
+                    onChanged: (value) {
+                      setState(() => _searchQuery = value);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 40,
+                  child: FilledButton.icon(
+                    onPressed: () => _showNewThreadSheet(context),
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                    label: const Text('New'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      textStyle: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           // Thread list
