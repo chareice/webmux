@@ -297,20 +297,47 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
   }
 
   /// Build a flat list of display items from turns (cached).
+  ///
+  /// Consecutive activity/command events are merged into a single
+  /// [_DisplayItemType.eventGroup] so the chat view stays clean.
   List<_DisplayItem> _getDisplayItems() {
     if (_cachedDisplayItems != null && _lastTurnsVersion == _turnsVersion) {
       return _cachedDisplayItems!;
     }
-    final items = <_DisplayItem>[];
+
+    // First pass: raw flat list.
+    final raw = <_DisplayItem>[];
     for (final turn in _turns) {
       if (turn.status == 'queued') continue;
       if (turn.prompt.isNotEmpty) {
-        items.add(_DisplayItem.userMessage(turn.prompt));
+        raw.add(_DisplayItem.userMessage(turn.prompt));
       }
       for (final event in turn.items) {
-        items.add(_DisplayItem.fromEvent(event));
+        raw.add(_DisplayItem.fromEvent(event));
       }
     }
+
+    // Second pass: merge consecutive activity/command into groups.
+    final items = <_DisplayItem>[];
+    List<RunTimelineEvent> pendingGroup = [];
+
+    void flushGroup() {
+      if (pendingGroup.isEmpty) return;
+      items.add(_DisplayItem.eventGroup(List.of(pendingGroup)));
+      pendingGroup = [];
+    }
+
+    for (final item in raw) {
+      if (item.type == _DisplayItemType.activity ||
+          item.type == _DisplayItemType.command) {
+        pendingGroup.add(item.event!);
+      } else {
+        flushGroup();
+        items.add(item);
+      }
+    }
+    flushGroup();
+
     _cachedDisplayItems = items;
     _lastTurnsVersion = _turnsVersion;
     return items;
@@ -464,17 +491,15 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
         return MessageBubble(text: item.text!, isUser: true);
       case _DisplayItemType.assistantMessage:
         return MessageBubble(text: item.text!, isUser: false);
-      case _DisplayItemType.command:
-        return CodeBlock(
-          command: item.event!.command ?? '',
-          output: item.event!.output,
-          exitCode: item.event!.exitCode,
-          status: item.event!.commandStatus,
-        );
-      case _DisplayItemType.activity:
-        return _ActivityRow(event: item.event!);
       case _DisplayItemType.todo:
         return _TodoCard(items: item.event!.items ?? []);
+      case _DisplayItemType.eventGroup:
+        return _EventGroupRow(events: item.events!);
+      // Individual activity/command should not appear after grouping,
+      // but handle them as fallback.
+      case _DisplayItemType.command:
+      case _DisplayItemType.activity:
+        return _EventGroupRow(events: [item.event!]);
     }
   }
 }
@@ -489,14 +514,16 @@ enum _DisplayItemType {
   command,
   activity,
   todo,
+  eventGroup,
 }
 
 class _DisplayItem {
   final _DisplayItemType type;
   final String? text;
   final RunTimelineEvent? event;
+  final List<RunTimelineEvent>? events; // For eventGroup
 
-  const _DisplayItem._({required this.type, this.text, this.event});
+  const _DisplayItem._({required this.type, this.text, this.event, this.events});
 
   factory _DisplayItem.userMessage(String text) =>
       _DisplayItem._(type: _DisplayItemType.userMessage, text: text);
@@ -528,6 +555,9 @@ class _DisplayItem {
             type: _DisplayItemType.activity, event: event);
     }
   }
+
+  factory _DisplayItem.eventGroup(List<RunTimelineEvent> events) =>
+      _DisplayItem._(type: _DisplayItemType.eventGroup, events: events);
 }
 
 // ---------------------------------------------------------------------------
@@ -642,65 +672,299 @@ class _RunningStatusBarState extends State<_RunningStatusBar>
 }
 
 // ---------------------------------------------------------------------------
-// Activity row
+// Event group row — collapsed summary of activity/command events
 // ---------------------------------------------------------------------------
 
-class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.event});
+class _EventGroupRow extends StatelessWidget {
+  const _EventGroupRow({required this.events});
+  final List<RunTimelineEvent> events;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final commandCount = events.where((e) => e.type == 'command').length;
+    final activityCount = events.where((e) => e.type == 'activity').length;
+    final errorCount = events
+        .where((e) =>
+            e.activityStatus == 'error' ||
+            e.commandStatus == 'failed')
+        .length;
+
+    final parts = <String>[];
+    if (commandCount > 0) parts.add('$commandCount commands');
+    if (activityCount > 0) parts.add('$activityCount actions');
+    final summary = parts.join(', ');
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: () => _openDetailPage(context),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: WebmuxTheme.border, width: 0.5),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.terminal_rounded,
+                size: 14,
+                color: errorCount > 0
+                    ? WebmuxTheme.statusFailed
+                    : WebmuxTheme.subtext,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  summary,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: WebmuxTheme.subtext,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              if (errorCount > 0) ...[
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: WebmuxTheme.statusFailed.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '$errorCount errors',
+                    style: const TextStyle(
+                      color: WebmuxTheme.statusFailed,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 16,
+                color: WebmuxTheme.subtext,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openDetailPage(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _EventDetailPage(events: events),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Event detail page — full list of events in a group
+// ---------------------------------------------------------------------------
+
+class _EventDetailPage extends StatelessWidget {
+  const _EventDetailPage({required this.events});
+  final List<RunTimelineEvent> events;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${events.length} Events'),
+      ),
+      body: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: events.length,
+        itemBuilder: (context, index) {
+          final event = events[index];
+          return _buildEventTile(event, theme);
+        },
+      ),
+    );
+  }
+
+  Widget _buildEventTile(RunTimelineEvent event, ThemeData theme) {
+    if (event.type == 'command') {
+      return _CommandTile(event: event);
+    }
+    // Activity
+    return _ActivityTile(event: event);
+  }
+}
+
+class _CommandTile extends StatefulWidget {
+  const _CommandTile({required this.event});
+  final RunTimelineEvent event;
+
+  @override
+  State<_CommandTile> createState() => _CommandTileState();
+}
+
+class _CommandTileState extends State<_CommandTile> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isFailed = widget.event.commandStatus == 'failed';
+    final exitCode = widget.event.exitCode;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isFailed
+              ? WebmuxTheme.statusFailed.withOpacity(0.3)
+              : WebmuxTheme.border,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(8)),
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.terminal_rounded,
+                    size: 14,
+                    color: isFailed
+                        ? WebmuxTheme.statusFailed
+                        : WebmuxTheme.statusSuccess,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      widget.event.command ?? 'command',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (exitCode != null) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: (isFailed
+                                ? WebmuxTheme.statusFailed
+                                : WebmuxTheme.statusSuccess)
+                            .withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'exit $exitCode',
+                        style: TextStyle(
+                          color: isFailed
+                              ? WebmuxTheme.statusFailed
+                              : WebmuxTheme.statusSuccess,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                  Icon(
+                    _expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    size: 16,
+                    color: WebmuxTheme.subtext,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded &&
+              widget.event.output != null &&
+              widget.event.output!.isNotEmpty) ...[
+            const Divider(height: 1),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: const BoxDecoration(
+                color: Colors.black26,
+                borderRadius:
+                    BorderRadius.vertical(bottom: Radius.circular(8)),
+              ),
+              child: SelectableText(
+                widget.event.output!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityTile extends StatelessWidget {
+  const _ActivityTile({required this.event});
   final RunTimelineEvent event;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final icon = _iconForActivity(event.activityStatus);
-    final color = _colorForActivity(event.activityStatus);
+    final isError = event.activityStatus == 'error';
+    final isSuccess = event.activityStatus == 'success';
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         children: [
-          Icon(icon, size: 14, color: color),
+          Icon(
+            isError
+                ? Icons.error_outline_rounded
+                : isSuccess
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.info_outline_rounded,
+            size: 14,
+            color: isError
+                ? WebmuxTheme.statusFailed
+                : isSuccess
+                    ? WebmuxTheme.statusSuccess
+                    : WebmuxTheme.subtext,
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               event.label ?? event.detail ?? 'Activity',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: color,
+                color: isError
+                    ? WebmuxTheme.statusFailed
+                    : WebmuxTheme.subtext,
                 fontSize: 12,
               ),
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
       ),
     );
-  }
-
-  IconData _iconForActivity(String? status) {
-    switch (status) {
-      case 'running':
-        return Icons.sync_rounded;
-      case 'completed':
-        return Icons.check_circle_outline_rounded;
-      case 'failed':
-        return Icons.error_outline_rounded;
-      default:
-        return Icons.info_outline_rounded;
-    }
-  }
-
-  Color _colorForActivity(String? status) {
-    switch (status) {
-      case 'running':
-        return WebmuxTheme.statusRunning;
-      case 'completed':
-        return WebmuxTheme.statusSuccess;
-      case 'failed':
-        return WebmuxTheme.statusFailed;
-      default:
-        return WebmuxTheme.subtext;
-    }
   }
 }
 
