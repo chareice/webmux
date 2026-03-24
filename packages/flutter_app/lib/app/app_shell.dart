@@ -58,7 +58,14 @@ class AppShell extends StatelessWidget {
                   ],
                 ),
                 const VerticalDivider(width: 1, thickness: 1),
-                Expanded(child: child),
+                Expanded(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 900),
+                      child: child,
+                    ),
+                  ),
+                ),
               ],
             ),
           );

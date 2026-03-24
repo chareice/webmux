@@ -259,15 +259,48 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             )
           else
-            ...recent.map((t) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: RecentCard(
-                    status: t.status,
-                    summary: _threadSummary(t),
-                    timeAgo: _timeAgo(t),
-                    onTap: () => _openThread(t),
-                  ),
-                )),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final useGrid = constraints.maxWidth > 1024;
+                final cards = recent.map((t) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: RecentCard(
+                        status: t.status,
+                        summary: _threadSummary(t),
+                        timeAgo: _timeAgo(t),
+                        onTap: () => _openThread(t),
+                      ),
+                    )).toList();
+
+                if (!useGrid) {
+                  return Column(children: cards);
+                }
+
+                // 2-column grid for wide screens
+                final rows = <Widget>[];
+                for (var i = 0; i < cards.length; i += 2) {
+                  if (i + 1 < cards.length) {
+                    rows.add(Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: cards[i]),
+                        const SizedBox(width: 8),
+                        Expanded(child: cards[i + 1]),
+                      ],
+                    ));
+                  } else {
+                    rows.add(Row(
+                      children: [
+                        Expanded(child: cards[i]),
+                        const SizedBox(width: 8),
+                        const Expanded(child: SizedBox.shrink()),
+                      ],
+                    ));
+                  }
+                }
+                return Column(children: rows);
+              },
+            ),
           const SizedBox(height: 24),
         ],
       ),

@@ -276,16 +276,38 @@ class _ThreadTile extends StatelessWidget {
   bool get _isRunning =>
       run.status == 'running' || run.status == 'starting';
 
+  String _displayTitle() {
+    if (run.summary != null && run.summary!.isNotEmpty) {
+      return run.summary!;
+    }
+    // Use first line of prompt, trimmed.
+    final firstLine = run.prompt.split('\n').first.trim();
+    return firstLine.isNotEmpty ? firstLine : run.prompt;
+  }
+
+  String _formatRepoName(String repoPath) {
+    if (repoPath.isEmpty) return '';
+    final parts = repoPath.split('/').where((p) => p.isNotEmpty).toList();
+    if (parts.length <= 2) return repoPath;
+    return parts.sublist(parts.length - 2).join('/');
+  }
+
+  Color _statusBadgeColor() {
+    return StatusIndicator.colorForStatus(run.status);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final updatedAt = DateTime.fromMillisecondsSinceEpoch(
       run.updatedAt.toInt(),
     );
+    final timeAgoStr = timeago.format(updatedAt, locale: 'en_short');
+    final repoName = _formatRepoName(run.repoPath);
 
     final tile = Container(
       decoration: _isRunning
-          ? BoxDecoration(
+          ? const BoxDecoration(
               border: Border(
                 left: BorderSide(
                   color: WebmuxTheme.statusRunning,
@@ -294,33 +316,81 @@ class _ThreadTile extends StatelessWidget {
               ),
             )
           : null,
-      child: ListTile(
-        contentPadding: EdgeInsets.only(
-          left: _isRunning ? 13 : 16,
-          right: 16,
-        ),
-        leading: StatusIndicator(status: run.status, size: 10),
-        title: Text(
-          run.tool,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          run.summary ?? run.prompt,
-          style: theme.textTheme.bodySmall,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: Text(
-          timeago.format(updatedAt, locale: 'en_short'),
-          style: theme.textTheme.labelSmall,
-        ),
+      child: InkWell(
         onTap: () {
-          context.go('/threads/${run.agentId}/${run.id}');
+          context.push('/threads/${run.agentId}/${run.id}');
         },
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: _isRunning ? 13 : 16,
+            right: 16,
+            top: 10,
+            bottom: 10,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Status dot
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
+                child: StatusIndicator(status: run.status, size: 8),
+              ),
+              const SizedBox(width: 10),
+              // Title & subtitle
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title row: summary + status badge
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _displayTitle(),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: _statusBadgeColor().withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            run.status,
+                            style: TextStyle(
+                              color: _statusBadgeColor(),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    // Subtitle: tool · repo · time ago
+                    Text(
+                      [
+                        run.tool,
+                        if (repoName.isNotEmpty) repoName,
+                        timeAgoStr,
+                      ].join(' \u00b7 '),
+                      style: theme.textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
 
@@ -331,7 +401,7 @@ class _ThreadTile extends StatelessWidget {
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
         color: WebmuxTheme.statusFailed.withOpacity(0.2),
-        child: Icon(
+        child: const Icon(
           Icons.delete_rounded,
           color: WebmuxTheme.statusFailed,
         ),
@@ -350,7 +420,7 @@ class _ThreadTile extends StatelessWidget {
               ),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: Text(
+                child: const Text(
                   'Delete',
                   style: TextStyle(color: WebmuxTheme.statusFailed),
                 ),

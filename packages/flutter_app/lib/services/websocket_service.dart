@@ -217,11 +217,16 @@ class WebSocketService {
     );
   }
 
+  static const int _maxReconnectAttempts = 10;
+
   void _scheduleReconnect() {
     if (_disposed) return;
 
     _closeChannel();
     _reconnectAttempt++;
+
+    // Give up after max attempts to avoid infinite retry loops.
+    if (_reconnectAttempt > _maxReconnectAttempts) return;
 
     // Exponential backoff: 1s, 2s, 4s, 8s, … capped at 30s.
     final delayMs = min(1000 * pow(2, _reconnectAttempt - 1).toInt(), 30000);
