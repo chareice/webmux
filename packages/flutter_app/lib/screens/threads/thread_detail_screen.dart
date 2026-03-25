@@ -429,7 +429,13 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
 
   Widget _buildBody(ThemeData theme) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: SizedBox(
+          width: 16,
+          height: 16,
+          child: Text('...', style: TextStyle(fontSize: 14)),
+        ),
+      );
     }
 
     if (_error != null) {
@@ -871,7 +877,7 @@ class _EventDetailPageState extends State<_EventDetailPage>
                     const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: WebmuxTheme.statusFailed.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.zero,
                 ),
                 child: Text(
                   '$errorCount errors',
@@ -940,7 +946,7 @@ class _TodoTile extends StatelessWidget {
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.zero,
         border: Border.all(color: WebmuxTheme.border),
       ),
       child: Column(
@@ -1018,7 +1024,7 @@ class _CommandTileState extends State<_CommandTile> {
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.zero,
         border: Border.all(
           color: isFailed
               ? WebmuxTheme.statusFailed.withOpacity(0.3)
@@ -1030,7 +1036,7 @@ class _CommandTileState extends State<_CommandTile> {
         children: [
           InkWell(
             borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(8)),
+                BorderRadius.zero,
             onTap: () => setState(() => _expanded = !_expanded),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1065,7 +1071,7 @@ class _CommandTileState extends State<_CommandTile> {
                                 ? WebmuxTheme.statusFailed
                                 : WebmuxTheme.statusSuccess)
                             .withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.zero,
                       ),
                       child: Text(
                         'exit $exitCode',
@@ -1100,7 +1106,7 @@ class _CommandTileState extends State<_CommandTile> {
               decoration: const BoxDecoration(
                 color: Colors.black26,
                 borderRadius:
-                    BorderRadius.vertical(bottom: Radius.circular(8)),
+                    BorderRadius.zero,
               ),
               child: SelectableText(
                 widget.event.output!,
@@ -1190,7 +1196,7 @@ class _TodoCardState extends State<_TodoCard> {
       margin: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.zero,
         border: Border.all(color: WebmuxTheme.border),
       ),
       child: Column(
@@ -1198,8 +1204,7 @@ class _TodoCardState extends State<_TodoCard> {
         children: [
           InkWell(
             onTap: () => setState(() => _expanded = !_expanded),
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(8)),
+            borderRadius: BorderRadius.zero,
             child: Padding(
               padding: const EdgeInsets.symmetric(
                   horizontal: 12, vertical: 8),

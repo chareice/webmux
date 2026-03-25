@@ -249,7 +249,7 @@ class _ComposerState extends State<Composer> {
             clipBehavior: Clip.none,
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.zero,
                 child: Image.memory(
                   att.bytes,
                   width: 48,
@@ -343,12 +343,9 @@ class _ComposerState extends State<Composer> {
               onPressed: _canSend ? _send : null,
               icon: _sending
                   ? SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: theme.colorScheme.onPrimary,
-                      ),
+                      width: 16,
+                      height: 16,
+                      child: Text('...', style: TextStyle(fontSize: 14, color: theme.colorScheme.onPrimary)),
                     )
                   : const Icon(Icons.send_rounded, size: 16),
               label: Text(_isRunning ? 'Queue' : 'Send'),
