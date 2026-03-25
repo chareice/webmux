@@ -49,7 +49,7 @@ class _CodeBlockState extends State<CodeBlock> {
       margin: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
         color: Colors.black26,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.zero,
         border: Border.all(
           color: isError
               ? WebmuxTheme.statusFailed.withOpacity(0.4)
@@ -64,8 +64,7 @@ class _CodeBlockState extends State<CodeBlock> {
             onTap: widget.output != null && widget.output!.isNotEmpty
                 ? () => setState(() => _expanded = !_expanded)
                 : null,
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(8)),
+            borderRadius: BorderRadius.zero,
             child: Padding(
               padding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -101,7 +100,7 @@ class _CodeBlockState extends State<CodeBlock> {
                                 .withOpacity(0.15)
                             : WebmuxTheme.statusSuccess
                                 .withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.zero,
                       ),
                       child: Text(
                         '${widget.exitCode}',
@@ -116,15 +115,12 @@ class _CodeBlockState extends State<CodeBlock> {
                     ),
                   ],
                   if (isRunning)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8),
+                    const Padding(
+                      padding: EdgeInsets.only(left: 8),
                       child: SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          color: WebmuxTheme.statusRunning,
-                        ),
+                        width: 16,
+                        height: 16,
+                        child: Text('...', style: TextStyle(fontSize: 14)),
                       ),
                     ),
                   if (_hasMoreLines) ...[

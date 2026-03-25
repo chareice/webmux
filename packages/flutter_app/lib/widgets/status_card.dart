@@ -31,7 +31,7 @@ class StatusCard extends StatelessWidget {
     Widget card = Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.zero,
         border: Border.all(color: WebmuxTheme.border, width: 1),
       ),
       child: accentColor != null
@@ -47,10 +47,7 @@ class StatusCard extends StatelessWidget {
                           width: 3,
                           decoration: BoxDecoration(
                             color: accentColor,
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(7),
-                              bottomLeft: Radius.circular(7),
-                            ),
+                            borderRadius: BorderRadius.zero,
                           ),
                         ),
                 ),
@@ -337,10 +334,7 @@ class _PulsingAccentState extends State<_PulsingAccent>
           width: 3,
           decoration: BoxDecoration(
             color: widget.color.withOpacity(_opacity.value),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(8),
-              bottomLeft: Radius.circular(8),
-            ),
+            borderRadius: BorderRadius.zero,
           ),
         );
       },
