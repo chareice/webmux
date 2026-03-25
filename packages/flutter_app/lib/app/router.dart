@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'app_shell.dart';
 import '../providers/auth_provider.dart';
 import '../screens/auth/login_screen.dart';
-import '../screens/home/home_screen.dart';
+import '../screens/home/office_screen.dart';
 import '../screens/threads/thread_list_screen.dart';
 import '../screens/threads/thread_detail_screen.dart';
 import '../screens/settings/settings_screen.dart';
@@ -73,7 +73,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: '/home',
-                builder: (context, state) => const HomeScreen(),
+                builder: (context, state) => const OfficeScreen(),
               ),
             ],
           ),

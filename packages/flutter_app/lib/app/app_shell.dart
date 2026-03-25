@@ -29,8 +29,8 @@ class AppShell extends StatelessWidget {
                   labelType: NavigationRailLabelType.all,
                   destinations: const [
                     NavigationRailDestination(
-                      icon: Icon(Icons.dashboard_rounded),
-                      label: Text('Home'),
+                      icon: Icon(Icons.business_rounded),
+                      label: Text('Office'),
                     ),
                     NavigationRailDestination(
                       icon: Icon(Icons.chat_rounded),
@@ -63,8 +63,8 @@ class AppShell extends StatelessWidget {
             onTap: _onTabSelected,
             items: const [
               BottomNavigationBarItem(
-                icon: Icon(Icons.dashboard_rounded),
-                label: 'Home',
+                icon: Icon(Icons.business_rounded),
+                label: 'Office',
               ),
               BottomNavigationBarItem(
                 icon: Icon(Icons.chat_rounded),
