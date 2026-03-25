@@ -59,7 +59,9 @@ class _PixelSpriteState extends State<PixelSprite>
   Duration get _frameDuration {
     // Typing states get a faster tick.
     final s = widget.status;
-    if (s == 'running' || s == 'starting') return const Duration(milliseconds: 200);
+    if (s == 'running' || s == 'starting') {
+      return const Duration(milliseconds: 200);
+    }
     return const Duration(milliseconds: 300);
   }
 
@@ -97,7 +99,7 @@ class _PixelSpriteState extends State<PixelSprite>
 
   @override
   Widget build(BuildContext context) {
-    final width = widget.size * (32 / 24); // 32:24 grid → 4:3 ratio
+    final width = widget.size * (32 / 24); // 32:24 grid -> 4:3 ratio
     return CustomPaint(
       size: Size(width, widget.size),
       painter: _SpritePainter(
@@ -118,16 +120,27 @@ class _SpritePainter extends CustomPainter {
   final String status;
   final int frame;
 
-  // Grid is 32 wide × 24 tall.
+  // Grid is 32 wide x 24 tall.
   static const int _cols = 32;
   static const int _rows = 24;
 
+  // -- Shared palette constants --
+  static const Color _bezel = Color(0xFF3A3028); // warm dark brown bezel
+  static const Color _bezelHighlight = Color(0xFF5A4A3A); // bezel edge
+  static const Color _chairSeat = Color(0xFF8B5E3C); // warm brown chair
+  static const Color _chairBack = Color(0xFF6B4226); // darker chair back
+  static const Color _keyboard = Color(0xFF4A3A2E); // warm brown keyboard
+  static const Color _coffee = Color(0xFF6A4A2A); // coffee brown
+  static const Color _steam = Color(0x60FFFFFF); // translucent white steam
+  static const Color _bubbleWhite = Color(0xFFFFF8F0); // warm white bubble
+  static const Color _bubbleBorder = Color(0xFFD4A574); // warm tan border
+  static const Color _sweatDrop = Color(0xFF87CEEB); // light blue
+
   @override
   void paint(Canvas canvas, Size size) {
-    final px = size.width / _cols; // pixel unit width
-    final py = size.height / _rows; // pixel unit height
+    final px = size.width / _cols;
+    final py = size.height / _rows;
 
-    // Helpers ----------------------------------------------------------------
     void fill(Color c, double x, double y, double w, double h) {
       canvas.drawRect(
         Rect.fromLTWH(x * px, y * py, w * px, h * py),
@@ -137,9 +150,6 @@ class _SpritePainter extends CustomPainter {
 
     void fillPixel(Color c, double x, double y) => fill(c, x, y, 1, 1);
 
-    // -----------------------------------------------------------------------
-    // Dispatch to per-state drawing routines.
-    // -----------------------------------------------------------------------
     switch (status) {
       case 'running':
       case 'starting':
@@ -167,7 +177,188 @@ class _SpritePainter extends CustomPainter {
       oldDelegate.status != status || oldDelegate.frame != frame;
 
   // =========================================================================
-  // State: running / starting — typing at keyboard
+  // Shared drawing helpers
+  // =========================================================================
+
+  /// Draw the desk with warm wood tones. Takes full width x=3..28, y=16..18.
+  static void _drawDesk(
+    void Function(Color, double, double, double, double) fill,
+    void Function(Color, double, double) px,
+  ) {
+    // Desk top surface
+    fill(PixelTheme.furniture, 3, 16, 26, 2);
+    // Top edge highlight
+    fill(PixelTheme.furnitureLight, 3, 16, 26, 1);
+    // Front edge shadow
+    fill(PixelTheme.furnitureDark, 3, 18, 26, 0.5);
+    // Desk legs (chunky warm wood)
+    fill(PixelTheme.furniture, 4, 18, 2, 4);
+    fill(PixelTheme.furniture, 26, 18, 2, 4);
+    // Leg highlights
+    fill(PixelTheme.furnitureLight, 4, 18, 1, 4);
+    fill(PixelTheme.furnitureLight, 26, 18, 1, 4);
+  }
+
+  /// Draw the monitor on the desk. Screen color and content vary by state.
+  static void _drawMonitor(
+    void Function(Color, double, double, double, double) fill,
+    void Function(Color, double, double) px, {
+    required Color screenColor,
+    bool showCursor = false,
+    bool showCheck = false,
+    bool showX = false,
+    bool showDots = false,
+  }) {
+    // Monitor bezel (rounded look via extra pixels)
+    fill(_bezel, 7, 9, 9, 7); // main body
+    fill(_bezelHighlight, 7, 9, 9, 1); // top highlight
+    fill(_bezelHighlight, 7, 9, 1, 7); // left highlight
+
+    // Screen area with warm glow
+    fill(screenColor, 8, 10, 7, 5);
+
+    // Screen content
+    if (showCursor) {
+      // Blinking cursor and text lines
+      fill(Colors.white70, 9, 11, 3, 1); // text line 1
+      fill(Colors.white54, 9, 12, 4, 1); // text line 2
+      fill(Colors.white, 9, 13, 1, 1); // cursor
+    }
+    if (showCheck) {
+      // Cute checkmark
+      px(Colors.white, 9, 13);
+      px(Colors.white, 10, 14);
+      px(Colors.white, 11, 13);
+      px(Colors.white, 12, 12);
+      px(Colors.white, 13, 11);
+    }
+    if (showX) {
+      // X mark
+      px(Colors.white, 9, 11);
+      px(Colors.white, 13, 11);
+      px(Colors.white, 10, 12);
+      px(Colors.white, 12, 12);
+      px(Colors.white, 11, 13);
+      px(Colors.white, 10, 14);
+      px(Colors.white, 12, 14);
+      px(Colors.white, 9, 15); // extra for visibility
+      px(Colors.white, 13, 15); // extra for visibility
+    }
+    if (showDots) {
+      // "..." waiting dots
+      px(Colors.white70, 9, 12);
+      px(Colors.white70, 11, 12);
+      px(Colors.white70, 13, 12);
+    }
+
+    // Monitor stand (chunky, centered)
+    fill(_bezel, 10, 16, 3, 1);
+    // Stand base
+    fill(_bezel, 9, 16, 5, 0.5);
+  }
+
+  /// Draw the office chair behind the person.
+  static void _drawChair(
+    void Function(Color, double, double, double, double) fill,
+    void Function(Color, double, double) px, {
+    double offsetX = 0,
+  }) {
+    // Chair backrest (rounded top)
+    fill(_chairBack, 19 + offsetX, 11, 5, 2);
+    px(_chairBack, 20 + offsetX, 10); // rounded top-left
+    px(_chairBack, 22 + offsetX, 10); // rounded top-right
+    // Chair backrest lower
+    fill(_chairBack, 20 + offsetX, 13, 3, 3);
+    // Chair seat cushion
+    fill(_chairSeat, 19 + offsetX, 16, 5, 1);
+    // Chair legs
+    fill(PixelTheme.furnitureDark, 19 + offsetX, 20, 1, 2);
+    fill(PixelTheme.furnitureDark, 23 + offsetX, 20, 1, 2);
+    // Chair wheel dots
+    px(PixelTheme.furnitureDark, 18.5 + offsetX, 22);
+    px(PixelTheme.furnitureDark, 23.5 + offsetX, 22);
+  }
+
+  /// Draw the character's head with hair (4x4 head, big cute head).
+  /// [headX], [headY] = top-left of hair block.
+  static void _drawHead(
+    void Function(Color, double, double, double, double) fill,
+    void Function(Color, double, double) px, {
+    required double headX,
+    required double headY,
+    bool happyEyes = false,
+    bool sadEyes = false,
+    bool surprisedEyes = false,
+    bool openMouth = false,
+    bool smile = false,
+  }) {
+    // Hair (extends 1px beyond head on each side, 2px tall on top)
+    fill(PixelTheme.spriteHair, headX - 0.5, headY, 5, 2);
+    // Hair side tufts
+    px(PixelTheme.spriteHair, headX - 0.5, headY + 2);
+    px(PixelTheme.spriteHair, headX + 3.5, headY + 2);
+
+    // Head / face (4x4)
+    fill(PixelTheme.spriteSkin, headX, headY + 1.5, 4, 3.5);
+
+    // Eyes
+    if (happyEyes) {
+      // Closed happy eyes (horizontal lines)
+      fill(PixelTheme.spriteHair, headX + 0.5, headY + 3, 1, 0.5);
+      fill(PixelTheme.spriteHair, headX + 2.5, headY + 3, 1, 0.5);
+    } else if (sadEyes) {
+      // Droopy sad eyes
+      px(PixelTheme.spriteHair, headX + 0.5, headY + 3.5);
+      px(PixelTheme.spriteHair, headX + 2.5, headY + 3.5);
+    } else if (surprisedEyes) {
+      // Wide surprised eyes (bigger dots)
+      fill(PixelTheme.spriteHair, headX + 0.5, headY + 2.5, 1, 1.5);
+      fill(PixelTheme.spriteHair, headX + 2.5, headY + 2.5, 1, 1.5);
+    } else {
+      // Normal cute eyes (simple dots)
+      px(PixelTheme.spriteHair, headX + 0.5, headY + 3);
+      px(PixelTheme.spriteHair, headX + 2.5, headY + 3);
+    }
+
+    // Mouth
+    if (openMouth) {
+      // Surprised open mouth
+      px(PixelTheme.statusFailed, headX + 1.5, headY + 4.5);
+    } else if (smile) {
+      // Happy smile
+      px(PixelTheme.spriteHair, headX + 1, headY + 4.5);
+      px(PixelTheme.spriteHair, headX + 2, headY + 4.5);
+    }
+    // Default: no mouth (neutral) -- cute pixel characters often have no mouth
+
+    // Rosy cheeks (subtle blush for cuteness)
+    fill(const Color(0x30FF8080), headX, headY + 3.5, 1, 1);
+    fill(const Color(0x30FF8080), headX + 3, headY + 3.5, 1, 1);
+  }
+
+  /// Draw the seated body (shirt), legs, and shoes.
+  static void _drawSeatedBody(
+    void Function(Color, double, double, double, double) fill,
+    void Function(Color, double, double) px, {
+    required double bodyX,
+    required double bodyY,
+  }) {
+    // Body / shirt (4x4 sitting)
+    fill(PixelTheme.spriteBody, bodyX, bodyY, 4, 4);
+    // Shirt collar detail
+    fill(PixelTheme.spriteSkin, bodyX + 1, bodyY, 2, 1);
+
+    // Legs (seated, under desk -- pants in hair color)
+    fill(PixelTheme.spriteHair, bodyX, bodyY + 4, 2, 4);
+    fill(PixelTheme.spriteHair, bodyX + 2, bodyY + 4, 2, 4);
+
+    // Shoes
+    fill(PixelTheme.spriteShoes, bodyX - 0.5, bodyY + 8, 2.5, 1);
+    fill(PixelTheme.spriteShoes, bodyX + 2, bodyY + 8, 2.5, 1);
+  }
+
+  // =========================================================================
+  // State: running / starting -- typing at keyboard
   // =========================================================================
 
   static void _drawTyping(
@@ -175,64 +366,46 @@ class _SpritePainter extends CustomPainter {
     void Function(Color, double, double) px,
     int frame,
   ) {
-    // Desk (y=16..18, x=4..28)
-    fill(PixelTheme.furniture, 4, 16, 24, 2);
-    fill(PixelTheme.furnitureLight, 4, 16, 24, 1); // top highlight
+    // -- Background furniture --
+    _drawChair(fill, px);
+    _drawDesk(fill, px);
 
-    // Keyboard on desk
-    fill(const Color(0xFF3a3a4a), 13, 16, 6, 1);
+    // Keyboard on desk (warm brown)
+    fill(_keyboard, 12, 15, 7, 1);
+    fill(const Color(0xFF5A4A3E), 12, 15, 7, 0.5); // highlight top
 
-    // Monitor (on desk, x=8..14, y=10..16)
-    fill(const Color(0xFF2a2a3a), 8, 10, 7, 6); // bezel
-    // Screen — active blue glow with blinking content
+    // Monitor with active warm screen
     final screenColor = frame.isEven
-        ? PixelTheme.statusRunning
-        : PixelTheme.statusRunning.withAlpha(180);
-    fill(screenColor, 9, 11, 5, 4);
-    // Blinking cursor on screen
-    if (frame % 2 == 0) {
-      px(Colors.white, 10, 13);
+        ? const Color(0xFF6BA4C8) // warm blue screen
+        : const Color(0xFF5E94B8); // slightly dimmer
+    _drawMonitor(fill, px, screenColor: screenColor, showCursor: frame.isEven);
+
+    // -- Character --
+    // Head at (16, 3) -- centered above body
+    _drawHead(fill, px, headX: 16, headY: 3);
+
+    // Body at (16, 8)
+    _drawSeatedBody(fill, px, bodyX: 16, bodyY: 8);
+
+    // Arms -- animate typing: alternate which arm is up/down
+    final leftArmY = (frame == 0 || frame == 2) ? 14.5 : 14.0;
+    final rightArmY = (frame == 1 || frame == 3) ? 14.5 : 14.0;
+    // Left arm toward keyboard
+    fill(PixelTheme.spriteSkin, 14, leftArmY, 2, 1);
+    // Right arm toward keyboard
+    fill(PixelTheme.spriteSkin, 20, rightArmY, 2, 1);
+
+    // Small focus sparkle (occasionally)
+    if (frame == 2) {
+      px(const Color(0xFFFFF8DC), 24, 6);
+      px(const Color(0xFFFFF8DC), 25, 5);
+      px(const Color(0xFFFFF8DC), 26, 6);
+      px(const Color(0xFFFFF8DC), 25, 7);
     }
-    // Monitor stand
-    fill(const Color(0xFF2a2a3a), 10, 16, 3, 1);
-
-    // Chair (behind person, x=17..22, y=14..20)
-    fill(const Color(0xFF3a3048), 19, 12, 5, 2); // backrest
-    fill(const Color(0xFF3a3048), 20, 14, 3, 4); // backrest lower
-    fill(const Color(0xFF2a2038), 19, 20, 5, 1); // seat cushion
-
-    // Person — seated
-    // Hair (3 wide, 1 tall)
-    fill(PixelTheme.spriteHair, 18, 7, 3, 1);
-    // Head (3×3)
-    fill(PixelTheme.spriteSkin, 18, 8, 3, 3);
-    // Eyes
-    px(PixelTheme.spriteHair, 18.5, 9);
-    px(PixelTheme.spriteHair, 20, 9);
-    // Body (3×4, sitting)
-    fill(PixelTheme.spriteBody, 18, 11, 3, 5);
-
-    // Arms — animate typing: alternate which arm is up / down
-    final leftArmY = (frame == 0 || frame == 2) ? 15.0 : 14.0;
-    final rightArmY = (frame == 1 || frame == 3) ? 15.0 : 14.0;
-    // Left arm reaching toward keyboard
-    px(PixelTheme.spriteSkin, 17, leftArmY);
-    px(PixelTheme.spriteSkin, 16, leftArmY);
-    // Right arm
-    px(PixelTheme.spriteSkin, 21, rightArmY);
-    px(PixelTheme.spriteSkin, 22, rightArmY);
-
-    // Legs (seated, under desk)
-    fill(PixelTheme.spriteHair, 18, 18, 1, 3);
-    fill(PixelTheme.spriteHair, 20, 18, 1, 3);
-
-    // Desk legs
-    fill(PixelTheme.furniture, 5, 18, 1, 4);
-    fill(PixelTheme.furniture, 27, 18, 1, 4);
   }
 
   // =========================================================================
-  // State: queued — waiting, hand raised, "?" bubble
+  // State: queued / waiting -- hand raised, "?" bubble
   // =========================================================================
 
   static void _drawQueued(
@@ -240,63 +413,60 @@ class _SpritePainter extends CustomPainter {
     void Function(Color, double, double) px,
     int frame,
   ) {
-    // Desk
-    fill(PixelTheme.furniture, 4, 16, 24, 2);
-    fill(PixelTheme.furnitureLight, 4, 16, 24, 1);
+    // -- Background furniture --
+    _drawChair(fill, px);
+    _drawDesk(fill, px);
 
-    // Monitor (idle / dim)
-    fill(const Color(0xFF2a2a3a), 8, 10, 7, 6);
-    fill(PixelTheme.statusQueued, 9, 11, 5, 4);
-    fill(const Color(0xFF2a2a3a), 10, 16, 3, 1);
+    // Monitor with waiting screen (warm yellow)
+    _drawMonitor(
+      fill,
+      px,
+      screenColor: const Color(0xFFE8D090),
+      showDots: true,
+    );
 
-    // Chair
-    fill(const Color(0xFF3a3048), 19, 12, 5, 2);
-    fill(const Color(0xFF3a3048), 20, 14, 3, 4);
-    fill(const Color(0xFF2a2038), 19, 20, 5, 1);
+    // -- Character with slight head tilt --
+    final tiltX = (frame == 1) ? 0.5 : 0.0;
+    final tiltY = (frame == 2) ? 0.5 : 0.0;
 
-    // Person — slight idle sway (shift body by 0-1 px)
-    final sway = (frame == 1) ? 0.5 : 0.0;
+    // Head (tilted slightly)
+    _drawHead(fill, px, headX: 16 + tiltX, headY: 3 + tiltY);
 
-    // Hair
-    fill(PixelTheme.spriteHair, 18 + sway, 7, 3, 1);
-    // Head
-    fill(PixelTheme.spriteSkin, 18 + sway, 8, 3, 3);
-    px(PixelTheme.spriteHair, 18.5 + sway, 9);
-    px(PixelTheme.spriteHair, 20 + sway, 9);
     // Body
-    fill(PixelTheme.spriteBody, 18 + sway, 11, 3, 5);
+    _drawSeatedBody(fill, px, bodyX: 16, bodyY: 8);
 
     // Left arm resting
-    px(PixelTheme.spriteSkin, 17 + sway, 14);
-    px(PixelTheme.spriteSkin, 16 + sway, 14);
+    fill(PixelTheme.spriteSkin, 14, 14, 2, 1);
+    // Right arm raised (waving)
+    final waveY = frame == 1 ? -1.0 : 0.0;
+    px(PixelTheme.spriteSkin, 20, 10 + waveY);
+    px(PixelTheme.spriteSkin, 21, 9 + waveY);
+    px(PixelTheme.spriteSkin, 22, 8 + waveY);
+    // Hand (open palm)
+    px(PixelTheme.spriteSkin, 22, 7 + waveY);
+    px(PixelTheme.spriteSkin, 23, 7 + waveY);
 
-    // Right arm raised
-    px(PixelTheme.spriteSkin, 21 + sway, 11);
-    px(PixelTheme.spriteSkin, 22 + sway, 10);
-    px(PixelTheme.spriteSkin, 22 + sway, 9);
+    // "?" speech bubble (warm white with border)
+    // Bubble body
+    fill(_bubbleBorder, 24, 1, 7, 6); // border
+    fill(_bubbleWhite, 25, 2, 5, 4); // inner
+    // Bubble tail
+    px(_bubbleBorder, 24, 7);
+    px(_bubbleWhite, 25, 6);
 
-    // Legs
-    fill(PixelTheme.spriteHair, 18 + sway, 18, 1, 3);
-    fill(PixelTheme.spriteHair, 20 + sway, 18, 1, 3);
-
-    // "?" speech bubble (above head)
-    fill(Colors.white, 23, 4, 5, 4);
-    px(Colors.white, 22, 8); // tail
-    // "?" character — pixel art question mark
-    px(PixelTheme.statusQueued, 24, 5);
-    px(PixelTheme.statusQueued, 25, 5);
-    px(PixelTheme.statusQueued, 26, 5);
-    px(PixelTheme.statusQueued, 26, 6);
-    px(PixelTheme.statusQueued, 25, 6);
-    px(PixelTheme.statusQueued, 25, 7); // dot below
-
-    // Desk legs
-    fill(PixelTheme.furniture, 5, 18, 1, 4);
-    fill(PixelTheme.furniture, 27, 18, 1, 4);
+    // "?" character in warm color
+    px(PixelTheme.statusWarning, 26, 2.5);
+    px(PixelTheme.statusWarning, 27, 2.5);
+    px(PixelTheme.statusWarning, 28, 2.5);
+    px(PixelTheme.statusWarning, 28, 3.5);
+    px(PixelTheme.statusWarning, 27, 3.5);
+    px(PixelTheme.statusWarning, 27, 4.5);
+    // Dot
+    px(PixelTheme.statusWarning, 27, 5.5);
   }
 
   // =========================================================================
-  // State: failed — slumped on desk, "!" indicator
+  // State: failed / error -- sad, head drooped
   // =========================================================================
 
   static void _drawFailed(
@@ -304,56 +474,56 @@ class _SpritePainter extends CustomPainter {
     void Function(Color, double, double) px,
     int frame,
   ) {
-    // Desk
-    fill(PixelTheme.furniture, 4, 16, 24, 2);
-    fill(PixelTheme.furnitureLight, 4, 16, 24, 1);
+    // -- Background furniture --
+    _drawChair(fill, px);
+    _drawDesk(fill, px);
 
-    // Monitor — error / red screen
-    fill(const Color(0xFF2a2a3a), 8, 10, 7, 6);
-    fill(PixelTheme.statusFailed.withAlpha(180), 9, 11, 5, 4);
-    // "X" on screen
-    px(Colors.white, 10, 12);
-    px(Colors.white, 12, 12);
-    px(Colors.white, 11, 13);
-    px(Colors.white, 10, 14);
-    px(Colors.white, 12, 14);
-    fill(const Color(0xFF2a2a3a), 10, 16, 3, 1);
+    // Monitor with red error screen
+    _drawMonitor(
+      fill,
+      px,
+      screenColor: const Color(0xFFD46070),
+      showX: true,
+    );
 
-    // Chair
-    fill(const Color(0xFF3a3048), 19, 12, 5, 2);
-    fill(const Color(0xFF3a3048), 20, 14, 3, 4);
-    fill(const Color(0xFF2a2038), 19, 20, 5, 1);
+    // -- Character (head drooped forward) --
+    // Head lower and tilted forward
+    _drawHead(fill, px, headX: 15, headY: 5, sadEyes: true);
 
-    // Person — slumped, head on desk
-    // Hair (on desk level)
-    fill(PixelTheme.spriteHair, 16, 14, 3, 1);
-    // Head slumped forward and down
-    fill(PixelTheme.spriteSkin, 16, 15, 3, 2);
-    // Body hunched
-    fill(PixelTheme.spriteBody, 18, 12, 3, 5);
-    // Arms limp on desk
-    px(PixelTheme.spriteSkin, 15, 16);
-    px(PixelTheme.spriteSkin, 14, 16);
-    px(PixelTheme.spriteSkin, 21, 15);
-    px(PixelTheme.spriteSkin, 22, 15);
+    // Body (slightly hunched)
+    _drawSeatedBody(fill, px, bodyX: 16, bodyY: 9);
 
-    // Legs
-    fill(PixelTheme.spriteHair, 18, 18, 1, 3);
-    fill(PixelTheme.spriteHair, 20, 18, 1, 3);
+    // Arms hanging / limp
+    fill(PixelTheme.spriteSkin, 14, 14, 2, 1);
+    fill(PixelTheme.spriteSkin, 20, 14, 2, 1);
 
-    // "!" indicator above (flashing)
+    // "!" bubble (warm red tint, flashing)
     if (frame == 0) {
-      fill(PixelTheme.statusFailed, 18, 5, 1, 3);
-      px(PixelTheme.statusFailed, 18, 9);
+      // Bubble body
+      fill(const Color(0xFFF0D0D0), 24, 2, 5, 5); // warm pink bubble
+      fill(const Color(0xFFD08080), 24, 2, 5, 1); // top border
+      fill(const Color(0xFFD08080), 24, 6, 5, 1); // bottom border
+      fill(const Color(0xFFD08080), 24, 2, 1, 5); // left border
+      fill(const Color(0xFFD08080), 28, 2, 1, 5); // right border
+      // Tail
+      px(const Color(0xFFD08080), 24, 7);
+      // "!" in warm red
+      fill(PixelTheme.statusFailed, 26, 3, 1, 2);
+      px(PixelTheme.statusFailed, 26, 6);
     }
 
-    // Desk legs
-    fill(PixelTheme.furniture, 5, 18, 1, 4);
-    fill(PixelTheme.furniture, 27, 18, 1, 4);
+    // Sweat drop (alternating side)
+    if (frame == 0) {
+      px(_sweatDrop, 14, 5);
+      px(_sweatDrop, 14, 6);
+    } else {
+      px(_sweatDrop, 14, 6);
+      px(_sweatDrop, 14, 7);
+    }
   }
 
   // =========================================================================
-  // State: success — relaxing with coffee
+  // State: success / completed -- happy, relaxing with coffee
   // =========================================================================
 
   static void _drawSuccess(
@@ -361,71 +531,64 @@ class _SpritePainter extends CustomPainter {
     void Function(Color, double, double) px,
     int frame,
   ) {
-    // Desk
-    fill(PixelTheme.furniture, 4, 16, 24, 2);
-    fill(PixelTheme.furnitureLight, 4, 16, 24, 1);
+    // -- Background furniture --
+    _drawChair(fill, px);
+    _drawDesk(fill, px);
 
-    // Monitor — green success screen
-    fill(const Color(0xFF2a2a3a), 8, 10, 7, 6);
-    fill(PixelTheme.statusSuccess.withAlpha(160), 9, 11, 5, 4);
-    // Checkmark on screen
-    px(Colors.white, 10, 14);
-    px(Colors.white, 11, 13);
-    px(Colors.white, 12, 12);
-    px(Colors.white, 13, 13); // not needed for check but adds V shape flair
-    fill(const Color(0xFF2a2a3a), 10, 16, 3, 1);
+    // Monitor with green success screen
+    _drawMonitor(
+      fill,
+      px,
+      screenColor: const Color(0xFF7AB85A),
+      showCheck: true,
+    );
 
-    // Coffee cup on desk (x=23..25, y=14..16)
-    fill(Colors.white, 23, 14, 3, 2);
-    px(const Color(0xFF6a4a2a), 24, 14); // coffee inside
-    // Steam (animating)
+    // Coffee cup on desk
+    fill(const Color(0xFFF5E6D0), 23, 14, 3, 2); // mug body (cream)
+    fill(_coffee, 24, 14, 1, 1); // coffee surface
+    px(const Color(0xFFF5E6D0), 26, 14.5); // mug handle
+    px(const Color(0xFFF5E6D0), 26, 15);
+    // Steam wisps (animated)
     if (frame == 0 || frame == 2) {
-      px(Colors.white38, 24, 12);
-      px(Colors.white38, 23, 13);
+      px(_steam, 24, 12);
+      px(_steam, 23, 13);
     } else {
-      px(Colors.white38, 23, 12);
-      px(Colors.white38, 24, 13);
+      px(_steam, 23, 12);
+      px(_steam, 24, 13);
+      px(_steam, 25, 12);
     }
 
-    // Chair
-    fill(const Color(0xFF3a3048), 19, 12, 5, 2);
-    fill(const Color(0xFF3a3048), 20, 14, 3, 4);
-    fill(const Color(0xFF2a2038), 19, 20, 5, 1);
+    // -- Character (leaning back, happy) --
+    _drawHead(
+      fill,
+      px,
+      headX: 17,
+      headY: 3,
+      happyEyes: true,
+      smile: true,
+    );
 
-    // Person — leaning back slightly (shifted right by 1)
-    const bx = 19.0;
-    // Hair
-    fill(PixelTheme.spriteHair, bx, 7, 3, 1);
-    // Head
-    fill(PixelTheme.spriteSkin, bx, 8, 3, 3);
-    // Happy eyes (closed/relaxed)
-    px(PixelTheme.spriteHair, bx + 0.5, 9);
-    px(PixelTheme.spriteHair, bx + 2, 9);
-    // Smile
-    px(PixelTheme.spriteHair, bx + 0.5, 10);
-    px(PixelTheme.spriteHair, bx + 1, 10.5);
-    px(PixelTheme.spriteHair, bx + 2, 10);
-    // Body leaning back
-    fill(PixelTheme.spriteBody, bx, 11, 3, 5);
+    // Body (shifted right slightly, leaning back)
+    _drawSeatedBody(fill, px, bodyX: 17, bodyY: 8);
 
     // Left arm resting on desk
-    px(PixelTheme.spriteSkin, bx - 1, 14);
-    px(PixelTheme.spriteSkin, bx - 2, 14);
+    fill(PixelTheme.spriteSkin, 15, 14, 2, 1);
     // Right arm resting on lap
-    px(PixelTheme.spriteSkin, bx + 3, 14);
-    px(PixelTheme.spriteSkin, bx + 4, 14);
+    fill(PixelTheme.spriteSkin, 21, 13, 2, 1);
 
-    // Legs
-    fill(PixelTheme.spriteHair, bx, 18, 1, 3);
-    fill(PixelTheme.spriteHair, bx + 2, 18, 1, 3);
-
-    // Desk legs
-    fill(PixelTheme.furniture, 5, 18, 1, 4);
-    fill(PixelTheme.furniture, 27, 18, 1, 4);
+    // Happy sparkles around character
+    if (frame == 1) {
+      px(const Color(0xFFFFF8DC), 13, 4);
+      px(const Color(0xFFFFF8DC), 24, 3);
+    }
+    if (frame == 2) {
+      px(const Color(0xFFFFF8DC), 14, 2);
+      px(const Color(0xFFFFF8DC), 25, 5);
+    }
   }
 
   // =========================================================================
-  // State: interrupted — standing up startled
+  // State: interrupted / cancelled -- standing up surprised
   // =========================================================================
 
   static void _drawInterrupted(
@@ -433,58 +596,52 @@ class _SpritePainter extends CustomPainter {
     void Function(Color, double, double) px,
     int frame,
   ) {
-    // Desk
-    fill(PixelTheme.furniture, 4, 16, 24, 2);
-    fill(PixelTheme.furnitureLight, 4, 16, 24, 1);
+    // Chair pushed back
+    final chairPush = frame == 1 ? 2.0 : 1.0;
+    _drawChair(fill, px, offsetX: chairPush);
+    _drawDesk(fill, px);
 
-    // Monitor (off / dim)
-    fill(const Color(0xFF2a2a3a), 8, 10, 7, 6);
-    fill(const Color(0xFF3a3a4a), 9, 11, 5, 4);
-    fill(const Color(0xFF2a2a3a), 10, 16, 3, 1);
+    // Monitor (dim / off)
+    _drawMonitor(fill, px, screenColor: const Color(0xFF5A5040));
 
-    // Chair — pushed back / tilted
-    final chairShift = frame == 1 ? 1.0 : 0.0;
-    fill(const Color(0xFF3a3048), 22 + chairShift, 13, 4, 2); // backrest tilted
-    fill(const Color(0xFF3a3048), 23 + chairShift, 15, 2, 3);
-    fill(const Color(0xFF2a2038), 22 + chairShift, 20, 4, 1); // seat
+    // -- Character (standing up!) --
+    const cx = 16.0; // character center-X
 
-    // Person — standing, taller pose, away from chair
-    const px0 = 17.0; // person X base
+    // Head (higher up since standing)
+    _drawHead(fill, px, headX: cx, headY: 1, surprisedEyes: true, openMouth: true);
 
-    // Hair
-    fill(PixelTheme.spriteHair, px0, 4, 3, 1);
-    // Head
-    fill(PixelTheme.spriteSkin, px0, 5, 3, 3);
-    // Startled eyes (wide)
-    px(PixelTheme.spriteHair, px0 + 0.5, 6);
-    px(PixelTheme.spriteHair, px0 + 2, 6);
-    // Open mouth
-    px(PixelTheme.statusFailed, px0 + 1, 7);
+    // Body (standing -- taller)
+    fill(PixelTheme.spriteBody, cx, 6.5, 4, 5);
+    // Shirt collar
+    fill(PixelTheme.spriteSkin, cx + 1, 6.5, 2, 1);
 
-    // Body (standing — taller: 3×6)
-    fill(PixelTheme.spriteBody, px0, 8, 3, 6);
-
-    // Arms out to sides (startled gesture)
+    // Arms out to sides (startled!)
     final armLift = frame == 1 ? -1.0 : 0.0;
     // Left arm
-    px(PixelTheme.spriteSkin, px0 - 1, 9 + armLift);
-    px(PixelTheme.spriteSkin, px0 - 2, 8 + armLift);
-    px(PixelTheme.spriteSkin, px0 - 3, 8 + armLift);
+    px(PixelTheme.spriteSkin, cx - 1, 8 + armLift);
+    px(PixelTheme.spriteSkin, cx - 2, 7 + armLift);
+    px(PixelTheme.spriteSkin, cx - 3, 7 + armLift);
     // Right arm
-    px(PixelTheme.spriteSkin, px0 + 3, 9 + armLift);
-    px(PixelTheme.spriteSkin, px0 + 4, 8 + armLift);
-    px(PixelTheme.spriteSkin, px0 + 5, 8 + armLift);
+    px(PixelTheme.spriteSkin, cx + 4, 8 + armLift);
+    px(PixelTheme.spriteSkin, cx + 5, 7 + armLift);
+    px(PixelTheme.spriteSkin, cx + 6, 7 + armLift);
 
     // Legs (standing)
-    fill(PixelTheme.spriteHair, px0, 14, 1, 7);
-    fill(PixelTheme.spriteHair, px0 + 2, 14, 1, 7);
+    fill(PixelTheme.spriteHair, cx, 11.5, 2, 7);
+    fill(PixelTheme.spriteHair, cx + 2, 11.5, 2, 7);
 
     // Shoes
-    fill(PixelTheme.furniture, px0 - 1, 21, 2, 1);
-    fill(PixelTheme.furniture, px0 + 2, 21, 2, 1);
+    fill(PixelTheme.spriteShoes, cx - 0.5, 18.5, 2.5, 1);
+    fill(PixelTheme.spriteShoes, cx + 2, 18.5, 2.5, 1);
 
-    // Desk legs
-    fill(PixelTheme.furniture, 5, 18, 1, 4);
-    fill(PixelTheme.furniture, 27, 18, 1, 4);
+    // Surprise lines above head
+    if (frame == 0) {
+      px(PixelTheme.statusWarning, cx + 1, 0);
+      px(PixelTheme.statusWarning, cx + 3, 0);
+    } else {
+      px(PixelTheme.statusWarning, cx, 0);
+      px(PixelTheme.statusWarning, cx + 2, 0);
+      px(PixelTheme.statusWarning, cx + 4, 0);
+    }
   }
 }
