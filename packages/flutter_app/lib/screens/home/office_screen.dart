@@ -10,7 +10,7 @@ import '../../models/run.dart';
 import '../../providers/api_provider.dart';
 import '../../providers/threads_provider.dart';
 import '../../widgets/new_thread_sheet.dart';
-import '../../widgets/office_scene_v2.dart';
+import '../../widgets/office_scene.dart';
 
 /// Main office view — displays all threads as pixel-art workstations
 /// arranged on a tile floor, with project filtering and real-time updates.

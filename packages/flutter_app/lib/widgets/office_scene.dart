@@ -1,33 +1,153 @@
 import 'package:flutter/material.dart';
 
 import '../app/pixel_theme.dart';
+import '../models/office_layout.dart';
 import '../models/run.dart';
-import 'workstation.dart';
+import 'indoor_floor_view.dart';
+import 'park_view.dart';
 
-/// Each project is displayed as an independent "office room" building.
-/// All rooms scroll vertically on a grass-colored outdoor background.
-class OfficeScene extends StatelessWidget {
-  const OfficeScene({
+// ---------------------------------------------------------------------------
+// Top-level scene controller — park <-> indoor view switching
+// ---------------------------------------------------------------------------
+
+class OfficeSceneV2 extends StatefulWidget {
+  const OfficeSceneV2({
     super.key,
     required this.threads,
     this.onThreadTap,
     this.onThreadLongPress,
     this.onAddNew,
+    this.onAddNewForProject,
   });
 
   final List<Run> threads;
   final void Function(Run thread)? onThreadTap;
   final void Function(Run thread)? onThreadLongPress;
   final VoidCallback? onAddNew;
+  final void Function(String repoPath)? onAddNewForProject;
 
+  @override
+  State<OfficeSceneV2> createState() => _OfficeSceneV2State();
+}
+
+class _OfficeSceneV2State extends State<OfficeSceneV2> {
+  String? _selectedProject; // null = park view, non-null = indoor view
+  int _currentFloor = 0;
+  final _layout = OfficeLayout(); // persistent desk/pose assignments
+
+  // -------------------------------------------------------------------------
+  // Data pipeline
+  // -------------------------------------------------------------------------
+
+  /// Group threads by repoPath. Empty repoPath maps to 'Other'.
   Map<String, List<Run>> _groupByProject() {
     final map = <String, List<Run>>{};
-    for (final run in threads) {
+    for (final run in widget.threads) {
       final key = run.repoPath.isNotEmpty ? run.repoPath : 'Other';
       (map[key] ??= []).add(run);
     }
     return map;
   }
+
+  /// Build BuildingData list for the park view.
+  List<BuildingData> _buildBuildingList() {
+    final groups = _groupByProject();
+    final buildings = <BuildingData>[];
+
+    for (final entry in groups.entries) {
+      int running = 0;
+      int error = 0;
+      int idle = 0;
+
+      for (final run in entry.value) {
+        if (_isRunning(run.status)) {
+          running++;
+        } else if (_isError(run.status)) {
+          error++;
+        } else {
+          idle++;
+        }
+      }
+
+      buildings.add(BuildingData(
+        projectName: _projectName(entry.key),
+        repoPath: entry.key,
+        runningCount: running,
+        errorCount: error,
+        idleCount: idle,
+        totalCount: entry.value.length,
+      ));
+    }
+
+    // Sort: active first, then errors, then by total count descending
+    buildings.sort((a, b) {
+      if (a.hasActiveWork != b.hasActiveWork) {
+        return a.hasActiveWork ? -1 : 1;
+      }
+      if (a.hasErrors != b.hasErrors) {
+        return a.hasErrors ? -1 : 1;
+      }
+      return b.totalCount.compareTo(a.totalCount);
+    });
+
+    return buildings;
+  }
+
+  /// Build DeskSlot list for indoor view of the selected project.
+  List<DeskSlot> _buildDeskSlots(List<Run> runs) {
+    // Map session IDs -> runs for quick lookup
+    final runMap = <String, Run>{};
+    for (final run in runs) {
+      runMap[run.id] = run;
+    }
+
+    // Sort by priority
+    final sortedIds = FloorPagination.sortByPriority(
+      runs.map((r) => r.id).toList(),
+      (id) => runMap[id]!.status,
+    );
+
+    // Get sessions for current floor
+    final floorIds = FloorPagination.sessionsForFloor(sortedIds, _currentFloor);
+
+    // Sync layout to remove stale sessions
+    _layout.sync(runs.map((r) => r.id).toSet());
+
+    // Create DeskSlot for each
+    return floorIds.map((id) {
+      final run = runMap[id]!;
+      final idle = _isIdle(run.status);
+      // Ensure desk position is assigned
+      _layout.deskFor(id);
+      return DeskSlot(
+        sessionId: id,
+        status: run.status,
+        label: _labelFor(run),
+        idlePose: idle ? _layout.idlePoseFor(id) : null,
+      );
+    }).toList();
+  }
+
+  // -------------------------------------------------------------------------
+  // View switching
+  // -------------------------------------------------------------------------
+
+  void _enterBuilding(String repoPath) {
+    setState(() {
+      _selectedProject = repoPath;
+      _currentFloor = 0;
+    });
+  }
+
+  void _exitToPark() {
+    setState(() {
+      _selectedProject = null;
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Helpers
+  // -------------------------------------------------------------------------
 
   static String _projectName(String repoPath) {
     if (repoPath == 'Other') return 'Other';
@@ -37,293 +157,98 @@ class OfficeScene extends StatelessWidget {
 
   static String _labelFor(Run run) {
     final raw = run.summary ?? run.prompt;
-    if (raw.length <= 40) return raw;
-    return '${raw.substring(0, 37)}...';
+    if (raw.length <= 30) return raw;
+    return '${raw.substring(0, 27)}...';
   }
+
+  static bool _isIdle(String status) {
+    return status == 'completed' || status == 'success';
+  }
+
+  static bool _isRunning(String status) {
+    return status == 'running' || status == 'starting';
+  }
+
+  static bool _isError(String status) {
+    return status == 'failed' || status == 'error';
+  }
+
+  Run? _findRun(String sessionId) {
+    for (final run in widget.threads) {
+      if (run.id == sessionId) return run;
+    }
+    return null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Build
+  // -------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    final groups = _groupByProject();
+    if (_selectedProject != null) {
+      return _buildIndoorView();
+    }
+    return _buildParkView();
+  }
 
+  Widget _buildParkView() {
+    final buildings = _buildBuildingList();
     return Column(
       children: [
         Expanded(
-          child: Container(
-            color: const Color(0xFF6B8E5A), // grass between buildings
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final entry in groups.entries) ...[
-                    _OfficeRoom(
-                      projectName: _projectName(entry.key),
-                      runs: entry.value,
-                      onThreadTap: onThreadTap,
-                      onThreadLongPress: onThreadLongPress,
-                      labelFor: _labelFor,
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
+          child: ParkView(
+            buildings: buildings,
+            onBuildingTap: _enterBuilding,
           ),
         ),
-        _ActionBar(onAddNew: onAddNew, threadCount: threads.length),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Office room — one self-contained building per project
-// ---------------------------------------------------------------------------
-
-class _OfficeRoom extends StatelessWidget {
-  const _OfficeRoom({
-    required this.projectName,
-    required this.runs,
-    required this.onThreadTap,
-    required this.onThreadLongPress,
-    required this.labelFor,
-  });
-
-  final String projectName;
-  final List<Run> runs;
-  final void Function(Run)? onThreadTap;
-  final void Function(Run)? onThreadLongPress;
-  final String Function(Run) labelFor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Roof
-        Container(
-          height: 8,
-          decoration: const BoxDecoration(
-            color: Color(0xFF8B4513),
-            border: Border(
-              top: BorderSide(color: Color(0xFFA0522D), width: 2),
-            ),
-          ),
-        ),
-        // Wall with room name sign + windows
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: const BoxDecoration(
-            color: PixelTheme.wall,
-            border: Border.symmetric(
-              vertical: BorderSide(color: PixelTheme.wallAccent, width: 3),
-            ),
-          ),
-          child: Row(
-            children: [
-              // Door
-              Container(
-                width: 14,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: PixelTheme.furniture,
-                  border: Border.all(color: PixelTheme.furnitureDark, width: 1),
-                ),
-                child: const Align(
-                  alignment: Alignment(0.5, 0),
-                  child: CircleAvatar(
-                      radius: 1.5, backgroundColor: PixelTheme.rugWarm),
-                ),
-              ),
-              const SizedBox(width: 8),
-              // Room name sign
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: PixelTheme.furnitureDark,
-                  border: Border.all(color: PixelTheme.furniture, width: 1),
-                ),
-                child: Text(
-                  projectName,
-                  style: const TextStyle(
-                    color: Color(0xFFE8D5B5),
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              // Windows
-              _MiniWindow(),
-              const SizedBox(width: 4),
-              _MiniWindow(),
-            ],
-          ),
-        ),
-        // Floor area with workstations
-        Container(
-          decoration: const BoxDecoration(
-            color: PixelTheme.floorLight,
-            border: Border.symmetric(
-              vertical: BorderSide(color: PixelTheme.furniture, width: 3),
-            ),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-          child: _CubicleGrid(
-            runs: runs,
-            onThreadTap: onThreadTap,
-            onThreadLongPress: onThreadLongPress,
-            labelFor: labelFor,
-          ),
-        ),
-        // Baseboard
-        Container(
-          height: 4,
-          decoration: const BoxDecoration(
-            color: PixelTheme.furnitureDark,
-            border: Border(
-              bottom: BorderSide(color: Color(0xFF3A2010), width: 1),
-            ),
-          ),
+        _ActionBar(
+          onAddNew: widget.onAddNew,
+          threadCount: widget.threads.length,
         ),
       ],
     );
   }
-}
 
-class _MiniWindow extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 16,
-      height: 14,
-      decoration: BoxDecoration(
-        color: PixelTheme.windowBlue,
-        border: Border.all(color: PixelTheme.furniture, width: 2),
-      ),
-      child: Center(
-        child: Container(width: 1, height: 10, color: PixelTheme.furniture),
-      ),
-    );
-  }
-}
+  Widget _buildIndoorView() {
+    final groups = _groupByProject();
+    final projectRuns = groups[_selectedProject] ?? [];
+    final desks = _buildDeskSlots(projectRuns);
+    final totalFloors = FloorPagination.floorCount(projectRuns.length);
 
-// ---------------------------------------------------------------------------
-// Cubicle grid — workstations separated by wooden divider walls
-// ---------------------------------------------------------------------------
-
-class _CubicleGrid extends StatelessWidget {
-  const _CubicleGrid({
-    required this.runs,
-    required this.onThreadTap,
-    required this.onThreadLongPress,
-    required this.labelFor,
-  });
-
-  final List<Run> runs;
-  final void Function(Run)? onThreadTap;
-  final void Function(Run)? onThreadLongPress;
-  final String Function(Run) labelFor;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const cubicleWidth = 88.0;
-        const dividerWidth = 3.0;
-        final cols =
-            ((constraints.maxWidth + dividerWidth) / (cubicleWidth + dividerWidth))
-                .floor()
-                .clamp(2, 6);
-
-        final rows = <Widget>[];
-        for (var i = 0; i < runs.length; i += cols) {
-          final rowRuns = runs.sublist(i, (i + cols).clamp(0, runs.length));
-          if (i > 0) {
-            rows.add(const _WoodDivider(horizontal: true));
-          }
-          rows.add(
-            IntrinsicHeight(
-              child: Row(
-                children: [
-                  for (var j = 0; j < rowRuns.length; j++) ...[
-                    if (j > 0) const _WoodDivider(horizontal: false),
-                    Expanded(
-                      child: Workstation(
-                        label: labelFor(rowRuns[j]),
-                        status: rowRuns[j].status,
-                        onTap: onThreadTap == null
-                            ? null
-                            : () => onThreadTap!(rowRuns[j]),
-                        onLongPress: onThreadLongPress == null
-                            ? null
-                            : () => onThreadLongPress!(rowRuns[j]),
-                      ),
-                    ),
-                  ],
-                  for (var j = rowRuns.length; j < cols; j++) ...[
-                    const _WoodDivider(horizontal: false),
-                    const Expanded(child: SizedBox()),
-                  ],
-                ],
-              ),
-            ),
-          );
-        }
-
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: rows,
-        );
-      },
-    );
-  }
-}
-
-class _WoodDivider extends StatelessWidget {
-  const _WoodDivider({required this.horizontal});
-  final bool horizontal;
-
-  @override
-  Widget build(BuildContext context) {
-    if (horizontal) {
-      return Container(
-        height: 3,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              PixelTheme.furnitureLight,
-              PixelTheme.furniture,
-              PixelTheme.furnitureDark,
-            ],
-          ),
-        ),
-      );
+    // Clamp current floor in case threads were removed
+    if (_currentFloor >= totalFloors) {
+      _currentFloor = (totalFloors - 1).clamp(0, totalFloors);
     }
-    return Container(
-      width: 3,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            PixelTheme.furnitureLight,
-            PixelTheme.furniture,
-            PixelTheme.furnitureDark,
-          ],
-        ),
-      ),
+
+    return IndoorFloorView(
+      desks: desks,
+      projectName: _projectName(_selectedProject!),
+      floorIndex: _currentFloor,
+      floorCount: totalFloors,
+      onDeskTap: (sessionId) {
+        final run = _findRun(sessionId);
+        if (run != null) widget.onThreadTap?.call(run);
+      },
+      onDeskLongPress: (sessionId) {
+        final run = _findRun(sessionId);
+        if (run != null) widget.onThreadLongPress?.call(run);
+      },
+      onEmptyDeskTap: widget.onAddNewForProject != null
+          ? () => widget.onAddNewForProject!(_selectedProject!)
+          : null,
+      onFloorChange: (floor) {
+        setState(() {
+          _currentFloor = floor;
+        });
+      },
+      onBack: _exitToPark,
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Bottom action bar
+// Bottom action bar (park view only) — copied from office_scene.dart
 // ---------------------------------------------------------------------------
 
 class _ActionBar extends StatelessWidget {
@@ -346,7 +271,8 @@ class _ActionBar extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: PixelTheme.furniture,
                   border:
@@ -374,14 +300,19 @@ class _ActionBar extends StatelessWidget {
               GestureDetector(
                 onTap: onAddNew,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: const BoxDecoration(
                     color: Color(0xFF5B8C3E), // green like Stardew buttons
                     border: Border(
-                      top: BorderSide(color: Color(0xFF7DB356), width: 2), // highlight
+                      top: BorderSide(
+                          color: Color(0xFF7DB356), width: 2), // highlight
                       left: BorderSide(color: Color(0xFF7DB356), width: 2),
-                      right: BorderSide(color: Color(0xFF3D6B28), width: 2), // shadow
-                      bottom: BorderSide(color: Color(0xFF3D6B28), width: 3), // thick bottom shadow
+                      right: BorderSide(
+                          color: Color(0xFF3D6B28), width: 2), // shadow
+                      bottom: BorderSide(
+                          color: Color(0xFF3D6B28),
+                          width: 3), // thick bottom shadow
                     ),
                   ),
                   child: const Row(
