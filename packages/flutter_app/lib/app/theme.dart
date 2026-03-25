@@ -65,28 +65,26 @@ class WebmuxTheme {
           side: const BorderSide(color: border, width: 1),
         ),
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: _surface,
-        hintStyle: const TextStyle(color: subtext),
+      inputDecorationTheme: const InputDecorationTheme(
+        filled: false,
+        hintStyle: TextStyle(color: subtext),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.zero,
-          borderSide: const BorderSide(color: border),
+          borderSide: BorderSide(color: border, width: 2),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.zero,
-          borderSide: const BorderSide(color: border),
+          borderSide: BorderSide(color: border, width: 2),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.zero,
-          borderSide: const BorderSide(color: _primary, width: 1.5),
+          borderSide: BorderSide(color: border, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.zero,
-          borderSide: const BorderSide(color: _error),
+          borderSide: BorderSide(color: _error, width: 2),
         ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       ),
       textTheme: const TextTheme(
         displayLarge: TextStyle(color: _text),
@@ -126,6 +124,11 @@ class WebmuxTheme {
             borderRadius: BorderRadius.zero,
           ),
         ),
+      ),
+      textSelectionTheme: const TextSelectionThemeData(
+        cursorColor: Color(0xFF6B4226), // warm brown cursor
+        selectionColor: Color(0x406B4226),
+        selectionHandleColor: Color(0xFF6B4226),
       ),
       iconTheme: const IconThemeData(color: _text),
       dialogTheme: DialogTheme(
