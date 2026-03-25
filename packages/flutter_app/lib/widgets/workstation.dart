@@ -34,18 +34,18 @@ class Workstation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 120,
+      width: 90,
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
         child: Container(
           decoration: PixelTheme.pixelBox(),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               // Pixel sprite (desk + monitor + person)
-              PixelSprite(status: status, size: 80),
+              PixelSprite(status: status, size: 48),
               const SizedBox(height: 6),
               // Status dot + label row
               Row(

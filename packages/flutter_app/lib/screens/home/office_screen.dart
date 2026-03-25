@@ -319,19 +319,7 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Office'),
-        actions: [
-          // Project filter dropdown
-          if (_projectPaths.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: _ProjectFilterDropdown(
-                paths: _projectPaths,
-                selectedPath: _selectedProject,
-                displayName: _displayName,
-                onChanged: (path) => setState(() => _selectedProject = path),
-              ),
-            ),
-        ],
+        actions: const [],
       ),
       body: _buildBody(),
     );
@@ -372,7 +360,7 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
     return RefreshIndicator(
       onRefresh: _loadData,
       child: OfficeScene(
-        threads: _filteredThreads,
+        threads: _threads,
         onThreadTap: _onThreadTap,
         onThreadLongPress: _onThreadLongPress,
         onAddNew: _onAddNew,

@@ -31,41 +31,64 @@ class OfficeScene extends StatelessWidget {
   /// Called when the "+" add button is tapped.
   final VoidCallback? onAddNew;
 
+  /// Group threads by repoPath.
+  Map<String, List<Run>> _groupByProject() {
+    final map = <String, List<Run>>{};
+    for (final run in threads) {
+      final key = run.repoPath.isNotEmpty ? run.repoPath : 'Other';
+      (map[key] ??= []).add(run);
+    }
+    return map;
+  }
+
+  /// Extract short project name from repoPath.
+  static String _projectName(String repoPath) {
+    if (repoPath == 'Other') return 'Other';
+    final parts = repoPath.split('/').where((p) => p.isNotEmpty).toList();
+    return parts.isNotEmpty ? parts.last : repoPath;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final groups = _groupByProject();
+
     return Container(
       color: PixelTheme.wall,
       child: CustomPaint(
         painter: const _OfficeBgPainter(),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Wall spacer — reserve visual space for the painted wall area.
+              // Wall spacer
               const SizedBox(height: 68),
-              // Workstation grid + add button
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                alignment: WrapAlignment.center,
-                children: [
-                  for (final run in threads)
-                    Workstation(
-                      label: _labelFor(run),
-                      status: run.status,
-                      onTap: onThreadTap == null
-                          ? null
-                          : () => onThreadTap!(run),
-                      onLongPress: onThreadLongPress == null
-                          ? null
-                          : () => onThreadLongPress!(run),
-                    ),
-                  _AddButton(onTap: onAddNew),
-                ],
-              ),
-              // Bottom padding so the floor is always visible.
+              // Grouped by project
+              for (final entry in groups.entries) ...[
+                _ProjectHeader(name: _projectName(entry.key)),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final run in entry.value)
+                      Workstation(
+                        label: _labelFor(run),
+                        status: run.status,
+                        onTap: onThreadTap == null
+                            ? null
+                            : () => onThreadTap!(run),
+                        onLongPress: onThreadLongPress == null
+                            ? null
+                            : () => onThreadLongPress!(run),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+              // Add button at the end
+              _AddButton(onTap: onAddNew),
               const SizedBox(height: 24),
             ],
           ),
@@ -453,6 +476,45 @@ class _OfficeBgPainter extends CustomPainter {
 }
 
 // ---------------------------------------------------------------------------
+// Project group header — pixel-styled label
+// ---------------------------------------------------------------------------
+
+class _ProjectHeader extends StatelessWidget {
+  const _ProjectHeader({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: PixelTheme.furnitureDark.withAlpha(180),
+        borderRadius: BorderRadius.zero,
+        border: Border(
+          bottom: BorderSide(color: PixelTheme.furniture, width: 2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.folder_rounded, size: 14, color: PixelTheme.rugWarm),
+          const SizedBox(width: 6),
+          Text(
+            name,
+            style: const TextStyle(
+              color: Color(0xFFE8D5B5),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Add-new button styled as an empty workstation slot.
 // ---------------------------------------------------------------------------
 
@@ -464,34 +526,33 @@ class _AddButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 120,
+      width: 90,
       child: InkWell(
         onTap: onTap,
         child: Container(
           decoration: PixelTheme.pixelBox(
             borderColor: WebmuxTheme.subtext.withAlpha(100),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Match the sprite height (80px) with the "+" icon centered.
               SizedBox(
-                height: 80,
+                height: 48,
                 child: Center(
                   child: Icon(
                     Icons.add,
-                    size: 32,
+                    size: 24,
                     color: WebmuxTheme.subtext.withAlpha(180),
                   ),
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
               const Text(
                 'New',
                 style: TextStyle(
                   color: WebmuxTheme.subtext,
-                  fontSize: 11,
+                  fontSize: 10,
                 ),
               ),
             ],
