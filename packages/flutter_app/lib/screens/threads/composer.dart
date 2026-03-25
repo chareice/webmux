@@ -191,11 +191,11 @@ class _ComposerState extends State<Composer> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final borderColor =
-        _isWaiting ? theme.colorScheme.primary : WebmuxTheme.border;
+        _isWaiting ? PixelTheme.spriteBody : PixelTheme.furniture;
 
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: PixelTheme.wall,
         border: Border(
           top: BorderSide(
             color: borderColor,
@@ -235,7 +235,7 @@ class _ComposerState extends State<Composer> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: WebmuxTheme.border),
+          bottom: BorderSide(color: PixelTheme.furniture),
         ),
       ),
       height: 64,
@@ -319,10 +319,6 @@ class _ComposerState extends State<Composer> {
   }
 
   Widget _buildToolbar(ThemeData theme) {
-    final sendColor = _isRunning
-        ? WebmuxTheme.statusWarning
-        : theme.colorScheme.primary;
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 0, 8, 4),
       child: Row(
@@ -332,36 +328,46 @@ class _ComposerState extends State<Composer> {
             onPressed: _attachments.length >= 4 ? null : _pickImages,
             icon: const Icon(Icons.image_outlined),
             iconSize: 20,
-            color: WebmuxTheme.subtext,
+            color: PixelTheme.furniture,
             tooltip: 'Attach images',
           ),
           const Spacer(),
-          // Send button
-          SizedBox(
-            height: 34,
-            child: FilledButton.icon(
-              onPressed: _canSend ? _send : null,
-              icon: _sending
-                  ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: Text('...', style: TextStyle(fontSize: 14, color: theme.colorScheme.onPrimary)),
-                    )
-                  : const Icon(Icons.send_rounded, size: 16),
-              label: Text(_isRunning ? 'Queue' : 'Send'),
-              style: FilledButton.styleFrom(
-                backgroundColor: _canSend ? sendColor : sendColor.withOpacity(0.3),
-                foregroundColor: theme.colorScheme.onPrimary,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14),
-                textStyle: const TextStyle(fontSize: 13),
-                shape: const RoundedRectangleBorder(
-                  borderRadius: PixelTheme.sharpCorners,
-                  side: BorderSide(
-                    color: WebmuxTheme.border,
-                    width: PixelTheme.borderWidth,
-                  ),
+          // Send button — game-style
+          InkWell(
+            onTap: _canSend ? _send : null,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: _canSend
+                    ? const Color(0xFF4A90D9)
+                    : const Color(0xFF4A90D9).withAlpha(80),
+                border: Border.all(
+                  color: _canSend
+                      ? const Color(0xFF6AB0FF)
+                      : const Color(0xFF6AB0FF).withAlpha(80),
+                  width: 2,
                 ),
+                boxShadow: _canSend
+                    ? const [BoxShadow(color: Color(0xFF2A5090), offset: Offset(0, 2))]
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_sending)
+                    const Text('...', style: TextStyle(fontSize: 14, color: Colors.white))
+                  else
+                    const Icon(Icons.send_rounded, size: 14, color: Colors.white),
+                  const SizedBox(width: 4),
+                  Text(
+                    _isRunning ? 'Queue' : 'Send',
+                    style: TextStyle(
+                      color: _canSend ? Colors.white : Colors.white54,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
