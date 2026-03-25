@@ -61,7 +61,7 @@ class WebmuxTheme {
         color: _surface,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.zero,
           side: const BorderSide(color: border, width: 1),
         ),
       ),
@@ -70,19 +70,19 @@ class WebmuxTheme {
         fillColor: _surface,
         hintStyle: const TextStyle(color: subtext),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.zero,
           borderSide: const BorderSide(color: border),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.zero,
           borderSide: const BorderSide(color: border),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.zero,
           borderSide: const BorderSide(color: _primary, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.zero,
           borderSide: const BorderSide(color: _error),
         ),
         contentPadding:
@@ -114,7 +114,7 @@ class WebmuxTheme {
           backgroundColor: _primary,
           foregroundColor: _background,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.zero,
           ),
         ),
       ),
@@ -123,7 +123,7 @@ class WebmuxTheme {
           foregroundColor: _text,
           side: const BorderSide(color: border),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.zero,
           ),
         ),
       ),
@@ -131,7 +131,7 @@ class WebmuxTheme {
       dialogTheme: DialogTheme(
         backgroundColor: _surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.zero,
         ),
       ),
     );

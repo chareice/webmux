@@ -155,7 +155,7 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.zero,
       ),
       builder: (ctx) {
         final agentName = _agentsMap[thread.agentId]?.name ?? thread.agentId;
@@ -297,7 +297,7 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
       isScrollControlled: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.zero,
       ),
       builder: (ctx) => NewThreadSheet(
         apiClient: ref.read(apiClientProvider),
@@ -323,7 +323,7 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
 
   Widget _buildBody() {
     if (_loading && _threads.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: Text('Loading...', style: TextStyle(fontSize: 14, color: Color(0xFFE8D5B5))));
     }
 
     if (_error != null && _threads.isEmpty) {
