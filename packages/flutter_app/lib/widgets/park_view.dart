@@ -32,10 +32,6 @@ class BuildingData {
 // Main widget
 // ---------------------------------------------------------------------------
 
-/// Outdoor grass field showing building rooftops — one per project.
-///
-/// Scrolls vertically. Each building has a name plate, tiled rooftop body,
-/// and a shadow strip. Decorative trees appear at the bottom.
 class ParkView extends StatelessWidget {
   const ParkView({
     super.key,
@@ -48,33 +44,33 @@ class ParkView extends StatelessWidget {
   final void Function(String repoPath)? onBuildingTap;
   final void Function(String repoPath)? onBuildingLongPress;
 
-  // -- Colors --
-  static const Color _grass = Color(0xFF6B8E5A);
-  static const Color _shadowGreen = Color(0xFF4A6B3A);
-  static const Color _namePlateText = Color(0xFFE8D5B5);
-
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: _grass,
+      color: const Color(0xFF6B8E5A),
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-          child: Column(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          child: Wrap(
+            spacing: 16,
+            runSpacing: 20,
+            alignment: WrapAlignment.center,
             children: [
-              for (int i = 0; i < buildings.length; i++) ...[
-                if (i > 0) const SizedBox(height: 20),
-                _BuildingCard(
-                  building: buildings[i],
-                  onTap: onBuildingTap,
-                  onLongPress: onBuildingLongPress,
+              for (final b in buildings)
+                _PixelBuilding(
+                  building: b,
+                  onTap: onBuildingTap != null
+                      ? () => onBuildingTap!(b.repoPath)
+                      : null,
+                  onLongPress: onBuildingLongPress != null
+                      ? () => onBuildingLongPress!(b.repoPath)
+                      : null,
                 ),
-              ],
-              // Decorative tree row at the bottom
-              const SizedBox(height: 28),
+              // Trees at the end
+              const SizedBox(width: double.infinity, height: 8),
               const _TreeRow(),
-              const SizedBox(height: 16),
+              const SizedBox(width: double.infinity, height: 20),
             ],
           ),
         ),
@@ -84,166 +80,242 @@ class ParkView extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Building card
+// Pixel building — a cute house drawn with CustomPainter
 // ---------------------------------------------------------------------------
 
-class _BuildingCard extends StatelessWidget {
-  const _BuildingCard({
+class _PixelBuilding extends StatelessWidget {
+  const _PixelBuilding({
     required this.building,
     this.onTap,
     this.onLongPress,
   });
 
   final BuildingData building;
-  final void Function(String repoPath)? onTap;
-  final void Function(String repoPath)? onLongPress;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+
+  /// Building width scales with session count.
+  double get _width {
+    if (building.totalCount <= 4) return 140;
+    if (building.totalCount <= 12) return 180;
+    return 220;
+  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap != null ? () => onTap!(building.repoPath) : null,
-      onLongPress:
-          onLongPress != null ? () => onLongPress!(building.repoPath) : null,
-      child: Column(
-        children: [
-          // Building body (name plate + rooftop) with border
-          Container(
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: PixelTheme.furniture,
-                width: 2,
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: SizedBox(
+        width: _width,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Building name above the house
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: PixelTheme.furnitureDark,
+                border: Border.all(color: PixelTheme.furniture, width: 1),
               ),
-              borderRadius: BorderRadius.zero,
-            ),
-            child: Column(
-              children: [
-                // Name plate
-                _NamePlate(building: building),
-                // Rooftop tiles
-                const _RooftopBody(),
-              ],
-            ),
-          ),
-          // Shadow strip (slightly narrower)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            height: 4,
-            decoration: const BoxDecoration(
-              color: ParkView._shadowGreen,
-              borderRadius: BorderRadius.zero,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Name plate
-// ---------------------------------------------------------------------------
-
-class _NamePlate extends StatelessWidget {
-  const _NamePlate({required this.building});
-
-  final BuildingData building;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: PixelTheme.furnitureDark,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        children: [
-          // Chimney with optional smoke
-          _Chimney(active: building.hasActiveWork),
-          const SizedBox(width: 6),
-          // Project name
-          Expanded(
-            child: Text(
-              building.projectName,
-              style: const TextStyle(
-                color: ParkView._namePlateText,
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    building.projectName,
+                    style: const TextStyle(
+                      color: Color(0xFFE8D5B5),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
             ),
-          ),
-          const SizedBox(width: 8),
-          // Status badges
-          _StatusBadges(building: building),
-        ],
+            const SizedBox(height: 2),
+            // The actual pixel house
+            SizedBox(
+              width: _width,
+              height: 100,
+              child: CustomPaint(
+                painter: _HousePainter(
+                  hasSmoke: building.hasActiveWork,
+                  hasError: building.hasErrors,
+                ),
+              ),
+            ),
+            // Status badges below the house
+            const SizedBox(height: 4),
+            _StatusBadges(building: building),
+            // Ground shadow
+            Container(
+              margin: const EdgeInsets.only(top: 2),
+              width: _width - 8,
+              height: 4,
+              color: const Color(0xFF4A6B3A),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Chimney (with smoke puffs when active)
-// ---------------------------------------------------------------------------
+/// Paints a cute pixel-art house with roof, walls, windows, door, and chimney.
+class _HousePainter extends CustomPainter {
+  const _HousePainter({required this.hasSmoke, required this.hasError});
 
-class _Chimney extends StatelessWidget {
-  const _Chimney({required this.active});
+  final bool hasSmoke;
+  final bool hasError;
 
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 12,
-      height: 20,
-      child: CustomPaint(
-        painter: _ChimneyPainter(active: active),
-      ),
-    );
-  }
-}
-
-class _ChimneyPainter extends CustomPainter {
-  const _ChimneyPainter({required this.active});
-
-  final bool active;
+  // Colors
+  static const _roofDark = Color(0xFF8B4513);
+  static const _roofMain = Color(0xFFA0522D);
+  static const _roofLight = Color(0xFFCD853F);
+  static const _roofEdge = Color(0xFF6B3410);
+  static const _wallMain = Color(0xFFE8D5B5);
+  static const _wallDark = Color(0xFFD4B896);
+  static const _wallShadow = Color(0xFFC0A07A);
+  static const _windowFrame = Color(0xFF6B4226);
+  static const _windowGlass = Color(0xFF87CEEB);
+  static const _windowGlassLit = Color(0xFFFFE88A);
+  static const _doorColor = Color(0xFF6B4226);
+  static const _doorKnob = Color(0xFFD4A06A);
+  static const _chimney = Color(0xFF8B4513);
+  static const _chimneyTop = Color(0xFF6B3410);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint();
+    final w = size.width;
+    final h = size.height;
 
-    // Chimney body: small brown rectangle at the bottom
-    paint.color = PixelTheme.furniture;
-    canvas.drawRect(
-      Rect.fromLTWH(2, size.height - 10, 8, 10),
-      paint,
-    );
+    final p = Paint();
 
-    // Chimney top rim (slightly wider)
-    paint.color = PixelTheme.furnitureLight;
-    canvas.drawRect(
-      Rect.fromLTWH(1, size.height - 10, 10, 2),
-      paint,
-    );
+    // ── Chimney (behind roof, top-right) ──
+    final chimneyX = w * 0.72;
+    p.color = _chimney;
+    canvas.drawRect(Rect.fromLTWH(chimneyX, 2, 12, 30), p);
+    p.color = _chimneyTop;
+    canvas.drawRect(Rect.fromLTWH(chimneyX - 1, 2, 14, 4), p);
 
-    // Smoke puffs when active
-    if (active) {
-      paint.color = const Color(0x60888888);
-      canvas.drawCircle(
-        Offset(6, size.height - 14),
-        3,
-        paint,
-      );
-      paint.color = const Color(0x40888888);
-      canvas.drawCircle(
-        Offset(4, size.height - 18),
-        2.5,
-        paint,
-      );
+    // Smoke puffs
+    if (hasSmoke) {
+      p.color = const Color(0x55AAAAAA);
+      canvas.drawRect(Rect.fromLTWH(chimneyX + 2, -6, 6, 6), p);
+      p.color = const Color(0x35AAAAAA);
+      canvas.drawRect(Rect.fromLTWH(chimneyX + 5, -14, 5, 5), p);
+      p.color = const Color(0x20AAAAAA);
+      canvas.drawRect(Rect.fromLTWH(chimneyX, -20, 4, 4), p);
     }
+
+    // ── Roof (triangular / peaked shape) ──
+    final roofPeakY = 8.0;
+    final roofBaseY = h * 0.45;
+    final roofOverhang = 6.0;
+
+    // Draw roof as layered horizontal bars getting wider (top to bottom)
+    final roofRows = ((roofBaseY - roofPeakY) / 3).floor();
+    for (var i = 0; i < roofRows; i++) {
+      final t = i / roofRows;
+      final y = roofPeakY + i * 3;
+      final inset = (1 - t) * (w * 0.3);
+      final left = inset - roofOverhang;
+      final right = w - inset + roofOverhang;
+
+      // Alternate colors for tile rows
+      if (i % 3 == 0) {
+        p.color = _roofDark;
+      } else if (i % 3 == 1) {
+        p.color = _roofMain;
+      } else {
+        p.color = _roofLight;
+      }
+      canvas.drawRect(Rect.fromLTWH(left, y, right - left, 3), p);
+    }
+
+    // Roof ridge line at top
+    p.color = _roofEdge;
+    canvas.drawRect(
+      Rect.fromLTWH(w * 0.3 - roofOverhang, roofPeakY, w * 0.4 + roofOverhang * 2, 3),
+      p,
+    );
+
+    // Roof bottom edge
+    p.color = _roofEdge;
+    canvas.drawRect(Rect.fromLTWH(-roofOverhang, roofBaseY - 2, w + roofOverhang * 2, 3), p);
+
+    // ── Front wall ──
+    final wallTop = roofBaseY;
+    final wallBottom = h - 4;
+    final wallHeight = wallBottom - wallTop;
+
+    p.color = _wallMain;
+    canvas.drawRect(Rect.fromLTWH(0, wallTop, w, wallHeight), p);
+
+    // Wall shadow at top (under roof)
+    p.color = _wallShadow;
+    canvas.drawRect(Rect.fromLTWH(0, wallTop, w, 4), p);
+
+    // Wall texture — subtle horizontal line
+    p.color = _wallDark;
+    canvas.drawRect(Rect.fromLTWH(0, wallTop + wallHeight * 0.5, w, 1), p);
+
+    // Wall side edges
+    p.color = PixelTheme.furniture;
+    canvas.drawRect(Rect.fromLTWH(0, wallTop, 2, wallHeight), p);
+    canvas.drawRect(Rect.fromLTWH(w - 2, wallTop, 2, wallHeight), p);
+
+    // ── Door (center) ──
+    final doorW = 16.0;
+    final doorH = wallHeight * 0.7;
+    final doorX = (w - doorW) / 2;
+    final doorY = wallBottom - doorH;
+
+    p.color = _doorColor;
+    canvas.drawRect(Rect.fromLTWH(doorX, doorY, doorW, doorH), p);
+    // Door frame highlight
+    p.color = PixelTheme.furnitureLight;
+    canvas.drawRect(Rect.fromLTWH(doorX, doorY, doorW, 2), p);
+    canvas.drawRect(Rect.fromLTWH(doorX, doorY, 2, doorH), p);
+    // Door knob
+    p.color = _doorKnob;
+    canvas.drawRect(Rect.fromLTWH(doorX + doorW - 5, doorY + doorH * 0.5, 2, 2), p);
+
+    // ── Windows (one on each side of door) ──
+    final windowW = 14.0;
+    final windowH = 12.0;
+    final windowY = wallTop + 8;
+
+    // Left window
+    _drawWindow(canvas, doorX - windowW - 10, windowY, windowW, windowH);
+    // Right window
+    _drawWindow(canvas, doorX + doorW + 10, windowY, windowW, windowH);
+
+    // ── Base / foundation ──
+    p.color = PixelTheme.furnitureDark;
+    canvas.drawRect(Rect.fromLTWH(0, wallBottom, w, 4), p);
+  }
+
+  void _drawWindow(Canvas canvas, double x, double y, double w, double h) {
+    final p = Paint();
+    // Frame
+    p.color = _windowFrame;
+    canvas.drawRect(Rect.fromLTWH(x, y, w, h), p);
+    // Glass
+    p.color = hasError ? const Color(0xFFFFAAAA) : _windowGlass;
+    canvas.drawRect(Rect.fromLTWH(x + 2, y + 2, w - 4, h - 4), p);
+    // Cross bar
+    p.color = _windowFrame;
+    canvas.drawRect(Rect.fromLTWH(x + w / 2 - 0.5, y, 1, h), p);
+    canvas.drawRect(Rect.fromLTWH(x, y + h / 2 - 0.5, w, 1), p);
+    // Light glint
+    p.color = Colors.white.withOpacity(0.3);
+    canvas.drawRect(Rect.fromLTWH(x + 2, y + 2, 3, 3), p);
   }
 
   @override
-  bool shouldRepaint(covariant _ChimneyPainter oldDelegate) =>
-      oldDelegate.active != active;
+  bool shouldRepaint(covariant _HousePainter old) =>
+      old.hasSmoke != hasSmoke || old.hasError != hasError;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,41 +332,22 @@ class _StatusBadges extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Running count (only show if > 0)
         if (building.runningCount > 0) ...[
-          _Badge(
-            icon: '\u26A1',
-            count: building.runningCount,
-            color: PixelTheme.statusSuccess,
-          ),
-          const SizedBox(width: 4),
+          _Badge(icon: '\u26A1', count: building.runningCount, color: PixelTheme.statusSuccess),
+          const SizedBox(width: 3),
         ],
-        // Error count (only show if > 0)
         if (building.errorCount > 0) ...[
-          _Badge(
-            icon: '\u274C',
-            count: building.errorCount,
-            color: PixelTheme.statusFailed,
-          ),
-          const SizedBox(width: 4),
+          _Badge(icon: '\u274C', count: building.errorCount, color: PixelTheme.statusFailed),
+          const SizedBox(width: 3),
         ],
-        // Idle count (always show)
-        _Badge(
-          icon: '\uD83D\uDCA4',
-          count: building.idleCount,
-          color: const Color(0xFF565f89),
-        ),
+        _Badge(icon: '\uD83D\uDCA4', count: building.idleCount, color: const Color(0xFF565f89)),
       ],
     );
   }
 }
 
 class _Badge extends StatelessWidget {
-  const _Badge({
-    required this.icon,
-    required this.count,
-    required this.color,
-  });
+  const _Badge({required this.icon, required this.count, required this.color});
 
   final String icon;
   final int count;
@@ -307,96 +360,17 @@ class _Badge extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withOpacity(0.15),
         border: Border.all(color: color.withOpacity(0.4), width: 1),
-        borderRadius: BorderRadius.zero,
       ),
       child: Text(
         '$icon$count',
-        style: TextStyle(
-          color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-        ),
+        style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold),
       ),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Rooftop body (brick-pattern tiles)
-// ---------------------------------------------------------------------------
-
-class _RooftopBody extends StatelessWidget {
-  const _RooftopBody();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox(
-      height: 44,
-      width: double.infinity,
-      child: CustomPaint(
-        painter: _RooftopPainter(),
-      ),
-    );
-  }
-}
-
-class _RooftopPainter extends CustomPainter {
-  const _RooftopPainter();
-
-  // Alternating row colors for brick-like pattern
-  static const List<Color> _rowColors = [
-    Color(0xFF8B4513),
-    Color(0xFFA0522D),
-    Color(0xFF8B4513),
-    Color(0xFFCD853F),
-  ];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint();
-    const rowCount = 4;
-    final rowHeight = size.height / rowCount;
-
-    // Draw horizontal brick rows
-    for (int r = 0; r < rowCount; r++) {
-      paint.color = _rowColors[r % _rowColors.length];
-      canvas.drawRect(
-        Rect.fromLTWH(0, r * rowHeight, size.width, rowHeight),
-        paint,
-      );
-    }
-
-    // Draw vertical brick-pattern lines (staggered)
-    paint.color = PixelTheme.furnitureDark.withOpacity(0.35);
-    paint.strokeWidth = 1;
-
-    const brickWidth = 24.0;
-    for (int r = 0; r < rowCount; r++) {
-      final yTop = r * rowHeight;
-      final offset = (r.isOdd) ? brickWidth / 2 : 0.0;
-      for (double x = offset; x < size.width; x += brickWidth) {
-        canvas.drawLine(
-          Offset(x, yTop),
-          Offset(x, yTop + rowHeight),
-          paint,
-        );
-      }
-    }
-
-    // Draw horizontal mortar lines between rows
-    paint.color = PixelTheme.furnitureDark.withOpacity(0.25);
-    for (int r = 1; r < rowCount; r++) {
-      final y = r * rowHeight;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _RooftopPainter oldDelegate) => false;
-}
-
-// ---------------------------------------------------------------------------
-// Decorative tree row
+// Decorative trees
 // ---------------------------------------------------------------------------
 
 class _TreeRow extends StatelessWidget {
@@ -406,25 +380,13 @@ class _TreeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: List.generate(5, (index) {
-        // Vary tree sizes slightly for a natural look
+      children: List.generate(5, (i) {
         final sizes = [28.0, 32.0, 26.0, 34.0, 30.0];
-        return _PixelTree(size: sizes[index]);
+        return CustomPaint(
+          size: Size(sizes[i], sizes[i] * 1.25),
+          painter: const _TreePainter(),
+        );
       }),
-    );
-  }
-}
-
-class _PixelTree extends StatelessWidget {
-  const _PixelTree({required this.size});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      size: Size(size, size * 1.25),
-      painter: const _TreePainter(),
     );
   }
 }
@@ -434,50 +396,22 @@ class _TreePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint();
-
-    // Work on an 8x10 logical grid
     final px = size.width / 8;
     final py = size.height / 10;
+    final p = Paint();
 
-    void fill(Color c, double x, double y, double w, double h) {
-      canvas.drawRect(
-        Rect.fromLTWH(x * px, y * py, w * px, h * py),
-        paint..color = c,
-      );
+    void f(Color c, double x, double y, double w, double h) {
+      p.color = c;
+      canvas.drawRect(Rect.fromLTWH(x * px, y * py, w * px, h * py), p);
     }
 
-    // Trunk (centered, bottom portion)
-    fill(PixelTheme.furniture, 3, 7, 2, 3);
-    // Trunk highlight
-    fill(PixelTheme.furnitureLight, 3, 7, 1, 3);
-
-    // Canopy layer 1 (bottom, widest) -- dark green
-    fill(PixelTheme.plantGreenDark, 1, 4, 6, 3);
-    // Canopy layer 2 (middle) -- medium green
-    fill(PixelTheme.plantGreen, 2, 2, 4, 3);
-    // Canopy layer 3 (top, smallest) -- light green
-    fill(PixelTheme.plantGreenLight, 3, 0, 2, 3);
-
-    // Canopy highlight dots for texture
-    paint.color = PixelTheme.plantGreenLight.withOpacity(0.5);
-    canvas.drawRect(
-      Rect.fromLTWH(2 * px, 3 * py, px, py),
-      paint,
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(5 * px, 5 * py, px, py),
-      paint,
-    );
-
-    // Shadow under canopy edges
-    paint.color = PixelTheme.plantGreenDark.withOpacity(0.4);
-    canvas.drawRect(
-      Rect.fromLTWH(1 * px, 6.5 * py, 6 * px, 0.5 * py),
-      paint,
-    );
+    f(PixelTheme.furniture, 3, 7, 2, 3);
+    f(PixelTheme.furnitureLight, 3, 7, 1, 3);
+    f(PixelTheme.plantGreenDark, 1, 4, 6, 3);
+    f(PixelTheme.plantGreen, 2, 2, 4, 3);
+    f(PixelTheme.plantGreenLight, 3, 0, 2, 3);
   }
 
   @override
-  bool shouldRepaint(covariant _TreePainter oldDelegate) => false;
+  bool shouldRepaint(covariant _TreePainter old) => false;
 }

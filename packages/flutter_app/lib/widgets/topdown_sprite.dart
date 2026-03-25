@@ -5,26 +5,18 @@ import '../models/office_layout.dart';
 
 /// A top-down (bird's eye) pixel-art sprite that draws a robot at a desk.
 ///
-/// Uses a 16x16 logical grid rendered at [size] (default 32px) with a square
-/// aspect ratio. Supports 7 visual states based on session status and idle
-/// pose. Only `running`/`starting` states animate; all others are static.
+/// Uses a 20x20 logical grid rendered at [size] (default 48px) with a square
+/// aspect ratio. All drawing uses sharp rectangles — no circles.
 class TopDownSprite extends StatefulWidget {
   const TopDownSprite({
     super.key,
     required this.status,
     this.idlePose,
-    this.size = 32,
+    this.size = 48,
   });
 
-  /// Session status: 'running', 'starting', 'queued', 'waiting',
-  /// 'waiting_for_input', 'failed', 'error', 'completed', 'success',
-  /// 'interrupted', 'cancelled'.
   final String status;
-
-  /// Idle pose for completed sessions. Ignored for non-completed statuses.
   final IdlePose? idlePose;
-
-  /// Widget size in logical pixels (square).
   final double size;
 
   @override
@@ -42,9 +34,7 @@ class _TopDownSpriteState extends State<TopDownSprite>
   @override
   void initState() {
     super.initState();
-    if (_needsAnimation(widget.status)) {
-      _startAnimation();
-    }
+    if (_needsAnimation(widget.status)) _startAnimation();
   }
 
   @override
@@ -65,7 +55,12 @@ class _TopDownSpriteState extends State<TopDownSprite>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 250),
-    )..addStatusListener(_onAnimationStatus);
+    )..addStatusListener((s) {
+        if (s == AnimationStatus.completed) {
+          setState(() => _frame = (_frame + 1) % 4);
+          _controller?.forward(from: 0);
+        }
+      });
     _controller!.forward();
   }
 
@@ -78,15 +73,6 @@ class _TopDownSpriteState extends State<TopDownSprite>
   void dispose() {
     _controller?.dispose();
     super.dispose();
-  }
-
-  void _onAnimationStatus(AnimationStatus status) {
-    if (status == AnimationStatus.completed) {
-      setState(() {
-        _frame = (_frame + 1) % 4;
-      });
-      _controller?.forward(from: 0);
-    }
   }
 
   @override
@@ -102,13 +88,13 @@ class _TopDownSpriteState extends State<TopDownSprite>
   }
 }
 
-// ---------------------------------------------------------------------------
-// Painter
-// ---------------------------------------------------------------------------
-
-/// Paints a top-down robot-at-desk scene on a 16x16 logical grid.
+/// Paints a top-down robot-at-desk on a 20×20 grid. All rectangles, no circles.
 ///
-/// Public so other painters can compose or extend the drawing.
+/// Layout (top to bottom):
+///   rows 0-4:  desk (wood surface + monitor + keyboard)
+///   rows 4-8:  robot head + antenna (facing desk)
+///   rows 8-13: robot body + arms
+///   rows 13-17: chair
 class TopDownSpritePainter extends CustomPainter {
   TopDownSpritePainter({
     required this.status,
@@ -120,546 +106,409 @@ class TopDownSpritePainter extends CustomPainter {
   final IdlePose? idlePose;
   final int frame;
 
-  // Grid dimensions.
-  static const int _cols = 16;
-  static const int _rows = 16;
+  static const int _g = 20; // grid size
 
-  // -- Robot palette (top-down) --
-  static const Color _robotHead = Color(0xFFB0B8C8); // metallic gray
-  static const Color _robotHeadHighlight = Color(0xFFD0D8E8);
-  static const Color _robotHeadShadow = Color(0xFF8090A0);
-  static const Color _robotBody = Color(0xFF8898B0); // darker torso
-  static const Color _robotAccent = PixelTheme.spriteBody; // blue panel
+  // Robot colors
+  static const _headLight = Color(0xFFCCD4E0);
+  static const _headMain = Color(0xFFAAB4C8);
+  static const _headDark = Color(0xFF8090A0);
+  static const _bodyMain = Color(0xFF7888A0);
+  static const _bodyAccent = PixelTheme.spriteBody; // blue
+  static const _bodyAccentDark = Color(0xFF3A70B0);
 
-  // -- Desk palette --
-  static const Color _deskWood = Color(0xFFD4A06A); // light wood top-down
-  static const Color _deskWoodDark = Color(0xFFB08050); // wood shadow edge
-  static const Color _monitorBar = Color(0xFF3A3028); // dark bezel bar
-  static const Color _keyboard = Color(0xFF4A3A2E); // warm brown keyboard
+  // Desk colors
+  static const _deskTop = Color(0xFFD4A86A);
+  static const _deskFront = Color(0xFFB88A50);
+  static const _monitorBack = Color(0xFF2A2420);
+  static const _monitorScreen = Color(0xFF4A8AB0);
+  static const _keys = Color(0xFF3A3028);
 
-  // -- Chair palette --
-  static const Color _chair = Color(0xFF3D2B1F); // dark leather
-  static const Color _chairHighlight = Color(0xFF5A4438);
+  // Chair
+  static const _chair = Color(0xFF3D2B1F);
+  static const _chairLight = Color(0xFF5A4438);
 
-  // -- Misc --
-  static const Color _bubbleWhite = Color(0xFFFFF8F0);
-  static const Color _bubbleBorder = Color(0xFFD4A574);
-
-  // -- Monitor screen colors by status --
-  static const Color _screenRunning = Color(0xFF6BA4C8);
-  static const Color _screenQueued = Color(0xFFE8D090);
-  static const Color _screenFailed = Color(0xFFD46070);
-  static const Color _screenOff = Color(0xFF3A3028);
-
-  /// Antenna ball color based on status.
   Color get _antennaColor {
     switch (status) {
       case 'running':
       case 'starting':
-        return PixelTheme.statusSuccess; // green
+        return PixelTheme.statusSuccess;
       case 'queued':
       case 'waiting':
       case 'waiting_for_input':
-        return PixelTheme.statusWarning; // yellow
+        return PixelTheme.statusWarning;
       case 'failed':
       case 'error':
-        return PixelTheme.statusFailed; // red
-      case 'completed':
-      case 'success':
-        // Dim green for idle completed states.
-        return const Color(0xFF5A8A4A);
+        return PixelTheme.statusFailed;
       case 'interrupted':
       case 'cancelled':
-        return PixelTheme.statusFailed; // red
+        return PixelTheme.statusFailed;
       default:
-        return PixelTheme.statusSuccess;
+        return const Color(0xFF5A8A4A); // dim green
+    }
+  }
+
+  Color get _screenColor {
+    switch (status) {
+      case 'running':
+      case 'starting':
+        return _monitorScreen;
+      case 'queued':
+      case 'waiting':
+      case 'waiting_for_input':
+        return const Color(0xFFE8D090);
+      case 'failed':
+      case 'error':
+        return const Color(0xFFD46070);
+      default:
+        return const Color(0xFF2A2A2A); // off
     }
   }
 
   @override
   void paint(Canvas canvas, Size size) {
-    final px = size.width / _cols;
-    final py = size.height / _rows;
+    final p = size.width / _g;
 
-    void fill(Color c, double x, double y, double w, double h) {
-      canvas.drawRect(
-        Rect.fromLTWH(x * px, y * py, w * px, h * py),
-        Paint()..color = c,
-      );
-    }
-
-    void fillPixel(Color c, double x, double y) => fill(c, x, y, 1, 1);
-
-    void fillCircle(Color c, double cx, double cy, double r) {
-      canvas.drawCircle(
-        Offset(cx * px, cy * py),
-        r * px,
-        Paint()..color = c,
-      );
+    void f(Color c, double x, double y, double w, double h) {
+      canvas.drawRect(Rect.fromLTWH(x * p, y * p, w * p, h * p), Paint()..color = c);
     }
 
     switch (status) {
       case 'running':
       case 'starting':
-        _drawRunning(fill, fillPixel, fillCircle, frame);
+        _drawRunning(f, frame);
       case 'queued':
       case 'waiting':
       case 'waiting_for_input':
-        _drawQueued(fill, fillPixel, fillCircle);
+        _drawQueued(f);
       case 'failed':
       case 'error':
-        _drawFailed(fill, fillPixel, fillCircle);
+        _drawFailed(f);
       case 'completed':
       case 'success':
-        _drawCompleted(fill, fillPixel, fillCircle);
+        _drawCompleted(f);
       case 'interrupted':
       case 'cancelled':
-        _drawInterrupted(fill, fillPixel, fillCircle);
+        _drawInterrupted(f);
       default:
-        _drawRunning(fill, fillPixel, fillCircle, 0);
+        _drawRunning(f, 0);
     }
   }
 
   @override
-  bool shouldRepaint(covariant TopDownSpritePainter oldDelegate) =>
-      oldDelegate.status != status ||
-      oldDelegate.frame != frame ||
-      oldDelegate.idlePose != idlePose;
+  bool shouldRepaint(covariant TopDownSpritePainter old) =>
+      old.status != status || old.frame != frame || old.idlePose != idlePose;
 
-  // =========================================================================
-  // Shared drawing helpers
-  // =========================================================================
+  // ── Desk (rows 0-4) ──
 
-  /// Draw the desk at the top of the cell (rows 1-3).
-  /// Desk spans most of the width with a wood rectangle.
-  void _drawDesk(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-  ) {
-    // Desk surface (top of cell)
-    fill(_deskWood, 2, 1, 12, 3);
-    // Front edge shadow
-    fill(_deskWoodDark, 2, 3.5, 12, 0.5);
-    // Back edge highlight
-    fill(const Color(0xFFE0B87A), 2, 1, 12, 0.5);
+  void _desk(void Function(Color, double, double, double, double) f) {
+    // Wood surface
+    f(_deskTop, 2, 0, 16, 4);
+    f(const Color(0xFFE0B87A), 2, 0, 16, 1); // highlight edge
+    f(_deskFront, 2, 3, 16, 1); // front edge shadow
   }
 
-  /// Draw the monitor bar on the desk (a thin dark rectangle with a screen).
-  void _drawMonitor(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px, {
-    required Color screenColor,
+  void _monitor(void Function(Color, double, double, double, double) f) {
+    f(_monitorBack, 5, 0.5, 10, 2); // monitor casing
+    f(_screenColor, 6, 1, 8, 1); // screen
+  }
+
+  void _keyboard(void Function(Color, double, double, double, double) f) {
+    f(_keys, 6, 3, 8, 1);
+    // Individual keys
+    f(const Color(0xFF4A4038), 6.5, 3.2, 1, 0.6);
+    f(const Color(0xFF4A4038), 8, 3.2, 1, 0.6);
+    f(const Color(0xFF4A4038), 9.5, 3.2, 1, 0.6);
+    f(const Color(0xFF4A4038), 11, 3.2, 1, 0.6);
+    f(const Color(0xFF4A4038), 12.5, 3.2, 1, 0.6);
+  }
+
+  // ── Chair (rows 14-17) ──
+
+  void _chairNormal(void Function(Color, double, double, double, double) f) {
+    f(_chair, 6, 14, 8, 3);
+    f(_chairLight, 6, 14, 8, 1); // back rest highlight
+    // Arm rests
+    f(_chair, 5, 15, 1, 2);
+    f(_chair, 14, 15, 1, 2);
+  }
+
+  // ── Robot head from above (5x4 rectangle with eyes) ──
+
+  void _head(void Function(Color, double, double, double, double) f, {
+    double ox = 0, double oy = 0, bool eyesOff = false,
   }) {
-    // Monitor back (thin bar seen from above)
-    fill(_monitorBar, 5, 1.5, 6, 1.5);
-    // Screen (colored strip on the near side of the monitor)
-    fill(screenColor, 5.5, 2, 5, 0.5);
-  }
+    final x = 7.0 + ox;
+    final y = 4.5 + oy;
 
-  /// Draw the keyboard (small dots/rectangle on desk surface).
-  void _drawKeyboard(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-  ) {
-    fill(_keyboard, 5.5, 3, 5, 0.5);
-    // Key dots
-    px(const Color(0xFF5A4A3E), 6, 3);
-    px(const Color(0xFF5A4A3E), 7.5, 3);
-    px(const Color(0xFF5A4A3E), 9, 3);
-  }
+    // Antenna stalk (1px wide, 2px up from head center)
+    f(_headDark, x + 2.5, y - 2, 1, 2);
+    // Antenna ball (2x1)
+    f(_antennaColor, x + 2, y - 3, 2, 1.5);
 
-  /// Draw the chair at the bottom of the cell.
-  void _drawChair(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px, {
-    double cx = 6,
-    double cy = 12,
-    bool rotated = false,
-  }) {
-    if (rotated) {
-      // Chair rotated sideways (for phone pose -- facing down)
-      fill(_chair, cx, cy, 4, 3);
-      fill(_chairHighlight, cx, cy, 4, 0.5);
-    } else {
-      // Normal chair facing desk (horizontal rectangle)
-      fill(_chair, cx, cy, 4, 2.5);
-      fill(_chairHighlight, cx, cy, 4, 0.5);
-      // Armrests
-      fill(_chair, cx - 0.5, cy + 0.5, 0.5, 1.5);
-      fill(_chair, cx + 4, cy + 0.5, 0.5, 1.5);
+    // Head body (6x4 rectangle)
+    f(_headMain, x, y, 6, 4);
+    // Top highlight
+    f(_headLight, x, y, 6, 1);
+    // Left highlight
+    f(_headLight, x, y, 1, 4);
+    // Bottom shadow
+    f(_headDark, x, y + 3, 6, 1);
+
+    // Face plate (dark inset)
+    f(const Color(0xFF1A2A3A), x + 1, y + 1, 4, 2);
+
+    if (!eyesOff) {
+      // Eyes (two colored squares on face plate)
+      f(_antennaColor, x + 1.5, y + 1.5, 1, 1);
+      f(_antennaColor, x + 3.5, y + 1.5, 1, 1);
     }
   }
 
-  /// Draw the robot head from above: a circle with antenna stalk + ball.
-  void _drawRobotHead(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-    void Function(Color, double, double, double) circle, {
-    required double hx,
-    required double hy,
-    bool slumped = false,
-  }) {
-    // Antenna stalk (thin line going toward the top / toward desk)
-    if (!slumped) {
-      fill(_robotHeadShadow, hx + 1.25, hy - 1.5, 0.5, 1.5);
-      // Antenna ball
-      circle(_antennaColor, hx + 1.5, hy - 1.5, 0.6);
-    } else {
-      // Slumped: antenna droops to the side
-      fill(_robotHeadShadow, hx + 2.2, hy - 0.3, 1, 0.4);
-      circle(_antennaColor, hx + 3.2, hy - 0.3, 0.5);
-    }
+  // ── Robot body from above (rectangular torso) ──
 
-    // Head: circular shape from above (metallic dome)
-    circle(_robotHead, hx + 1.5, hy + 1.5, 1.8);
-    // Highlight crescent on top-left
-    circle(_robotHeadHighlight, hx + 1.0, hy + 1.0, 0.8);
+  void _body(void Function(Color, double, double, double, double) f, {
+    double ox = 0, double oy = 0,
+  }) {
+    final x = 6.5 + ox;
+    final y = 9.0 + oy;
+
+    // Main torso (7x4)
+    f(_bodyMain, x, y, 7, 4);
+    // Top highlight
+    f(_headMain, x, y, 7, 1);
+    // Blue accent panel
+    f(_bodyAccent, x + 1.5, y + 1, 4, 2);
+    f(_bodyAccentDark, x + 2, y + 2, 3, 0.5); // panel detail
   }
 
-  /// Draw the robot body from above: rectangular torso below head.
-  void _drawRobotBody(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px, {
-    required double bx,
-    required double by,
-  }) {
-    // Torso rectangle
-    fill(_robotBody, bx, by, 3, 3);
-    // Blue accent panel on back
-    fill(_robotAccent, bx + 0.5, by + 0.5, 2, 1.5);
-    // Panel detail line
-    fill(const Color(0xFF3A70B0), bx + 0.8, by + 1.2, 1.4, 0.3);
+  // ── Arms ──
+
+  void _armsTyping(void Function(Color, double, double, double, double) f, int frame) {
+    // Arms reaching toward keyboard area
+    final leftY = (frame == 0 || frame == 2) ? 5.0 : 5.5;
+    final rightY = (frame == 1 || frame == 3) ? 5.0 : 5.5;
+    // Left arm
+    f(_headDark, 5, leftY, 1.5, 4);
+    f(_headMain, 5, leftY, 1.5, 1); // hand
+    // Right arm
+    f(_headDark, 13.5, rightY, 1.5, 4);
+    f(_headMain, 13.5, rightY, 1.5, 1); // hand
   }
 
-  /// Draw small robot arms (lines extending from body sides).
-  void _drawArms(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px, {
-    required double bx,
-    required double by,
-    bool typing = false,
-    int typingFrame = 0,
-    bool raised = false,
-    bool limp = false,
-    bool outToSides = false,
-  }) {
-    if (typing) {
-      // Arms reaching toward keyboard (toward top of cell)
-      final leftDy = (typingFrame == 0 || typingFrame == 2) ? -0.5 : 0.0;
-      final rightDy = (typingFrame == 1 || typingFrame == 3) ? -0.5 : 0.0;
-      // Left arm
-      fill(_robotHeadShadow, bx - 0.5, by - 1 + leftDy, 0.7, 2);
-      // Right arm
-      fill(_robotHeadShadow, bx + 2.8, by - 1 + rightDy, 0.7, 2);
-    } else if (raised) {
-      // One arm raised (right arm up)
-      fill(_robotHeadShadow, bx - 0.5, by + 0.5, 0.7, 2);
-      fill(_robotHeadShadow, bx + 2.8, by - 1.5, 0.7, 2);
-    } else if (limp) {
-      // Arms hanging down (toward bottom)
-      fill(_robotHeadShadow, bx - 0.5, by + 1, 0.7, 2);
-      fill(_robotHeadShadow, bx + 2.8, by + 1, 0.7, 2);
-    } else if (outToSides) {
-      // Arms spread out sideways
-      fill(_robotHeadShadow, bx - 1.5, by + 0.5, 2, 0.7);
-      fill(_robotHeadShadow, bx + 2.5, by + 0.5, 2, 0.7);
-    } else {
-      // Default resting arms at sides
-      fill(_robotHeadShadow, bx - 0.5, by + 0.3, 0.7, 1.5);
-      fill(_robotHeadShadow, bx + 2.8, by + 0.3, 0.7, 1.5);
-    }
+  void _armsResting(void Function(Color, double, double, double, double) f) {
+    f(_headDark, 5, 9, 1.5, 3);
+    f(_headDark, 13.5, 9, 1.5, 3);
   }
 
-  // =========================================================================
-  // State: running / starting
-  // =========================================================================
+  void _armsLimp(void Function(Color, double, double, double, double) f) {
+    f(_headDark, 5, 10, 1.5, 4);
+    f(_headDark, 13.5, 10, 1.5, 4);
+  }
 
-  void _drawRunning(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-    void Function(Color, double, double, double) circle,
-    int frame,
-  ) {
-    _drawDesk(fill, px);
-    _drawMonitor(fill, px,
-        screenColor: frame.isEven ? _screenRunning : const Color(0xFF5E94B8));
-    _drawKeyboard(fill, px);
-    _drawChair(fill, px);
+  void _armsSideways(void Function(Color, double, double, double, double) f) {
+    f(_headDark, 3, 10, 3.5, 1.5);
+    f(_headDark, 13.5, 10, 3.5, 1.5);
+  }
 
-    // Robot body centered, sitting in chair area
-    const bx = 6.5;
-    const by = 8.0;
-    _drawRobotBody(fill, px, bx: bx, by: by);
+  void _armsRaised(void Function(Color, double, double, double, double) f) {
+    // Left resting, right up
+    f(_headDark, 5, 9, 1.5, 3);
+    f(_headDark, 13.5, 5, 1.5, 4);
+    f(_headMain, 13.5, 5, 1.5, 1.5); // raised hand
+  }
 
-    // Arms typing on keyboard
-    _drawArms(fill, px, bx: bx, by: by, typing: true, typingFrame: frame);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STATES
+  // ═══════════════════════════════════════════════════════════════════════════
 
-    // Head (above body, facing desk)
-    _drawRobotHead(fill, px, circle, hx: bx, hy: by - 3);
+  void _drawRunning(void Function(Color, double, double, double, double) f, int frame) {
+    _desk(f);
+    _monitor(f);
+    _keyboard(f);
+    _chairNormal(f);
+    _body(f);
+    _armsTyping(f, frame);
+    _head(f);
 
-    // Antenna blink: glow on even frames
+    // Antenna glow on even frames
     if (frame.isEven) {
-      circle(
-        _antennaColor.withOpacity(0.3),
-        bx + 1.5,
-        by - 3 - 1.5,
-        1.2,
-      );
+      f(_antennaColor.withOpacity(0.25), 8.5, 0.5, 3, 2);
     }
 
-    // Typing activity dots on keyboard (alternating)
+    // Typing flash on keyboard
     if (frame == 0 || frame == 2) {
-      px(const Color(0xFFFFFFFF), 6.5, 3.2);
+      f(Colors.white70, 7, 3.3, 1, 0.4);
+    } else {
+      f(Colors.white70, 12, 3.3, 1, 0.4);
     }
-    if (frame == 1 || frame == 3) {
-      px(const Color(0xFFFFFFFF), 9, 3.2);
-    }
   }
 
-  // =========================================================================
-  // State: queued / waiting / waiting_for_input
-  // =========================================================================
+  void _drawQueued(void Function(Color, double, double, double, double) f) {
+    _desk(f);
+    _monitor(f);
+    _keyboard(f);
+    _chairNormal(f);
+    _body(f);
+    _armsRaised(f);
+    _head(f);
 
-  void _drawQueued(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-    void Function(Color, double, double, double) circle,
-  ) {
-    _drawDesk(fill, px);
-    _drawMonitor(fill, px, screenColor: _screenQueued);
-    _drawKeyboard(fill, px);
-    _drawChair(fill, px);
-
-    const bx = 6.5;
-    const by = 8.0;
-    _drawRobotBody(fill, px, bx: bx, by: by);
-
-    // One arm raised
-    _drawArms(fill, px, bx: bx, by: by, raised: true);
-
-    _drawRobotHead(fill, px, circle, hx: bx, hy: by - 3);
-
-    // "?" speech bubble (top-right)
-    fill(_bubbleBorder, 11, 3, 4, 3);
-    fill(_bubbleWhite, 11.5, 3.5, 3, 2);
-    // Bubble tail
-    px(_bubbleBorder, 11, 5.5);
-
-    // "?" character
-    px(PixelTheme.statusWarning, 12.5, 4);
-    px(PixelTheme.statusWarning, 13, 3.8);
-    px(PixelTheme.statusWarning, 13, 4.3);
-    px(PixelTheme.statusWarning, 12.5, 4.5);
-    px(PixelTheme.statusWarning, 12.5, 5);
+    // "?" bubble (top right)
+    f(const Color(0xFFD4A574), 14, 1, 5, 4);
+    f(const Color(0xFFFFF8F0), 14.5, 1.5, 4, 3);
+    // "?"
+    f(PixelTheme.statusWarning, 16, 2, 1.5, 0.5);
+    f(PixelTheme.statusWarning, 17, 2.5, 0.5, 0.5);
+    f(PixelTheme.statusWarning, 16.5, 3, 0.5, 0.5);
+    f(PixelTheme.statusWarning, 16.5, 3.8, 0.5, 0.5);
   }
 
-  // =========================================================================
-  // State: failed / error
-  // =========================================================================
+  void _drawFailed(void Function(Color, double, double, double, double) f) {
+    _desk(f);
+    _monitor(f);
+    _chairNormal(f);
+    _body(f);
+    _armsLimp(f);
 
-  void _drawFailed(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-    void Function(Color, double, double, double) circle,
-  ) {
-    _drawDesk(fill, px);
-    _drawMonitor(fill, px, screenColor: _screenFailed);
-    _drawKeyboard(fill, px);
-    _drawChair(fill, px);
+    // Head slumped forward onto desk
+    _head(f, oy: -2, eyesOff: true);
+    // Eyes as X marks (on the slumped face)
+    f(PixelTheme.statusFailed, 8.5, 3.5, 0.8, 0.8);
+    f(PixelTheme.statusFailed, 11, 3.5, 0.8, 0.8);
 
-    const bx = 6.5;
-    const by = 8.0;
-    _drawRobotBody(fill, px, bx: bx, by: by);
+    // "!" bubble
+    f(const Color(0xFFD4A574), 14, 0, 4, 4);
+    f(const Color(0xFFFFF8F0), 14.5, 0.5, 3, 3);
+    f(PixelTheme.statusFailed, 15.5, 1, 1, 1.5);
+    f(PixelTheme.statusFailed, 15.5, 2.8, 1, 0.5);
 
-    // Arms limp
-    _drawArms(fill, px, bx: bx, by: by, limp: true);
-
-    // Head slumped forward toward desk (higher y = more forward in top-down)
-    _drawRobotHead(fill, px, circle, hx: bx, hy: by - 4.5, slumped: true);
-
-    // "!" alert bubble (top-right)
-    fill(_bubbleBorder, 11, 2, 3, 3);
-    fill(_bubbleWhite, 11.5, 2.5, 2, 2);
-    px(_bubbleBorder, 11, 4.5);
-
-    // "!" character
-    fill(PixelTheme.statusFailed, 12.2, 3, 0.6, 1);
-    fill(PixelTheme.statusFailed, 12.2, 4.2, 0.6, 0.3);
-
-    // Smoke puffs above robot (small gray circles)
-    circle(const Color(0x60888888), 5, 4, 0.5);
-    circle(const Color(0x40888888), 4, 3, 0.4);
-    circle(const Color(0x30888888), 3.5, 2, 0.3);
+    // Smoke wisps
+    f(const Color(0x50888888), 4, 2, 1, 1);
+    f(const Color(0x35888888), 3, 1, 1.5, 1);
+    f(const Color(0x20888888), 2, 0, 1, 1);
   }
 
-  // =========================================================================
-  // State: completed — dispatches to idle pose
-  // =========================================================================
-
-  void _drawCompleted(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-    void Function(Color, double, double, double) circle,
-  ) {
+  void _drawCompleted(void Function(Color, double, double, double, double) f) {
     switch (idlePose) {
       case IdlePose.sleeping:
-        _drawSleeping(fill, px, circle);
+        _drawSleeping(f);
       case IdlePose.phone:
-        _drawPhone(fill, px, circle);
+        _drawPhone(f);
       case IdlePose.coffee:
-        _drawCoffee(fill, px, circle);
+        _drawCoffee(f);
       case null:
-        _drawSleeping(fill, px, circle); // default
+        _drawSleeping(f);
     }
   }
 
-  // =========================================================================
-  // Idle: sleeping — head down on desk, "ZZZ"
-  // =========================================================================
+  void _drawSleeping(void Function(Color, double, double, double, double) f) {
+    _desk(f);
+    f(_monitorBack, 5, 0.5, 10, 2); // monitor (off)
+    f(const Color(0xFF2A2A2A), 6, 1, 8, 1);
+    _chairNormal(f);
+    _body(f);
 
-  void _drawSleeping(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-    void Function(Color, double, double, double) circle,
-  ) {
-    _drawDesk(fill, px);
-    _drawMonitor(fill, px, screenColor: _screenOff);
-    _drawChair(fill, px);
+    // Arms resting on desk surface
+    f(_headDark, 5, 5, 1.5, 5);
+    f(_headDark, 13.5, 5, 1.5, 5);
 
-    const bx = 6.5;
-    const by = 8.0;
-    _drawRobotBody(fill, px, bx: bx, by: by);
+    // Head down ON the desk (slumped way forward)
+    f(_headMain, 7, 2, 6, 3);
+    f(_headLight, 7, 2, 6, 1);
+    f(_headDark, 7, 4, 6, 1);
+    // Dim antenna flopping sideways
+    f(_headDark, 13, 2.5, 2, 0.5);
+    f(const Color(0xFF5A8A4A), 14.5, 2, 1.5, 1);
 
-    // Arms resting on desk (forward)
-    fill(_robotHeadShadow, bx - 0.3, by - 2, 0.7, 2.5);
-    fill(_robotHeadShadow, bx + 2.6, by - 2, 0.7, 2.5);
+    // ZZZ (ascending to top-right)
+    f(const Color(0xFFB0C0D0), 15, 3, 1, 0.5);
+    f(const Color(0xFFB0C0D0), 15.5, 3.5, 0.5, 0.5);
+    f(const Color(0xFFB0C0D0), 15, 4, 1, 0.5);
 
-    // Head resting on desk (drawn ON the desk, further up)
-    circle(_robotHead, bx + 1.5, 3.8, 1.6);
-    circle(_robotHeadHighlight, bx + 1.0, 3.3, 0.6);
-    // Dim antenna flopped to side
-    fill(_robotHeadShadow, bx + 2.8, 3.2, 1, 0.4);
-    circle(const Color(0xFF5A8A4A), bx + 3.8, 3.2, 0.4);
+    f(const Color(0xFF90A8C0), 16, 1.5, 1.5, 0.5);
+    f(const Color(0xFF90A8C0), 17, 2, 0.5, 0.5);
+    f(const Color(0xFF90A8C0), 16, 2.5, 1.5, 0.5);
 
-    // "ZZZ" floating text (ascending sizes)
-    _drawZ(px, const Color(0xFFB0C0D0), 11, 2);
-    _drawZ(px, const Color(0xFF90A0B0), 12.5, 1);
-    _drawZ(px, const Color(0xFF7888A0), 14, 0);
+    f(const Color(0xFF7090B0), 17, 0, 2, 0.5);
+    f(const Color(0xFF7090B0), 18.5, 0.5, 0.5, 0.5);
+    f(const Color(0xFF7090B0), 17, 1, 2, 0.5);
   }
 
-  /// Draw a tiny "Z" character at position.
-  void _drawZ(
-    void Function(Color, double, double) px,
-    Color c,
-    double x,
-    double y,
-  ) {
-    px(c, x, y);
-    px(c, x + 0.5, y);
-    px(c, x + 0.5, y + 0.5);
-    px(c, x, y + 1);
-    px(c, x + 0.5, y + 1);
+  void _drawPhone(void Function(Color, double, double, double, double) f) {
+    _desk(f);
+    f(_monitorBack, 5, 0.5, 10, 2); // monitor off
+    f(const Color(0xFF2A2A2A), 6, 1, 8, 1);
+
+    // Chair rotated (facing away from desk)
+    f(_chair, 6, 14, 8, 3);
+    f(_chairLight, 6, 16, 8, 1); // front rest
+
+    // Body (slightly lower)
+    _body(f, oy: 1);
+
+    // Head facing DOWN (away from desk — bottom of cell)
+    final hx = 7.0;
+    final hy = 13.0;
+    f(_headMain, hx, hy, 6, 4);
+    f(_headDark, hx, hy, 6, 1); // top shadow (it's upside-down relative to desk)
+    f(_headLight, hx, hy + 3, 6, 1); // bottom highlight
+    // Face plate (facing down)
+    f(const Color(0xFF1A2A3A), hx + 1, hy + 1, 4, 2);
+    // Eyes looking down
+    f(_antennaColor, hx + 1.5, hy + 1.5, 1, 1);
+    f(_antennaColor, hx + 3.5, hy + 1.5, 1, 1);
+    // Antenna pointing down
+    f(_headDark, hx + 2.5, hy + 4, 1, 1.5);
+    f(_antennaColor, hx + 2, hy + 5, 2, 1);
+
+    // Arms holding phone
+    f(_headDark, 6, 12, 1.5, 2);
+    f(_headDark, 12.5, 12, 1.5, 2);
+    // Phone
+    f(const Color(0xFF1A1A2A), 8, 12, 4, 2);
+    f(const Color(0xFF5577BB), 8.5, 12.3, 3, 1.4); // screen glow
   }
 
-  // =========================================================================
-  // Idle: phone — chair rotated, robot facing down holding phone
-  // =========================================================================
+  void _drawCoffee(void Function(Color, double, double, double, double) f) {
+    _desk(f);
+    f(_monitorBack, 5, 0.5, 10, 2); // monitor off
+    f(const Color(0xFF2A2A2A), 6, 1, 8, 1);
+    _keyboard(f);
+    _chairNormal(f);
+    _body(f, oy: 0.5);
+    _armsResting(f);
+    _head(f, oy: 0.5, eyesOff: true);
 
-  void _drawPhone(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-    void Function(Color, double, double, double) circle,
-  ) {
-    _drawDesk(fill, px);
-    _drawMonitor(fill, px, screenColor: _screenOff);
-
-    // Chair rotated (facing downward/away from desk)
-    _drawChair(fill, px, cx: 6, cy: 11, rotated: true);
-
-    // Robot body (slightly lower, sitting in rotated chair)
-    const bx = 6.5;
-    const by = 8.5;
-    _drawRobotBody(fill, px, bx: bx, by: by);
-
-    // Arms holding phone (converging in front / below)
-    fill(_robotHeadShadow, bx + 0.5, by + 2.8, 0.7, 1.5);
-    fill(_robotHeadShadow, bx + 1.8, by + 2.8, 0.7, 1.5);
-
-    // Phone (small rectangle held in hands)
-    fill(const Color(0xFF2A2A3A), bx + 0.5, by + 4, 2, 1);
-    // Phone screen glow
-    fill(const Color(0xFF5577AA), bx + 0.7, by + 4.2, 1.6, 0.5);
-
-    // Head facing down (toward phone, away from desk)
-    _drawRobotHead(fill, px, circle, hx: bx, hy: by - 2.5);
-  }
-
-  // =========================================================================
-  // Idle: coffee — at desk, leaned back, coffee cup on desk, steam
-  // =========================================================================
-
-  void _drawCoffee(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-    void Function(Color, double, double, double) circle,
-  ) {
-    _drawDesk(fill, px);
-    _drawMonitor(fill, px, screenColor: _screenOff);
-    _drawKeyboard(fill, px);
-    _drawChair(fill, px);
+    // Relaxed eyes (half-closed, lines)
+    f(const Color(0xFF5A8A4A), 8.5, 6.5, 1, 0.5);
+    f(const Color(0xFF5A8A4A), 11, 6.5, 1, 0.5);
 
     // Coffee cup on desk (right side)
-    fill(const Color(0xFFE8E0D0), 11, 2, 1.5, 1.5); // cup body
-    fill(const Color(0xFF8B6D47), 11, 2, 1.5, 0.3); // coffee surface
-    // Cup handle
-    fill(const Color(0xFFE8E0D0), 12.5, 2.3, 0.5, 0.8);
+    f(Colors.white, 14, 1.5, 2, 2); // cup body
+    f(const Color(0xFF8B5A2A), 14, 1.5, 2, 0.5); // coffee top
+    f(Colors.white, 16, 2, 0.5, 1); // handle
 
-    // Steam dots above cup
-    circle(const Color(0x50FFFFFF), 11.5, 1.3, 0.3);
-    circle(const Color(0x35FFFFFF), 12, 0.7, 0.25);
-    circle(const Color(0x20FFFFFF), 11.2, 0.3, 0.2);
-
-    // Robot body (slightly leaned back / lower)
-    const bx = 6.5;
-    const by = 8.5;
-    _drawRobotBody(fill, px, bx: bx, by: by);
-
-    // Arms resting at sides (relaxed)
-    _drawArms(fill, px, bx: bx, by: by);
-
-    // Head leaned back slightly (further from desk)
-    _drawRobotHead(fill, px, circle, hx: bx, hy: by - 2.5);
+    // Steam
+    f(const Color(0x40FFFFFF), 14.5, 0.5, 0.5, 1);
+    f(const Color(0x30FFFFFF), 15.5, 0, 0.5, 1);
   }
 
-  // =========================================================================
-  // State: interrupted / cancelled
-  // =========================================================================
+  void _drawInterrupted(void Function(Color, double, double, double, double) f) {
+    _desk(f);
+    f(_monitorBack, 5, 0.5, 10, 2); // monitor off
+    f(const Color(0xFF2A2A2A), 6, 1, 8, 1);
 
-  void _drawInterrupted(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px,
-    void Function(Color, double, double, double) circle,
-  ) {
-    _drawDesk(fill, px);
-    _drawMonitor(fill, px, screenColor: _screenOff);
-    // Chair pushed back
-    _drawChair(fill, px, cy: 13);
+    // Chair pushed way back
+    f(_chair, 6, 16, 8, 3);
+    f(_chairLight, 6, 16, 8, 1);
 
-    // Robot body (standing, above chair)
-    const bx = 6.5;
-    const by = 8.0;
-    _drawRobotBody(fill, px, bx: bx, by: by);
+    _body(f, oy: 1);
+    _armsSideways(f);
+    _head(f, oy: 1);
 
-    // Arms spread out to sides (alert)
-    _drawArms(fill, px, bx: bx, by: by, outToSides: true);
-
-    // Head
-    _drawRobotHead(fill, px, circle, hx: bx, hy: by - 3);
-
-    // Alert marks above head (! !)
-    fill(PixelTheme.statusFailed, 5.5, 3.5, 0.5, 1);
-    fill(PixelTheme.statusFailed, 5.5, 4.8, 0.5, 0.3);
-    fill(PixelTheme.statusFailed, 10, 3.5, 0.5, 1);
-    fill(PixelTheme.statusFailed, 10, 4.8, 0.5, 0.3);
+    // Alert exclamation marks
+    f(PixelTheme.statusFailed, 4, 4, 1, 2);
+    f(PixelTheme.statusFailed, 4, 6.5, 1, 0.5);
+    f(PixelTheme.statusFailed, 15, 4, 1, 2);
+    f(PixelTheme.statusFailed, 15, 6.5, 1, 0.5);
   }
 }
