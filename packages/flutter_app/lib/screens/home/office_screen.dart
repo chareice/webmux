@@ -31,8 +31,6 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
   String? _selectedProject;
 
   // Timer for updating running durations every second.
-  Timer? _durationTimer;
-
   // Timer for auto-refreshing thread data.
   Timer? _refreshTimer;
 
@@ -41,19 +39,10 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
     super.initState();
     _loadData();
 
-    // Tick every second to update running duration animations.
-    _durationTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) {
-        if (_runningThreads.isNotEmpty && mounted) {
-          setState(() {});
-        }
-      },
-    );
-
-    // Auto-refresh every 5 seconds for real-time updates.
+    // Auto-refresh every 10 seconds for status updates.
+    // No per-second timer — sprite animations are handled internally.
     _refreshTimer = Timer.periodic(
-      const Duration(seconds: 5),
+      const Duration(seconds: 10),
       (_) {
         if (mounted) _loadData(silent: true);
       },
@@ -62,7 +51,6 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
 
   @override
   void dispose() {
-    _durationTimer?.cancel();
     _refreshTimer?.cancel();
     super.dispose();
   }

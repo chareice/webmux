@@ -28,17 +28,19 @@ class PixelSprite extends StatefulWidget {
 
 class _PixelSpriteState extends State<PixelSprite>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  AnimationController? _controller;
   int _frame = 0;
+
+  /// Only these statuses need animation; all others show a static frame.
+  static bool _needsAnimation(String status) =>
+      status == 'running' || status == 'starting';
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: _frameDuration,
-    )..addStatusListener(_onAnimationStatus);
-    _controller.forward();
+    if (_needsAnimation(widget.status)) {
+      _startAnimation();
+    }
   }
 
   @override
@@ -46,24 +48,32 @@ class _PixelSpriteState extends State<PixelSprite>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.status != widget.status) {
       _frame = 0;
-      _controller.duration = _frameDuration;
-      _controller.forward(from: 0);
+      if (_needsAnimation(widget.status)) {
+        _startAnimation();
+      } else {
+        _stopAnimation();
+      }
     }
+  }
+
+  void _startAnimation() {
+    _controller?.dispose();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    )..addStatusListener(_onAnimationStatus);
+    _controller!.forward();
+  }
+
+  void _stopAnimation() {
+    _controller?.dispose();
+    _controller = null;
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
-  }
-
-  Duration get _frameDuration {
-    // Typing states get a faster tick.
-    final s = widget.status;
-    if (s == 'running' || s == 'starting') {
-      return const Duration(milliseconds: 200);
-    }
-    return const Duration(milliseconds: 300);
   }
 
   int get _totalFrames {
@@ -71,21 +81,8 @@ class _PixelSpriteState extends State<PixelSprite>
       case 'running':
       case 'starting':
         return 4;
-      case 'queued':
-      case 'waiting':
-      case 'waiting_for_input':
-        return 3;
-      case 'failed':
-      case 'error':
-        return 2;
-      case 'success':
-      case 'completed':
-        return 3;
-      case 'interrupted':
-      case 'cancelled':
-        return 2;
       default:
-        return 2;
+        return 1; // Static frame for all non-animated states
     }
   }
 
@@ -94,7 +91,7 @@ class _PixelSpriteState extends State<PixelSprite>
       setState(() {
         _frame = (_frame + 1) % _totalFrames;
       });
-      _controller.forward(from: 0);
+      _controller?.forward(from: 0);
     }
   }
 
