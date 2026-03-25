@@ -31,9 +31,9 @@ class _ThreadListScreenState extends ConsumerState<ThreadListScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.zero,
       ),
       builder: (ctx) => NewThreadSheet(
         apiClient: ref.read(apiClientProvider),
