@@ -69,12 +69,17 @@ class _PixelSpriteState extends State<PixelSprite>
       case 'starting':
         return 4;
       case 'queued':
+      case 'waiting':
+      case 'waiting_for_input':
         return 3;
       case 'failed':
+      case 'error':
         return 2;
       case 'success':
+      case 'completed':
         return 3;
       case 'interrupted':
+      case 'cancelled':
         return 2;
       default:
         return 2;
@@ -140,12 +145,17 @@ class _SpritePainter extends CustomPainter {
       case 'starting':
         _drawTyping(fill, fillPixel, frame);
       case 'queued':
+      case 'waiting':
+      case 'waiting_for_input':
         _drawQueued(fill, fillPixel, frame);
       case 'failed':
+      case 'error':
         _drawFailed(fill, fillPixel, frame);
       case 'success':
+      case 'completed':
         _drawSuccess(fill, fillPixel, frame);
       case 'interrupted':
+      case 'cancelled':
         _drawInterrupted(fill, fillPixel, frame);
       default:
         _drawTyping(fill, fillPixel, 0);

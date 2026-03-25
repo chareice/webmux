@@ -68,7 +68,7 @@ class MessageBubble extends StatelessWidget {
                 children: [
                   const Padding(
                     padding: EdgeInsets.only(top: 8, right: 6),
-                    child: PixelSprite(status: 'success', size: 24),
+                    child: PixelSprite(status: 'completed', size: 24),
                   ),
                   Flexible(child: bubble),
                 ],

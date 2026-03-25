@@ -38,6 +38,7 @@ class OfficeScene extends StatelessWidget {
       child: CustomPaint(
         painter: const _OfficeBgPainter(),
         child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
