@@ -139,42 +139,21 @@ class _NewThreadSheetState extends State<NewThreadSheet> {
     }
   }
 
-  /// Pixel-styled input decoration with wood borders and warm fill.
-  InputDecoration _pixelInputDecoration({
-    required String labelText,
-    String? hintText,
-    bool alignLabelWithHint = false,
-  }) {
-    return InputDecoration(
-      labelText: labelText,
-      hintText: hintText,
-      alignLabelWithHint: alignLabelWithHint,
-      isDense: true,
-      labelStyle: const TextStyle(color: PixelTheme.furniture),
-      hintStyle: TextStyle(color: PixelTheme.furniture.withOpacity(0.5)),
-      filled: true,
-      fillColor: PixelTheme.floorLight,
-      border: const OutlineInputBorder(
-        borderRadius: PixelTheme.sharpCorners,
-        borderSide: BorderSide(
-          color: PixelTheme.furniture,
-          width: PixelTheme.borderWidth,
+  /// Wraps a child in a pixel-styled container (no Material InputDecoration).
+  Widget _pixelField({required String label, required Widget child}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: PixelTheme.furniture, fontSize: 11, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        Container(
+          decoration: BoxDecoration(
+            color: PixelTheme.floorLight,
+            border: Border.all(color: PixelTheme.furniture, width: 2),
+          ),
+          child: child,
         ),
-      ),
-      enabledBorder: const OutlineInputBorder(
-        borderRadius: PixelTheme.sharpCorners,
-        borderSide: BorderSide(
-          color: PixelTheme.furniture,
-          width: PixelTheme.borderWidth,
-        ),
-      ),
-      focusedBorder: const OutlineInputBorder(
-        borderRadius: PixelTheme.sharpCorners,
-        borderSide: BorderSide(
-          color: PixelTheme.furnitureDark,
-          width: PixelTheme.borderWidth,
-        ),
-      ),
+      ],
     );
   }
 
@@ -225,34 +204,35 @@ class _NewThreadSheetState extends State<NewThreadSheet> {
               )
             else ...[
               // Agent selector
-              Theme(
-                data: Theme.of(context).copyWith(
-                  canvasColor: PixelTheme.floorLight,
-                ),
-                child: DropdownButtonFormField<AgentInfo>(
-                  value: _selectedAgent,
-                  decoration: _pixelInputDecoration(labelText: 'Agent'),
-                  style: const TextStyle(color: PixelTheme.furnitureDark, fontSize: 14),
-                  dropdownColor: PixelTheme.floorLight,
-                  items: _agents.map((a) => DropdownMenuItem(
-                    value: a,
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 8, height: 8,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: a.status == 'online'
-                                ? PixelTheme.statusSuccess
-                                : PixelTheme.furniture,
+              _pixelField(
+                label: 'AGENT',
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<AgentInfo>(
+                    value: _selectedAgent,
+                    isExpanded: true,
+                    dropdownColor: PixelTheme.floorLight,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    style: const TextStyle(color: PixelTheme.furnitureDark, fontSize: 14),
+                    items: _agents.map((a) => DropdownMenuItem(
+                      value: a,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 8, height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: a.status == 'online'
+                                  ? PixelTheme.statusSuccess
+                                  : PixelTheme.furniture,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(a.name, style: const TextStyle(color: PixelTheme.furnitureDark)),
-                      ],
-                    ),
-                  )).toList(),
-                  onChanged: (v) => setState(() => _selectedAgent = v),
+                          const SizedBox(width: 8),
+                          Text(a.name),
+                        ],
+                      ),
+                    )).toList(),
+                    onChanged: (v) => setState(() => _selectedAgent = v),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -260,10 +240,11 @@ class _NewThreadSheetState extends State<NewThreadSheet> {
               // Repo path — quick select from recent paths
               if (_recentPaths.isNotEmpty) ...[
                 const Text(
-                  'Repository',
+                  'REPOSITORY',
                   style: TextStyle(
                     color: PixelTheme.furniture,
-                    fontSize: 12,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -301,14 +282,20 @@ class _NewThreadSheetState extends State<NewThreadSheet> {
                 const SizedBox(height: 8),
               ],
               // Manual repo path input
-              TextField(
-                controller: _repoPathController,
-                style: const TextStyle(color: PixelTheme.furnitureDark),
-                decoration: _pixelInputDecoration(
-                  labelText: _recentPaths.isNotEmpty ? 'Or enter path' : 'Repository Path',
-                  hintText: '/home/user/projects/my-project',
+              _pixelField(
+                label: _recentPaths.isNotEmpty ? 'OR ENTER PATH' : 'REPOSITORY PATH',
+                child: TextField(
+                  controller: _repoPathController,
+                  style: const TextStyle(color: PixelTheme.furnitureDark, fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: '/home/user/projects/my-project',
+                    hintStyle: TextStyle(color: PixelTheme.furniture.withAlpha(120)),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    isDense: true,
+                  ),
+                  onChanged: (_) => setState(() {}),
                 ),
-                onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 12),
 
@@ -316,10 +303,11 @@ class _NewThreadSheetState extends State<NewThreadSheet> {
               Row(
                 children: [
                   const Text(
-                    'Tool:',
+                    'TOOL',
                     style: TextStyle(
                       color: PixelTheme.furniture,
-                      fontSize: 12,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -331,15 +319,20 @@ class _NewThreadSheetState extends State<NewThreadSheet> {
               const SizedBox(height: 12),
 
               // Prompt
-              TextField(
-                controller: _promptController,
-                maxLines: 4,
-                minLines: 2,
-                style: const TextStyle(color: PixelTheme.furnitureDark),
-                decoration: _pixelInputDecoration(
-                  labelText: 'Message',
-                  hintText: 'What should the agent do?',
-                  alignLabelWithHint: true,
+              _pixelField(
+                label: 'MESSAGE',
+                child: TextField(
+                  controller: _promptController,
+                  maxLines: 4,
+                  minLines: 2,
+                  style: const TextStyle(color: PixelTheme.furnitureDark, fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'What should the agent do?',
+                    hintStyle: TextStyle(color: PixelTheme.furniture.withAlpha(120)),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    isDense: true,
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
