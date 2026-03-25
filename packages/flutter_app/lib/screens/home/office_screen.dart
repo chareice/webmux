@@ -317,10 +317,6 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Office'),
-        actions: const [],
-      ),
       body: _buildBody(),
     );
   }
