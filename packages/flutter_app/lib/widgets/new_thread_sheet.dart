@@ -28,10 +28,12 @@ class NewThreadSheet extends StatefulWidget {
     super.key,
     required this.apiClient,
     required this.onCreated,
+    this.initialRepoPath,
   });
 
   final ApiClient apiClient;
   final void Function(String agentId, String threadId) onCreated;
+  final String? initialRepoPath;
 
   @override
   State<NewThreadSheet> createState() => _NewThreadSheetState();
@@ -93,8 +95,10 @@ class _NewThreadSheetState extends State<NewThreadSheet> {
               )
             : null;
         _recentPaths = paths.toList()..sort();
-        // Auto-fill first path if available.
-        if (_recentPaths.isNotEmpty) {
+        // Auto-fill repo path: prefer initialRepoPath, then first recent path.
+        if (widget.initialRepoPath != null) {
+          _repoPathController.text = widget.initialRepoPath!;
+        } else if (_recentPaths.isNotEmpty) {
           _repoPathController.text = _recentPaths.first;
         }
         _loading = false;

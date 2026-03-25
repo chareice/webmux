@@ -10,7 +10,7 @@ import '../../models/run.dart';
 import '../../providers/api_provider.dart';
 import '../../providers/threads_provider.dart';
 import '../../widgets/new_thread_sheet.dart';
-import '../../widgets/office_scene.dart';
+import '../../widgets/office_scene_v2.dart';
 
 /// Main office view — displays all threads as pixel-art workstations
 /// arranged on a tile floor, with project filtering and real-time updates.
@@ -279,6 +279,24 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
     );
   }
 
+  void _onAddNewForProject(String repoPath) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      builder: (ctx) => NewThreadSheet(
+        apiClient: ref.read(apiClientProvider),
+        initialRepoPath: repoPath,
+        onCreated: (agentId, threadId) {
+          ref.read(threadsProvider.notifier).refresh();
+          _loadData();
+          context.push('/threads/$agentId/$threadId');
+        },
+      ),
+    );
+  }
+
   void _onAddNew() {
     showModalBottomSheet(
       context: context,
@@ -343,11 +361,12 @@ class _OfficeScreenState extends ConsumerState<OfficeScreen> {
 
     return RefreshIndicator(
       onRefresh: _loadData,
-      child: OfficeScene(
+      child: OfficeSceneV2(
         threads: _threads,
         onThreadTap: _onThreadTap,
         onThreadLongPress: _onThreadLongPress,
         onAddNew: _onAddNew,
+        onAddNewForProject: _onAddNewForProject,
       ),
     );
   }
