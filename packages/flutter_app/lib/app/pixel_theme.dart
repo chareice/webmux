@@ -4,9 +4,9 @@ import 'theme.dart';
 
 /// Pixel art visual system for the office game UI.
 ///
-/// Provides sharp-cornered decorations, retro color palette, and style
-/// factories that complement the existing [WebmuxTheme] dark theme.
-/// All pixel UI elements use sharp corners and 2px solid borders.
+/// Provides sharp-cornered decorations, a warm Stardew Valley-inspired color
+/// palette, and style factories that complement the existing [WebmuxTheme]
+/// dark theme. All pixel UI elements use sharp corners and 2px solid borders.
 class PixelTheme {
   PixelTheme._();
 
@@ -21,49 +21,92 @@ class PixelTheme {
   static const BorderRadius sharpCorners = BorderRadius.zero;
 
   // ---------------------------------------------------------------------------
-  // Color palette -- office scene
+  // Color palette -- office scene (warm wood & cozy walls)
   // ---------------------------------------------------------------------------
 
-  /// Dark floor tile color.
-  static const Color floorDark = Color(0xFF2a2e3f);
+  /// Dark floor tile color (dark oak wood).
+  static const Color floorDark = Color(0xFF8B6D47);
 
-  /// Light floor tile color (checkerboard alternate).
-  static const Color floorLight = Color(0xFF333851);
+  /// Light floor tile color (honey oak, checkerboard alternate).
+  static const Color floorLight = Color(0xFFA6854A);
 
-  /// Wall / backdrop color.
-  static const Color wall = Color(0xFF1e2030);
+  /// Wall / backdrop color (warm cream/beige).
+  static const Color wall = Color(0xFFE8D5B5);
 
-  /// Desk / furniture wood tone.
-  static const Color furniture = Color(0xFF5a4a3a);
+  /// Subtle wall accent detail (slightly darker beige).
+  static const Color wallAccent = Color(0xFFD4B896);
 
-  /// Furniture highlight edge.
-  static const Color furnitureLight = Color(0xFF7a6a5a);
+  /// Desk / furniture wood tone (rich dark brown).
+  static const Color furniture = Color(0xFF6B4226);
 
-  // ---------------------------------------------------------------------------
-  // Color palette -- sprites
-  // ---------------------------------------------------------------------------
+  /// Furniture highlight edge (lighter wood grain).
+  static const Color furnitureLight = Color(0xFF8B5E3C);
 
-  /// Default sprite skin tone.
-  static const Color spriteSkin = Color(0xFFf0c8a0);
-
-  /// Sprite body / shirt primary.
-  static const Color spriteBody = Color(0xFF7aa2f7);
-
-  /// Sprite body alternate (for variety).
-  static const Color spriteBodyAlt = Color(0xFF9ece6a);
-
-  /// Sprite hair / dark detail.
-  static const Color spriteHair = Color(0xFF444b6a);
+  /// Furniture shadow (deep brown).
+  static const Color furnitureDark = Color(0xFF4A2E1A);
 
   // ---------------------------------------------------------------------------
-  // Color palette -- terminal / event groups (DOS-style)
+  // Color palette -- sprites (warm & cheerful)
   // ---------------------------------------------------------------------------
 
-  /// Terminal background.
-  static const Color terminalBg = Color(0xFF0D1117);
+  /// Default sprite skin tone (warm peach).
+  static const Color spriteSkin = Color(0xFFFFCBA4);
+
+  /// Sprite body / shirt primary (cheerful blue).
+  static const Color spriteBody = Color(0xFF4A90D9);
+
+  /// Sprite body alternate (warm red/orange).
+  static const Color spriteBodyAlt = Color(0xFFE07040);
+
+  /// Sprite hair / dark detail (dark brown).
+  static const Color spriteHair = Color(0xFF4A3728);
+
+  /// Sprite shoes (dark leather brown).
+  static const Color spriteShoes = Color(0xFF3D2B1F);
+
+  // ---------------------------------------------------------------------------
+  // Color palette -- environment details
+  // ---------------------------------------------------------------------------
+
+  /// Lush plant green.
+  static const Color plantGreen = Color(0xFF5B8C3E);
+
+  /// Lighter leaf / plant highlight.
+  static const Color plantGreenLight = Color(0xFF7DB356);
+
+  /// Dark leaf / plant shadow.
+  static const Color plantGreenDark = Color(0xFF3D6B28);
+
+  /// Sky blue for window panes.
+  static const Color windowBlue = Color(0xFF87CEEB);
+
+  /// Warm sunlight through windows.
+  static const Color windowLight = Color(0xFFFFF8DC);
+
+  /// Bookshelf accent -- red book.
+  static const Color bookRed = Color(0xFFB44040);
+
+  /// Bookshelf accent -- blue book.
+  static const Color bookBlue = Color(0xFF4A6B8A);
+
+  /// Bookshelf accent -- green book.
+  static const Color bookGreen = Color(0xFF5A8A5A);
+
+  /// Warm rug base color.
+  static const Color rugWarm = Color(0xFFC17840);
+
+  /// Rug pattern accent.
+  static const Color rugAccent = Color(0xFF8B4513);
+
+  // ---------------------------------------------------------------------------
+  // Color palette -- terminal / event groups (warmer DOS-style)
+  // ---------------------------------------------------------------------------
+
+  /// Terminal background (slightly warmer dark).
+  static const Color terminalBg = Color(0xFF1A1A2E);
 
   /// Terminal green text.
-  static const Color terminalGreen = Color(0xFF39d353);
+  static const Color terminalGreen = Color(0xFF39D353);
 
   /// Terminal dim green (for secondary text / timestamps).
   static const Color terminalGreenDim = Color(0xFF238636);
@@ -72,20 +115,20 @@ class PixelTheme {
   static const Color terminalCursor = Color(0xFF58a6ff);
 
   // ---------------------------------------------------------------------------
-  // Color palette -- message bubbles
+  // Color palette -- message bubbles (warmer tints)
   // ---------------------------------------------------------------------------
 
-  /// User bubble background.
-  static const Color userBubbleBg = Color(0xFF1c2a4a);
+  /// User bubble background (warm blue tint).
+  static const Color userBubbleBg = Color(0xFF2A3A5A);
 
-  /// User bubble border (blue tint).
-  static const Color userBubbleBorder = Color(0xFF3d5a9e);
+  /// User bubble border (warm blue).
+  static const Color userBubbleBorder = Color(0xFF4A6A9E);
 
-  /// Assistant bubble background.
-  static const Color assistantBubbleBg = Color(0xFF1a2b1a);
+  /// Assistant bubble background (warm green tint).
+  static const Color assistantBubbleBg = Color(0xFF2A3A2A);
 
-  /// Assistant bubble border (green tint).
-  static const Color assistantBubbleBorder = Color(0xFF3d6b3d);
+  /// Assistant bubble border (warm green).
+  static const Color assistantBubbleBorder = Color(0xFF4A7A4A);
 
   // ---------------------------------------------------------------------------
   // Color palette -- status (pixel versions, mapped from WebmuxTheme)
