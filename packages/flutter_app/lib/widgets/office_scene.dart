@@ -52,48 +52,55 @@ class OfficeScene extends StatelessWidget {
   Widget build(BuildContext context) {
     final groups = _groupByProject();
 
-    return Container(
-      color: PixelTheme.wall,
-      child: CustomPaint(
-        painter: const _OfficeBgPainter(),
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Wall spacer
-              const SizedBox(height: 68),
-              // Grouped by project
-              for (final entry in groups.entries) ...[
-                _ProjectHeader(name: _projectName(entry.key)),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+    return Column(
+      children: [
+        // Main scrollable office area
+        Expanded(
+          child: Container(
+            color: PixelTheme.wall,
+            child: CustomPaint(
+              painter: const _OfficeBgPainter(),
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (final run in entry.value)
-                      Workstation(
-                        label: _labelFor(run),
-                        status: run.status,
-                        onTap: onThreadTap == null
-                            ? null
-                            : () => onThreadTap!(run),
-                        onLongPress: onThreadLongPress == null
-                            ? null
-                            : () => onThreadLongPress!(run),
+                    // Wall spacer
+                    const SizedBox(height: 68),
+                    // Grouped by project
+                    for (final entry in groups.entries) ...[
+                      _ProjectHeader(name: _projectName(entry.key)),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final run in entry.value)
+                            Workstation(
+                              label: _labelFor(run),
+                              status: run.status,
+                              onTap: onThreadTap == null
+                                  ? null
+                                  : () => onThreadTap!(run),
+                              onLongPress: onThreadLongPress == null
+                                  ? null
+                                  : () => onThreadLongPress!(run),
+                            ),
+                        ],
                       ),
+                      const SizedBox(height: 12),
+                    ],
+                    const SizedBox(height: 60),
                   ],
                 ),
-                const SizedBox(height: 12),
-              ],
-              // Add button at the end
-              _AddButton(onTap: onAddNew),
-              const SizedBox(height: 24),
-            ],
+              ),
+            ),
           ),
         ),
-      ),
+        // Bottom action bar — game-style toolbar
+        _ActionBar(onAddNew: onAddNew, threadCount: threads.length),
+      ],
     );
   }
 
@@ -515,44 +522,85 @@ class _ProjectHeader extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Add-new button styled as an empty workstation slot.
+// Bottom action bar — game-style toolbar with stats and actions
 // ---------------------------------------------------------------------------
 
-class _AddButton extends StatelessWidget {
-  const _AddButton({this.onTap});
+class _ActionBar extends StatelessWidget {
+  const _ActionBar({this.onAddNew, required this.threadCount});
 
-  final VoidCallback? onTap;
+  final VoidCallback? onAddNew;
+  final int threadCount;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 90,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          decoration: PixelTheme.pixelBox(
-            borderColor: WebmuxTheme.subtext.withAlpha(100),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+    return Container(
+      decoration: BoxDecoration(
+        color: PixelTheme.furnitureDark,
+        border: const Border(
+          top: BorderSide(color: PixelTheme.furniture, width: 3),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
             children: [
-              SizedBox(
-                height: 48,
-                child: Center(
-                  child: Icon(
-                    Icons.add,
-                    size: 24,
-                    color: WebmuxTheme.subtext.withAlpha(180),
-                  ),
+              // Thread count badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: PixelTheme.furniture,
+                  border: Border.all(color: PixelTheme.furnitureLight, width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.smart_toy_rounded, size: 14, color: Color(0xFFB0B8C8)),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$threadCount',
+                      style: const TextStyle(
+                        color: Color(0xFFE8D5B5),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 4),
-              const Text(
-                'New',
-                style: TextStyle(
-                  color: WebmuxTheme.subtext,
-                  fontSize: 10,
+              const Spacer(),
+              // New session button — game-style
+              InkWell(
+                onTap: onAddNew,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4A90D9),
+                    border: Border.all(color: const Color(0xFF6AB0FF), width: 2),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0xFF2A5090),
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add_rounded, size: 16, color: Colors.white),
+                      SizedBox(width: 4),
+                      Text(
+                        'New Session',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
