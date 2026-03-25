@@ -389,9 +389,13 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: PixelTheme.floorDark,
       appBar: AppBar(
+        backgroundColor: PixelTheme.furnitureDark,
+        foregroundColor: const Color(0xFFE8D5B5),
         title: _run == null
-            ? const Text('Thread')
+            ? const Text('Thread',
+                style: TextStyle(color: Color(0xFFE8D5B5)))
             : Row(
                 children: [
                   PixelSprite(status: _runStatus, size: 24),
@@ -404,11 +408,14 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
                           _run!.tool,
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w600,
+                            color: const Color(0xFFE8D5B5),
                           ),
                         ),
                         Text(
                           _run!.repoPath.split('/').last,
-                          style: theme.textTheme.bodySmall,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: PixelTheme.wallAccent,
+                          ),
                         ),
                       ],
                     ),
@@ -475,7 +482,7 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
                   child: Text(
                     'No messages yet',
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: WebmuxTheme.subtext,
+                      color: PixelTheme.wallAccent,
                     ),
                   ),
                 )
@@ -498,6 +505,10 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
                                 _visibleCount += _pageSize;
                               });
                             },
+                            style: PixelTheme.outlinedButtonStyle(
+                              borderColor: PixelTheme.furniture,
+                              textColor: PixelTheme.wall,
+                            ),
                             child: Text(
                               'Load $hiddenCount earlier messages',
                               style: const TextStyle(fontSize: 12),
@@ -657,10 +668,10 @@ class _RunningIndicator extends StatelessWidget {
         children: [
           PixelSprite(status: status, size: 24),
           const SizedBox(width: 6),
-          Text(
+          const Text(
             'Agent is working...',
             style: TextStyle(
-              color: WebmuxTheme.subtext,
+              color: PixelTheme.wallAccent,
               fontSize: 11,
             ),
           ),
@@ -866,10 +877,14 @@ class _EventDetailPageState extends State<_EventDetailPage>
         .length;
 
     return Scaffold(
+      backgroundColor: PixelTheme.floorDark,
       appBar: AppBar(
+        backgroundColor: PixelTheme.furnitureDark,
+        foregroundColor: const Color(0xFFE8D5B5),
         title: Row(
           children: [
-            Text('${widget.events.length} Events'),
+            Text('${widget.events.length} Events',
+                style: const TextStyle(color: Color(0xFFE8D5B5))),
             if (errorCount > 0) ...[
               const SizedBox(width: 8),
               Container(
@@ -896,6 +911,9 @@ class _EventDetailPageState extends State<_EventDetailPage>
           tabs: _buildTabs(),
           isScrollable: true,
           tabAlignment: TabAlignment.start,
+          labelColor: PixelTheme.wall,
+          unselectedLabelColor: PixelTheme.wallAccent,
+          indicatorColor: PixelTheme.furniture,
           labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           unselectedLabelStyle: const TextStyle(fontSize: 13),
         ),
@@ -945,9 +963,9 @@ class _TodoTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: PixelTheme.furnitureDark,
         borderRadius: BorderRadius.zero,
-        border: Border.all(color: WebmuxTheme.border),
+        border: Border.all(color: PixelTheme.furniture),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1023,12 +1041,12 @@ class _CommandTileState extends State<_CommandTile> {
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: PixelTheme.furnitureDark,
         borderRadius: BorderRadius.zero,
         border: Border.all(
           color: isFailed
               ? WebmuxTheme.statusFailed.withOpacity(0.3)
-              : WebmuxTheme.border,
+              : PixelTheme.furniture,
         ),
       ),
       child: Column(
@@ -1195,9 +1213,9 @@ class _TodoCardState extends State<_TodoCard> {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: PixelTheme.furnitureDark,
         borderRadius: BorderRadius.zero,
-        border: Border.all(color: WebmuxTheme.border),
+        border: Border.all(color: PixelTheme.furniture),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1210,7 +1228,7 @@ class _TodoCardState extends State<_TodoCard> {
                   horizontal: 12, vertical: 8),
               child: Row(
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.checklist_rounded,
                     size: 14,
                     color: WebmuxTheme.statusWarning,
