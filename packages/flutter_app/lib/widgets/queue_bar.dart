@@ -27,7 +27,7 @@ class QueueBar extends StatelessWidget {
       backgroundColor: Theme.of(context).colorScheme.surface,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.zero,
       ),
       builder: (sheetContext) {
         return _QueueSheet(
@@ -252,7 +252,7 @@ class _QueueSheetState extends State<_QueueSheet> {
                       const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                   decoration: BoxDecoration(
                     color: WebmuxTheme.subtext.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.zero,
                   ),
                   child: Text(
                     '${_items.length}',
@@ -285,7 +285,7 @@ class _QueueSheetState extends State<_QueueSheet> {
           if (_busy)
             const Padding(
               padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(child: Text('...', style: TextStyle(fontSize: 14))),
             )
           else
             ConstrainedBox(
@@ -300,7 +300,7 @@ class _QueueSheetState extends State<_QueueSheet> {
                   return Material(
                     color: theme.colorScheme.surface,
                     elevation: 4,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.zero,
                     child: child,
                   );
                 },
@@ -345,7 +345,7 @@ class _QueueItem extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.zero,
         border: Border.all(color: WebmuxTheme.border),
       ),
       child: Row(
@@ -366,7 +366,7 @@ class _QueueItem extends StatelessWidget {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: WebmuxTheme.subtext.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.zero,
             ),
             child: Text(
               '${index + 1}',
