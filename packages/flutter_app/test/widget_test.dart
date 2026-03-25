@@ -9,7 +9,7 @@ void main() {
       const ProviderScope(child: WebmuxApp()),
     );
 
-    // Verify that the Home screen is displayed.
-    expect(find.text('Home'), findsWidgets);
+    // Verify that the app renders (login screen shows on start).
+    expect(find.text('Webmux'), findsWidgets);
   });
 }
