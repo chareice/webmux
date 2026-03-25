@@ -54,35 +54,34 @@ class OfficeScene extends StatelessWidget {
 
     return Column(
       children: [
-        // Main scrollable office area
+        // Wall decoration — fixed at top, not scrollable
+        CustomPaint(
+          size: const Size(double.infinity, 68),
+          painter: const _OfficeBgPainter(),
+        ),
+        // Workstation area — scrollable, wood floor background
         Expanded(
           child: Container(
-            color: PixelTheme.wall,
-            child: CustomPaint(
-              painter: const _OfficeBgPainter(),
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Wall spacer
-                    const SizedBox(height: 68),
-                    // Grouped by project with cubicle dividers
-                    for (final entry in groups.entries) ...[
-                      _ProjectHeader(name: _projectName(entry.key)),
-                      const SizedBox(height: 4),
-                      _CubicleGrid(
-                        runs: entry.value,
-                        onThreadTap: onThreadTap,
-                        onThreadLongPress: onThreadLongPress,
-                        labelFor: _labelFor,
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-                    const SizedBox(height: 60),
+            color: PixelTheme.floorDark,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final entry in groups.entries) ...[
+                    _ProjectHeader(name: _projectName(entry.key)),
+                    const SizedBox(height: 4),
+                    _CubicleGrid(
+                      runs: entry.value,
+                      onThreadTap: onThreadTap,
+                      onThreadLongPress: onThreadLongPress,
+                      labelFor: _labelFor,
+                    ),
+                    const SizedBox(height: 10),
                   ],
-                ),
+                  const SizedBox(height: 20),
+                ],
               ),
             ),
           ),
@@ -115,15 +114,13 @@ class _OfficeBgPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Only draw wall area — floor is handled by the parent Container
     _drawWall(canvas, size);
     _drawBaseboard(canvas, size);
     _drawWindows(canvas, size);
     _drawBookshelf(canvas, size);
     _drawPottedPlant(canvas, size);
     _drawFramedPicture(canvas, size);
-    _drawFloor(canvas, size);
-    _drawRug(canvas, size);
-    _drawWallFloorShadow(canvas, size);
   }
 
   /// Warm cream wall background.
