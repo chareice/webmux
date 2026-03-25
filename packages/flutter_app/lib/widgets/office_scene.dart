@@ -68,28 +68,17 @@ class OfficeScene extends StatelessWidget {
                   children: [
                     // Wall spacer
                     const SizedBox(height: 68),
-                    // Grouped by project
+                    // Grouped by project with cubicle dividers
                     for (final entry in groups.entries) ...[
                       _ProjectHeader(name: _projectName(entry.key)),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final run in entry.value)
-                            Workstation(
-                              label: _labelFor(run),
-                              status: run.status,
-                              onTap: onThreadTap == null
-                                  ? null
-                                  : () => onThreadTap!(run),
-                              onLongPress: onThreadLongPress == null
-                                  ? null
-                                  : () => onThreadLongPress!(run),
-                            ),
-                        ],
+                      const SizedBox(height: 4),
+                      _CubicleGrid(
+                        runs: entry.value,
+                        onThreadTap: onThreadTap,
+                        onThreadLongPress: onThreadLongPress,
+                        labelFor: _labelFor,
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                     ],
                     const SizedBox(height: 60),
                   ],
@@ -480,6 +469,130 @@ class _OfficeBgPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _OfficeBgPainter oldDelegate) => false;
+}
+
+// ---------------------------------------------------------------------------
+// Cubicle grid — workstations separated by wooden divider walls
+// ---------------------------------------------------------------------------
+
+class _CubicleGrid extends StatelessWidget {
+  const _CubicleGrid({
+    required this.runs,
+    required this.onThreadTap,
+    required this.onThreadLongPress,
+    required this.labelFor,
+  });
+
+  final List<Run> runs;
+  final void Function(Run)? onThreadTap;
+  final void Function(Run)? onThreadLongPress;
+  final String Function(Run) labelFor;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Each cubicle ~88px wide + 3px divider
+        const cubicleWidth = 88.0;
+        const dividerWidth = 3.0;
+        final cols = ((constraints.maxWidth + dividerWidth) / (cubicleWidth + dividerWidth))
+            .floor()
+            .clamp(2, 6);
+
+        // Build rows
+        final rows = <Widget>[];
+        for (var i = 0; i < runs.length; i += cols) {
+          final rowRuns = runs.sublist(i, (i + cols).clamp(0, runs.length));
+          if (i > 0) {
+            // Horizontal divider between rows
+            rows.add(_WoodDivider(horizontal: true));
+          }
+          rows.add(
+            IntrinsicHeight(
+              child: Row(
+                children: [
+                  for (var j = 0; j < rowRuns.length; j++) ...[
+                    if (j > 0) _WoodDivider(horizontal: false),
+                    Expanded(
+                      child: Workstation(
+                        label: labelFor(rowRuns[j]),
+                        status: rowRuns[j].status,
+                        onTap: onThreadTap == null
+                            ? null
+                            : () => onThreadTap!(rowRuns[j]),
+                        onLongPress: onThreadLongPress == null
+                            ? null
+                            : () => onThreadLongPress!(rowRuns[j]),
+                      ),
+                    ),
+                  ],
+                  // Fill remaining cells in last row
+                  for (var j = rowRuns.length; j < cols; j++) ...[
+                    _WoodDivider(horizontal: false),
+                    const Expanded(child: SizedBox()),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }
+
+        return Container(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: PixelTheme.furniture,
+              width: dividerWidth,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: rows,
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// A wooden divider wall (vertical or horizontal) between cubicles.
+class _WoodDivider extends StatelessWidget {
+  const _WoodDivider({required this.horizontal});
+
+  final bool horizontal;
+
+  @override
+  Widget build(BuildContext context) {
+    if (horizontal) {
+      return Container(
+        height: 3,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              PixelTheme.furnitureLight,
+              PixelTheme.furniture,
+              PixelTheme.furnitureDark,
+            ],
+          ),
+        ),
+      );
+    }
+    return Container(
+      width: 3,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            PixelTheme.furnitureLight,
+            PixelTheme.furniture,
+            PixelTheme.furnitureDark,
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
