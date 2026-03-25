@@ -184,7 +184,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ? const SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                              child: Text('...', style: TextStyle(fontSize: 14)),
                             )
                           : const Text('Dev Login'),
                       style: OutlinedButton.styleFrom(
@@ -226,7 +226,7 @@ class _ErrorBanner extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: WebmuxTheme.statusFailed.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.zero,
         border: Border.all(
           color: WebmuxTheme.statusFailed.withOpacity(0.3),
         ),

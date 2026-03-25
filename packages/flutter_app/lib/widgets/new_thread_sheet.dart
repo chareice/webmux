@@ -160,7 +160,7 @@ class _NewThreadSheetState extends State<NewThreadSheet> {
           if (_loading)
             const Center(child: Padding(
               padding: EdgeInsets.all(24),
-              child: CircularProgressIndicator(),
+              child: SizedBox(width: 16, height: 16, child: Text('...', style: TextStyle(fontSize: 14))),
             ))
           else if (_agents.isEmpty)
             const Text('No agents available. Register an agent first.')
@@ -286,7 +286,7 @@ class _NewThreadSheetState extends State<NewThreadSheet> {
               icon: _sending
                   ? const SizedBox(
                       width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: Text('...', style: TextStyle(fontSize: 14)),
                     )
                   : const Icon(Icons.send_rounded, size: 18),
               label: const Text('Start Thread'),
