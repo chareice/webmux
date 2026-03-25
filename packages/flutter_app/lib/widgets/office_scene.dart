@@ -370,31 +370,38 @@ class _ActionBar extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              InkWell(
+              // Pixel game button with 3D depth effect
+              GestureDetector(
                 onTap: onAddNew,
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4A90D9),
-                    border:
-                        Border.all(color: const Color(0xFF6AB0FF), width: 2),
-                    boxShadow: const [
-                      BoxShadow(color: Color(0xFF2A5090), offset: Offset(0, 2)),
-                    ],
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF5B8C3E), // green like Stardew buttons
+                    border: Border(
+                      top: BorderSide(color: Color(0xFF7DB356), width: 2), // highlight
+                      left: BorderSide(color: Color(0xFF7DB356), width: 2),
+                      right: BorderSide(color: Color(0xFF3D6B28), width: 2), // shadow
+                      bottom: BorderSide(color: Color(0xFF3D6B28), width: 3), // thick bottom shadow
+                    ),
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.add_rounded, size: 16, color: Colors.white),
-                      SizedBox(width: 4),
+                      Text(
+                        '+',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(width: 6),
                       Text(
                         'New Session',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
+                          fontSize: 13,
                           fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
                         ),
                       ),
                     ],
