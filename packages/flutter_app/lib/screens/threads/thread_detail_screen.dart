@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/pixel_theme.dart';
 import '../../app/theme.dart';
 import '../../models/run.dart';
 import '../../services/websocket_service.dart';
 import '../../providers/api_provider.dart';
+import '../../widgets/pixel_sprite.dart';
 import '../../widgets/status_indicator.dart';
 import '../../widgets/message_bubble.dart';
 import '../../widgets/code_block.dart';
@@ -390,18 +392,26 @@ class _ThreadDetailScreenState extends ConsumerState<ThreadDetailScreen> {
       appBar: AppBar(
         title: _run == null
             ? const Text('Thread')
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            : Row(
                 children: [
-                  Text(
-                    _run!.tool,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                  PixelSprite(status: _runStatus, size: 24),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _run!.tool,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          _run!.repoPath.split('/').last,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
                     ),
-                  ),
-                  Text(
-                    _run!.repoPath.split('/').last,
-                    style: theme.textTheme.bodySmall,
                   ),
                 ],
               ),
@@ -606,13 +616,9 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = StatusIndicator.colorForStatus(status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(6),
-      ),
+      decoration: PixelTheme.statusBadgeDecoration(status),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -620,11 +626,7 @@ class _StatusBadge extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             status,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
+            style: PixelTheme.statusBadgeTextStyle(status),
           ),
         ],
       ),
@@ -636,88 +638,47 @@ class _StatusBadge extends StatelessWidget {
 // Running indicator — compact breathing dot above composer
 // ---------------------------------------------------------------------------
 
-class _RunningIndicator extends StatefulWidget {
+class _RunningIndicator extends StatelessWidget {
   const _RunningIndicator({required this.status, this.onInterrupt});
   final String status;
   final VoidCallback? onInterrupt;
 
   @override
-  State<_RunningIndicator> createState() => _RunningIndicatorState();
-}
-
-class _RunningIndicatorState extends State<_RunningIndicator>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _opacity;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
-    _opacity = Tween<double>(begin: 0.3, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final color = StatusIndicator.colorForStatus(widget.status);
-    return AnimatedBuilder(
-      animation: _opacity,
-      builder: (context, child) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Row(
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color.withOpacity(_opacity.value),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Agent is working...',
-                style: TextStyle(
-                  color: WebmuxTheme.subtext.withOpacity(_opacity.value),
-                  fontSize: 11,
-                ),
-              ),
-              const Spacer(),
-              SizedBox(
-                height: 24,
-                child: TextButton.icon(
-                  onPressed: widget.onInterrupt,
-                  icon: Icon(Icons.stop_rounded, size: 14, color: WebmuxTheme.statusFailed.withOpacity(0.8)),
-                  label: Text(
-                    'Stop',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: WebmuxTheme.statusFailed.withOpacity(0.8),
-                    ),
-                  ),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ),
-              ),
-            ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          PixelSprite(status: status, size: 24),
+          const SizedBox(width: 6),
+          Text(
+            'Agent is working...',
+            style: TextStyle(
+              color: WebmuxTheme.subtext,
+              fontSize: 11,
+            ),
           ),
-        );
-      },
+          const Spacer(),
+          SizedBox(
+            height: 24,
+            child: TextButton.icon(
+              onPressed: onInterrupt,
+              icon: const Icon(Icons.stop_rounded, size: 14),
+              label: const Text(
+                'Stop',
+                style: TextStyle(fontSize: 11),
+              ),
+              style: PixelTheme.dangerButtonStyle().copyWith(
+                padding: WidgetStateProperty.all(
+                  const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                minimumSize: WidgetStateProperty.all(Size.zero),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -732,7 +693,6 @@ class _EventGroupRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final commandCount = events.where((e) => e.type == 'command').length;
     final activityCount = events.where((e) => e.type == 'activity').length;
     final todoCount = events.where((e) => e.type == 'todo').length;
@@ -752,14 +712,12 @@ class _EventGroupRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: InkWell(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: PixelTheme.sharpCorners,
         onTap: () => _openDetailPage(context),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: WebmuxTheme.border, width: 0.5),
+          decoration: PixelTheme.terminalDecoration(
+            borderColor: errorCount > 0 ? WebmuxTheme.statusFailed : null,
           ),
           child: Row(
             children: [
@@ -768,16 +726,13 @@ class _EventGroupRow extends StatelessWidget {
                 size: 14,
                 color: errorCount > 0
                     ? WebmuxTheme.statusFailed
-                    : WebmuxTheme.subtext,
+                    : PixelTheme.terminalGreen,
               ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   summary,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: WebmuxTheme.subtext,
-                    fontSize: 12,
-                  ),
+                  style: PixelTheme.terminalTextStyle,
                 ),
               ),
               if (errorCount > 0) ...[
@@ -786,7 +741,7 @@ class _EventGroupRow extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                   decoration: BoxDecoration(
                     color: WebmuxTheme.statusFailed.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: PixelTheme.sharpCorners,
                   ),
                   child: Text(
                     '$errorCount errors',
@@ -799,10 +754,12 @@ class _EventGroupRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 4),
               ],
-              const Icon(
+              Icon(
                 Icons.chevron_right_rounded,
                 size: 16,
-                color: WebmuxTheme.subtext,
+                color: errorCount > 0
+                    ? WebmuxTheme.statusFailed
+                    : PixelTheme.terminalGreen,
               ),
             ],
           ),

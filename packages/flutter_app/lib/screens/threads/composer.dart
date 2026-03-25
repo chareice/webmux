@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../app/pixel_theme.dart';
 import '../../app/theme.dart';
 import '../../models/run.dart';
 import '../../services/api_client.dart';
@@ -196,7 +197,10 @@ class _ComposerState extends State<Composer> {
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         border: Border(
-          top: BorderSide(color: borderColor, width: _isWaiting ? 2 : 1),
+          top: BorderSide(
+            color: borderColor,
+            width: PixelTheme.borderWidth,
+          ),
         ),
       ),
       child: SafeArea(
@@ -354,6 +358,13 @@ class _ComposerState extends State<Composer> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14),
                 textStyle: const TextStyle(fontSize: 13),
+                shape: const RoundedRectangleBorder(
+                  borderRadius: PixelTheme.sharpCorners,
+                  side: BorderSide(
+                    color: WebmuxTheme.border,
+                    width: PixelTheme.borderWidth,
+                  ),
+                ),
               ),
             ),
           ),
