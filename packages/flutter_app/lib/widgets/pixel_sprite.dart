@@ -2,16 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../app/pixel_theme.dart';
 
-/// A pixel-art character sprite that draws a person sitting at a desk with
-/// a monitor. Supports 5 visual states, each with a looping frame animation.
+/// A pixel-art robot sprite that draws a small cute robot sitting at a desk
+/// with a monitor. Supports 5 visual states, each with a looping frame
+/// animation.
 ///
-/// Used full-size (~80 px) in the office scene and small (~24 px) as an
+/// Used full-size (~48 px) in the office scene and small (~24 px) as an
 /// avatar in the chat thread AppBar.
 class PixelSprite extends StatefulWidget {
   const PixelSprite({
     super.key,
     required this.status,
-    this.size = 80,
+    this.size = 48,
   });
 
   /// One of: 'running', 'starting', 'queued', 'failed', 'success',
@@ -124,17 +125,43 @@ class _SpritePainter extends CustomPainter {
   static const int _cols = 32;
   static const int _rows = 24;
 
+  // -- Robot palette --
+  static const Color _robotBody = Color(0xFFB0B8C8); // light metallic gray
+  static const Color _robotDark = Color(0xFF8090A0); // darker metallic
+  static const Color _robotHighlight = Color(0xFFD0D8E8); // bright highlight
+  static const Color _robotFaceScreen = Color(0xFF1A2A3A); // dark screen face
+  static const Color _robotAccent = PixelTheme.spriteBody; // blue accent
+
   // -- Shared palette constants --
   static const Color _bezel = Color(0xFF3A3028); // warm dark brown bezel
   static const Color _bezelHighlight = Color(0xFF5A4A3A); // bezel edge
-  static const Color _chairSeat = Color(0xFF8B5E3C); // warm brown chair
-  static const Color _chairBack = Color(0xFF6B4226); // darker chair back
   static const Color _keyboard = Color(0xFF4A3A2E); // warm brown keyboard
-  static const Color _coffee = Color(0xFF6A4A2A); // coffee brown
-  static const Color _steam = Color(0x60FFFFFF); // translucent white steam
   static const Color _bubbleWhite = Color(0xFFFFF8F0); // warm white bubble
   static const Color _bubbleBorder = Color(0xFFD4A574); // warm tan border
-  static const Color _sweatDrop = Color(0xFF87CEEB); // light blue
+
+  /// Return eye / antenna color based on current status.
+  Color get _eyeColor {
+    switch (status) {
+      case 'running':
+      case 'starting':
+        return PixelTheme.statusSuccess; // bright green
+      case 'queued':
+      case 'waiting':
+      case 'waiting_for_input':
+        return PixelTheme.statusWarning; // yellow
+      case 'failed':
+      case 'error':
+        return PixelTheme.statusFailed; // red
+      case 'success':
+      case 'completed':
+        return PixelTheme.statusSuccess; // bright green
+      case 'interrupted':
+      case 'cancelled':
+        return PixelTheme.statusFailed; // red
+      default:
+        return PixelTheme.statusSuccess;
+    }
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -199,7 +226,7 @@ class _SpritePainter extends CustomPainter {
     fill(PixelTheme.furnitureLight, 26, 18, 1, 4);
   }
 
-  /// Draw the monitor on the desk. Screen color and content vary by state.
+  /// Draw the computer monitor on the desk.
   static void _drawMonitor(
     void Function(Color, double, double, double, double) fill,
     void Function(Color, double, double) px, {
@@ -209,23 +236,21 @@ class _SpritePainter extends CustomPainter {
     bool showX = false,
     bool showDots = false,
   }) {
-    // Monitor bezel (rounded look via extra pixels)
+    // Monitor bezel
     fill(_bezel, 7, 9, 9, 7); // main body
     fill(_bezelHighlight, 7, 9, 9, 1); // top highlight
     fill(_bezelHighlight, 7, 9, 1, 7); // left highlight
 
-    // Screen area with warm glow
+    // Screen area
     fill(screenColor, 8, 10, 7, 5);
 
     // Screen content
     if (showCursor) {
-      // Blinking cursor and text lines
       fill(Colors.white70, 9, 11, 3, 1); // text line 1
       fill(Colors.white54, 9, 12, 4, 1); // text line 2
       fill(Colors.white, 9, 13, 1, 1); // cursor
     }
     if (showCheck) {
-      // Cute checkmark
       px(Colors.white, 9, 13);
       px(Colors.white, 10, 14);
       px(Colors.white, 11, 13);
@@ -233,7 +258,6 @@ class _SpritePainter extends CustomPainter {
       px(Colors.white, 13, 11);
     }
     if (showX) {
-      // X mark
       px(Colors.white, 9, 11);
       px(Colors.white, 13, 11);
       px(Colors.white, 10, 12);
@@ -241,183 +265,158 @@ class _SpritePainter extends CustomPainter {
       px(Colors.white, 11, 13);
       px(Colors.white, 10, 14);
       px(Colors.white, 12, 14);
-      px(Colors.white, 9, 15); // extra for visibility
-      px(Colors.white, 13, 15); // extra for visibility
+      px(Colors.white, 9, 15);
+      px(Colors.white, 13, 15);
     }
     if (showDots) {
-      // "..." waiting dots
       px(Colors.white70, 9, 12);
       px(Colors.white70, 11, 12);
       px(Colors.white70, 13, 12);
     }
 
-    // Monitor stand (chunky, centered)
+    // Monitor stand
     fill(_bezel, 10, 16, 3, 1);
-    // Stand base
     fill(_bezel, 9, 16, 5, 0.5);
   }
 
-  /// Draw the office chair behind the person.
-  static void _drawChair(
-    void Function(Color, double, double, double, double) fill,
-    void Function(Color, double, double) px, {
-    double offsetX = 0,
-  }) {
-    // Chair backrest (rounded top)
-    fill(_chairBack, 19 + offsetX, 11, 5, 2);
-    px(_chairBack, 20 + offsetX, 10); // rounded top-left
-    px(_chairBack, 22 + offsetX, 10); // rounded top-right
-    // Chair backrest lower
-    fill(_chairBack, 20 + offsetX, 13, 3, 3);
-    // Chair seat cushion
-    fill(_chairSeat, 19 + offsetX, 16, 5, 1);
-    // Chair legs
-    fill(PixelTheme.furnitureDark, 19 + offsetX, 20, 1, 2);
-    fill(PixelTheme.furnitureDark, 23 + offsetX, 20, 1, 2);
-    // Chair wheel dots
-    px(PixelTheme.furnitureDark, 18.5 + offsetX, 22);
-    px(PixelTheme.furnitureDark, 23.5 + offsetX, 22);
-  }
-
-  /// Draw the character's head with hair (4x4 head, big cute head).
-  /// [headX], [headY] = top-left of hair block.
-  static void _drawHead(
+  /// Draw the robot head (rounded-rectangle screen face) at [headX], [headY].
+  void _drawRobotHead(
     void Function(Color, double, double, double, double) fill,
     void Function(Color, double, double) px, {
     required double headX,
     required double headY,
-    bool happyEyes = false,
-    bool sadEyes = false,
-    bool surprisedEyes = false,
-    bool openMouth = false,
-    bool smile = false,
+    bool happy = false,
+    bool sad = false,
+    bool surprised = false,
   }) {
-    // Hair (extends 1px beyond head on each side, 2px tall on top)
-    fill(PixelTheme.spriteHair, headX - 0.5, headY, 5, 2);
-    // Hair side tufts
-    px(PixelTheme.spriteHair, headX - 0.5, headY + 2);
-    px(PixelTheme.spriteHair, headX + 3.5, headY + 2);
+    // Antenna stalk (1px wide, 2px tall)
+    fill(_robotDark, headX + 2, headY - 2.5, 1, 2.5);
+    // Antenna ball (color matches state)
+    fill(_eyeColor, headX + 1.5, headY - 3.5, 2, 1.5);
 
-    // Head / face (4x4)
-    fill(PixelTheme.spriteSkin, headX, headY + 1.5, 4, 3.5);
+    // Head body (rounded rectangle -- 5x4 with corner pixels removed)
+    fill(_robotBody, headX, headY, 5, 4);
+    // Top corners rounded
+    fill(Colors.transparent, headX, headY, 1, 1);
+    fill(Colors.transparent, headX + 4, headY, 1, 1);
+    // Use background-matching removal by just drawing highlight on edges
+    fill(_robotHighlight, headX + 1, headY, 3, 1); // top edge highlight
+    fill(_robotHighlight, headX, headY + 1, 1, 2); // left edge highlight
 
-    // Eyes
-    if (happyEyes) {
-      // Closed happy eyes (horizontal lines)
-      fill(PixelTheme.spriteHair, headX + 0.5, headY + 3, 1, 0.5);
-      fill(PixelTheme.spriteHair, headX + 2.5, headY + 3, 1, 0.5);
-    } else if (sadEyes) {
-      // Droopy sad eyes
-      px(PixelTheme.spriteHair, headX + 0.5, headY + 3.5);
-      px(PixelTheme.spriteHair, headX + 2.5, headY + 3.5);
-    } else if (surprisedEyes) {
-      // Wide surprised eyes (bigger dots)
-      fill(PixelTheme.spriteHair, headX + 0.5, headY + 2.5, 1, 1.5);
-      fill(PixelTheme.spriteHair, headX + 2.5, headY + 2.5, 1, 1.5);
+    // Face screen (dark inset)
+    fill(_robotFaceScreen, headX + 0.5, headY + 1, 4, 2.5);
+
+    // Eyes on the face screen
+    if (happy) {
+      // Happy ^_^ eyes: inverted V shapes
+      px(_eyeColor, headX + 1, headY + 2.5);
+      fill(_eyeColor, headX + 1, headY + 1.5, 1, 1);
+      px(_eyeColor, headX + 3, headY + 2.5);
+      fill(_eyeColor, headX + 3, headY + 1.5, 1, 1);
+      // Small smile line
+      px(_eyeColor, headX + 1.5, headY + 3);
+      px(_eyeColor, headX + 2, headY + 3.2);
+      px(_eyeColor, headX + 2.5, headY + 3);
+    } else if (sad) {
+      // Sad X eyes
+      px(_eyeColor, headX + 1, headY + 1.5);
+      px(_eyeColor, headX + 1, headY + 2.5);
+      px(_eyeColor, headX + 1.5, headY + 2);
+      px(_eyeColor, headX + 3, headY + 1.5);
+      px(_eyeColor, headX + 3, headY + 2.5);
+      px(_eyeColor, headX + 3.5, headY + 2);
+    } else if (surprised) {
+      // Surprised ! eyes (big dots)
+      fill(_eyeColor, headX + 1, headY + 1.5, 1, 1.5);
+      fill(_eyeColor, headX + 3, headY + 1.5, 1, 1.5);
+      // Open mouth
+      px(_eyeColor, headX + 2, headY + 3.2);
     } else {
-      // Normal cute eyes (simple dots)
-      px(PixelTheme.spriteHair, headX + 0.5, headY + 3);
-      px(PixelTheme.spriteHair, headX + 2.5, headY + 3);
+      // Normal dot eyes
+      px(_eyeColor, headX + 1.5, headY + 2);
+      px(_eyeColor, headX + 3, headY + 2);
     }
-
-    // Mouth
-    if (openMouth) {
-      // Surprised open mouth
-      px(PixelTheme.statusFailed, headX + 1.5, headY + 4.5);
-    } else if (smile) {
-      // Happy smile
-      px(PixelTheme.spriteHair, headX + 1, headY + 4.5);
-      px(PixelTheme.spriteHair, headX + 2, headY + 4.5);
-    }
-    // Default: no mouth (neutral) -- cute pixel characters often have no mouth
-
-    // Rosy cheeks (subtle blush for cuteness)
-    fill(const Color(0x30FF8080), headX, headY + 3.5, 1, 1);
-    fill(const Color(0x30FF8080), headX + 3, headY + 3.5, 1, 1);
   }
 
-  /// Draw the seated body (shirt), legs, and shoes.
-  static void _drawSeatedBody(
+  /// Draw the robot torso (boxy metallic body with blue accent panel).
+  static void _drawRobotBody(
     void Function(Color, double, double, double, double) fill,
     void Function(Color, double, double) px, {
     required double bodyX,
     required double bodyY,
   }) {
-    // Body / shirt (4x4 sitting)
-    fill(PixelTheme.spriteBody, bodyX, bodyY, 4, 4);
-    // Shirt collar detail
-    fill(PixelTheme.spriteSkin, bodyX + 1, bodyY, 2, 1);
+    // Main torso (5x5 boxy)
+    fill(_robotBody, bodyX, bodyY, 5, 5);
+    // Top highlight
+    fill(_robotHighlight, bodyX, bodyY, 5, 1);
+    // Left edge highlight
+    fill(_robotHighlight, bodyX, bodyY, 1, 5);
+    // Bottom shadow
+    fill(_robotDark, bodyX, bodyY + 4, 5, 1);
 
-    // Legs (seated, under desk -- pants in hair color)
-    fill(PixelTheme.spriteHair, bodyX, bodyY + 4, 2, 4);
-    fill(PixelTheme.spriteHair, bodyX + 2, bodyY + 4, 2, 4);
-
-    // Shoes
-    fill(PixelTheme.spriteShoes, bodyX - 0.5, bodyY + 8, 2.5, 1);
-    fill(PixelTheme.spriteShoes, bodyX + 2, bodyY + 8, 2.5, 1);
+    // Blue chest panel / accent
+    fill(_robotAccent, bodyX + 1, bodyY + 1, 3, 2.5);
+    // Panel detail lines
+    fill(const Color(0xFF3A70B0), bodyX + 1.5, bodyY + 2, 2, 0.5);
   }
 
   // =========================================================================
-  // State: running / starting -- typing at keyboard
+  // State: running / starting -- robot typing, antenna blinking
   // =========================================================================
 
-  static void _drawTyping(
+  void _drawTyping(
     void Function(Color, double, double, double, double) fill,
     void Function(Color, double, double) px,
     int frame,
   ) {
-    // -- Background furniture --
-    _drawChair(fill, px);
     _drawDesk(fill, px);
 
-    // Keyboard on desk (warm brown)
+    // Keyboard on desk
     fill(_keyboard, 12, 15, 7, 1);
-    fill(const Color(0xFF5A4A3E), 12, 15, 7, 0.5); // highlight top
+    fill(const Color(0xFF5A4A3E), 12, 15, 7, 0.5);
 
-    // Monitor with active warm screen
+    // Monitor with active screen
     final screenColor = frame.isEven
-        ? const Color(0xFF6BA4C8) // warm blue screen
-        : const Color(0xFF5E94B8); // slightly dimmer
+        ? const Color(0xFF6BA4C8)
+        : const Color(0xFF5E94B8);
     _drawMonitor(fill, px, screenColor: screenColor, showCursor: frame.isEven);
 
-    // -- Character --
-    // Head at (16, 3) -- centered above body
-    _drawHead(fill, px, headX: 16, headY: 3);
+    // Robot head at (17, 3)
+    _drawRobotHead(fill, px, headX: 17, headY: 3);
 
-    // Body at (16, 8)
-    _drawSeatedBody(fill, px, bodyX: 16, bodyY: 8);
+    // Robot body at (17, 7)
+    _drawRobotBody(fill, px, bodyX: 17, bodyY: 7);
 
-    // Arms -- animate typing: alternate which arm is up/down
-    final leftArmY = (frame == 0 || frame == 2) ? 14.5 : 14.0;
-    final rightArmY = (frame == 1 || frame == 3) ? 14.5 : 14.0;
-    // Left arm toward keyboard
-    fill(PixelTheme.spriteSkin, 14, leftArmY, 2, 1);
-    // Right arm toward keyboard
-    fill(PixelTheme.spriteSkin, 20, rightArmY, 2, 1);
+    // Arms -- animate typing: alternate which arm is lower (pressing key)
+    final leftArmY = (frame == 0 || frame == 2) ? 15.0 : 14.5;
+    final rightArmY = (frame == 1 || frame == 3) ? 15.0 : 14.5;
+    // Left arm (two segments toward keyboard)
+    fill(_robotBody, 15, 9, 2, 1); // upper arm
+    fill(_robotDark, 14, leftArmY, 2, 1); // hand on keyboard
+    fill(_robotBody, 15, 10, 1, (leftArmY - 10)); // forearm connector
+    // Right arm
+    fill(_robotBody, 22, 9, 2, 1); // upper arm
+    fill(_robotDark, 22, rightArmY, 2, 1); // hand on keyboard
+    fill(_robotBody, 22, 10, 1, (rightArmY - 10)); // forearm connector
 
-    // Small focus sparkle (occasionally)
-    if (frame == 2) {
-      px(const Color(0xFFFFF8DC), 24, 6);
-      px(const Color(0xFFFFF8DC), 25, 5);
-      px(const Color(0xFFFFF8DC), 26, 6);
-      px(const Color(0xFFFFF8DC), 25, 7);
+    // Antenna blink effect (every other frame the antenna ball dims)
+    if (frame == 1 || frame == 3) {
+      fill(const Color(0x4000FF00), 18.5, -0.5, 2, 1.5); // glow around ball
     }
   }
 
   // =========================================================================
-  // State: queued / waiting -- hand raised, "?" bubble
+  // State: queued / waiting -- hand raised, eyes yellow "?", antenna pulsing
   // =========================================================================
 
-  static void _drawQueued(
+  void _drawQueued(
     void Function(Color, double, double, double, double) fill,
     void Function(Color, double, double) px,
     int frame,
   ) {
-    // -- Background furniture --
-    _drawChair(fill, px);
     _drawDesk(fill, px);
 
-    // Monitor with waiting screen (warm yellow)
+    // Monitor with waiting screen
     _drawMonitor(
       fill,
       px,
@@ -425,57 +424,52 @@ class _SpritePainter extends CustomPainter {
       showDots: true,
     );
 
-    // -- Character with slight head tilt --
+    // Robot head (slight tilt animation)
     final tiltX = (frame == 1) ? 0.5 : 0.0;
-    final tiltY = (frame == 2) ? 0.5 : 0.0;
+    _drawRobotHead(fill, px, headX: 17 + tiltX, headY: 3);
 
-    // Head (tilted slightly)
-    _drawHead(fill, px, headX: 16 + tiltX, headY: 3 + tiltY);
+    // Robot body
+    _drawRobotBody(fill, px, bodyX: 17, bodyY: 7);
 
-    // Body
-    _drawSeatedBody(fill, px, bodyX: 16, bodyY: 8);
+    // Left arm resting on desk
+    fill(_robotBody, 15, 9, 2, 1);
+    fill(_robotDark, 14, 14, 2, 1);
+    fill(_robotBody, 15, 10, 1, 4);
 
-    // Left arm resting
-    fill(PixelTheme.spriteSkin, 14, 14, 2, 1);
     // Right arm raised (waving)
     final waveY = frame == 1 ? -1.0 : 0.0;
-    px(PixelTheme.spriteSkin, 20, 10 + waveY);
-    px(PixelTheme.spriteSkin, 21, 9 + waveY);
-    px(PixelTheme.spriteSkin, 22, 8 + waveY);
-    // Hand (open palm)
-    px(PixelTheme.spriteSkin, 22, 7 + waveY);
-    px(PixelTheme.spriteSkin, 23, 7 + waveY);
+    fill(_robotBody, 22, 9, 2, 1);
+    fill(_robotDark, 23, 6 + waveY, 2, 1); // raised hand
+    fill(_robotBody, 22, 7 + waveY, 1, 2); // forearm
 
-    // "?" speech bubble (warm white with border)
-    // Bubble body
-    fill(_bubbleBorder, 24, 1, 7, 6); // border
-    fill(_bubbleWhite, 25, 2, 5, 4); // inner
-    // Bubble tail
-    px(_bubbleBorder, 24, 7);
-    px(_bubbleWhite, 25, 6);
+    // "?" speech bubble
+    fill(_bubbleBorder, 25, 1, 6, 5);
+    fill(_bubbleWhite, 26, 2, 4, 3);
+    px(_bubbleBorder, 25, 6); // tail
 
-    // "?" character in warm color
-    px(PixelTheme.statusWarning, 26, 2.5);
-    px(PixelTheme.statusWarning, 27, 2.5);
-    px(PixelTheme.statusWarning, 28, 2.5);
-    px(PixelTheme.statusWarning, 28, 3.5);
-    px(PixelTheme.statusWarning, 27, 3.5);
-    px(PixelTheme.statusWarning, 27, 4.5);
-    // Dot
-    px(PixelTheme.statusWarning, 27, 5.5);
+    // "?" character
+    px(PixelTheme.statusWarning, 27, 2);
+    px(PixelTheme.statusWarning, 28, 2);
+    px(PixelTheme.statusWarning, 29, 2);
+    px(PixelTheme.statusWarning, 29, 3);
+    px(PixelTheme.statusWarning, 28, 3);
+    px(PixelTheme.statusWarning, 28, 4);
+
+    // Antenna slow pulse (brightness oscillation)
+    if (frame == 0) {
+      fill(const Color(0x30FFCC00), 18.5, -0.5, 2, 1.5);
+    }
   }
 
   // =========================================================================
-  // State: failed / error -- sad, head drooped
+  // State: failed / error -- robot slumped, eyes red "X", smoke above
   // =========================================================================
 
-  static void _drawFailed(
+  void _drawFailed(
     void Function(Color, double, double, double, double) fill,
     void Function(Color, double, double) px,
     int frame,
   ) {
-    // -- Background furniture --
-    _drawChair(fill, px);
     _drawDesk(fill, px);
 
     // Monitor with red error screen
@@ -486,53 +480,50 @@ class _SpritePainter extends CustomPainter {
       showX: true,
     );
 
-    // -- Character (head drooped forward) --
-    // Head lower and tilted forward
-    _drawHead(fill, px, headX: 15, headY: 5, sadEyes: true);
+    // Robot head (drooped forward and down)
+    _drawRobotHead(fill, px, headX: 16, headY: 5, sad: true);
 
-    // Body (slightly hunched)
-    _drawSeatedBody(fill, px, bodyX: 16, bodyY: 9);
+    // Robot body (slightly hunched/lower)
+    _drawRobotBody(fill, px, bodyX: 17, bodyY: 9);
 
-    // Arms hanging / limp
-    fill(PixelTheme.spriteSkin, 14, 14, 2, 1);
-    fill(PixelTheme.spriteSkin, 20, 14, 2, 1);
+    // Arms hanging limp
+    fill(_robotBody, 15, 11, 2, 1);
+    fill(_robotDark, 14, 14, 2, 1);
+    fill(_robotBody, 15, 12, 1, 2);
+    fill(_robotBody, 22, 11, 2, 1);
+    fill(_robotDark, 23, 14, 2, 1);
+    fill(_robotBody, 22, 12, 1, 2);
 
-    // "!" bubble (warm red tint, flashing)
+    // Antenna drooping (tilted to the side)
+    // Override the antenna drawn by _drawRobotHead by drawing a droopy one
+    fill(_robotDark, 17, 3.5, 1, 1.5); // short droopy stalk going left
+    fill(_robotDark, 16, 3, 1, 1); // droopy tip
+
+    // Smoke/spark puffs above robot (animated)
     if (frame == 0) {
-      // Bubble body
-      fill(const Color(0xFFF0D0D0), 24, 2, 5, 5); // warm pink bubble
-      fill(const Color(0xFFD08080), 24, 2, 5, 1); // top border
-      fill(const Color(0xFFD08080), 24, 6, 5, 1); // bottom border
-      fill(const Color(0xFFD08080), 24, 2, 1, 5); // left border
-      fill(const Color(0xFFD08080), 28, 2, 1, 5); // right border
-      // Tail
-      px(const Color(0xFFD08080), 24, 7);
-      // "!" in warm red
-      fill(PixelTheme.statusFailed, 26, 3, 1, 2);
-      px(PixelTheme.statusFailed, 26, 6);
-    }
-
-    // Sweat drop (alternating side)
-    if (frame == 0) {
-      px(_sweatDrop, 14, 5);
-      px(_sweatDrop, 14, 6);
+      px(const Color(0x80888888), 19, 1);
+      px(const Color(0x60888888), 20, 0);
+      px(const Color(0x40888888), 18, 0);
+      // Spark
+      px(const Color(0xFFFFAA00), 21, 2);
     } else {
-      px(_sweatDrop, 14, 6);
-      px(_sweatDrop, 14, 7);
+      px(const Color(0x80888888), 18, 0);
+      px(const Color(0x60888888), 20, 1);
+      px(const Color(0x40888888), 21, 0);
+      // Spark
+      px(const Color(0xFFFFAA00), 17, 1);
     }
   }
 
   // =========================================================================
-  // State: success / completed -- happy, relaxing with coffee
+  // State: success / completed -- robot happy, eyes "^_^", antenna bouncing
   // =========================================================================
 
-  static void _drawSuccess(
+  void _drawSuccess(
     void Function(Color, double, double, double, double) fill,
     void Function(Color, double, double) px,
     int frame,
   ) {
-    // -- Background furniture --
-    _drawChair(fill, px);
     _drawDesk(fill, px);
 
     // Monitor with green success screen
@@ -543,105 +534,82 @@ class _SpritePainter extends CustomPainter {
       showCheck: true,
     );
 
-    // Coffee cup on desk
-    fill(const Color(0xFFF5E6D0), 23, 14, 3, 2); // mug body (cream)
-    fill(_coffee, 24, 14, 1, 1); // coffee surface
-    px(const Color(0xFFF5E6D0), 26, 14.5); // mug handle
-    px(const Color(0xFFF5E6D0), 26, 15);
-    // Steam wisps (animated)
-    if (frame == 0 || frame == 2) {
-      px(_steam, 24, 12);
-      px(_steam, 23, 13);
-    } else {
-      px(_steam, 23, 12);
-      px(_steam, 24, 13);
-      px(_steam, 25, 12);
-    }
+    // Robot head (happy, slightly bouncing)
+    final bounceY = (frame == 1) ? -0.5 : 0.0;
+    _drawRobotHead(fill, px, headX: 17, headY: 3 + bounceY, happy: true);
 
-    // -- Character (leaning back, happy) --
-    _drawHead(
-      fill,
-      px,
-      headX: 17,
-      headY: 3,
-      happyEyes: true,
-      smile: true,
-    );
+    // Robot body
+    _drawRobotBody(fill, px, bodyX: 17, bodyY: 7);
 
-    // Body (shifted right slightly, leaning back)
-    _drawSeatedBody(fill, px, bodyX: 17, bodyY: 8);
+    // Arms in a celebratory pose -- both raised
+    final armLift = (frame == 1) ? -1.0 : 0.0;
+    // Left arm raised
+    fill(_robotBody, 15, 9, 2, 1);
+    fill(_robotDark, 13, 5 + armLift, 2, 1); // raised hand
+    fill(_robotBody, 15, 6 + armLift, 1, 3); // forearm
+    // Right arm raised
+    fill(_robotBody, 22, 9, 2, 1);
+    fill(_robotDark, 24, 5 + armLift, 2, 1); // raised hand
+    fill(_robotBody, 23, 6 + armLift, 1, 3); // forearm
 
-    // Left arm resting on desk
-    fill(PixelTheme.spriteSkin, 15, 14, 2, 1);
-    // Right arm resting on lap
-    fill(PixelTheme.spriteSkin, 21, 13, 2, 1);
-
-    // Happy sparkles around character
+    // Happy sparkles
     if (frame == 1) {
-      px(const Color(0xFFFFF8DC), 13, 4);
-      px(const Color(0xFFFFF8DC), 24, 3);
+      px(const Color(0xFFFFF8DC), 13, 2);
+      px(const Color(0xFFFFF8DC), 26, 3);
     }
     if (frame == 2) {
-      px(const Color(0xFFFFF8DC), 14, 2);
-      px(const Color(0xFFFFF8DC), 25, 5);
+      px(const Color(0xFFFFF8DC), 14, 1);
+      px(const Color(0xFFFFF8DC), 25, 2);
+      px(const Color(0xFFFFF8DC), 27, 5);
     }
   }
 
   // =========================================================================
-  // State: interrupted / cancelled -- standing up surprised
+  // State: interrupted / cancelled -- robot alert, eyes "!", antenna up
   // =========================================================================
 
-  static void _drawInterrupted(
+  void _drawInterrupted(
     void Function(Color, double, double, double, double) fill,
     void Function(Color, double, double) px,
     int frame,
   ) {
-    // Chair pushed back
-    final chairPush = frame == 1 ? 2.0 : 1.0;
-    _drawChair(fill, px, offsetX: chairPush);
     _drawDesk(fill, px);
 
-    // Monitor (dim / off)
+    // Monitor dim/off
     _drawMonitor(fill, px, screenColor: const Color(0xFF5A5040));
 
-    // -- Character (standing up!) --
-    const cx = 16.0; // character center-X
+    // Robot head (higher -- standing alert)
+    _drawRobotHead(fill, px, headX: 17, headY: 1, surprised: true);
 
-    // Head (higher up since standing)
-    _drawHead(fill, px, headX: cx, headY: 1, surprisedEyes: true, openMouth: true);
+    // Robot body (standing taller above desk)
+    fill(_robotBody, 17, 5.5, 5, 5);
+    fill(_robotHighlight, 17, 5.5, 5, 1);
+    fill(_robotHighlight, 17, 5.5, 1, 5);
+    fill(_robotDark, 17, 9.5, 5, 1);
+    // Blue chest panel
+    fill(_robotAccent, 18, 6.5, 3, 2.5);
+    fill(const Color(0xFF3A70B0), 18.5, 7.5, 2, 0.5);
 
-    // Body (standing -- taller)
-    fill(PixelTheme.spriteBody, cx, 6.5, 4, 5);
-    // Shirt collar
-    fill(PixelTheme.spriteSkin, cx + 1, 6.5, 2, 1);
-
-    // Arms out to sides (startled!)
+    // Arms out to sides (startled)
     final armLift = frame == 1 ? -1.0 : 0.0;
     // Left arm
-    px(PixelTheme.spriteSkin, cx - 1, 8 + armLift);
-    px(PixelTheme.spriteSkin, cx - 2, 7 + armLift);
-    px(PixelTheme.spriteSkin, cx - 3, 7 + armLift);
+    fill(_robotBody, 15, 7 + armLift, 2, 1);
+    fill(_robotDark, 13, 6 + armLift, 2, 1);
     // Right arm
-    px(PixelTheme.spriteSkin, cx + 4, 8 + armLift);
-    px(PixelTheme.spriteSkin, cx + 5, 7 + armLift);
-    px(PixelTheme.spriteSkin, cx + 6, 7 + armLift);
+    fill(_robotBody, 22, 7 + armLift, 2, 1);
+    fill(_robotDark, 24, 6 + armLift, 2, 1);
 
-    // Legs (standing)
-    fill(PixelTheme.spriteHair, cx, 11.5, 2, 7);
-    fill(PixelTheme.spriteHair, cx + 2, 11.5, 2, 7);
+    // Lower body / legs hidden behind desk (no legs visible)
+    // Just the torso extends down to desk level
 
-    // Shoes
-    fill(PixelTheme.spriteShoes, cx - 0.5, 18.5, 2.5, 1);
-    fill(PixelTheme.spriteShoes, cx + 2, 18.5, 2.5, 1);
-
-    // Surprise lines above head
+    // Alert lines above head
     if (frame == 0) {
-      px(PixelTheme.statusWarning, cx + 1, 0);
-      px(PixelTheme.statusWarning, cx + 3, 0);
+      px(PixelTheme.statusFailed, 18, -1);
+      px(PixelTheme.statusFailed, 20, -1);
     } else {
-      px(PixelTheme.statusWarning, cx, 0);
-      px(PixelTheme.statusWarning, cx + 2, 0);
-      px(PixelTheme.statusWarning, cx + 4, 0);
+      px(PixelTheme.statusFailed, 17, -1);
+      px(PixelTheme.statusFailed, 19, -1);
+      px(PixelTheme.statusFailed, 21, -1);
     }
   }
 }
