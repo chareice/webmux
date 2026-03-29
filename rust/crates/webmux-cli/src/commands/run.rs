@@ -54,40 +54,40 @@ fn resolve_prompt(prompt: Option<&str>, prompt_file: Option<&str>) -> anyhow::Re
     bail!("No prompt provided. Use --prompt, --prompt-file, or pipe to stdin.")
 }
 
-/// Resolve an agent identifier (name or UUID) to an AgentInfo.
-async fn resolve_agent(client: &WebmuxClient, agent: &str) -> anyhow::Result<AgentInfo> {
-    if is_uuid(agent) {
-        // If it looks like a UUID, fetch the agent list and find by ID
+/// Resolve a node identifier (name or UUID) to an AgentInfo.
+async fn resolve_node(client: &WebmuxClient, node: &str) -> anyhow::Result<AgentInfo> {
+    if is_uuid(node) {
+        // If it looks like a UUID, fetch the node list and find by ID
         let resp: AgentListResponse = client
             .get("/api/agents")
             .await
-            .context("Failed to list agents")?;
-        let found = resp.agents.into_iter().find(|a| a.id == agent);
+            .context("Failed to list nodes")?;
+        let found = resp.agents.into_iter().find(|a| a.id == node);
         match found {
             Some(a) => Ok(a),
-            None => bail!("Agent with ID '{}' not found", agent),
+            None => bail!("Node with ID '{}' not found", node),
         }
     } else {
         // Find by name (case-insensitive)
         let resp: AgentListResponse = client
             .get("/api/agents")
             .await
-            .context("Failed to list agents")?;
-        let needle = agent.to_lowercase();
+            .context("Failed to list nodes")?;
+        let needle = node.to_lowercase();
         let found = resp
             .agents
             .into_iter()
             .find(|a| a.name.to_lowercase() == needle);
         match found {
             Some(a) => Ok(a),
-            None => bail!("Agent '{}' not found", agent),
+            None => bail!("Node '{}' not found", node),
         }
     }
 }
 
 pub async fn cmd_run(
     config: &Config,
-    agent: &str,
+    node: &str,
     tool: &str,
     repo: &str,
     prompt: Option<&str>,
@@ -103,13 +103,13 @@ pub async fn cmd_run(
     // 2. Parse tool
     let run_tool = parse_tool(tool)?;
 
-    // 3. Resolve agent
-    let agent_info = resolve_agent(&client, agent).await?;
+    // 3. Resolve node
+    let agent_info = resolve_node(&client, node).await?;
 
     match agent_info.status {
         AgentStatus::Offline => {
             bail!(
-                "Agent '{}' is offline. Cannot start a run.",
+                "Node '{}' is offline. Cannot start a run.",
                 agent_info.name
             );
         }
@@ -189,7 +189,7 @@ pub async fn cmd_run(
     match output_mode {
         OutputMode::Text => {
             eprintln!(
-                "Run started: {} (agent: {})",
+                "Run started: {} (node: {})",
                 run_id, agent_info.name
             );
         }

@@ -48,12 +48,12 @@ fn truncate(s: &str, max_len: usize) -> String {
 
 pub async fn cmd_threads(
     config: &Config,
-    agent: Option<&str>,
+    node: Option<&str>,
     output: OutputMode,
 ) -> anyhow::Result<()> {
     let client = WebmuxClient::new(config);
 
-    let path = match agent {
+    let path = match node {
         Some(id) => format!("/api/agents/{}/threads", id),
         None => "/api/threads".to_string(),
     };

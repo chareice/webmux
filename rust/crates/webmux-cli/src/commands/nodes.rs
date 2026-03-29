@@ -20,7 +20,7 @@ fn relative_time(timestamp_secs: f64) -> String {
     }
 }
 
-pub async fn cmd_agents(config: &Config, output: OutputMode) -> anyhow::Result<()> {
+pub async fn cmd_nodes(config: &Config, output: OutputMode) -> anyhow::Result<()> {
     let client = WebmuxClient::new(config);
 
     let resp = match client.get::<AgentListResponse>("/api/agents").await {
@@ -37,7 +37,7 @@ pub async fn cmd_agents(config: &Config, output: OutputMode) -> anyhow::Result<(
         }
         OutputMode::Text => {
             if resp.agents.is_empty() {
-                println!("No agents found.");
+                println!("No nodes found.");
                 return Ok(());
             }
 
