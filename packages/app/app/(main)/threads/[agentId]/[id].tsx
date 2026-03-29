@@ -1098,9 +1098,9 @@ export default function ThreadDetailScreen() {
             {/* Composer */}
             {active || canContinueTurn(latestTurn) ? (
               <>
-                {/* Options panel (only when not active) */}
-                {!active ? (
-                  <View className="mb-2">
+                <View className={getComposerCardClassName()}>
+                  {/* Options panel (only when not active) */}
+                  {!active ? (
                     <TurnOptionsPanel
                       tool={run.tool}
                       options={turnOptions}
@@ -1108,10 +1108,7 @@ export default function ThreadDetailScreen() {
                       expanded={showOptions}
                       onToggle={() => setShowOptions((v) => !v)}
                     />
-                  </View>
-                ) : null}
-
-                <View className={getComposerCardClassName()}>
+                  ) : null}
                   {/* Attachment thumbnails */}
                   {attachments.length > 0 ? (
                     <ScrollView
@@ -1241,33 +1238,13 @@ export default function ThreadDetailScreen() {
 
 function ImageComposerIcon({ disabled }: { disabled: boolean }) {
   return (
-    <View className="relative h-5 w-5">
-      <View
-        className={`absolute bottom-0 left-0 h-4.5 w-4.5 rounded-[4px] border ${
-          disabled ? "border-foreground-secondary/35" : "border-accent/70"
-        }`}
-      />
-      <View
-        className={`absolute bottom-1 left-1 h-1.5 w-1.5 rounded-full ${
-          disabled ? "bg-foreground-secondary/35" : "bg-accent/70"
-        }`}
-      />
-      <View
-        className={`absolute right-[-1px] top-0 h-3 w-3 items-center justify-center rounded-full border ${
-          disabled
-            ? "border-foreground-secondary/35 bg-surface-light"
-            : "border-accent/35 bg-accent/15"
-        }`}
-      >
-        <Text
-          className={`text-[9px] leading-none ${
-            disabled ? "text-foreground-secondary" : "text-accent"
-          }`}
-        >
-          +
-        </Text>
-      </View>
-    </View>
+    <Text
+      className={`text-xs ${
+        disabled ? "text-foreground-secondary/40" : "text-foreground-secondary"
+      }`}
+    >
+      Attach
+    </Text>
   );
 }
 
@@ -1672,24 +1649,25 @@ function TurnOptionsPanel({
     !!options.model || !!activeEffort || !!options.clearSession;
 
   return (
-    <View className="mb-2">
-      <Pressable onPress={onToggle}>
-        <Text
-          className={`text-xs mb-1 ${hasActive ? "text-accent" : "text-foreground-secondary"}`}
-        >
-          {expanded ? "v" : ">"} Options{hasActive ? " *" : ""}
+    <View>
+      <Pressable
+        className="flex-row items-center px-4 py-2 border-t border-border"
+        onPress={onToggle}
+      >
+        <Text className="text-foreground-secondary text-xs">
+          {expanded ? "–" : "+"} Options{hasActive ? " ·" : ""}
         </Text>
       </Pressable>
 
       {expanded ? (
-        <View className="bg-surface-light rounded-lg p-3 mb-2">
+        <View className="px-4 pb-3 border-t border-border/50">
           {/* Model */}
-          <View className="mb-3">
-            <Text className="text-foreground-secondary text-xs mb-1">
+          <View className="mt-3 mb-3">
+            <Text className="text-foreground-secondary text-xs mb-1.5">
               Model
             </Text>
             <TextInput
-              className="bg-surface border border-border rounded-lg px-3 py-2 text-foreground text-sm"
+              className="border-b border-border px-0 py-1.5 text-foreground text-sm outline-none"
               placeholder={
                 tool === "claude" ? "e.g. claude-sonnet-4-6" : "e.g. o4-mini"
               }
@@ -1705,16 +1683,16 @@ function TurnOptionsPanel({
 
           {/* Effort */}
           <View className="mb-3">
-            <Text className="text-foreground-secondary text-xs mb-1">
+            <Text className="text-foreground-secondary text-xs mb-1.5">
               Effort
             </Text>
-            <View className="flex-row flex-wrap gap-1.5">
+            <View className="flex-row flex-wrap gap-1">
               {efforts.map((level) => {
                 const isActive = activeEffort === level;
                 return (
                   <Pressable
                     key={level}
-                    className={`rounded-lg px-3 py-1.5 border ${isActive ? "bg-accent/20 border-accent" : "bg-surface border-border"}`}
+                    className={`px-3 py-1 border ${isActive ? "bg-foreground border-foreground" : "border-border"}`}
                     onPress={() => {
                       if (tool === "claude") {
                         onChange({
@@ -1734,7 +1712,7 @@ function TurnOptionsPanel({
                     }}
                   >
                     <Text
-                      className={`text-xs ${isActive ? "text-accent font-semibold" : "text-foreground-secondary"}`}
+                      className={`text-xs ${isActive ? "text-background font-semibold" : "text-foreground-secondary"}`}
                     >
                       {level}
                     </Text>
@@ -1754,8 +1732,8 @@ function TurnOptionsPanel({
               })
             }
           >
-            <Text className="text-foreground-secondary text-xs">
-              {options.clearSession ? "[x]" : "[ ]"} Clear session
+            <Text className="text-foreground text-xs">
+              {options.clearSession ? "☒" : "☐"} Clear session
             </Text>
           </Pressable>
         </View>
