@@ -1,5 +1,6 @@
 import { Platform, useWindowDimensions, Pressable, Text } from "react-native";
 import { Tabs, Slot, useRouter } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "../../../lib/theme";
 
 function NewThreadButton() {
@@ -44,8 +45,8 @@ export default function TabsLayout() {
         options={{
           title: "webmux",
           tabBarLabel: "Home",
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 20 }}>{"🏠"}</Text>
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home-outline" size={size} color={color} />
           ),
           headerRight: () => <NewThreadButton />,
         }}
@@ -55,8 +56,8 @@ export default function TabsLayout() {
         options={{
           title: "Settings",
           headerShown: false,
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 20 }}>{"⚙️"}</Text>
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="cog-outline" size={size} color={color} />
           ),
         }}
       />
