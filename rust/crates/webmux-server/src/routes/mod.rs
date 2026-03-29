@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod agents;
+pub mod api_tokens;
 pub mod auth;
 pub mod llm_configs;
 pub mod mobile;
@@ -24,6 +25,7 @@ fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
         .merge(auth::routes())
         .merge(agents::routes())
+        .merge(api_tokens::routes())
         .merge(threads::routes())
         .merge(projects::routes())
         .merge(tasks::routes())

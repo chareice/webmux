@@ -176,3 +176,14 @@ pub struct RunEventRow {
     pub payload_json: String,
     pub created_at: i64,
 }
+
+#[derive(Debug, Clone)]
+pub struct ApiTokenRow {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub token_hash: String,
+    pub created_at: i64,
+    pub last_used_at: Option<i64>,
+    pub expires_at: Option<i64>,
+}

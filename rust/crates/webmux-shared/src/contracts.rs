@@ -1031,3 +1031,36 @@ pub struct GenerateProjectActionRequest {
 pub struct ProjectActionListResponse {
     pub actions: Vec<ProjectAction>,
 }
+
+// --- API Token types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateApiTokenRequest {
+    pub name: String,
+    pub expires_in_days: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateApiTokenResponse {
+    pub id: String,
+    pub name: String,
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiTokenInfo {
+    pub id: String,
+    pub name: String,
+    pub created_at: f64,
+    pub last_used_at: Option<f64>,
+    pub expires_at: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiTokenListResponse {
+    pub tokens: Vec<ApiTokenInfo>,
+}

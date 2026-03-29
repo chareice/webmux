@@ -1,0 +1,25 @@
+[package]
+name = "webmux-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "webmux"
+path = "src/main.rs"
+
+[dependencies]
+webmux-shared = { path = "../webmux-shared" }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", features = ["json"] }
+dirs = "6"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+uuid = "1"
+ctrlc = "3"
