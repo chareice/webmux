@@ -10,6 +10,19 @@ export default function ThreadsLayout() {
         headerShown: false,
         contentStyle: { backgroundColor: colors.background },
       }}
-    />
+    >
+      <Stack.Screen
+        name="new"
+        options={{
+          headerShown: true,
+          title: "New Thread",
+          headerStyle: { backgroundColor: colors.surface },
+          headerTintColor: colors.foreground,
+          headerShadowVisible: false,
+          headerBackButtonDisplayMode: "minimal",
+        }}
+      />
+      <Stack.Screen name="[agentId]" />
+    </Stack>
   );
 }

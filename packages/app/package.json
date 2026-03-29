@@ -14,6 +14,7 @@
     "test": "NODE_NO_WARNINGS=1 node --test --experimental-strip-types $(find lib -name '*.test.ts' -print)"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
     "@webmux/shared": "workspace:*",
     "expo": "~55.0.8",
     "expo-application": "^55.0.10",
