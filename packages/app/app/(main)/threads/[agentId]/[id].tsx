@@ -403,7 +403,11 @@ export default function ThreadDetailScreen() {
     const doDelete = async () => {
       try {
         await deleteThread(agentId, threadId);
-        router.back();
+        if (Platform.OS === "web") {
+          router.navigate("/(main)" as never);
+        } else {
+          router.back();
+        }
       } catch (err) {
         setError((err as Error).message);
       }
@@ -669,19 +673,6 @@ export default function ThreadDetailScreen() {
     };
   }, [textInputRef.current]);
 
-  // --- Tool detail view ---
-
-  if (toolDetailItems) {
-    return (
-      <View className="flex-1 bg-background">
-        <ToolDetailView
-          items={toolDetailItems}
-          onClose={() => setToolDetailItems(null)}
-        />
-      </View>
-    );
-  }
-
   // --- Loading state ---
 
   if (isLoading) {
@@ -762,9 +753,28 @@ export default function ThreadDetailScreen() {
             </Text>
           </View>
 
-          {/* Delete button */}
+          {/* Action buttons */}
+          {active ? (
+            <Pressable
+              className="px-2.5 py-1 ml-1"
+              onPress={() => void handleInterrupt()}
+            >
+              <Text className="text-foreground-secondary text-xs">Interrupt</Text>
+            </Pressable>
+          ) : null}
+          {!active && canRetry ? (
+            <Pressable
+              className={`px-2.5 py-1 ml-1 ${isRetrying ? "opacity-50" : ""}`}
+              disabled={isRetrying}
+              onPress={() => void handleRetry()}
+            >
+              <Text className="text-foreground-secondary text-xs">
+                {isRetrying ? "Retrying..." : "Retry"}
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
-            className="bg-surface-light rounded-md px-2.5 py-1 ml-1"
+            className="px-2.5 py-1 ml-1"
             onPress={() => void handleDelete()}
           >
             <Text className="text-red text-xs">Delete</Text>
@@ -782,98 +792,9 @@ export default function ThreadDetailScreen() {
         ) : null}
       </View>
 
-      {/* Main body — two-column on wide web, single column otherwise */}
-      <View className={`flex-1 ${isWideScreen ? "flex-row" : ""}`}>
-        {/* Sidebar (web wide only) */}
-        {isWideScreen ? (
-          <View className="w-64 bg-surface border-r border-border p-4">
-            <SidebarSection label="Tool">
-              <View className="flex-row items-center gap-2">
-                <View
-                  className={`rounded px-1.5 py-0.5 ${run.tool === "codex" ? "bg-background border border-foreground" : "bg-foreground"}`}
-                >
-                  <Text
-                    className={`text-xs font-bold ${run.tool === "codex" ? "text-foreground" : "text-background"}`}
-                  >
-                    {toolIcon(run.tool)}
-                  </Text>
-                </View>
-                <Text className="text-foreground text-sm">
-                  {toolLabel(run.tool)}
-                </Text>
-              </View>
-            </SidebarSection>
-
-            <SidebarSection label="Repository">
-              <Text className="text-foreground text-sm font-medium">
-                {repoName(run.repoPath)}
-              </Text>
-              <Text className="text-foreground-secondary text-xs mt-0.5">
-                {run.repoPath}
-              </Text>
-            </SidebarSection>
-
-            {run.branch ? (
-              <SidebarSection label="Branch">
-                <Text className="text-foreground text-sm font-mono">
-                  {run.branch}
-                </Text>
-              </SidebarSection>
-            ) : null}
-
-            <SidebarSection label="Status">
-              <View className="flex-row items-center gap-1.5">
-                <View
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: statusColor }}
-                />
-                <Text className="text-sm" style={{ color: statusColor }}>
-                  {runStatusLabel(run.status)}
-                </Text>
-              </View>
-            </SidebarSection>
-
-            <SidebarSection label="Updated">
-              <Text className="text-foreground-secondary text-sm">
-                {timeAgo(run.updatedAt)}
-              </Text>
-            </SidebarSection>
-
-            <View className="mt-4 gap-2">
-              {active ? (
-                <Pressable
-                  className="bg-orange/20 rounded-lg px-3 py-2 flex-row items-center justify-center gap-1"
-                  onPress={() => void handleInterrupt()}
-                >
-                  <Text className="text-orange text-sm font-semibold">
-                    Interrupt
-                  </Text>
-                </Pressable>
-              ) : null}
-              {!active && canRetry ? (
-                <Pressable
-                  className={`bg-accent/20 rounded-lg px-3 py-2 flex-row items-center justify-center gap-1 ${isRetrying ? "opacity-60" : ""}`}
-                  disabled={isRetrying}
-                  onPress={() => void handleRetry()}
-                >
-                  <Text className="text-accent text-sm font-semibold">
-                    {isRetrying ? "Retrying..." : "Retry"}
-                  </Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                className="bg-red/10 rounded-lg px-3 py-2 flex-row items-center justify-center gap-1"
-                onPress={() => void handleDelete()}
-              >
-                <Text className="text-red text-sm font-semibold">Delete</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-
-        {/* Main content area */}
-        <View className="flex-1">
-          {/* Timeline */}
+      {/* Main content area */}
+      <View className="flex-1">
+        {/* Timeline */}
           <ScrollView
             ref={scrollViewRef}
             className="flex-1"
@@ -1210,8 +1131,17 @@ export default function ThreadDetailScreen() {
               </Text>
             )}
           </View>
-        </View>
       </View>
+
+      {/* Tool detail overlay */}
+      {toolDetailItems ? (
+        <View className="absolute inset-0 bg-background">
+          <ToolDetailView
+            items={toolDetailItems}
+            onClose={() => setToolDetailItems(null)}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1226,23 +1156,6 @@ function ImageComposerIcon({ disabled }: { disabled: boolean }) {
 }
 
 // --- Sub-components ---
-
-function SidebarSection({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <View className="mb-4">
-      <Text className="text-foreground-secondary text-xs uppercase tracking-wider mb-1">
-        {label}
-      </Text>
-      {children}
-    </View>
-  );
-}
 
 function MessageContent({ content }: { content: string }) {
   return <MarkdownContent compact content={content} selectable />;
