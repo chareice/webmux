@@ -95,7 +95,7 @@ export default function SettingsScreen() {
               }}
             >
               {isCheckingUpdate ? (
-                <ActivityIndicator color="#7aa2f7" size="small" />
+                <ActivityIndicator color="#1a1a1a" size="small" />
               ) : (
                 <Text className="text-accent font-semibold text-sm">
                   Check for updates

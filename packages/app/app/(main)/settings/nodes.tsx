@@ -209,7 +209,7 @@ export default function NodesScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#7aa2f7" />
+        <ActivityIndicator size="large" color="#1a1a1a" />
         <Text className="text-foreground-secondary mt-3 text-sm">
           Loading nodes...
         </Text>
@@ -297,7 +297,7 @@ export default function NodesScreen() {
                           maxLength={32}
                           autoFocus
                           onSubmitEditing={() => void handleRename(agent.id)}
-                          placeholderTextColor="#565f89"
+                          placeholderTextColor="#9a9a9a"
                         />
                         <Pressable
                           className="bg-accent rounded-md px-2 py-1"
@@ -412,7 +412,7 @@ export default function NodesScreen() {
             {/* Modal body */}
             {registering ? (
               <View className="items-center py-8">
-                <ActivityIndicator size="small" color="#7aa2f7" />
+                <ActivityIndicator size="small" color="#1a1a1a" />
                 <Text className="text-foreground-secondary mt-2 text-sm">
                   Generating token...
                 </Text>

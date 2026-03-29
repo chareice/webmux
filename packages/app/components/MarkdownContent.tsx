@@ -6,11 +6,12 @@ import Markdown, {
 } from "react-native-markdown-display";
 
 const COLORS = {
-  accent: "#7aa2f7",
-  background: "#1a1b26",
-  border: "#343a52",
-  foreground: "#c0caf5",
-  green: "#9ece6a",
+  accent: "#1a1a1a",
+  background: "#f8f5ed",
+  border: "#d5cfc4",
+  foreground: "#1a1a1a",
+  green: "#1a1a1a",
+  codeBackground: "#efe9de",
 };
 
 const MONO_FONT = Platform.OS === "web" ? "monospace" : "Courier";
@@ -72,7 +73,7 @@ const baseStyles = StyleSheet.create({
     marginRight: 8,
   },
   code_block: {
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.codeBackground,
     borderColor: COLORS.border,
     borderRadius: 10,
     borderWidth: 1,
@@ -86,7 +87,7 @@ const baseStyles = StyleSheet.create({
     paddingVertical: 10,
   },
   code_inline: {
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.codeBackground,
     borderRadius: 6,
     color: COLORS.green,
     fontFamily: MONO_FONT,
@@ -99,7 +100,7 @@ const baseStyles = StyleSheet.create({
     fontStyle: "italic",
   },
   fence: {
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.codeBackground,
     borderColor: COLORS.border,
     borderRadius: 10,
     borderWidth: 1,

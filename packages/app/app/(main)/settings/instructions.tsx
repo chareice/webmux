@@ -105,7 +105,7 @@ export default function InstructionsScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#7aa2f7" />
+        <ActivityIndicator size="large" color="#1a1a1a" />
         <Text className="text-foreground-secondary mt-3 text-sm">
           Loading...
         </Text>
@@ -206,7 +206,7 @@ export default function InstructionsScreen() {
             {/* Loading instructions */}
             {isFetching ? (
               <View className="items-center justify-center py-16">
-                <ActivityIndicator size="large" color="#7aa2f7" />
+                <ActivityIndicator size="large" color="#1a1a1a" />
                 <Text className="text-foreground-secondary mt-3 text-sm">
                   Loading instructions...
                 </Text>
@@ -221,7 +221,7 @@ export default function InstructionsScreen() {
                   placeholder={`Enter global instructions for ${
                     activeTool === "claude" ? "Claude Code" : "Codex"
                   }...`}
-                  placeholderTextColor="#565f89"
+                  placeholderTextColor="#9a9a9a"
                   multiline
                   textAlignVertical="top"
                   autoCapitalize="none"
@@ -239,7 +239,7 @@ export default function InstructionsScreen() {
                     onPress={() => void handleSave()}
                   >
                     {isSaving ? (
-                      <ActivityIndicator size="small" color="#1a1b26" />
+                      <ActivityIndicator size="small" color="#f8f5ed" />
                     ) : null}
                     <Text className="text-background font-semibold text-sm">
                       {saveSuccess

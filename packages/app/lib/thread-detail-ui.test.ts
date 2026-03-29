@@ -47,26 +47,25 @@ test("copyMessageContent accepts clipboard writers that return a success flag", 
 test("getComposerCardClassName renders a bordered card", () => {
   const className = getComposerCardClassName();
 
-  assert.match(className, /bg-surface-light/);
+  assert.match(className, /bg-background/);
   assert.match(className, /border-border/);
-  assert.match(className, /rounded-2xl/);
 });
 
 test("getComposerSubmitButtonClassName uses a muted style when disabled", () => {
   assert.match(
     getComposerSubmitButtonClassName({ disabled: true }),
-    /bg-accent\/25/,
+    /bg-foreground\/25/,
   );
   assert.match(
     getComposerSubmitTextClassName({ disabled: true }),
-    /text-white\/50/,
+    /text-background\/50/,
   );
 });
 
-test("getComposerSubmitButtonClassName uses the accent style when enabled", () => {
+test("getComposerSubmitButtonClassName uses the foreground style when enabled", () => {
   assert.match(
     getComposerSubmitButtonClassName({ disabled: false }),
-    /bg-accent/,
+    /bg-foreground/,
   );
   assert.match(
     getComposerSubmitTextClassName({ disabled: false }),

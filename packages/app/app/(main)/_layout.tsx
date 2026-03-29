@@ -56,7 +56,7 @@ export default function MainLayout() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color="#7aa2f7" size="large" />
+        <ActivityIndicator color="#1a1a1a" size="large" />
       </View>
     );
   }

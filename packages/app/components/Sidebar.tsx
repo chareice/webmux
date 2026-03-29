@@ -34,7 +34,7 @@ export function Sidebar({
       <ScrollView className="flex-1">
         {isLoading ? (
           <View className="items-center py-8">
-            <ActivityIndicator color="#7aa2f7" size="small" />
+            <ActivityIndicator color="#1a1a1a" size="small" />
           </View>
         ) : workpaths.length === 0 ? (
           <View className="px-4 py-8">

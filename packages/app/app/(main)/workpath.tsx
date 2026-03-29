@@ -31,7 +31,7 @@ function ThreadRow({
   onDelete: () => void;
   onPress: () => void;
 }) {
-  const toolColor = run.tool === "codex" ? "#bb9af7" : "#7aa2f7";
+  const isClaude = run.tool !== "codex";
 
   const handleDelete = () => {
     if (Platform.OS === "web") {
@@ -55,10 +55,9 @@ function ThreadRow({
       <View className="flex-row items-center gap-2 mb-1.5">
         {/* Tool badge */}
         <View
-          className="rounded px-1.5 py-0.5"
-          style={{ backgroundColor: `${toolColor}20` }}
+          className={`rounded px-1.5 py-0.5 ${isClaude ? "bg-foreground" : "bg-background border border-foreground"}`}
         >
-          <Text style={{ color: toolColor }} className="text-[11px] font-semibold">
+          <Text className={`text-[11px] font-bold ${isClaude ? "text-background" : "text-foreground"}`}>
             {toolLabel(run.tool)}
           </Text>
         </View>

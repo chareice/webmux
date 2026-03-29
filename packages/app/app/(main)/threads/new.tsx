@@ -365,7 +365,7 @@ export default function NewThreadScreen() {
   if (isLoadingAgents) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#7aa2f7" />
+        <ActivityIndicator size="large" color="#1a1a1a" />
         <Text className="text-foreground-secondary mt-3 text-sm">Loading...</Text>
       </View>
     );
@@ -470,7 +470,7 @@ export default function NewThreadScreen() {
                 ? "/home/chareice/projects/webmux"
                 : "Select a node first"
             }
-            placeholderTextColor="#565f89"
+            placeholderTextColor="#9a9a9a"
             value={repoPath}
             onChangeText={setRepoPath}
             editable={!!selectedAgent}
@@ -520,7 +520,7 @@ export default function NewThreadScreen() {
 
           {isLoadingRepos && !repoBrowser ? (
             <View className="items-center py-2">
-              <ActivityIndicator size="small" color="#7aa2f7" />
+              <ActivityIndicator size="small" color="#1a1a1a" />
             </View>
           ) : null}
 
@@ -645,7 +645,7 @@ export default function NewThreadScreen() {
                 ? "What should the AI do next in this session?"
                 : "What would you like the AI to do?"
             }
-            placeholderTextColor="#565f89"
+            placeholderTextColor="#9a9a9a"
             multiline
             textAlignVertical="top"
             value={prompt}
@@ -746,7 +746,7 @@ export default function NewThreadScreen() {
         >
           {isSubmitting ? (
             <View className="flex-row items-center gap-2">
-              <ActivityIndicator size="small" color="#1a1b26" />
+              <ActivityIndicator size="small" color="#f8f5ed" />
               <Text className="text-background font-semibold text-base">
                 Starting...
               </Text>
@@ -819,7 +819,7 @@ export default function NewThreadScreen() {
 
               {isLoadingRepos ? (
                 <View className="items-center py-8">
-                  <ActivityIndicator size="small" color="#7aa2f7" />
+                  <ActivityIndicator size="small" color="#1a1a1a" />
                   <Text className="text-foreground-secondary mt-2 text-sm">
                     Loading...
                   </Text>
@@ -908,7 +908,7 @@ export default function NewThreadScreen() {
             <ScrollView className="px-5 py-3" style={{ maxHeight: 420 }}>
               {isLoadingImportableSessions ? (
                 <View className="items-center py-8">
-                  <ActivityIndicator size="small" color="#7aa2f7" />
+                  <ActivityIndicator size="small" color="#1a1a1a" />
                   <Text className="text-foreground-secondary mt-2 text-sm">
                     Loading sessions...
                   </Text>

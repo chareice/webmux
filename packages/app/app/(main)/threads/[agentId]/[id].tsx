@@ -698,7 +698,7 @@ export default function ThreadDetailScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#7aa2f7" />
+        <ActivityIndicator size="large" color="#1a1a1a" />
         <Text className="text-foreground-secondary mt-3 text-sm">
           Loading thread...
         </Text>
@@ -801,10 +801,10 @@ export default function ThreadDetailScreen() {
             <SidebarSection label="Tool">
               <View className="flex-row items-center gap-2">
                 <View
-                  className={`rounded px-1.5 py-0.5 ${run.tool === "codex" ? "bg-purple/20" : "bg-accent/20"}`}
+                  className={`rounded px-1.5 py-0.5 ${run.tool === "codex" ? "bg-background border border-foreground" : "bg-foreground"}`}
                 >
                   <Text
-                    className={`text-xs font-bold ${run.tool === "codex" ? "text-purple" : "text-accent"}`}
+                    className={`text-xs font-bold ${run.tool === "codex" ? "text-foreground" : "text-background"}`}
                   >
                     {toolIcon(run.tool)}
                   </Text>
@@ -1035,7 +1035,7 @@ export default function ThreadDetailScreen() {
               nonQueuedTurns.length > 0 &&
               nonQueuedTurns[nonQueuedTurns.length - 1].items.length === 0 ? (
               <View className="flex-row items-center gap-2 py-4">
-                <ActivityIndicator size="small" color="#7aa2f7" />
+                <ActivityIndicator size="small" color="#1a1a1a" />
                 <Text className="text-foreground-secondary text-sm">
                   Waiting for events...
                 </Text>
@@ -1168,7 +1168,7 @@ export default function ThreadDetailScreen() {
                         ? "Queue a follow-up message..."
                         : "Message this thread..."
                     }
-                    placeholderTextColor="#565f89"
+                    placeholderTextColor="#9a9a9a"
                     multiline
                     textAlignVertical="top"
                     onChangeText={(text) => {
@@ -1482,10 +1482,10 @@ function CommandCard({
   const isCollapsible = item.output.split("\n").length > 4;
   const commandColor =
     item.status === "failed"
-      ? "#f7768e"
+      ? "#b44444"
       : item.status === "completed"
-        ? "#9ece6a"
-        : "#7aa2f7";
+        ? "#1a1a1a"
+        : "#1a1a1a";
 
   return (
     <View className="bg-surface rounded-xl p-3 mb-3">
@@ -1539,12 +1539,12 @@ function ActivityRow({
   const hasLongDetail = !!item.detail && item.detail.split("\n").length > 3;
   const dotColor =
     item.status === "success"
-      ? "#9ece6a"
+      ? "#1a1a1a"
       : item.status === "warning"
-        ? "#e0af68"
+        ? "#6b6b6b"
         : item.status === "error"
-          ? "#f7768e"
-          : "#7aa2f7";
+          ? "#b44444"
+          : "#1a1a1a";
 
   return (
     <View className="flex-row gap-2 mb-3">
@@ -1606,7 +1606,7 @@ function QueuedTurnCard({
             onChangeText={onChangeEditPrompt}
             multiline
             autoFocus
-            placeholderTextColor="#565f89"
+            placeholderTextColor="#9a9a9a"
           />
           <View className="flex-row justify-end gap-2">
             <Pressable
@@ -1693,7 +1693,7 @@ function TurnOptionsPanel({
               placeholder={
                 tool === "claude" ? "e.g. claude-sonnet-4-6" : "e.g. o4-mini"
               }
-              placeholderTextColor="#565f89"
+              placeholderTextColor="#9a9a9a"
               value={options.model ?? ""}
               onChangeText={(text) =>
                 onChange({ ...options, model: text || undefined })
