@@ -12,7 +12,7 @@ use tracing::{error, info, warn};
 
 use webmux_shared::{AgentMessage, ServerToAgentMessage};
 
-use crate::auth::verify_jwt;
+use crate::auth::verify_bearer_token;
 use crate::state::AppState;
 use crate::ws::agent_hub::{self, run_row_to_run};
 use crate::ws::task_dispatcher;
@@ -341,15 +341,14 @@ pub async fn ws_thread_handler(
     Query(params): Query<ThreadWsQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    // Verify JWT
-    let payload = match verify_jwt(&params.token, &state.config.jwt_secret) {
-        Ok(p) => p,
+    // Verify bearer token (JWT or API token)
+    let user_id = match verify_bearer_token(&params.token, &state.db, &state.config.jwt_secret) {
+        Ok(uid) => uid,
         Err(_) => {
             return axum::http::StatusCode::UNAUTHORIZED.into_response();
         }
     };
 
-    let user_id = payload.sub;
     let thread_id = params.thread_id;
 
     // Verify run exists and belongs to user
@@ -441,15 +440,14 @@ pub async fn ws_project_handler(
     Query(params): Query<ProjectWsQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    // Verify JWT
-    let payload = match verify_jwt(&params.token, &state.config.jwt_secret) {
-        Ok(p) => p,
+    // Verify bearer token (JWT or API token)
+    let user_id = match verify_bearer_token(&params.token, &state.db, &state.config.jwt_secret) {
+        Ok(uid) => uid,
         Err(_) => {
             return axum::http::StatusCode::UNAUTHORIZED.into_response();
         }
     };
 
-    let user_id = payload.sub;
     let project_id = params.project_id;
 
     // Verify project exists and belongs to user

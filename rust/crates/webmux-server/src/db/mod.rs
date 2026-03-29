@@ -6,6 +6,7 @@ pub mod projects;
 pub mod tasks;
 pub mod llm_configs;
 pub mod notifications;
+pub mod api_tokens;
 
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -216,6 +217,17 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_task_messages_task ON task_messages(task_id);
+
+        CREATE TABLE IF NOT EXISTS api_tokens (
+            id           TEXT PRIMARY KEY,
+            user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name         TEXT NOT NULL,
+            token_hash   TEXT NOT NULL,
+            created_at   INTEGER NOT NULL,
+            last_used_at INTEGER,
+            expires_at   INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_tokens_token_hash ON api_tokens(token_hash);
         ",
     )?;
 

@@ -503,6 +503,47 @@ fn urlencoded(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Unified bearer token verification (JWT or API token)
+// ---------------------------------------------------------------------------
+
+/// Verify a bearer token — either an API token (wmx_ prefix) or a JWT.
+/// Returns the user_id on success.
+pub fn verify_bearer_token(
+    token: &str,
+    db: &crate::db::DbPool,
+    jwt_secret: &str,
+) -> Result<String, AuthError> {
+    if token.starts_with("wmx_") {
+        // API token path
+        let token_hash = hash_token(token);
+        let conn = db.get().map_err(|e| AuthError::OAuth(format!("DB error: {e}")))?;
+        let row = crate::db::api_tokens::find_api_token_by_hash(&conn, &token_hash)
+            .map_err(|e| AuthError::OAuth(format!("DB error: {e}")))?
+            .ok_or(AuthError::InvalidToken)?;
+
+        // Check expiry
+        if let Some(expires_at) = row.expires_at {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64;
+            if now > expires_at {
+                return Err(AuthError::InvalidToken);
+            }
+        }
+
+        // Update last_used_at (fire and forget — ignore errors)
+        let _ = crate::db::api_tokens::update_api_token_last_used(&conn, &row.id);
+
+        Ok(row.user_id)
+    } else {
+        // JWT path
+        let payload = verify_jwt(token, jwt_secret)?;
+        Ok(payload.sub)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Axum extractor — AuthUser
 // ---------------------------------------------------------------------------
 
@@ -529,12 +570,10 @@ impl FromRequestParts<crate::state::AppState> for AuthUser {
             .strip_prefix("Bearer ")
             .ok_or(AuthError::MissingAuth)?;
 
-        let payload = verify_jwt(token, &state.config.jwt_secret)
+        let user_id = verify_bearer_token(token, &state.db, &state.config.jwt_secret)
             .map_err(|_| AuthError::InvalidToken)?;
 
-        Ok(AuthUser {
-            user_id: payload.sub,
-        })
+        Ok(AuthUser { user_id })
     }
 }
 
@@ -555,12 +594,10 @@ impl FromRequestParts<std::sync::Arc<crate::state::AppState>> for AuthUser {
             .strip_prefix("Bearer ")
             .ok_or(AuthError::MissingAuth)?;
 
-        let payload = verify_jwt(token, &state.config.jwt_secret)
+        let user_id = verify_bearer_token(token, &state.db, &state.config.jwt_secret)
             .map_err(|_| AuthError::InvalidToken)?;
 
-        Ok(AuthUser {
-            user_id: payload.sub,
-        })
+        Ok(AuthUser { user_id })
     }
 }
 
