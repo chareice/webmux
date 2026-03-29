@@ -95,12 +95,15 @@ function generateId(): string {
 
 export default function NewThreadScreen() {
   const router = useRouter();
-  const { agentId } = useLocalSearchParams<{ agentId: string }>();
+  const { agentId, repoPath: repoPathParam } = useLocalSearchParams<{
+    agentId: string;
+    repoPath: string;
+  }>();
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedAgent, setSelectedAgent] = useState(agentId || "");
   const [selectedTool, setSelectedTool] = useState<RunTool>("claude");
-  const [repoPath, setRepoPath] = useState("");
+  const [repoPath, setRepoPath] = useState(repoPathParam ? decodeURIComponent(repoPathParam) : "");
   const [prompt, setPrompt] = useState("");
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
