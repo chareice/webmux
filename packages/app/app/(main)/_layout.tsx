@@ -5,29 +5,27 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
 } from "react-native";
-import { Slot, Redirect } from "expo-router";
+import { Slot, Redirect, usePathname } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../lib/auth";
-import { Sidebar } from "../../components/Sidebar";
-import { WorkpathProvider, useWorkpaths } from "../../lib/workpath-context";
+import { LeftPanel } from "../../components/LeftPanel";
+import { WorkpathProvider } from "../../lib/workpath-context";
 import { getKeyboardAvoidingBehavior } from "../../lib/mobile-layout";
 import { useTheme } from "../../lib/theme";
 
 function MainContent() {
   const { width } = useWindowDimensions();
   const isWideScreen = Platform.OS === "web" && width >= 768;
-  const { workpaths, selectedPath, setSelectedPath, isLoading } =
-    useWorkpaths();
+  const pathname = usePathname();
+
+  // Extract active thread ID from the current route
+  const threadMatch = pathname.match(/\/threads\/([^/]+)\/([^/]+)$/);
+  const activeThreadId = threadMatch ? threadMatch[2] : null;
 
   if (isWideScreen) {
     return (
       <View className="flex-1 flex-row bg-background">
-        <Sidebar
-          workpaths={workpaths}
-          selectedPath={selectedPath}
-          onSelectWorkpath={setSelectedPath}
-          isLoading={isLoading}
-        />
+        <LeftPanel activeThreadId={activeThreadId} />
         <View className="flex-1">
           <Slot />
         </View>
