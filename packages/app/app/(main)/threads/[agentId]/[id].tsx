@@ -717,7 +717,13 @@ export default function ThreadDetailScreen() {
         ) : null}
         <Pressable
           className="bg-surface-light rounded-lg px-4 py-2"
-          onPress={() => router.back()}
+          onPress={() => {
+            if (Platform.OS === "web") {
+              router.navigate("/(main)" as never);
+            } else {
+              router.back();
+            }
+          }}
         >
           <Text className="text-foreground-secondary text-sm">Go Back</Text>
         </Pressable>
@@ -735,8 +741,14 @@ export default function ThreadDetailScreen() {
       <View className="bg-surface px-4 py-2.5 border-b border-border">
         <View className="flex-row items-center gap-2">
           <Pressable
-            className="bg-surface-light rounded-md px-2.5 py-1"
-            onPress={() => router.back()}
+            className="bg-surface-light rounded-md px-2.5 py-1.5"
+            onPress={() => {
+              if (Platform.OS === "web") {
+                router.navigate("/(main)" as never);
+              } else {
+                router.back();
+              }
+            }}
           >
             <Text className="text-foreground-secondary text-sm">Back</Text>
           </Pressable>
