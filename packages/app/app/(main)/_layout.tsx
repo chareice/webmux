@@ -3,22 +3,19 @@ import {
   Platform,
   View,
   ActivityIndicator,
-  KeyboardAvoidingView,
 } from "react-native";
-import { Slot, Redirect, usePathname } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Stack, Slot, Redirect, usePathname } from "expo-router";
 import { useAuth } from "../../lib/auth";
 import { LeftPanel } from "../../components/LeftPanel";
 import { WorkpathProvider } from "../../lib/workpath-context";
-import { getKeyboardAvoidingBehavior } from "../../lib/mobile-layout";
 import { useTheme } from "../../lib/theme";
 
 function MainContent() {
   const { width } = useWindowDimensions();
   const isWideScreen = Platform.OS === "web" && width >= 768;
   const pathname = usePathname();
+  const { colors } = useTheme();
 
-  // Extract active thread ID from the current route
   const threadMatch = pathname.match(/\/threads\/([^/]+)\/([^/]+)$/);
   const activeThreadId = threadMatch ? threadMatch[2] : null;
 
@@ -34,18 +31,25 @@ function MainContent() {
   }
 
   return (
-    <SafeAreaView
-      className="flex-1 bg-background"
-      edges={["top", "bottom", "left", "right"]}
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
     >
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={getKeyboardAvoidingBehavior(Platform.OS)}
-        enabled={Platform.OS !== "web"}
-      >
-        <Slot />
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen
+        name="workpath"
+        options={{
+          headerShown: true,
+          headerStyle: { backgroundColor: colors.surface },
+          headerTintColor: colors.foreground,
+          headerShadowVisible: false,
+          headerBackButtonDisplayMode: "minimal",
+        }}
+      />
+      <Stack.Screen name="threads" />
+    </Stack>
   );
 }
 
