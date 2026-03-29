@@ -75,64 +75,68 @@ export function LeftPanel({ activeThreadId }: LeftPanelProps) {
 
       {/* Scrollable content: workpath selector + thread list */}
       <ScrollView className="flex-1" contentContainerClassName="pb-2">
-        {/* Workpath selector header */}
-        <Pressable
-          className="px-4 py-2.5 border-b border-border flex-row items-center"
-          onPress={() => setSelectorOpen(!selectorOpen)}
-        >
-          <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
-            {selectedWorkpath?.dirName ?? "Select workpath"}
-          </Text>
-          {selectedWorkpath?.activeCount ? (
-            <View className="bg-accent/20 rounded px-1.5 py-0.5 mr-2">
-              <Text className="text-accent text-xs font-medium">
-                {selectedWorkpath.activeCount}
+        {/* Workpath selector (only show when workpaths exist) */}
+        {workpaths.length > 0 ? (
+          <>
+            <Pressable
+              className="px-4 py-2.5 border-b border-border flex-row items-center"
+              onPress={() => setSelectorOpen(!selectorOpen)}
+            >
+              <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
+                {selectedWorkpath?.dirName ?? "Select workpath"}
               </Text>
-            </View>
-          ) : null}
-          <Text className="text-foreground-secondary text-xs">
-            {selectorOpen ? "\u25B2" : "\u25BC"}
-          </Text>
-        </Pressable>
+              {selectedWorkpath?.activeCount ? (
+                <View className="bg-accent/20 rounded px-1.5 py-0.5 mr-2">
+                  <Text className="text-accent text-xs font-medium">
+                    {selectedWorkpath.activeCount}
+                  </Text>
+                </View>
+              ) : null}
+              <Text className="text-foreground-secondary text-xs">
+                {selectorOpen ? "\u25B2" : "\u25BC"}
+              </Text>
+            </Pressable>
 
-        {/* Inline workpath list (expanded) */}
-        {selectorOpen ? (
-          <View className="border-b border-border">
-            {workpaths.map((wp) => {
-              const isSelected = selectedPath === wp.repoPath;
-              return (
-                <Pressable
-                  key={wp.repoPath}
-                  className={`px-4 py-2 ${isSelected ? "bg-accent/10" : "bg-background"}`}
-                  onPress={() => {
-                    setSelectedPath(wp.repoPath);
-                    setSelectorOpen(false);
-                    router.navigate("/(main)" as never);
-                  }}
-                >
-                  <View className="flex-row items-center gap-2">
-                    <Text
-                      className={`text-sm flex-1 ${isSelected ? "text-accent font-semibold" : "text-foreground"}`}
-                      numberOfLines={1}
+            {/* Inline workpath list (expanded) */}
+            {selectorOpen ? (
+              <View className="border-b border-border">
+                {workpaths.map((wp) => {
+                  const isSelected = selectedPath === wp.repoPath;
+                  return (
+                    <Pressable
+                      key={wp.repoPath}
+                      className={`px-4 py-2 ${isSelected ? "bg-accent/10" : "bg-background"}`}
+                      onPress={() => {
+                        setSelectedPath(wp.repoPath);
+                        setSelectorOpen(false);
+                        router.navigate("/(main)" as never);
+                      }}
                     >
-                      {wp.dirName}
-                    </Text>
-                    {wp.activeCount > 0 ? (
-                      <View className="bg-accent/20 rounded px-1 py-0.5">
-                        <Text className="text-accent text-[10px] font-medium">
-                          {wp.activeCount}
+                      <View className="flex-row items-center gap-2">
+                        <Text
+                          className={`text-sm flex-1 ${isSelected ? "text-accent font-semibold" : "text-foreground"}`}
+                          numberOfLines={1}
+                        >
+                          {wp.dirName}
                         </Text>
+                        {wp.activeCount > 0 ? (
+                          <View className="bg-accent/20 rounded px-1 py-0.5">
+                            <Text className="text-accent text-[10px] font-medium">
+                              {wp.activeCount}
+                            </Text>
+                          </View>
+                        ) : (
+                          <Text className="text-foreground-secondary text-[10px]">
+                            {wp.runs.length}
+                          </Text>
+                        )}
                       </View>
-                    ) : (
-                      <Text className="text-foreground-secondary text-[10px]">
-                        {wp.runs.length}
-                      </Text>
-                    )}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </>
         ) : null}
 
         {/* Thread list */}
@@ -141,10 +145,18 @@ export function LeftPanel({ activeThreadId }: LeftPanelProps) {
             <View className="items-center py-8">
               <ActivityIndicator color={colors.accent} size="small" />
             </View>
+          ) : workpaths.length === 0 ? (
+            <View className="items-center py-8 px-4">
+              <Text className="text-foreground-secondary text-sm text-center">
+                {agents.size === 0
+                  ? "Register a node to get started"
+                  : "No threads yet"}
+              </Text>
+            </View>
           ) : !selectedWorkpath ? (
             <View className="items-center py-8">
               <Text className="text-foreground-secondary text-sm text-center">
-                No workpaths yet
+                Select a workpath
               </Text>
             </View>
           ) : selectedWorkpath.runs.length === 0 ? (
