@@ -3,12 +3,12 @@ use crate::config::Config;
 use crate::output::OutputMode;
 use webmux_shared::{AgentListResponse, AgentStatus};
 
-fn relative_time(timestamp_ms: f64) -> String {
+fn relative_time(timestamp_secs: f64) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_millis() as f64;
-    let diff_secs = ((now - timestamp_ms) / 1000.0) as u64;
+        .as_secs_f64();
+    let diff_secs = (now - timestamp_secs).max(0.0) as u64;
     if diff_secs < 60 {
         format!("{}s ago", diff_secs)
     } else if diff_secs < 3600 {

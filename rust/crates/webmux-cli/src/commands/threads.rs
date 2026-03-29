@@ -35,10 +35,14 @@ fn status_str(s: &RunStatus) -> &'static str {
 }
 
 fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
+    // Replace newlines with spaces for single-line display
+    let s = s.replace('\n', " ");
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        let truncated: String = chars[..max_len.saturating_sub(3)].iter().collect();
+        format!("{}...", truncated)
     }
 }
 

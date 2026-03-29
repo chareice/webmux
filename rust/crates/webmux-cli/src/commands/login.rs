@@ -3,13 +3,8 @@ use crate::config::{self, Config};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-struct MeResponse {
-    user: UserInfo,
-}
-
-#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UserInfo {
+struct MeResponse {
     display_name: String,
 }
 
@@ -25,7 +20,7 @@ pub async fn cmd_login(server: &str, token: &str) -> anyhow::Result<()> {
     match client.get::<MeResponse>("/api/auth/me").await {
         Ok(me) => {
             config::save_config(&config)?;
-            println!("Logged in as {}", me.user.display_name);
+            println!("Logged in as {}", me.display_name);
         }
         Err(e) => {
             eprintln!("Error: failed to authenticate: {}", e);
