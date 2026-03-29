@@ -22,8 +22,6 @@ import type {
   RunStatus,
   RunTimelineEvent,
   RunTurnDetail,
-  RunTurnOptions,
-  RunTool,
   TodoEntry,
 } from "@webmux/shared";
 import {
@@ -67,8 +65,6 @@ import { createReconnectableSocket } from "../../../../lib/websocket";
 
 const MAX_ATTACHMENTS = 4;
 const AUTO_REFRESH_INTERVAL = 5000;
-const CLAUDE_EFFORTS = ["low", "medium", "high", "max"] as const;
-const CODEX_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
 
 // --- Types ---
 
@@ -231,8 +227,6 @@ export default function ThreadDetailScreen() {
   const followUpRef = useRef("");
   const [hasText, setHasText] = useState(false);
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
-  const [turnOptions, setTurnOptions] = useState<RunTurnOptions>({});
-  const [showOptions, setShowOptions] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isContinuing, setIsContinuing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -409,7 +403,11 @@ export default function ThreadDetailScreen() {
     const doDelete = async () => {
       try {
         await deleteThread(agentId, threadId);
-        router.back();
+        if (Platform.OS === "web") {
+          router.navigate("/(main)" as never);
+        } else {
+          router.back();
+        }
       } catch (err) {
         setError((err as Error).message);
       }
@@ -450,14 +448,11 @@ export default function ThreadDetailScreen() {
         })
       );
 
-      const opts =
-        Object.keys(turnOptions).length > 0 ? turnOptions : undefined;
       const body: ContinueRunRequest = {
         prompt: followUpRef.current.trim(),
         ...(uploadAttachments.length > 0
           ? { attachments: uploadAttachments }
           : {}),
-        options: opts,
       };
 
       const data = await continueThread(agentId, threadId, body);
@@ -471,10 +466,6 @@ export default function ThreadDetailScreen() {
         for (const a of attachments) URL.revokeObjectURL(a.previewUri);
       }
       setAttachments([]);
-      // Reset clearSession after use but keep model/effort
-      if (turnOptions.clearSession) {
-        setTurnOptions((prev) => ({ ...prev, clearSession: false }));
-      }
       setError(null);
     } catch (err) {
       setError((err as Error).message);
@@ -682,19 +673,6 @@ export default function ThreadDetailScreen() {
     };
   }, [textInputRef.current]);
 
-  // --- Tool detail view ---
-
-  if (toolDetailItems) {
-    return (
-      <View className="flex-1 bg-background">
-        <ToolDetailView
-          items={toolDetailItems}
-          onClose={() => setToolDetailItems(null)}
-        />
-      </View>
-    );
-  }
-
   // --- Loading state ---
 
   if (isLoading) {
@@ -775,9 +753,28 @@ export default function ThreadDetailScreen() {
             </Text>
           </View>
 
-          {/* Delete button */}
+          {/* Action buttons */}
+          {active ? (
+            <Pressable
+              className="px-2.5 py-1 ml-1"
+              onPress={() => void handleInterrupt()}
+            >
+              <Text className="text-foreground-secondary text-xs">Interrupt</Text>
+            </Pressable>
+          ) : null}
+          {!active && canRetry ? (
+            <Pressable
+              className={`px-2.5 py-1 ml-1 ${isRetrying ? "opacity-50" : ""}`}
+              disabled={isRetrying}
+              onPress={() => void handleRetry()}
+            >
+              <Text className="text-foreground-secondary text-xs">
+                {isRetrying ? "Retrying..." : "Retry"}
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
-            className="bg-surface-light rounded-md px-2.5 py-1 ml-1"
+            className="px-2.5 py-1 ml-1"
             onPress={() => void handleDelete()}
           >
             <Text className="text-red text-xs">Delete</Text>
@@ -795,98 +792,9 @@ export default function ThreadDetailScreen() {
         ) : null}
       </View>
 
-      {/* Main body — two-column on wide web, single column otherwise */}
-      <View className={`flex-1 ${isWideScreen ? "flex-row" : ""}`}>
-        {/* Sidebar (web wide only) */}
-        {isWideScreen ? (
-          <View className="w-64 bg-surface border-r border-border p-4">
-            <SidebarSection label="Tool">
-              <View className="flex-row items-center gap-2">
-                <View
-                  className={`rounded px-1.5 py-0.5 ${run.tool === "codex" ? "bg-background border border-foreground" : "bg-foreground"}`}
-                >
-                  <Text
-                    className={`text-xs font-bold ${run.tool === "codex" ? "text-foreground" : "text-background"}`}
-                  >
-                    {toolIcon(run.tool)}
-                  </Text>
-                </View>
-                <Text className="text-foreground text-sm">
-                  {toolLabel(run.tool)}
-                </Text>
-              </View>
-            </SidebarSection>
-
-            <SidebarSection label="Repository">
-              <Text className="text-foreground text-sm font-medium">
-                {repoName(run.repoPath)}
-              </Text>
-              <Text className="text-foreground-secondary text-xs mt-0.5">
-                {run.repoPath}
-              </Text>
-            </SidebarSection>
-
-            {run.branch ? (
-              <SidebarSection label="Branch">
-                <Text className="text-foreground text-sm font-mono">
-                  {run.branch}
-                </Text>
-              </SidebarSection>
-            ) : null}
-
-            <SidebarSection label="Status">
-              <View className="flex-row items-center gap-1.5">
-                <View
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: statusColor }}
-                />
-                <Text className="text-sm" style={{ color: statusColor }}>
-                  {runStatusLabel(run.status)}
-                </Text>
-              </View>
-            </SidebarSection>
-
-            <SidebarSection label="Updated">
-              <Text className="text-foreground-secondary text-sm">
-                {timeAgo(run.updatedAt)}
-              </Text>
-            </SidebarSection>
-
-            <View className="mt-4 gap-2">
-              {active ? (
-                <Pressable
-                  className="bg-orange/20 rounded-lg px-3 py-2 flex-row items-center justify-center gap-1"
-                  onPress={() => void handleInterrupt()}
-                >
-                  <Text className="text-orange text-sm font-semibold">
-                    Interrupt
-                  </Text>
-                </Pressable>
-              ) : null}
-              {!active && canRetry ? (
-                <Pressable
-                  className={`bg-accent/20 rounded-lg px-3 py-2 flex-row items-center justify-center gap-1 ${isRetrying ? "opacity-60" : ""}`}
-                  disabled={isRetrying}
-                  onPress={() => void handleRetry()}
-                >
-                  <Text className="text-accent text-sm font-semibold">
-                    {isRetrying ? "Retrying..." : "Retry"}
-                  </Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                className="bg-red/10 rounded-lg px-3 py-2 flex-row items-center justify-center gap-1"
-                onPress={() => void handleDelete()}
-              >
-                <Text className="text-red text-sm font-semibold">Delete</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-
-        {/* Main content area */}
-        <View className="flex-1">
-          {/* Timeline */}
+      {/* Main content area */}
+      <View className="flex-1">
+        {/* Timeline */}
           <ScrollView
             ref={scrollViewRef}
             className="flex-1"
@@ -1101,28 +1009,18 @@ export default function ThreadDetailScreen() {
             {active || canContinueTurn(latestTurn) ? (
               <>
                 <View className={getComposerCardClassName()}>
-                  {/* Options panel (only when not active) */}
-                  {!active ? (
-                    <TurnOptionsPanel
-                      tool={run.tool}
-                      options={turnOptions}
-                      onChange={setTurnOptions}
-                      expanded={showOptions}
-                      onToggle={() => setShowOptions((v) => !v)}
-                    />
-                  ) : null}
                   {/* Attachment thumbnails */}
                   {attachments.length > 0 ? (
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
-                      className="mb-2"
-                      contentContainerClassName="gap-2 pr-0.5"
+                      className="px-3 pt-2"
+                      contentContainerClassName="gap-2"
                     >
                       {attachments.map((a) => (
                         <View
                           key={a.id}
-                          className="relative h-16 w-16 overflow-hidden rounded-xl bg-surface"
+                          className="relative h-16 w-16 overflow-hidden bg-surface-light"
                         >
                           <Image
                             source={{ uri: a.previewUri }}
@@ -1130,7 +1028,7 @@ export default function ThreadDetailScreen() {
                             resizeMode="cover"
                           />
                           <Pressable
-                            className="absolute top-1 right-1 h-5 w-5 items-center justify-center rounded-full bg-black/60"
+                            className="absolute top-1 right-1 h-5 w-5 items-center justify-center bg-black/60"
                             onPress={() => removeAttachment(a.id)}
                           >
                             <Text className="text-white text-[10px] font-bold leading-none">
@@ -1158,7 +1056,7 @@ export default function ThreadDetailScreen() {
                     />
                   ) : null}
 
-                  {/* Text input (full width) */}
+                  {/* Text input */}
                   <TextInput
                     ref={textInputRef}
                     className={getComposerInputClassName()}
@@ -1177,9 +1075,9 @@ export default function ThreadDetailScreen() {
                     }}
                   />
 
-                  {/* Toolbar row */}
+                  {/* Toolbar row: Attach + Options + Send */}
                   <View className={getComposerToolbarClassName()}>
-                    {/* Image button */}
+                    {/* Attach */}
                     <Pressable
                       className={getComposerIconButtonClassName({
                         disabled: attachments.length >= MAX_ATTACHMENTS,
@@ -1198,7 +1096,7 @@ export default function ThreadDetailScreen() {
                       />
                     </Pressable>
 
-                    {/* Send button */}
+                    {/* Send */}
                     <Pressable
                       className={`${getComposerSubmitButtonClassName({
                         disabled: !hasContent,
@@ -1219,6 +1117,7 @@ export default function ThreadDetailScreen() {
                       )}
                     </Pressable>
                   </View>
+
                 </View>
 
                 {/* Error banner */}
@@ -1232,42 +1131,31 @@ export default function ThreadDetailScreen() {
               </Text>
             )}
           </View>
-        </View>
       </View>
+
+      {/* Tool detail overlay */}
+      {toolDetailItems ? (
+        <View className="absolute inset-0 bg-background">
+          <ToolDetailView
+            items={toolDetailItems}
+            onClose={() => setToolDetailItems(null)}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
 
 function ImageComposerIcon({ disabled }: { disabled: boolean }) {
+  const color = disabled ? "text-foreground-secondary/30" : "text-foreground-secondary";
   return (
-    <Text
-      className={`text-xs ${
-        disabled ? "text-foreground-secondary/40" : "text-foreground-secondary"
-      }`}
-    >
-      Attach
-    </Text>
+    <View className={`h-7 w-7 border border-border items-center justify-center ${disabled ? "opacity-40" : ""}`}>
+      <Text className={`text-base leading-none ${color}`}>+</Text>
+    </View>
   );
 }
 
 // --- Sub-components ---
-
-function SidebarSection({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <View className="mb-4">
-      <Text className="text-foreground-secondary text-xs uppercase tracking-wider mb-1">
-        {label}
-      </Text>
-      {children}
-    </View>
-  );
-}
 
 function MessageContent({ content }: { content: string }) {
   return <MarkdownContent compact content={content} selectable />;
@@ -1630,116 +1518,3 @@ function QueuedTurnCard({
   );
 }
 
-function TurnOptionsPanel({
-  tool,
-  options,
-  onChange,
-  expanded,
-  onToggle,
-}: {
-  tool: RunTool;
-  options: RunTurnOptions;
-  onChange: (opts: RunTurnOptions) => void;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const efforts = tool === "claude" ? CLAUDE_EFFORTS : CODEX_EFFORTS;
-  const { colors } = useTheme();
-  const activeEffort =
-    tool === "claude" ? options.claudeEffort : options.codexEffort;
-  const hasActive =
-    !!options.model || !!activeEffort || !!options.clearSession;
-
-  return (
-    <View>
-      <Pressable
-        className="flex-row items-center px-4 py-2 border-t border-border"
-        onPress={onToggle}
-      >
-        <Text className="text-foreground-secondary text-xs">
-          {expanded ? "–" : "+"} Options{hasActive ? " ·" : ""}
-        </Text>
-      </Pressable>
-
-      {expanded ? (
-        <View className="px-4 pb-3 border-t border-border/50">
-          {/* Model */}
-          <View className="mt-3 mb-3">
-            <Text className="text-foreground-secondary text-xs mb-1.5">
-              Model
-            </Text>
-            <TextInput
-              className="border-b border-border px-0 py-1.5 text-foreground text-sm outline-none"
-              placeholder={
-                tool === "claude" ? "e.g. claude-sonnet-4-6" : "e.g. o4-mini"
-              }
-              placeholderTextColor={colors.placeholder}
-              value={options.model ?? ""}
-              onChangeText={(text) =>
-                onChange({ ...options, model: text || undefined })
-              }
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-
-          {/* Effort */}
-          <View className="mb-3">
-            <Text className="text-foreground-secondary text-xs mb-1.5">
-              Effort
-            </Text>
-            <View className="flex-row flex-wrap gap-1">
-              {efforts.map((level) => {
-                const isActive = activeEffort === level;
-                return (
-                  <Pressable
-                    key={level}
-                    className={`px-3 py-1 border ${isActive ? "bg-foreground border-foreground" : "border-border"}`}
-                    onPress={() => {
-                      if (tool === "claude") {
-                        onChange({
-                          ...options,
-                          claudeEffort: isActive
-                            ? undefined
-                            : (level as RunTurnOptions["claudeEffort"]),
-                        });
-                      } else {
-                        onChange({
-                          ...options,
-                          codexEffort: isActive
-                            ? undefined
-                            : (level as RunTurnOptions["codexEffort"]),
-                        });
-                      }
-                    }}
-                  >
-                    <Text
-                      className={`text-xs ${isActive ? "text-background font-semibold" : "text-foreground-secondary"}`}
-                    >
-                      {level}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* Clear session */}
-          <Pressable
-            className="flex-row items-center gap-2"
-            onPress={() =>
-              onChange({
-                ...options,
-                clearSession: !options.clearSession,
-              })
-            }
-          >
-            <Text className="text-foreground text-xs">
-              {options.clearSession ? "☒" : "☐"} Clear session
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
-    </View>
-  );
-}
