@@ -18,7 +18,7 @@ export function Sidebar({
   const router = useRouter();
 
   return (
-    <View className="w-64 bg-surface border-r border-border flex-1">
+    <View className="w-48 bg-surface border-r border-border flex-1">
       {/* Header */}
       <View className="h-12 px-4 flex-row items-center border-b border-border">
         <Text className="text-foreground text-lg font-bold flex-1">webmux</Text>
