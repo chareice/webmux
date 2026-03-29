@@ -22,8 +22,6 @@ import type {
   RunStatus,
   RunTimelineEvent,
   RunTurnDetail,
-  RunTurnOptions,
-  RunTool,
   TodoEntry,
 } from "@webmux/shared";
 import {
@@ -67,8 +65,6 @@ import { createReconnectableSocket } from "../../../../lib/websocket";
 
 const MAX_ATTACHMENTS = 4;
 const AUTO_REFRESH_INTERVAL = 5000;
-const CLAUDE_EFFORTS = ["low", "medium", "high", "max"] as const;
-const CODEX_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
 
 // --- Types ---
 
@@ -231,8 +227,6 @@ export default function ThreadDetailScreen() {
   const followUpRef = useRef("");
   const [hasText, setHasText] = useState(false);
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
-  const [turnOptions, setTurnOptions] = useState<RunTurnOptions>({});
-  const [showOptions, setShowOptions] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isContinuing, setIsContinuing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -450,14 +444,11 @@ export default function ThreadDetailScreen() {
         })
       );
 
-      const opts =
-        Object.keys(turnOptions).length > 0 ? turnOptions : undefined;
       const body: ContinueRunRequest = {
         prompt: followUpRef.current.trim(),
         ...(uploadAttachments.length > 0
           ? { attachments: uploadAttachments }
           : {}),
-        options: opts,
       };
 
       const data = await continueThread(agentId, threadId, body);
@@ -471,10 +462,6 @@ export default function ThreadDetailScreen() {
         for (const a of attachments) URL.revokeObjectURL(a.previewUri);
       }
       setAttachments([]);
-      // Reset clearSession after use but keep model/effort
-      if (turnOptions.clearSession) {
-        setTurnOptions((prev) => ({ ...prev, clearSession: false }));
-      }
       setError(null);
     } catch (err) {
       setError((err as Error).message);
@@ -1188,18 +1175,6 @@ export default function ThreadDetailScreen() {
                       />
                     </Pressable>
 
-                    {/* Options toggle (inline, only when not active) */}
-                    {!active ? (
-                      <Pressable
-                        className="h-8 shrink-0 items-center justify-center px-3 active:opacity-60"
-                        onPress={() => setShowOptions((v) => !v)}
-                      >
-                        <Text className="text-foreground-secondary text-xs">
-                          Options{(!!turnOptions.model || !!(run.tool === "claude" ? turnOptions.claudeEffort : turnOptions.codexEffort) || !!turnOptions.clearSession) ? " ·" : ""}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-
                     {/* Send */}
                     <Pressable
                       className={`${getComposerSubmitButtonClassName({
@@ -1222,16 +1197,6 @@ export default function ThreadDetailScreen() {
                     </Pressable>
                   </View>
 
-                  {/* Expanded options panel */}
-                  {!active && showOptions ? (
-                    <TurnOptionsPanel
-                      tool={run.tool}
-                      options={turnOptions}
-                      onChange={setTurnOptions}
-                      expanded={showOptions}
-                      onToggle={() => setShowOptions((v) => !v)}
-                    />
-                  ) : null}
                 </View>
 
                 {/* Error banner */}
@@ -1643,99 +1608,3 @@ function QueuedTurnCard({
   );
 }
 
-function TurnOptionsPanel({
-  tool,
-  options,
-  onChange,
-  expanded,
-  onToggle,
-}: {
-  tool: RunTool;
-  options: RunTurnOptions;
-  onChange: (opts: RunTurnOptions) => void;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const efforts = tool === "claude" ? CLAUDE_EFFORTS : CODEX_EFFORTS;
-  const { colors } = useTheme();
-  const activeEffort =
-    tool === "claude" ? options.claudeEffort : options.codexEffort;
-  const hasActive =
-    !!options.model || !!activeEffort || !!options.clearSession;
-
-  return (
-    <View className="px-3 pb-3 border-t border-border/30">
-      {/* Model */}
-      <View className="mt-2 mb-2">
-        <Text className="text-foreground-secondary text-xs mb-1">Model</Text>
-        <TextInput
-          className="border-b border-border px-0 py-1 text-foreground text-sm outline-none bg-surface"
-          placeholder={
-            tool === "claude" ? "e.g. claude-sonnet-4-6" : "e.g. o4-mini"
-          }
-          placeholderTextColor={colors.placeholder}
-          value={options.model ?? ""}
-          onChangeText={(text) =>
-            onChange({ ...options, model: text || undefined })
-          }
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-      </View>
-
-      {/* Effort */}
-      <View className="mb-2">
-        <Text className="text-foreground-secondary text-xs mb-1">Effort</Text>
-        <View className="flex-row flex-wrap gap-1">
-          {efforts.map((level) => {
-            const isActive = activeEffort === level;
-            return (
-              <Pressable
-                key={level}
-                className={`px-3 py-1 border ${isActive ? "bg-foreground border-foreground" : "border-border"}`}
-                onPress={() => {
-                  if (tool === "claude") {
-                    onChange({
-                      ...options,
-                      claudeEffort: isActive
-                        ? undefined
-                        : (level as RunTurnOptions["claudeEffort"]),
-                    });
-                  } else {
-                    onChange({
-                      ...options,
-                      codexEffort: isActive
-                        ? undefined
-                        : (level as RunTurnOptions["codexEffort"]),
-                    });
-                  }
-                }}
-              >
-                <Text
-                  className={`text-xs ${isActive ? "text-background font-semibold" : "text-foreground-secondary"}`}
-                >
-                  {level}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      {/* Clear session */}
-      <Pressable
-        className="flex-row items-center gap-2"
-        onPress={() =>
-          onChange({
-            ...options,
-            clearSession: !options.clearSession,
-          })
-        }
-      >
-        <Text className="text-foreground text-xs">
-          {options.clearSession ? "☒" : "☐"} Clear session
-        </Text>
-      </Pressable>
-    </View>
-  );
-}
