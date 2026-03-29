@@ -19,11 +19,6 @@ interface SettingsRow {
 
 const SETTINGS_ROWS: SettingsRow[] = [
   {
-    label: "LLM Configuration",
-    description: "Manage API endpoints, keys, and models",
-    href: "/(main)/settings/llm",
-  },
-  {
     label: "Instructions",
     description: "Edit global instructions for Claude Code and Codex",
     href: "/(main)/settings/instructions",

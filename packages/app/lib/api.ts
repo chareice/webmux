@@ -2,35 +2,16 @@ import { Platform } from 'react-native'
 import type {
   AgentListResponse,
   ContinueRunRequest,
-  CreateLlmConfigRequest,
-  CreateProjectActionRequest,
-  CreateProjectRequest,
   CreateRegistrationTokenResponse,
-  CreateTaskRequest,
-  GenerateProjectActionRequest,
   ImportableSessionListResponse,
   ImportableSessionSummary,
   InstructionsResponse,
-  LlmConfig,
-  Project,
-  ProjectAction,
-  ProjectActionListResponse,
-  ProjectDetailResponse,
-  ProjectListResponse,
   RepositoryBrowseResponse,
   Run,
   RunDetailResponse,
-  RunImageAttachmentUpload,
   RunListResponse,
   RunTool,
   StartRunRequest,
-  Task,
-  TaskMessage,
-  TaskStep,
-  UpdateLlmConfigRequest,
-  UpdateProjectActionRequest,
-  UpdateProjectRequest,
-  UpdateTaskRequest,
 } from '@webmux/shared'
 import {
   buildInstructionsPath,
@@ -335,177 +316,6 @@ export async function discardQueue(
   )
 }
 
-// --- Projects ---
-
-export async function listProjects(): Promise<ProjectListResponse> {
-  return request<ProjectListResponse>('/api/projects')
-}
-
-export async function createProject(
-  req: CreateProjectRequest,
-): Promise<{ project: Project }> {
-  return request<{ project: Project }>('/api/projects', {
-    method: 'POST',
-    body: JSON.stringify(req),
-  })
-}
-
-export async function getProjectDetail(
-  projectId: string,
-): Promise<ProjectDetailResponse> {
-  return request<ProjectDetailResponse>(`/api/projects/${projectId}`)
-}
-
-export async function updateProject(
-  projectId: string,
-  req: UpdateProjectRequest,
-): Promise<{ project: Project }> {
-  return request<{ project: Project }>(`/api/projects/${projectId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(req),
-  })
-}
-
-export async function deleteProject(projectId: string): Promise<void> {
-  await request(`/api/projects/${projectId}`, { method: 'DELETE' })
-}
-
-// --- Tasks ---
-
-export async function createTask(
-  projectId: string,
-  req: CreateTaskRequest,
-): Promise<{ task: Task }> {
-  return request<{ task: Task }>(
-    `/api/projects/${projectId}/tasks`,
-    {
-      method: 'POST',
-      body: JSON.stringify(req),
-    },
-  )
-}
-
-export async function updateTask(
-  projectId: string,
-  taskId: string,
-  req: UpdateTaskRequest,
-): Promise<{ task: Task }> {
-  return request<{ task: Task }>(
-    `/api/projects/${projectId}/tasks/${taskId}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(req),
-    },
-  )
-}
-
-export async function deleteTask(
-  projectId: string,
-  taskId: string,
-): Promise<void> {
-  await request(`/api/projects/${projectId}/tasks/${taskId}`, {
-    method: 'DELETE',
-  })
-}
-
-export async function retryTask(
-  projectId: string,
-  taskId: string,
-): Promise<{ task: Task }> {
-  return request<{ task: Task }>(
-    `/api/projects/${projectId}/tasks/${taskId}/retry`,
-    { method: 'POST' },
-  )
-}
-
-export async function completeTask(
-  projectId: string,
-  taskId: string,
-): Promise<void> {
-  await request(
-    `/api/projects/${projectId}/tasks/${taskId}/complete`,
-    { method: 'POST' },
-  )
-}
-
-export async function interruptTask(
-  projectId: string,
-  taskId: string,
-): Promise<void> {
-  await request(
-    `/api/projects/${projectId}/tasks/${taskId}/interrupt`,
-    { method: 'POST' },
-  )
-}
-
-export async function getTaskSteps(
-  projectId: string,
-  taskId: string,
-): Promise<TaskStep[]> {
-  const response = await request<{ steps: TaskStep[] }>(
-    `/api/projects/${projectId}/tasks/${taskId}/steps`,
-  )
-  return response.steps
-}
-
-export async function getTaskMessages(
-  projectId: string,
-  taskId: string,
-): Promise<TaskMessage[]> {
-  const response = await request<{ messages: TaskMessage[] }>(
-    `/api/projects/${projectId}/tasks/${taskId}/messages`,
-  )
-  return response.messages
-}
-
-export async function sendTaskMessage(
-  projectId: string,
-  taskId: string,
-  content: string,
-  attachments?: RunImageAttachmentUpload[],
-): Promise<{ message: TaskMessage }> {
-  const body: { content: string; attachments?: RunImageAttachmentUpload[] } = { content }
-  if (attachments && attachments.length > 0) {
-    body.attachments = attachments
-  }
-  return request<{ message: TaskMessage }>(
-    `/api/projects/${projectId}/tasks/${taskId}/messages`,
-    {
-      method: 'POST',
-      body: JSON.stringify(body),
-    },
-  )
-}
-
-// --- LLM Config ---
-
-export async function listLlmConfigs(): Promise<{ configs: LlmConfig[] }> {
-  return request<{ configs: LlmConfig[] }>('/api/llm-configs')
-}
-
-export async function createLlmConfig(
-  req: CreateLlmConfigRequest,
-): Promise<{ config: LlmConfig }> {
-  return request<{ config: LlmConfig }>('/api/llm-configs', {
-    method: 'POST',
-    body: JSON.stringify(req),
-  })
-}
-
-export async function updateLlmConfig(
-  configId: string,
-  req: UpdateLlmConfigRequest,
-): Promise<{ config: LlmConfig }> {
-  return request<{ config: LlmConfig }>(`/api/llm-configs/${configId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(req),
-  })
-}
-
-export async function deleteLlmConfig(configId: string): Promise<void> {
-  await request(`/api/llm-configs/${configId}`, { method: 'DELETE' })
-}
-
 // --- Instructions ---
 
 export async function getInstructions(
@@ -524,75 +334,6 @@ export async function saveInstructions(
     method: 'PUT',
     body: buildSaveInstructionsBody(tool, content),
   })
-}
-
-// --- Project Actions ---
-
-export async function listProjectActions(
-  projectId: string,
-): Promise<ProjectActionListResponse> {
-  return request<ProjectActionListResponse>(
-    `/api/projects/${projectId}/actions`,
-  )
-}
-
-export async function createProjectAction(
-  projectId: string,
-  req: CreateProjectActionRequest,
-): Promise<{ action: ProjectAction }> {
-  return request<{ action: ProjectAction }>(
-    `/api/projects/${projectId}/actions`,
-    {
-      method: 'POST',
-      body: JSON.stringify(req),
-    },
-  )
-}
-
-export async function updateProjectAction(
-  projectId: string,
-  actionId: string,
-  req: UpdateProjectActionRequest,
-): Promise<{ action: ProjectAction }> {
-  return request<{ action: ProjectAction }>(
-    `/api/projects/${projectId}/actions/${actionId}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(req),
-    },
-  )
-}
-
-export async function deleteProjectAction(
-  projectId: string,
-  actionId: string,
-): Promise<void> {
-  await request(`/api/projects/${projectId}/actions/${actionId}`, {
-    method: 'DELETE',
-  })
-}
-
-export async function generateProjectAction(
-  projectId: string,
-  req: GenerateProjectActionRequest,
-): Promise<{ action: ProjectAction }> {
-  return request<{ action: ProjectAction }>(
-    `/api/projects/${projectId}/actions/generate`,
-    {
-      method: 'POST',
-      body: JSON.stringify(req),
-    },
-  )
-}
-
-export async function runProjectAction(
-  projectId: string,
-  actionId: string,
-): Promise<{ runId: string }> {
-  return request<{ runId: string }>(
-    `/api/projects/${projectId}/actions/${actionId}/run`,
-    { method: 'POST' },
-  )
 }
 
 // --- Push Devices ---
@@ -649,34 +390,3 @@ export function connectThreadWebSocket(
   return ws
 }
 
-export function connectProjectWebSocket(
-  projectId: string,
-  onMessage: (event: unknown) => void,
-  onError?: (error: Event) => void,
-  onClose?: () => void,
-): WebSocket {
-  const wsProtocol = _baseUrl.startsWith('https') ? 'wss' : 'ws'
-  const wsHost = _baseUrl.replace(/^https?:\/\//, '')
-  const wsUrl = `${wsProtocol}://${wsHost}/ws/project?projectId=${encodeURIComponent(projectId)}&token=${encodeURIComponent(_token)}`
-
-  const ws = new WebSocket(wsUrl)
-
-  ws.onmessage = (event: MessageEvent) => {
-    try {
-      const data = JSON.parse(event.data as string)
-      onMessage(data)
-    } catch {
-      // Ignore malformed messages
-    }
-  }
-
-  ws.onerror = (error: Event) => {
-    onError?.(error)
-  }
-
-  ws.onclose = () => {
-    onClose?.()
-  }
-
-  return ws
-}
