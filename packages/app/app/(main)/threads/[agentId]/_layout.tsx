@@ -5,7 +5,7 @@ export default function AgentThreadLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: "#1a1b26" },
+        contentStyle: { backgroundColor: "#f8f5ed" },
       }}
     />
   );

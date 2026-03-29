@@ -24,7 +24,7 @@ export function toolLabel(tool: string): string {
 }
 
 export function toolIcon(tool: string): string {
-  return tool === 'codex' ? 'CX' : 'CC'
+  return tool === 'codex' ? 'Codex' : 'Claude'
 }
 
 // Repo helpers
@@ -47,12 +47,12 @@ export function runStatusLabel(status: RunStatus): string {
 
 export function runStatusColor(status: RunStatus): string {
   switch (status) {
-    case 'queued': return '#565f89'
-    case 'starting': return '#e0af68'
-    case 'running': return '#7aa2f7'
-    case 'success': return '#9ece6a'
-    case 'failed': return '#f7768e'
-    case 'interrupted': return '#565f89'
+    case 'queued': return '#9a9a9a'
+    case 'starting': return '#6b6b6b'
+    case 'running': return '#1a1a1a'
+    case 'success': return '#1a1a1a'
+    case 'failed': return '#b44444'
+    case 'interrupted': return '#9a9a9a'
   }
 }
 
@@ -70,12 +70,12 @@ export function taskStatusLabel(status: TaskStatus): string {
 
 export function taskStatusColor(status: TaskStatus): string {
   switch (status) {
-    case 'pending': return '#565f89'
-    case 'dispatched': return '#e0af68'
-    case 'running': return '#7aa2f7'
-    case 'waiting': return '#e0af68'
-    case 'completed': return '#9ece6a'
-    case 'failed': return '#f7768e'
+    case 'pending': return '#9a9a9a'
+    case 'dispatched': return '#6b6b6b'
+    case 'running': return '#1a1a1a'
+    case 'waiting': return '#6b6b6b'
+    case 'completed': return '#1a1a1a'
+    case 'failed': return '#b44444'
   }
 }
 

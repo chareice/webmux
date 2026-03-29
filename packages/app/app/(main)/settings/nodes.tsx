@@ -29,14 +29,14 @@ interface CachedToken {
   serverUrl?: string | null;
 }
 
-export default function AgentsScreen() {
+export default function NodesScreen() {
   const router = useRouter();
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Add-agent modal
+  // Add-node modal
   const [modalOpen, setModalOpen] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -149,14 +149,14 @@ export default function AgentsScreen() {
     if (Platform.OS === "web") {
       // eslint-disable-next-line no-restricted-globals
       const confirmed = confirm(
-        `Delete agent "${agent.name}"? This cannot be undone.`
+        `Delete node "${agent.name}"? This cannot be undone.`
       );
       if (!confirmed) return;
       await doDelete();
     } else {
       Alert.alert(
-        "Delete Agent",
-        `Delete agent "${agent.name}"? This cannot be undone.`,
+        "Delete Node",
+        `Delete node "${agent.name}"? This cannot be undone.`,
         [
           { text: "Cancel", style: "cancel" },
           {
@@ -209,9 +209,9 @@ export default function AgentsScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#7aa2f7" />
+        <ActivityIndicator size="large" color="#1a1a1a" />
         <Text className="text-foreground-secondary mt-3 text-sm">
-          Loading agents...
+          Loading nodes...
         </Text>
       </View>
     );
@@ -223,14 +223,14 @@ export default function AgentsScreen() {
         {/* Header */}
         <View className="flex-row items-center justify-between mb-4">
           <Text className="text-foreground text-2xl font-bold">
-            Your Agents
+            Your Nodes
           </Text>
           <Pressable
             className="flex-row items-center bg-accent rounded-lg px-4 py-2"
             onPress={openModal}
           >
             <Text className="text-background font-semibold text-sm">
-              + Add Agent
+              + Add Node
             </Text>
           </Pressable>
         </View>
@@ -249,10 +249,10 @@ export default function AgentsScreen() {
               {"🖥️"}
             </Text>
             <Text className="text-foreground text-xl font-semibold mb-2">
-              No agents yet
+              No nodes yet
             </Text>
             <Text className="text-foreground-secondary text-sm text-center mb-6 px-8">
-              Add an agent to connect a machine. Agents run on your servers and
+              Add a node to connect a machine. Nodes run on your servers and
               provide AI-powered coding assistance through webmux.
             </Text>
             <Pressable
@@ -260,12 +260,12 @@ export default function AgentsScreen() {
               onPress={openModal}
             >
               <Text className="text-background font-semibold">
-                + Add your first agent
+                + Add your first node
               </Text>
             </Pressable>
           </View>
         ) : (
-          /* Agent list */
+          /* Node list */
           <View className="gap-3">
             {agents.map((agent) => (
               <Pressable
@@ -297,7 +297,7 @@ export default function AgentsScreen() {
                           maxLength={32}
                           autoFocus
                           onSubmitEditing={() => void handleRename(agent.id)}
-                          placeholderTextColor="#565f89"
+                          placeholderTextColor="#9a9a9a"
                         />
                         <Pressable
                           className="bg-accent rounded-md px-2 py-1"
@@ -377,7 +377,7 @@ export default function AgentsScreen() {
         )}
       </ScrollView>
 
-      {/* Add Agent Modal */}
+      {/* Register Node Modal */}
       <Modal
         visible={modalOpen}
         transparent
@@ -397,7 +397,7 @@ export default function AgentsScreen() {
             {/* Modal header */}
             <View className="flex-row items-center justify-between mb-4">
               <Text className="text-foreground text-lg font-bold">
-                Register Agent
+                Register Node
               </Text>
               <Pressable
                 className="bg-surface-light rounded-md px-2.5 py-1"
@@ -412,7 +412,7 @@ export default function AgentsScreen() {
             {/* Modal body */}
             {registering ? (
               <View className="items-center py-8">
-                <ActivityIndicator size="small" color="#7aa2f7" />
+                <ActivityIndicator size="small" color="#1a1a1a" />
                 <Text className="text-foreground-secondary mt-2 text-sm">
                   Generating token...
                 </Text>
@@ -444,7 +444,7 @@ export default function AgentsScreen() {
                   </Pressable>
                 </View>
                 <Text className="text-foreground-secondary text-xs mb-4">
-                  The agent name defaults to the machine's hostname. Use --name
+                  The node name defaults to the machine's hostname. Use --name
                   to override.
                 </Text>
                 <Pressable

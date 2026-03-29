@@ -5,38 +5,28 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
 } from "react-native";
-import { Slot, Redirect, useSegments } from "expo-router";
+import { Slot, Redirect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../lib/auth";
-import { TopBar } from "../../components/TopBar";
-import {
-  getKeyboardAvoidingBehavior,
-  getMainLayoutEdges,
-} from "../../lib/mobile-layout";
+import { Sidebar } from "../../components/Sidebar";
+import { WorkpathProvider, useWorkpaths } from "../../lib/workpath-context";
+import { getKeyboardAvoidingBehavior } from "../../lib/mobile-layout";
 
-export default function MainLayout() {
-  const { isLoading, isLoggedIn } = useAuth();
+function MainContent() {
   const { width } = useWindowDimensions();
-  const segments = useSegments();
   const isWideScreen = Platform.OS === "web" && width >= 768;
-  const isTabsRoute = segments.includes("(tabs)");
-
-  if (isLoading) {
-    return (
-      <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color="#7aa2f7" size="large" />
-      </View>
-    );
-  }
-
-  if (!isLoggedIn) {
-    return <Redirect href="/login" />;
-  }
+  const { workpaths, selectedPath, setSelectedPath, isLoading } =
+    useWorkpaths();
 
   if (isWideScreen) {
     return (
-      <View className="flex-1 bg-background">
-        <TopBar />
+      <View className="flex-1 flex-row bg-background">
+        <Sidebar
+          workpaths={workpaths}
+          selectedPath={selectedPath}
+          onSelectWorkpath={setSelectedPath}
+          isLoading={isLoading}
+        />
         <View className="flex-1">
           <Slot />
         </View>
@@ -47,7 +37,7 @@ export default function MainLayout() {
   return (
     <SafeAreaView
       className="flex-1 bg-background"
-      edges={getMainLayoutEdges(isTabsRoute)}
+      edges={["top", "bottom", "left", "right"]}
     >
       <KeyboardAvoidingView
         className="flex-1"
@@ -57,5 +47,27 @@ export default function MainLayout() {
         <Slot />
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+export default function MainLayout() {
+  const { isLoading, isLoggedIn } = useAuth();
+
+  if (isLoading) {
+    return (
+      <View className="flex-1 bg-background items-center justify-center">
+        <ActivityIndicator color="#1a1a1a" size="large" />
+      </View>
+    );
+  }
+
+  if (!isLoggedIn) {
+    return <Redirect href="/login" />;
+  }
+
+  return (
+    <WorkpathProvider>
+      <MainContent />
+    </WorkpathProvider>
   );
 }

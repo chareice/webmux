@@ -16,23 +16,23 @@ export async function copyMessageContent(
 }
 
 export function getComposerCardClassName(): string {
-  return "bg-surface-light rounded-2xl border border-border px-3 pt-3 pb-2";
+  return "border-t border-border";
 }
 
 export function getComposerInputClassName(): string {
-  return "min-h-[40px] max-h-[160px] px-1 text-[15px] leading-5 text-foreground";
+  return "min-h-[48px] max-h-[160px] px-4 py-3 text-[15px] leading-6 text-foreground outline-none";
 }
 
 export function getComposerToolbarClassName(): string {
-  return "flex-row items-center mt-1.5 pt-1.5 border-t border-border/50";
+  return "flex-row items-center gap-2 px-4 pb-3";
 }
 
 export function getComposerIconButtonClassName({
   disabled,
 }: ComposerStateOptions): string {
   return [
-    "h-8 w-8 shrink-0 rounded-lg items-center justify-center",
-    disabled ? "opacity-35" : "active:bg-surface",
+    "h-9 shrink-0 items-center justify-center px-4 border",
+    disabled ? "border-border/50 opacity-40" : "border-border active:bg-surface",
   ]
     .filter(Boolean)
     .join(" ");
@@ -42,10 +42,10 @@ export function getComposerSubmitButtonClassName({
   disabled,
 }: ComposerStateOptions): string {
   return [
-    "h-8 shrink-0 items-center justify-center rounded-lg px-4 ml-auto",
+    "h-9 shrink-0 items-center justify-center px-5 ml-auto border",
     disabled
-      ? "bg-accent/25"
-      : "bg-accent active:opacity-90",
+      ? "border-border"
+      : "border-foreground bg-foreground active:opacity-90",
   ].join(" ");
 }
 
@@ -53,8 +53,8 @@ export function getComposerSubmitTextClassName({
   disabled,
 }: ComposerStateOptions): string {
   return disabled
-    ? "text-white/50 text-[13px] font-semibold"
-    : "text-background text-[13px] font-semibold";
+    ? "text-foreground-secondary text-sm"
+    : "text-background text-sm font-semibold";
 }
 
 export function getMessageCopyButtonClassName({

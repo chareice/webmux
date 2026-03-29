@@ -32,7 +32,6 @@ import {
 } from "../../../lib/api";
 import { getRepoNameFromPath } from "../../../lib/repo-path-utils";
 import { getKeyboardAwareScrollProps } from "../../../lib/mobile-layout";
-import { getThreadsRoute } from "../../../lib/route-utils";
 
 // --- Constants ---
 
@@ -96,12 +95,15 @@ function generateId(): string {
 
 export default function NewThreadScreen() {
   const router = useRouter();
-  const { agentId } = useLocalSearchParams<{ agentId: string }>();
+  const { agentId, repoPath: repoPathParam } = useLocalSearchParams<{
+    agentId: string;
+    repoPath: string;
+  }>();
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedAgent, setSelectedAgent] = useState(agentId || "");
   const [selectedTool, setSelectedTool] = useState<RunTool>("claude");
-  const [repoPath, setRepoPath] = useState("");
+  const [repoPath, setRepoPath] = useState(repoPathParam ? decodeURIComponent(repoPathParam) : "");
   const [prompt, setPrompt] = useState("");
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
@@ -311,7 +313,7 @@ export default function NewThreadScreen() {
   const handleSubmit = async () => {
     setError(null);
     if (!selectedAgent) {
-      setError("Please select an agent");
+      setError("Please select a node");
       return;
     }
     if (!repoPath.trim()) {
@@ -363,7 +365,7 @@ export default function NewThreadScreen() {
   if (isLoadingAgents) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#7aa2f7" />
+        <ActivityIndicator size="large" color="#1a1a1a" />
         <Text className="text-foreground-secondary mt-3 text-sm">Loading...</Text>
       </View>
     );
@@ -381,21 +383,21 @@ export default function NewThreadScreen() {
         <View className="flex-row items-center gap-3 mb-6">
           <Pressable
             className="bg-surface-light rounded-lg px-3 py-2"
-            onPress={() => router.replace(getThreadsRoute() as never)}
+            onPress={() => router.back()}
           >
             <Text className="text-foreground-secondary text-sm">Back</Text>
           </Pressable>
           <Text className="text-foreground text-2xl font-bold">New Thread</Text>
         </View>
 
-        {/* Agent Selection */}
+        {/* Node Selection */}
         <View className="mb-5">
           <Text className="text-foreground-secondary text-sm uppercase tracking-wider mb-2">
-            Agent
+            Node
           </Text>
           {agents.length === 0 ? (
             <Text className="text-foreground-secondary text-sm">
-              No agents online right now.
+              No nodes online right now.
             </Text>
           ) : (
             <View className="flex-row flex-wrap gap-2">
@@ -466,9 +468,9 @@ export default function NewThreadScreen() {
             placeholder={
               selectedAgent
                 ? "/home/chareice/projects/webmux"
-                : "Select an agent first"
+                : "Select a node first"
             }
-            placeholderTextColor="#565f89"
+            placeholderTextColor="#9a9a9a"
             value={repoPath}
             onChangeText={setRepoPath}
             editable={!!selectedAgent}
@@ -503,7 +505,7 @@ export default function NewThreadScreen() {
                 <Text className="text-foreground-secondary text-xs mt-0.5">
                   {selectedAgentInfo
                     ? `Pick a path on ${selectedAgentInfo.name || selectedAgentInfo.id}`
-                    : "Select an agent first"}
+                    : "Select a node first"}
                 </Text>
               </View>
               <Text className="text-foreground-secondary text-lg ml-2">{">"}</Text>
@@ -518,7 +520,7 @@ export default function NewThreadScreen() {
 
           {isLoadingRepos && !repoBrowser ? (
             <View className="items-center py-2">
-              <ActivityIndicator size="small" color="#7aa2f7" />
+              <ActivityIndicator size="small" color="#1a1a1a" />
             </View>
           ) : null}
 
@@ -599,7 +601,7 @@ export default function NewThreadScreen() {
                 ? `Last updated ${timeAgo(selectedImportSession.updatedAt)}`
                 : selectedAgent && trimmedRepoPath
                   ? "Optional. Webmux will continue from the next message."
-                  : "Choose an agent and working directory first"}
+                  : "Choose a node and working directory first"}
             </Text>
           </Pressable>
 
@@ -643,7 +645,7 @@ export default function NewThreadScreen() {
                 ? "What should the AI do next in this session?"
                 : "What would you like the AI to do?"
             }
-            placeholderTextColor="#565f89"
+            placeholderTextColor="#9a9a9a"
             multiline
             textAlignVertical="top"
             value={prompt}
@@ -744,7 +746,7 @@ export default function NewThreadScreen() {
         >
           {isSubmitting ? (
             <View className="flex-row items-center gap-2">
-              <ActivityIndicator size="small" color="#1a1b26" />
+              <ActivityIndicator size="small" color="#f8f5ed" />
               <Text className="text-background font-semibold text-base">
                 Starting...
               </Text>
@@ -817,7 +819,7 @@ export default function NewThreadScreen() {
 
               {isLoadingRepos ? (
                 <View className="items-center py-8">
-                  <ActivityIndicator size="small" color="#7aa2f7" />
+                  <ActivityIndicator size="small" color="#1a1a1a" />
                   <Text className="text-foreground-secondary mt-2 text-sm">
                     Loading...
                   </Text>
@@ -906,7 +908,7 @@ export default function NewThreadScreen() {
             <ScrollView className="px-5 py-3" style={{ maxHeight: 420 }}>
               {isLoadingImportableSessions ? (
                 <View className="items-center py-8">
-                  <ActivityIndicator size="small" color="#7aa2f7" />
+                  <ActivityIndicator size="small" color="#1a1a1a" />
                   <Text className="text-foreground-secondary mt-2 text-sm">
                     Loading sessions...
                   </Text>

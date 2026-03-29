@@ -44,29 +44,28 @@ test("copyMessageContent accepts clipboard writers that return a success flag", 
   assert.equal(copied, "copied");
 });
 
-test("getComposerCardClassName renders a bordered card", () => {
+test("getComposerCardClassName renders a top-bordered container", () => {
   const className = getComposerCardClassName();
 
-  assert.match(className, /bg-surface-light/);
+  assert.match(className, /border-t/);
   assert.match(className, /border-border/);
-  assert.match(className, /rounded-2xl/);
 });
 
 test("getComposerSubmitButtonClassName uses a muted style when disabled", () => {
   assert.match(
     getComposerSubmitButtonClassName({ disabled: true }),
-    /bg-accent\/25/,
+    /border-border/,
   );
   assert.match(
     getComposerSubmitTextClassName({ disabled: true }),
-    /text-white\/50/,
+    /text-foreground-secondary/,
   );
 });
 
-test("getComposerSubmitButtonClassName uses the accent style when enabled", () => {
+test("getComposerSubmitButtonClassName uses the foreground style when enabled", () => {
   assert.match(
     getComposerSubmitButtonClassName({ disabled: false }),
-    /bg-accent/,
+    /bg-foreground/,
   );
   assert.match(
     getComposerSubmitTextClassName({ disabled: false }),
@@ -77,14 +76,11 @@ test("getComposerSubmitButtonClassName uses the accent style when enabled", () =
 test("getComposerIconButtonClassName renders a compact icon button", () => {
   const className = getComposerIconButtonClassName({ disabled: false });
 
-  assert.match(className, /w-8/);
-  assert.match(className, /h-8/);
-  assert.match(className, /rounded-lg/);
+  assert.match(className, /h-9/);
 });
 
-test("getComposerToolbarClassName renders a toolbar row with separator", () => {
+test("getComposerToolbarClassName renders a toolbar row", () => {
   const className = getComposerToolbarClassName();
 
   assert.match(className, /flex-row/);
-  assert.match(className, /border-t/);
 });

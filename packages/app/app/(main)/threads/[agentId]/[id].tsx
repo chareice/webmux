@@ -47,7 +47,6 @@ import {
   getToken,
 } from "../../../../lib/api";
 import MarkdownContent from "../../../../components/MarkdownContent";
-import { getThreadsRoute } from "../../../../lib/route-utils";
 import {
   copyMessageContent,
   getComposerCardClassName,
@@ -227,7 +226,8 @@ export default function ThreadDetailScreen() {
 
   const [run, setRun] = useState<Run | null>(null);
   const [turns, setTurns] = useState<RunTurnDetail[]>([]);
-  const [followUp, setFollowUp] = useState("");
+  const followUpRef = useRef("");
+  const [hasText, setHasText] = useState(false);
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
   const [turnOptions, setTurnOptions] = useState<RunTurnOptions>({});
   const [showOptions, setShowOptions] = useState(false);
@@ -272,7 +272,9 @@ export default function ThreadDetailScreen() {
     setRun(null);
     setTurns([]);
     setError(null);
-    setFollowUp("");
+    followUpRef.current = "";
+    setHasText(false);
+    if (textInputRef.current) textInputRef.current.clear();
     setAttachments([]);
     setIsLoading(true);
     void fetchDetail();
@@ -353,7 +355,7 @@ export default function ThreadDetailScreen() {
 
   const segments = groupIntoSegments(nonQueuedTurns);
 
-  const hasContent = followUp.trim().length > 0 || attachments.length > 0;
+  const hasContent = hasText || attachments.length > 0;
 
   // --- Auto-refresh fallback for active threads ---
 
@@ -405,7 +407,7 @@ export default function ThreadDetailScreen() {
     const doDelete = async () => {
       try {
         await deleteThread(agentId, threadId);
-        router.replace(getThreadsRoute() as never);
+        router.back();
       } catch (err) {
         setError((err as Error).message);
       }
@@ -449,7 +451,7 @@ export default function ThreadDetailScreen() {
       const opts =
         Object.keys(turnOptions).length > 0 ? turnOptions : undefined;
       const body: ContinueRunRequest = {
-        prompt: followUp.trim(),
+        prompt: followUpRef.current.trim(),
         ...(uploadAttachments.length > 0
           ? { attachments: uploadAttachments }
           : {}),
@@ -459,7 +461,9 @@ export default function ThreadDetailScreen() {
       const data = await continueThread(agentId, threadId, body);
       setRun(data.run);
       setTurns(data.turns);
-      setFollowUp("");
+      followUpRef.current = "";
+      setHasText(false);
+      if (textInputRef.current) textInputRef.current.clear();
       // Clean up object URLs on web
       if (Platform.OS === "web") {
         for (const a of attachments) URL.revokeObjectURL(a.previewUri);
@@ -646,8 +650,8 @@ export default function ThreadDetailScreen() {
       if (imageFiles.length === 0) return;
 
       // Prevent the default text paste for image-only pastes
-      const hasText = Array.from(items).some((item) => item.type === "text/plain");
-      if (!hasText) e.preventDefault();
+      const hasTextItem = Array.from(items).some((item) => item.type === "text/plain");
+      if (!hasTextItem) e.preventDefault();
 
       const remaining = MAX_ATTACHMENTS - attachmentsRef.current.length;
       if (remaining <= 0) return;
@@ -694,7 +698,7 @@ export default function ThreadDetailScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#7aa2f7" />
+        <ActivityIndicator size="large" color="#1a1a1a" />
         <Text className="text-foreground-secondary mt-3 text-sm">
           Loading thread...
         </Text>
@@ -713,7 +717,13 @@ export default function ThreadDetailScreen() {
         ) : null}
         <Pressable
           className="bg-surface-light rounded-lg px-4 py-2"
-          onPress={() => router.replace(getThreadsRoute() as never)}
+          onPress={() => {
+            if (Platform.OS === "web") {
+              router.navigate("/(main)" as never);
+            } else {
+              router.back();
+            }
+          }}
         >
           <Text className="text-foreground-secondary text-sm">Go Back</Text>
         </Pressable>
@@ -731,8 +741,14 @@ export default function ThreadDetailScreen() {
       <View className="bg-surface px-4 py-2.5 border-b border-border">
         <View className="flex-row items-center gap-2">
           <Pressable
-            className="bg-surface-light rounded-md px-2.5 py-1"
-            onPress={() => router.replace(getThreadsRoute() as never)}
+            className="bg-surface-light rounded-md px-2.5 py-1.5"
+            onPress={() => {
+              if (Platform.OS === "web") {
+                router.navigate("/(main)" as never);
+              } else {
+                router.back();
+              }
+            }}
           >
             <Text className="text-foreground-secondary text-sm">Back</Text>
           </Pressable>
@@ -785,10 +801,10 @@ export default function ThreadDetailScreen() {
             <SidebarSection label="Tool">
               <View className="flex-row items-center gap-2">
                 <View
-                  className={`rounded px-1.5 py-0.5 ${run.tool === "codex" ? "bg-purple/20" : "bg-accent/20"}`}
+                  className={`rounded px-1.5 py-0.5 ${run.tool === "codex" ? "bg-background border border-foreground" : "bg-foreground"}`}
                 >
                   <Text
-                    className={`text-xs font-bold ${run.tool === "codex" ? "text-purple" : "text-accent"}`}
+                    className={`text-xs font-bold ${run.tool === "codex" ? "text-foreground" : "text-background"}`}
                   >
                     {toolIcon(run.tool)}
                   </Text>
@@ -1019,7 +1035,7 @@ export default function ThreadDetailScreen() {
               nonQueuedTurns.length > 0 &&
               nonQueuedTurns[nonQueuedTurns.length - 1].items.length === 0 ? (
               <View className="flex-row items-center gap-2 py-4">
-                <ActivityIndicator size="small" color="#7aa2f7" />
+                <ActivityIndicator size="small" color="#1a1a1a" />
                 <Text className="text-foreground-secondary text-sm">
                   Waiting for events...
                 </Text>
@@ -1082,9 +1098,9 @@ export default function ThreadDetailScreen() {
             {/* Composer */}
             {active || canContinueTurn(latestTurn) ? (
               <>
-                {/* Options panel (only when not active) */}
-                {!active ? (
-                  <View className="mb-2">
+                <View className={getComposerCardClassName()}>
+                  {/* Options panel (only when not active) */}
+                  {!active ? (
                     <TurnOptionsPanel
                       tool={run.tool}
                       options={turnOptions}
@@ -1092,10 +1108,7 @@ export default function ThreadDetailScreen() {
                       expanded={showOptions}
                       onToggle={() => setShowOptions((v) => !v)}
                     />
-                  </View>
-                ) : null}
-
-                <View className={getComposerCardClassName()}>
+                  ) : null}
                   {/* Attachment thumbnails */}
                   {attachments.length > 0 ? (
                     <ScrollView
@@ -1152,11 +1165,14 @@ export default function ThreadDetailScreen() {
                         ? "Queue a follow-up message..."
                         : "Message this thread..."
                     }
-                    placeholderTextColor="#565f89"
+                    placeholderTextColor="#9a9a9a"
                     multiline
                     textAlignVertical="top"
-                    value={followUp}
-                    onChangeText={setFollowUp}
+                    onChangeText={(text) => {
+                      followUpRef.current = text;
+                      const nowHas = text.trim().length > 0;
+                      if (nowHas !== hasText) setHasText(nowHas);
+                    }}
                   />
 
                   {/* Toolbar row */}
@@ -1222,33 +1238,13 @@ export default function ThreadDetailScreen() {
 
 function ImageComposerIcon({ disabled }: { disabled: boolean }) {
   return (
-    <View className="relative h-5 w-5">
-      <View
-        className={`absolute bottom-0 left-0 h-4.5 w-4.5 rounded-[4px] border ${
-          disabled ? "border-foreground-secondary/35" : "border-accent/70"
-        }`}
-      />
-      <View
-        className={`absolute bottom-1 left-1 h-1.5 w-1.5 rounded-full ${
-          disabled ? "bg-foreground-secondary/35" : "bg-accent/70"
-        }`}
-      />
-      <View
-        className={`absolute right-[-1px] top-0 h-3 w-3 items-center justify-center rounded-full border ${
-          disabled
-            ? "border-foreground-secondary/35 bg-surface-light"
-            : "border-accent/35 bg-accent/15"
-        }`}
-      >
-        <Text
-          className={`text-[9px] leading-none ${
-            disabled ? "text-foreground-secondary" : "text-accent"
-          }`}
-        >
-          +
-        </Text>
-      </View>
-    </View>
+    <Text
+      className={`text-xs ${
+        disabled ? "text-foreground-secondary/40" : "text-foreground-secondary"
+      }`}
+    >
+      Attach
+    </Text>
   );
 }
 
@@ -1463,10 +1459,10 @@ function CommandCard({
   const isCollapsible = item.output.split("\n").length > 4;
   const commandColor =
     item.status === "failed"
-      ? "#f7768e"
+      ? "#b44444"
       : item.status === "completed"
-        ? "#9ece6a"
-        : "#7aa2f7";
+        ? "#1a1a1a"
+        : "#1a1a1a";
 
   return (
     <View className="bg-surface rounded-xl p-3 mb-3">
@@ -1520,12 +1516,12 @@ function ActivityRow({
   const hasLongDetail = !!item.detail && item.detail.split("\n").length > 3;
   const dotColor =
     item.status === "success"
-      ? "#9ece6a"
+      ? "#1a1a1a"
       : item.status === "warning"
-        ? "#e0af68"
+        ? "#6b6b6b"
         : item.status === "error"
-          ? "#f7768e"
-          : "#7aa2f7";
+          ? "#b44444"
+          : "#1a1a1a";
 
   return (
     <View className="flex-row gap-2 mb-3">
@@ -1587,7 +1583,7 @@ function QueuedTurnCard({
             onChangeText={onChangeEditPrompt}
             multiline
             autoFocus
-            placeholderTextColor="#565f89"
+            placeholderTextColor="#9a9a9a"
           />
           <View className="flex-row justify-end gap-2">
             <Pressable
@@ -1653,28 +1649,29 @@ function TurnOptionsPanel({
     !!options.model || !!activeEffort || !!options.clearSession;
 
   return (
-    <View className="mb-2">
-      <Pressable onPress={onToggle}>
-        <Text
-          className={`text-xs mb-1 ${hasActive ? "text-accent" : "text-foreground-secondary"}`}
-        >
-          {expanded ? "v" : ">"} Options{hasActive ? " *" : ""}
+    <View>
+      <Pressable
+        className="flex-row items-center px-4 py-2 border-t border-border"
+        onPress={onToggle}
+      >
+        <Text className="text-foreground-secondary text-xs">
+          {expanded ? "–" : "+"} Options{hasActive ? " ·" : ""}
         </Text>
       </Pressable>
 
       {expanded ? (
-        <View className="bg-surface-light rounded-lg p-3 mb-2">
+        <View className="px-4 pb-3 border-t border-border/50">
           {/* Model */}
-          <View className="mb-3">
-            <Text className="text-foreground-secondary text-xs mb-1">
+          <View className="mt-3 mb-3">
+            <Text className="text-foreground-secondary text-xs mb-1.5">
               Model
             </Text>
             <TextInput
-              className="bg-surface border border-border rounded-lg px-3 py-2 text-foreground text-sm"
+              className="border-b border-border px-0 py-1.5 text-foreground text-sm outline-none"
               placeholder={
                 tool === "claude" ? "e.g. claude-sonnet-4-6" : "e.g. o4-mini"
               }
-              placeholderTextColor="#565f89"
+              placeholderTextColor="#9a9a9a"
               value={options.model ?? ""}
               onChangeText={(text) =>
                 onChange({ ...options, model: text || undefined })
@@ -1686,16 +1683,16 @@ function TurnOptionsPanel({
 
           {/* Effort */}
           <View className="mb-3">
-            <Text className="text-foreground-secondary text-xs mb-1">
+            <Text className="text-foreground-secondary text-xs mb-1.5">
               Effort
             </Text>
-            <View className="flex-row flex-wrap gap-1.5">
+            <View className="flex-row flex-wrap gap-1">
               {efforts.map((level) => {
                 const isActive = activeEffort === level;
                 return (
                   <Pressable
                     key={level}
-                    className={`rounded-lg px-3 py-1.5 border ${isActive ? "bg-accent/20 border-accent" : "bg-surface border-border"}`}
+                    className={`px-3 py-1 border ${isActive ? "bg-foreground border-foreground" : "border-border"}`}
                     onPress={() => {
                       if (tool === "claude") {
                         onChange({
@@ -1715,7 +1712,7 @@ function TurnOptionsPanel({
                     }}
                   >
                     <Text
-                      className={`text-xs ${isActive ? "text-accent font-semibold" : "text-foreground-secondary"}`}
+                      className={`text-xs ${isActive ? "text-background font-semibold" : "text-foreground-secondary"}`}
                     >
                       {level}
                     </Text>
@@ -1735,8 +1732,8 @@ function TurnOptionsPanel({
               })
             }
           >
-            <Text className="text-foreground-secondary text-xs">
-              {options.clearSession ? "[x]" : "[ ]"} Clear session
+            <Text className="text-foreground text-xs">
+              {options.clearSession ? "☒" : "☐"} Clear session
             </Text>
           </Pressable>
         </View>
