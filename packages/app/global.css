@@ -1,3 +1,13 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+html, body {
+  font-family: Charter, 'Bitstream Charter', 'Sitka Text', Cambria, serif;
+  -webkit-font-smoothing: auto;
+}
+
+/* Remove default focus outlines, use border changes instead */
+input:focus, textarea:focus {
+  outline: none;
+}
