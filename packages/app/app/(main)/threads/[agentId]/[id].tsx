@@ -47,7 +47,6 @@ import {
   getToken,
 } from "../../../../lib/api";
 import MarkdownContent from "../../../../components/MarkdownContent";
-import { getThreadsRoute } from "../../../../lib/route-utils";
 import {
   copyMessageContent,
   getComposerCardClassName,
@@ -405,7 +404,7 @@ export default function ThreadDetailScreen() {
     const doDelete = async () => {
       try {
         await deleteThread(agentId, threadId);
-        router.replace(getThreadsRoute() as never);
+        router.back();
       } catch (err) {
         setError((err as Error).message);
       }
@@ -713,7 +712,7 @@ export default function ThreadDetailScreen() {
         ) : null}
         <Pressable
           className="bg-surface-light rounded-lg px-4 py-2"
-          onPress={() => router.replace(getThreadsRoute() as never)}
+          onPress={() => router.back()}
         >
           <Text className="text-foreground-secondary text-sm">Go Back</Text>
         </Pressable>
@@ -732,7 +731,7 @@ export default function ThreadDetailScreen() {
         <View className="flex-row items-center gap-2">
           <Pressable
             className="bg-surface-light rounded-md px-2.5 py-1"
-            onPress={() => router.replace(getThreadsRoute() as never)}
+            onPress={() => router.back()}
           >
             <Text className="text-foreground-secondary text-sm">Back</Text>
           </Pressable>

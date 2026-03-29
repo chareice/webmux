@@ -5,21 +5,16 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
 } from "react-native";
-import { Slot, Redirect, useSegments } from "expo-router";
+import { Slot, Redirect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../lib/auth";
 import { TopBar } from "../../components/TopBar";
-import {
-  getKeyboardAvoidingBehavior,
-  getMainLayoutEdges,
-} from "../../lib/mobile-layout";
+import { getKeyboardAvoidingBehavior } from "../../lib/mobile-layout";
 
 export default function MainLayout() {
   const { isLoading, isLoggedIn } = useAuth();
   const { width } = useWindowDimensions();
-  const segments = useSegments();
   const isWideScreen = Platform.OS === "web" && width >= 768;
-  const isTabsRoute = segments.includes("(tabs)");
 
   if (isLoading) {
     return (
@@ -47,7 +42,7 @@ export default function MainLayout() {
   return (
     <SafeAreaView
       className="flex-1 bg-background"
-      edges={getMainLayoutEdges(isTabsRoute)}
+      edges={["top", "bottom", "left", "right"]}
     >
       <KeyboardAvoidingView
         className="flex-1"

@@ -19,6 +19,11 @@ interface SettingsRow {
 
 const SETTINGS_ROWS: SettingsRow[] = [
   {
+    label: "Nodes",
+    description: "Manage registered machines",
+    href: "/(main)/settings/nodes",
+  },
+  {
     label: "Instructions",
     description: "Edit global instructions for Claude Code and Codex",
     href: "/(main)/settings/instructions",
@@ -38,12 +43,8 @@ export default function SettingsScreen() {
   return (
     <View className="flex-1 bg-background">
       <ScrollView className="flex-1" contentContainerClassName="p-4 pb-8">
-        {/* Header */}
-        <Text className="text-foreground text-2xl font-bold mb-4">
-          Settings
-        </Text>
+        <Text className="text-foreground text-2xl font-bold mb-4">Settings</Text>
 
-        {/* Setting rows */}
         <View className="gap-2 mb-6">
           {SETTINGS_ROWS.map((row) => (
             <Pressable
@@ -66,7 +67,6 @@ export default function SettingsScreen() {
           ))}
         </View>
 
-        {/* Server URL (mobile only) */}
         {Platform.OS !== "web" && serverUrl ? (
           <View className="bg-surface rounded-xl p-4 border border-border mb-6">
             <Text className="text-foreground-secondary text-sm mb-1">
@@ -105,7 +105,6 @@ export default function SettingsScreen() {
           </View>
         ) : null}
 
-        {/* Logout */}
         <Pressable
           className="bg-red/10 border border-red rounded-xl py-3 items-center"
           onPress={() => void logout()}
@@ -113,7 +112,6 @@ export default function SettingsScreen() {
           <Text className="text-red font-semibold text-sm">Logout</Text>
         </Pressable>
 
-        {/* Version */}
         <Text className="text-foreground-secondary text-xs text-center mt-6">
           webmux v{versionLabel}
         </Text>
