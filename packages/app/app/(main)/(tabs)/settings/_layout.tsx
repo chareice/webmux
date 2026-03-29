@@ -7,9 +7,16 @@ export default function SettingsLayout() {
   return (
     <Stack
       screenOptions={{
-        headerShown: false,
+        headerStyle: { backgroundColor: colors.surface },
+        headerTintColor: colors.foreground,
+        headerShadowVisible: false,
+        headerBackButtonDisplayMode: "minimal",
         contentStyle: { backgroundColor: colors.background },
       }}
-    />
+    >
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="nodes" options={{ title: "Nodes" }} />
+      <Stack.Screen name="instructions" options={{ title: "Instructions" }} />
+    </Stack>
   );
 }

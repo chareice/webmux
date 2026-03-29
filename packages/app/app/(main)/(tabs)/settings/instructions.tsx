@@ -8,11 +8,9 @@ import {
   ActivityIndicator,
   Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
 import type { AgentInfo, RunTool } from "@webmux/shared";
 import { listAgents, getInstructions, saveInstructions } from "../../../../lib/api";
 import { getKeyboardAwareScrollProps } from "../../../../lib/mobile-layout";
-import { getSettingsRoute } from "../../../../lib/route-utils";
 import { useTheme } from "../../../../lib/theme";
 
 const TOOLS: { key: RunTool; label: string; file: string }[] = [
@@ -21,7 +19,6 @@ const TOOLS: { key: RunTool; label: string; file: string }[] = [
 ];
 
 export default function InstructionsScreen() {
-  const router = useRouter();
   const { colors } = useTheme();
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -123,16 +120,6 @@ export default function InstructionsScreen() {
         keyboardShouldPersistTaps="handled"
         {...getKeyboardAwareScrollProps(Platform.OS)}
       >
-        {/* Header */}
-        <View className="flex-row items-center gap-3 mb-4">
-          <Pressable onPress={() => router.replace(getSettingsRoute() as never)}>
-            <Text className="text-accent text-base">{"< Back"}</Text>
-          </Pressable>
-          <Text className="text-foreground text-2xl font-bold">
-            Global Instructions
-          </Text>
-        </View>
-
         {/* Node selector */}
         <View className="mb-4">
           <Text className="text-foreground-secondary text-sm mb-1">Node</Text>

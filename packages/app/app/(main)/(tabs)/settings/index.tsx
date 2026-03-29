@@ -68,8 +68,6 @@ export default function SettingsScreen() {
   return (
     <View className="flex-1 bg-background">
       <ScrollView className="flex-1" contentContainerClassName="p-4 pb-8">
-        <Text className="text-foreground text-2xl font-bold mb-4">Settings</Text>
-
         <View className="gap-2 mb-6">
           {SETTINGS_ROWS.map((row) => (
             <Pressable

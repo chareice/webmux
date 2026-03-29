@@ -381,17 +381,6 @@ export default function NewThreadScreen() {
         keyboardShouldPersistTaps="handled"
         {...getKeyboardAwareScrollProps(Platform.OS)}
       >
-        {/* Header */}
-        <View className="flex-row items-center gap-3 mb-6">
-          <Pressable
-            className="bg-surface-light rounded-lg px-3 py-2"
-            onPress={() => router.back()}
-          >
-            <Text className="text-foreground-secondary text-sm">Back</Text>
-          </Pressable>
-          <Text className="text-foreground text-2xl font-bold">New Thread</Text>
-        </View>
-
         {/* Node Selection */}
         <View className="mb-5">
           <Text className="text-foreground-secondary text-sm uppercase tracking-wider mb-2">

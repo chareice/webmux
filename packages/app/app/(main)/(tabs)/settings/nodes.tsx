@@ -10,7 +10,7 @@ import {
   Alert,
   Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import type { AgentInfo } from "@webmux/shared";
 import { timeAgo } from "@webmux/shared";
 import {
@@ -221,22 +221,19 @@ export default function NodesScreen() {
 
   return (
     <View className="flex-1 bg-background">
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable
+              className="flex-row items-center bg-accent rounded-lg px-3 py-1.5 mr-2"
+              onPress={openModal}
+            >
+              <Text className="text-background font-semibold text-xs">+ Add</Text>
+            </Pressable>
+          ),
+        }}
+      />
       <ScrollView className="flex-1" contentContainerClassName="p-4 pb-8">
-        {/* Header */}
-        <View className="flex-row items-center justify-between mb-4">
-          <Text className="text-foreground text-2xl font-bold">
-            Your Nodes
-          </Text>
-          <Pressable
-            className="flex-row items-center bg-accent rounded-lg px-4 py-2"
-            onPress={openModal}
-          >
-            <Text className="text-background font-semibold text-sm">
-              + Add Node
-            </Text>
-          </Pressable>
-        </View>
-
         {/* Error banner */}
         {error ? (
           <View className="bg-red/10 border border-red rounded-lg px-3 py-2 mb-4">
