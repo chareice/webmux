@@ -220,7 +220,7 @@ export default function ThreadDetailScreen() {
     id: string;
   }>();
   const { width } = useWindowDimensions();
-  const isWideScreen = Platform.OS === "web" && width >= 1024;
+  const isWideScreen = Platform.OS === "web" && width >= 768;
 
   const [run, setRun] = useState<Run | null>(null);
   const [turns, setTurns] = useState<RunTurnDetail[]>([]);
@@ -698,7 +698,7 @@ export default function ThreadDetailScreen() {
         <Pressable
           className="bg-surface-light rounded-lg px-4 py-2"
           onPress={() => {
-            if (Platform.OS === "web") {
+            if (Platform.OS === "web" && isWideScreen) {
               router.navigate("/(main)" as never);
             } else {
               router.back();
@@ -720,18 +720,14 @@ export default function ThreadDetailScreen() {
       {/* Compact header (always visible) */}
       <View className="bg-surface px-4 py-2.5 border-b border-border">
         <View className="flex-row items-center gap-2">
-          <Pressable
-            className="bg-surface-light rounded-md px-2.5 py-1.5"
-            onPress={() => {
-              if (Platform.OS === "web") {
-                router.navigate("/(main)" as never);
-              } else {
-                router.back();
-              }
-            }}
-          >
-            <Text className="text-foreground-secondary text-sm">Back</Text>
-          </Pressable>
+          {!isWideScreen ? (
+            <Pressable
+              className="bg-surface-light rounded-md px-2.5 py-1.5"
+              onPress={() => router.back()}
+            >
+              <Text className="text-foreground-secondary text-sm">Back</Text>
+            </Pressable>
+          ) : null}
 
           <Text className="text-foreground font-semibold text-sm" numberOfLines={1}>
             {repoName(run.repoPath)}

@@ -1,145 +1,167 @@
-import { useMemo } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
   Pressable,
   ScrollView,
-  ActivityIndicator,
   Platform,
-  Alert,
   useWindowDimensions,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import type { Run } from "@webmux/shared";
-import {
-  timeAgo,
-  toolLabel,
-  runStatusLabel,
-} from "@webmux/shared";
 import { useWorkpaths } from "../../lib/workpath-context";
-import { deleteThread } from "../../lib/api";
-import type { Workpath } from "../../lib/workpath";
+import { createRegistrationToken } from "../../lib/api";
+import { LAST_SERVER_URL_KEY } from "../../lib/auth-utils";
+import { buildRegistrationCommand } from "../../lib/registration-utils";
+import { storage } from "../../lib/storage";
 import { useTheme } from "../../lib/theme";
-import { getRunStatusThemeColor } from "../../lib/theme-utils";
+import type { Workpath } from "../../lib/workpath";
 
-// --- Thread Row ---
+// --- Onboarding: inline node registration ---
 
-function ThreadRow({
-  run,
-  agentName,
-  onDelete,
-  onPress,
-}: {
-  run: Run;
-  agentName: string | undefined;
-  onDelete: () => void;
-  onPress: () => void;
-}) {
+function OnboardingView() {
   const { colors } = useTheme();
-  const isClaude = run.tool !== "codex";
-  const statusColor = getRunStatusThemeColor(run.status, colors);
 
-  const handleDelete = () => {
-    if (Platform.OS === "web") {
-      if (window.confirm("Delete this thread?")) {
-        onDelete();
+  const [registering, setRegistering] = useState(false);
+  const [command, setCommand] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cachedRef = useRef<{ token: string; expiresAt: number; serverUrl?: string | null } | null>(null);
+  const [lastServerUrl, setLastServerUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void storage.get(LAST_SERVER_URL_KEY).then((v) => {
+      if (!cancelled) setLastServerUrl(v);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const buildCmd = useCallback(
+    (token: string, serverUrl?: string | null) => {
+      const windowOrigin =
+        Platform.OS === "web" && typeof window !== "undefined"
+          ? window.location.origin
+          : null;
+      return buildRegistrationCommand({ token, serverUrl, lastServerUrl, windowOrigin });
+    },
+    [lastServerUrl],
+  );
+
+  const generateToken = useCallback(async () => {
+    // Reuse cached token if valid
+    const cached = cachedRef.current;
+    if (cached && cached.expiresAt > Date.now() + 60000) {
+      setCommand(buildCmd(cached.token, cached.serverUrl));
+      return;
+    }
+
+    setRegistering(true);
+    setError(null);
+    try {
+      const data = await createRegistrationToken();
+      cachedRef.current = {
+        token: data.token,
+        expiresAt: data.expiresAt,
+        serverUrl: data.serverUrl ?? null,
+      };
+      setCommand(buildCmd(data.token, data.serverUrl));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRegistering(false);
+    }
+  }, [buildCmd]);
+
+  // Auto-generate on mount
+  useEffect(() => {
+    void generateToken();
+  }, [generateToken]);
+
+  const handleCopy = async () => {
+    if (!command) return;
+    try {
+      if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(command);
       }
-    } else {
-      Alert.alert("Delete Thread", "Are you sure?", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: onDelete },
-      ]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
     }
   };
 
+  const handleRegenerate = () => {
+    cachedRef.current = null;
+    setCommand(null);
+    setCopied(false);
+    void generateToken();
+  };
+
   return (
-    <Pressable
-      className="bg-surface border border-border rounded-lg px-4 py-3 mb-2"
-      onPress={onPress}
-    >
-      {/* Top row: badges + time + delete */}
-      <View className="flex-row items-center gap-2 mb-1.5">
-        {/* Tool badge */}
-        <View
-          className={`rounded px-1.5 py-0.5 ${isClaude ? "bg-foreground" : "bg-background border border-foreground"}`}
-        >
-          <Text className={`text-[11px] font-bold ${isClaude ? "text-background" : "text-foreground"}`}>
-            {toolLabel(run.tool)}
-          </Text>
-        </View>
+    <View className="flex-1 bg-background items-center justify-center p-8">
+      <View className="w-full max-w-md">
+        <Text className="text-foreground text-2xl font-bold mb-2">
+          Welcome to webmux
+        </Text>
+        <Text className="text-foreground-secondary text-sm mb-6 leading-5">
+          Connect a machine to get started. Run the command below on the server
+          where your coding agent should work.
+        </Text>
 
-        {/* Branch */}
-        {run.branch ? (
-          <Text
-            className="text-foreground-secondary text-[11px] font-mono"
-            numberOfLines={1}
-          >
-            {run.branch}
-          </Text>
-        ) : null}
-
-        {/* Node name */}
-        {agentName ? (
-          <Text className="text-foreground-secondary text-[11px]" numberOfLines={1}>
-            {agentName}
-          </Text>
-        ) : null}
-
-        {/* Has-diff badge */}
-        {run.hasDiff ? (
-          <View className="rounded px-1.5 py-0.5 bg-yellow/20">
-            <Text className="text-yellow text-[11px] font-semibold">{"\u0394"}</Text>
+        {registering ? (
+          <View className="items-center py-6">
+            <ActivityIndicator size="small" color={colors.accent} />
+            <Text className="text-foreground-secondary mt-2 text-sm">
+              Generating registration command...
+            </Text>
+          </View>
+        ) : command ? (
+          <View>
+            <Text className="text-foreground-secondary text-xs mb-2 font-semibold uppercase tracking-wide">
+              Run on your server
+            </Text>
+            <View className="bg-surface border border-border p-3 mb-3">
+              <Text className="text-foreground text-xs font-mono" selectable>
+                {command}
+              </Text>
+            </View>
+            <View className="flex-row gap-2 mb-4">
+              <Pressable
+                className="bg-foreground px-4 py-2"
+                onPress={() => void handleCopy()}
+              >
+                <Text className="text-background text-sm font-semibold">
+                  {copied ? "Copied!" : "Copy"}
+                </Text>
+              </Pressable>
+              <Pressable
+                className="bg-surface border border-border px-4 py-2"
+                onPress={handleRegenerate}
+              >
+                <Text className="text-foreground-secondary text-sm">
+                  Regenerate
+                </Text>
+              </Pressable>
+            </View>
+            <Text className="text-foreground-secondary text-xs leading-4">
+              Once the agent connects, this page will update automatically.
+              Use --name to set a custom node name.
+            </Text>
+          </View>
+        ) : error ? (
+          <View>
+            <Text className="text-red text-sm mb-3">{error}</Text>
+            <Pressable
+              className="bg-surface border border-border px-4 py-2 self-start"
+              onPress={handleRegenerate}
+            >
+              <Text className="text-foreground text-sm">Try again</Text>
+            </Pressable>
           </View>
         ) : null}
-
-        {/* Spacer */}
-        <View className="flex-1" />
-
-        {/* Status */}
-        <View className="flex-row items-center gap-1">
-          <View
-            className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: statusColor }}
-          />
-          <Text
-            className="text-[11px]"
-            style={{ color: statusColor }}
-          >
-            {runStatusLabel(run.status)}
-          </Text>
-        </View>
-
-        {/* Time */}
-        <Text className="text-foreground-secondary text-[11px]">
-          {timeAgo(run.updatedAt)}
-        </Text>
-
-        {/* Delete */}
-        <Pressable
-          className="rounded px-1.5 py-0.5"
-          onPress={(e) => {
-            e.stopPropagation();
-            handleDelete();
-          }}
-        >
-          <Text className="text-foreground-secondary text-[11px]">x</Text>
-        </Pressable>
       </View>
-
-      {/* Prompt preview */}
-      {run.prompt ? (
-        <Text className="text-foreground text-sm" numberOfLines={2}>
-          {run.prompt}
-        </Text>
-      ) : null}
-
-      {/* Summary */}
-      {run.summary ? (
-        <Text className="text-foreground-secondary text-xs mt-1" numberOfLines={2}>
-          {run.summary}
-        </Text>
-      ) : null}
-    </Pressable>
+    </View>
   );
 }
 
@@ -191,128 +213,25 @@ function WorkpathCard({
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { colors } = useTheme();
-  const { workpaths, agents, selectedPath, isLoading, error, reload, setRuns } =
-    useWorkpaths();
+  const { workpaths, agents, isLoading } = useWorkpaths();
 
   const { width } = useWindowDimensions();
   const isWideScreen = Platform.OS === "web" && width >= 768;
 
-  // Selected workpath for web view
-  const selectedWorkpath = useMemo(
-    () => workpaths.find((wp) => wp.repoPath === selectedPath) ?? null,
-    [workpaths, selectedPath],
-  );
+  const hasNodes = agents.size > 0;
 
-  const handleDeleteThread = async (run: Run) => {
-    try {
-      await deleteThread(run.agentId, run.id);
-      // Optimistic removal
-      setRuns((prev) => prev.filter((r) => r.id !== run.id));
-    } catch {
-      // Reload on failure to restore state
-      await reload();
-    }
-  };
+  // Show onboarding when no nodes exist (both wide and mobile)
+  if (!isLoading && !hasNodes) {
+    return <OnboardingView />;
+  }
 
-  // --- Loading ---
-  if (isLoading) {
+  // --- Web wide view: placeholder (thread list is in LeftPanel) ---
+  if (isWideScreen) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color={colors.accent} size="large" />
-        <Text className="text-foreground-secondary mt-3 text-sm">Loading...</Text>
-      </View>
-    );
-  }
-
-  // --- Error ---
-  if (error) {
-    return (
-      <View className="flex-1 bg-background items-center justify-center p-4">
-        <Text className="text-red text-sm mb-4">{error}</Text>
-        <Pressable
-          className="bg-accent rounded-lg px-4 py-2"
-          onPress={() => void reload()}
-        >
-          <Text className="text-background text-sm font-semibold">Retry</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  // --- Web wide view: thread list for selected workpath ---
-  if (isWideScreen) {
-    if (!selectedWorkpath) {
-      return (
-        <View className="flex-1 bg-background items-center justify-center">
-          <Text className="text-foreground-secondary text-sm">
-            No workpaths yet. Start a new thread to get started.
-          </Text>
-          <Pressable
-            className="bg-accent rounded-lg px-4 py-2 mt-4"
-            onPress={() => router.push("/(main)/threads/new" as never)}
-          >
-            <Text className="text-background text-sm font-semibold">
-              + New Thread
-            </Text>
-          </Pressable>
-        </View>
-      );
-    }
-
-    return (
-      <View className="flex-1 bg-background">
-        {/* Header */}
-        <View className="h-12 px-4 flex-row items-center border-b border-border">
-          <View className="flex-1">
-            <View className="flex-row items-center gap-2">
-              <Text className="text-foreground text-lg font-bold">
-                {selectedWorkpath.dirName}
-              </Text>
-              <Text className="text-foreground-secondary text-xs font-mono">
-                {selectedWorkpath.repoPath}
-              </Text>
-            </View>
-          </View>
-          <Pressable
-            className="bg-accent rounded-md px-3 py-1.5"
-            onPress={() => {
-              const params = new URLSearchParams();
-              params.set("agentId", selectedWorkpath.agentId);
-              params.set("repoPath", selectedWorkpath.repoPath);
-              router.push(
-                `/(main)/threads/new?${params.toString()}` as never,
-              );
-            }}
-          >
-            <Text className="text-background text-xs font-semibold">
-              + New Thread
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* Thread list */}
-        <ScrollView className="flex-1" contentContainerClassName="p-4">
-          {selectedWorkpath.runs.length === 0 ? (
-            <Text className="text-foreground-secondary text-sm text-center py-8">
-              No threads in this workpath yet.
-            </Text>
-          ) : (
-            selectedWorkpath.runs.map((run) => (
-              <ThreadRow
-                key={run.id}
-                run={run}
-                agentName={agents.get(run.agentId)?.name}
-                onDelete={() => void handleDeleteThread(run)}
-                onPress={() =>
-                  router.push(
-                    `/(main)/threads/${run.agentId}/${run.id}` as never,
-                  )
-                }
-              />
-            ))
-          )}
-        </ScrollView>
+        <Text className="text-foreground-secondary text-sm">
+          Select a thread from the sidebar
+        </Text>
       </View>
     );
   }
