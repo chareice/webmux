@@ -1,6 +1,7 @@
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import type { Workpath } from "../lib/workpath";
+import { useTheme } from "../lib/theme";
 
 interface SidebarProps {
   workpaths: Workpath[];
@@ -16,6 +17,7 @@ export function Sidebar({
   isLoading,
 }: SidebarProps) {
   const router = useRouter();
+  const { colors } = useTheme();
 
   return (
     <View className="w-48 bg-surface border-r border-border flex-1">
@@ -34,7 +36,7 @@ export function Sidebar({
       <ScrollView className="flex-1">
         {isLoading ? (
           <View className="items-center py-8">
-            <ActivityIndicator color="#1a1a1a" size="small" />
+            <ActivityIndicator color={colors.accent} size="small" />
           </View>
         ) : workpaths.length === 0 ? (
           <View className="px-4 py-8">

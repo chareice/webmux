@@ -32,6 +32,7 @@ import {
 } from "../../../lib/api";
 import { getRepoNameFromPath } from "../../../lib/repo-path-utils";
 import { getKeyboardAwareScrollProps } from "../../../lib/mobile-layout";
+import { useTheme } from "../../../lib/theme";
 
 // --- Constants ---
 
@@ -95,6 +96,7 @@ function generateId(): string {
 
 export default function NewThreadScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
   const { agentId, repoPath: repoPathParam } = useLocalSearchParams<{
     agentId: string;
     repoPath: string;
@@ -365,7 +367,7 @@ export default function NewThreadScreen() {
   if (isLoadingAgents) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#1a1a1a" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text className="text-foreground-secondary mt-3 text-sm">Loading...</Text>
       </View>
     );
@@ -470,7 +472,7 @@ export default function NewThreadScreen() {
                 ? "/home/chareice/projects/webmux"
                 : "Select a node first"
             }
-            placeholderTextColor="#9a9a9a"
+            placeholderTextColor={colors.placeholder}
             value={repoPath}
             onChangeText={setRepoPath}
             editable={!!selectedAgent}
@@ -520,7 +522,7 @@ export default function NewThreadScreen() {
 
           {isLoadingRepos && !repoBrowser ? (
             <View className="items-center py-2">
-              <ActivityIndicator size="small" color="#1a1a1a" />
+              <ActivityIndicator size="small" color={colors.accent} />
             </View>
           ) : null}
 
@@ -645,7 +647,7 @@ export default function NewThreadScreen() {
                 ? "What should the AI do next in this session?"
                 : "What would you like the AI to do?"
             }
-            placeholderTextColor="#9a9a9a"
+            placeholderTextColor={colors.placeholder}
             multiline
             textAlignVertical="top"
             value={prompt}
@@ -746,7 +748,7 @@ export default function NewThreadScreen() {
         >
           {isSubmitting ? (
             <View className="flex-row items-center gap-2">
-              <ActivityIndicator size="small" color="#f8f5ed" />
+              <ActivityIndicator size="small" color={colors.background} />
               <Text className="text-background font-semibold text-base">
                 Starting...
               </Text>
@@ -819,7 +821,7 @@ export default function NewThreadScreen() {
 
               {isLoadingRepos ? (
                 <View className="items-center py-8">
-                  <ActivityIndicator size="small" color="#1a1a1a" />
+                  <ActivityIndicator size="small" color={colors.accent} />
                   <Text className="text-foreground-secondary mt-2 text-sm">
                     Loading...
                   </Text>
@@ -908,7 +910,7 @@ export default function NewThreadScreen() {
             <ScrollView className="px-5 py-3" style={{ maxHeight: 420 }}>
               {isLoadingImportableSessions ? (
                 <View className="items-center py-8">
-                  <ActivityIndicator size="small" color="#1a1a1a" />
+                  <ActivityIndicator size="small" color={colors.accent} />
                   <Text className="text-foreground-secondary mt-2 text-sm">
                     Loading sessions...
                   </Text>

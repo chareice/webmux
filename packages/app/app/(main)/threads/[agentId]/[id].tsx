@@ -29,7 +29,6 @@ import type {
 import {
   timeAgo,
   runStatusLabel,
-  runStatusColor,
   toolLabel,
   toolIcon,
   repoName,
@@ -59,6 +58,8 @@ import {
   getMessageCopyTextClassName,
 } from "../../../../lib/thread-detail-ui";
 import { getKeyboardAwareScrollProps } from "../../../../lib/mobile-layout";
+import { useTheme } from "../../../../lib/theme";
+import { getRunStatusThemeColor } from "../../../../lib/theme-utils";
 import { canContinueTurn, canRetryTurn } from "../../../../lib/thread-utils";
 import { createReconnectableSocket } from "../../../../lib/websocket";
 
@@ -217,6 +218,7 @@ function fileToBase64Web(file: File): Promise<string> {
 
 export default function ThreadDetailScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
   const { agentId, id: threadId } = useLocalSearchParams<{
     agentId: string;
     id: string;
@@ -698,7 +700,7 @@ export default function ThreadDetailScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#1a1a1a" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text className="text-foreground-secondary mt-3 text-sm">
           Loading thread...
         </Text>
@@ -731,7 +733,7 @@ export default function ThreadDetailScreen() {
     );
   }
 
-  const statusColor = runStatusColor(run.status);
+  const statusColor = getRunStatusThemeColor(run.status, colors);
 
   // --- Render ---
 
@@ -1035,7 +1037,7 @@ export default function ThreadDetailScreen() {
               nonQueuedTurns.length > 0 &&
               nonQueuedTurns[nonQueuedTurns.length - 1].items.length === 0 ? (
               <View className="flex-row items-center gap-2 py-4">
-                <ActivityIndicator size="small" color="#1a1a1a" />
+                <ActivityIndicator size="small" color={colors.accent} />
                 <Text className="text-foreground-secondary text-sm">
                   Waiting for events...
                 </Text>
@@ -1165,7 +1167,7 @@ export default function ThreadDetailScreen() {
                         ? "Queue a follow-up message..."
                         : "Message this thread..."
                     }
-                    placeholderTextColor="#9a9a9a"
+                    placeholderTextColor={colors.placeholder}
                     multiline
                     textAlignVertical="top"
                     onChangeText={(text) => {
@@ -1205,7 +1207,7 @@ export default function ThreadDetailScreen() {
                       onPress={() => void handleContinue()}
                     >
                       {isContinuing ? (
-                        <ActivityIndicator size="small" color="#ffffff" />
+                        <ActivityIndicator size="small" color={colors.background} />
                       ) : (
                         <Text
                           className={getComposerSubmitTextClassName({
@@ -1455,14 +1457,10 @@ function CommandCard({
 }: {
   item: Extract<RunTimelineEvent, { type: "command" }>;
 }) {
+  const { colors } = useTheme();
   const [expanded, setExpanded] = useState(false);
   const isCollapsible = item.output.split("\n").length > 4;
-  const commandColor =
-    item.status === "failed"
-      ? "#b44444"
-      : item.status === "completed"
-        ? "#1a1a1a"
-        : "#1a1a1a";
+  const commandColor = item.status === "failed" ? colors.red : colors.accent;
 
   return (
     <View className="bg-surface rounded-xl p-3 mb-3">
@@ -1512,16 +1510,17 @@ function ActivityRow({
 }: {
   item: Extract<RunTimelineEvent, { type: "activity" }>;
 }) {
+  const { colors } = useTheme();
   const [expanded, setExpanded] = useState(false);
   const hasLongDetail = !!item.detail && item.detail.split("\n").length > 3;
   const dotColor =
     item.status === "success"
-      ? "#1a1a1a"
+      ? colors.green
       : item.status === "warning"
-        ? "#6b6b6b"
+        ? colors.yellow
         : item.status === "error"
-          ? "#b44444"
-          : "#1a1a1a";
+          ? colors.red
+          : colors.accent;
 
   return (
     <View className="flex-row gap-2 mb-3">
@@ -1573,6 +1572,8 @@ function QueuedTurnCard({
   onSave: () => void;
   onDelete: () => void;
 }) {
+  const { colors } = useTheme();
+
   return (
     <View className="bg-surface rounded-lg p-3 mb-2 border border-border">
       {isEditing ? (
@@ -1583,7 +1584,7 @@ function QueuedTurnCard({
             onChangeText={onChangeEditPrompt}
             multiline
             autoFocus
-            placeholderTextColor="#9a9a9a"
+            placeholderTextColor={colors.placeholder}
           />
           <View className="flex-row justify-end gap-2">
             <Pressable
@@ -1643,6 +1644,7 @@ function TurnOptionsPanel({
   onToggle: () => void;
 }) {
   const efforts = tool === "claude" ? CLAUDE_EFFORTS : CODEX_EFFORTS;
+  const { colors } = useTheme();
   const activeEffort =
     tool === "claude" ? options.claudeEffort : options.codexEffort;
   const hasActive =
@@ -1671,7 +1673,7 @@ function TurnOptionsPanel({
               placeholder={
                 tool === "claude" ? "e.g. claude-sonnet-4-6" : "e.g. o4-mini"
               }
-              placeholderTextColor="#9a9a9a"
+              placeholderTextColor={colors.placeholder}
               value={options.model ?? ""}
               onChangeText={(text) =>
                 onChange({ ...options, model: text || undefined })

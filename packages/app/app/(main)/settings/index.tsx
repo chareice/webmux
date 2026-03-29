@@ -9,7 +9,9 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../../lib/auth";
+import { useTheme } from "../../../lib/theme";
 import { checkForUpdate, getCurrentVersionInfo } from "../../../lib/update";
+import type { ThemePreference } from "../../../lib/theme-utils";
 
 interface SettingsRow {
   label: string;
@@ -30,9 +32,32 @@ const SETTINGS_ROWS: SettingsRow[] = [
   },
 ];
 
+const THEME_OPTIONS: Array<{
+  value: ThemePreference;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "system",
+    label: "Follow system",
+    description: "Switch automatically with your device appearance.",
+  },
+  {
+    value: "light",
+    label: "Light",
+    description: "Keep the current paper-style light look.",
+  },
+  {
+    value: "dark",
+    label: "Dark",
+    description: "Use the warm dark theme across the app.",
+  },
+];
+
 export default function SettingsScreen() {
   const router = useRouter();
   const { serverUrl, logout } = useAuth();
+  const { colors, themePreference, setThemePreference } = useTheme();
   const versionInfo = getCurrentVersionInfo();
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
@@ -67,6 +92,56 @@ export default function SettingsScreen() {
           ))}
         </View>
 
+        <View className="bg-surface rounded-xl p-4 border border-border mb-6">
+          <Text className="text-foreground text-base font-semibold mb-1">
+            Appearance
+          </Text>
+          <Text className="text-foreground-secondary text-sm mb-3">
+            Choose how webmux should look.
+          </Text>
+          <View className="gap-2">
+            {THEME_OPTIONS.map((option) => {
+              const isSelected = themePreference === option.value;
+
+              return (
+                <Pressable
+                  key={option.value}
+                  className={`rounded-lg border px-4 py-3 ${
+                    isSelected
+                      ? "border-accent bg-accent/10"
+                      : "border-border bg-surface-light"
+                  }`}
+                  onPress={() => void setThemePreference(option.value)}
+                >
+                  <View className="flex-row items-center gap-3">
+                    <View className="flex-1">
+                      <Text
+                        className={`text-sm font-semibold ${
+                          isSelected ? "text-accent" : "text-foreground"
+                        }`}
+                      >
+                        {option.label}
+                      </Text>
+                      <Text className="text-foreground-secondary text-xs mt-0.5">
+                        {option.description}
+                      </Text>
+                    </View>
+                    <Text
+                      className={`text-xs font-semibold ${
+                        isSelected
+                          ? "text-accent"
+                          : "text-foreground-secondary"
+                      }`}
+                    >
+                      {isSelected ? "Selected" : ""}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
         {Platform.OS !== "web" && serverUrl ? (
           <View className="bg-surface rounded-xl p-4 border border-border mb-6">
             <Text className="text-foreground-secondary text-sm mb-1">
@@ -95,7 +170,7 @@ export default function SettingsScreen() {
               }}
             >
               {isCheckingUpdate ? (
-                <ActivityIndicator color="#1a1a1a" size="small" />
+                <ActivityIndicator color={colors.accent} size="small" />
               ) : (
                 <Text className="text-accent font-semibold text-sm">
                   Check for updates

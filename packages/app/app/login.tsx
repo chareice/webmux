@@ -25,9 +25,11 @@ import {
   getKeyboardAwareScrollProps,
 } from "../lib/mobile-layout";
 import { storage } from "../lib/storage";
+import { useTheme } from "../lib/theme";
 
 export default function LoginScreen() {
   const { isLoggedIn } = useAuth();
+  const { colors } = useTheme();
   const [serverUrl, setServerUrl] = useState("");
   const [activeProvider, setActiveProvider] = useState<OAuthProvider | null>(null);
   const [error, setError] = useState("");
@@ -123,7 +125,7 @@ export default function LoginScreen() {
                 <TextInput
                   className="bg-background text-foreground border border-border rounded-lg px-4 py-3"
                   placeholder="https://your-server.example.com"
-                  placeholderTextColor="#9a9a9a"
+                  placeholderTextColor={colors.placeholder}
                   value={serverUrl}
                   onChangeText={setServerUrl}
                   onBlur={() => {
@@ -161,7 +163,7 @@ export default function LoginScreen() {
                   >
                     {active ? (
                       <ActivityIndicator
-                        color={isGitHub ? "#ffffff" : "#1a1a1a"}
+                        color={isGitHub ? colors.background : colors.foreground}
                       />
                     ) : (
                       <Text

@@ -2,9 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    --color-background: 248 245 237;
+    --color-surface: 239 233 222;
+    --color-surface-light: 230 224 212;
+    --color-foreground: 26 26 26;
+    --color-foreground-secondary: 107 107 107;
+    --color-accent: 26 26 26;
+    --color-green: 26 26 26;
+    --color-red: 180 68 68;
+    --color-orange: 180 68 68;
+    --color-yellow: 107 107 107;
+    --color-border: 213 207 196;
+  }
+
+  .dark:root {
+    --color-background: 26 22 18;
+    --color-surface: 35 29 24;
+    --color-surface-light: 44 36 30;
+    --color-foreground: 245 238 228;
+    --color-foreground-secondary: 179 169 156;
+    --color-accent: 245 238 228;
+    --color-green: 245 238 228;
+    --color-red: 224 138 138;
+    --color-orange: 224 171 122;
+    --color-yellow: 193 170 131;
+    --color-border: 70 58 48;
+  }
+}
+
 html, body {
   font-family: Charter, 'Bitstream Charter', 'Sitka Text', Cambria, serif;
   -webkit-font-smoothing: auto;
+  background-color: rgb(var(--color-background) / 1);
+  color: rgb(var(--color-foreground) / 1);
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
 }
 
 /* Remove default focus outlines, use border changes instead */

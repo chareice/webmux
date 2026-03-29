@@ -1,5 +1,7 @@
 import type { Config } from "tailwindcss";
 
+const colorVar = (name: string) => `rgb(var(${name}) / <alpha-value>)`;
+
 export default {
   content: ["./app/**/*.{js,jsx,ts,tsx}", "./components/**/*.{js,jsx,ts,tsx}"],
   presets: [require("nativewind/preset")],
@@ -8,18 +10,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: "#f8f5ed",
-        surface: "#efe9de",
-        "surface-light": "#e6e0d4",
-        foreground: "#1a1a1a",
-        "foreground-secondary": "#6b6b6b",
-        accent: "#1a1a1a",
-        green: "#1a1a1a",
-        red: "#b44444",
-        orange: "#b44444",
-        yellow: "#6b6b6b",
-        purple: "#1a1a1a",
-        border: "#d5cfc4",
+        background: colorVar("--color-background"),
+        surface: colorVar("--color-surface"),
+        "surface-light": colorVar("--color-surface-light"),
+        foreground: colorVar("--color-foreground"),
+        "foreground-secondary": colorVar("--color-foreground-secondary"),
+        accent: colorVar("--color-accent"),
+        green: colorVar("--color-green"),
+        red: colorVar("--color-red"),
+        orange: colorVar("--color-orange"),
+        yellow: colorVar("--color-yellow"),
+        purple: colorVar("--color-accent"),
+        border: colorVar("--color-border"),
         white: "#ffffff",
       },
       fontFamily: {

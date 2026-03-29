@@ -14,12 +14,13 @@ import type { Run } from "@webmux/shared";
 import {
   timeAgo,
   toolLabel,
-  runStatusColor,
   runStatusLabel,
 } from "@webmux/shared";
 import { useWorkpaths } from "../../lib/workpath-context";
 import { deleteThread } from "../../lib/api";
 import type { Workpath } from "../../lib/workpath";
+import { useTheme } from "../../lib/theme";
+import { getRunStatusThemeColor } from "../../lib/theme-utils";
 
 // --- Thread Row ---
 
@@ -34,7 +35,9 @@ function ThreadRow({
   onDelete: () => void;
   onPress: () => void;
 }) {
+  const { colors } = useTheme();
   const isClaude = run.tool !== "codex";
+  const statusColor = getRunStatusThemeColor(run.status, colors);
 
   const handleDelete = () => {
     if (Platform.OS === "web") {
@@ -96,11 +99,11 @@ function ThreadRow({
         <View className="flex-row items-center gap-1">
           <View
             className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: runStatusColor(run.status) }}
+            style={{ backgroundColor: statusColor }}
           />
           <Text
             className="text-[11px]"
-            style={{ color: runStatusColor(run.status) }}
+            style={{ color: statusColor }}
           >
             {runStatusLabel(run.status)}
           </Text>
@@ -188,6 +191,7 @@ function WorkpathCard({
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
   const { workpaths, agents, selectedPath, isLoading, error, reload, setRuns } =
     useWorkpaths();
 
@@ -215,7 +219,7 @@ export default function HomeScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color="#1a1a1a" size="large" />
+        <ActivityIndicator color={colors.accent} size="large" />
         <Text className="text-foreground-secondary mt-3 text-sm">Loading...</Text>
       </View>
     );

@@ -13,6 +13,7 @@ import type { AgentInfo, RunTool } from "@webmux/shared";
 import { listAgents, getInstructions, saveInstructions } from "../../../lib/api";
 import { getKeyboardAwareScrollProps } from "../../../lib/mobile-layout";
 import { getSettingsRoute } from "../../../lib/route-utils";
+import { useTheme } from "../../../lib/theme";
 
 const TOOLS: { key: RunTool; label: string; file: string }[] = [
   { key: "claude", label: "Claude Code", file: "~/.claude/CLAUDE.md" },
@@ -21,6 +22,7 @@ const TOOLS: { key: RunTool; label: string; file: string }[] = [
 
 export default function InstructionsScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
 
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
@@ -105,7 +107,7 @@ export default function InstructionsScreen() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#1a1a1a" />
+        <ActivityIndicator size="large" color={colors.accent} />
         <Text className="text-foreground-secondary mt-3 text-sm">
           Loading...
         </Text>
@@ -206,7 +208,7 @@ export default function InstructionsScreen() {
             {/* Loading instructions */}
             {isFetching ? (
               <View className="items-center justify-center py-16">
-                <ActivityIndicator size="large" color="#1a1a1a" />
+                <ActivityIndicator size="large" color={colors.accent} />
                 <Text className="text-foreground-secondary mt-3 text-sm">
                   Loading instructions...
                 </Text>
@@ -221,7 +223,7 @@ export default function InstructionsScreen() {
                   placeholder={`Enter global instructions for ${
                     activeTool === "claude" ? "Claude Code" : "Codex"
                   }...`}
-                  placeholderTextColor="#9a9a9a"
+                  placeholderTextColor={colors.placeholder}
                   multiline
                   textAlignVertical="top"
                   autoCapitalize="none"
@@ -239,7 +241,7 @@ export default function InstructionsScreen() {
                     onPress={() => void handleSave()}
                   >
                     {isSaving ? (
-                      <ActivityIndicator size="small" color="#f8f5ed" />
+                      <ActivityIndicator size="small" color={colors.background} />
                     ) : null}
                     <Text className="text-background font-semibold text-sm">
                       {saveSuccess
