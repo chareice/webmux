@@ -24,15 +24,15 @@ export function getComposerInputClassName(): string {
 }
 
 export function getComposerToolbarClassName(): string {
-  return "flex-row items-center px-3 pb-2";
+  return "flex-row items-center gap-2 px-4 pb-3";
 }
 
 export function getComposerIconButtonClassName({
   disabled,
 }: ComposerStateOptions): string {
   return [
-    "h-8 px-2 shrink-0 items-center justify-center",
-    disabled ? "opacity-25" : "active:opacity-60",
+    "h-9 shrink-0 items-center justify-center px-4 border",
+    disabled ? "border-border/50 opacity-40" : "border-border active:bg-surface",
   ]
     .filter(Boolean)
     .join(" ");
@@ -42,7 +42,7 @@ export function getComposerSubmitButtonClassName({
   disabled,
 }: ComposerStateOptions): string {
   return [
-    "h-8 shrink-0 items-center justify-center px-4 ml-auto border",
+    "h-9 shrink-0 items-center justify-center px-5 ml-auto border",
     disabled
       ? "border-border"
       : "border-foreground bg-foreground active:opacity-90",
@@ -53,8 +53,8 @@ export function getComposerSubmitTextClassName({
   disabled,
 }: ComposerStateOptions): string {
   return disabled
-    ? "text-foreground-secondary text-[13px]"
-    : "text-background text-[13px] font-semibold";
+    ? "text-foreground-secondary text-sm"
+    : "text-background text-sm font-semibold";
 }
 
 export function getMessageCopyButtonClassName({

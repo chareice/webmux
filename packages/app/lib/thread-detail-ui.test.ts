@@ -76,7 +76,7 @@ test("getComposerSubmitButtonClassName uses the foreground style when enabled", 
 test("getComposerIconButtonClassName renders a compact icon button", () => {
   const className = getComposerIconButtonClassName({ disabled: false });
 
-  assert.match(className, /h-8/);
+  assert.match(className, /h-9/);
 });
 
 test("getComposerToolbarClassName renders a toolbar row", () => {
