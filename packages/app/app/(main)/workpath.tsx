@@ -73,7 +73,7 @@ function ThreadRow({
           </Text>
         ) : null}
 
-        {/* Agent name */}
+        {/* Node name */}
         {agentName ? (
           <Text className="text-foreground-secondary text-[11px]" numberOfLines={1}>
             {agentName}

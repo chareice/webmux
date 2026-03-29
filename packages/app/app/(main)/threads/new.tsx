@@ -313,7 +313,7 @@ export default function NewThreadScreen() {
   const handleSubmit = async () => {
     setError(null);
     if (!selectedAgent) {
-      setError("Please select an agent");
+      setError("Please select a node");
       return;
     }
     if (!repoPath.trim()) {
@@ -390,14 +390,14 @@ export default function NewThreadScreen() {
           <Text className="text-foreground text-2xl font-bold">New Thread</Text>
         </View>
 
-        {/* Agent Selection */}
+        {/* Node Selection */}
         <View className="mb-5">
           <Text className="text-foreground-secondary text-sm uppercase tracking-wider mb-2">
-            Agent
+            Node
           </Text>
           {agents.length === 0 ? (
             <Text className="text-foreground-secondary text-sm">
-              No agents online right now.
+              No nodes online right now.
             </Text>
           ) : (
             <View className="flex-row flex-wrap gap-2">
@@ -468,7 +468,7 @@ export default function NewThreadScreen() {
             placeholder={
               selectedAgent
                 ? "/home/chareice/projects/webmux"
-                : "Select an agent first"
+                : "Select a node first"
             }
             placeholderTextColor="#565f89"
             value={repoPath}
@@ -505,7 +505,7 @@ export default function NewThreadScreen() {
                 <Text className="text-foreground-secondary text-xs mt-0.5">
                   {selectedAgentInfo
                     ? `Pick a path on ${selectedAgentInfo.name || selectedAgentInfo.id}`
-                    : "Select an agent first"}
+                    : "Select a node first"}
                 </Text>
               </View>
               <Text className="text-foreground-secondary text-lg ml-2">{">"}</Text>
@@ -601,7 +601,7 @@ export default function NewThreadScreen() {
                 ? `Last updated ${timeAgo(selectedImportSession.updatedAt)}`
                 : selectedAgent && trimmedRepoPath
                   ? "Optional. Webmux will continue from the next message."
-                  : "Choose an agent and working directory first"}
+                  : "Choose a node and working directory first"}
             </Text>
           </Pressable>
 

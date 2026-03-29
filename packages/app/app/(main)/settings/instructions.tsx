@@ -94,7 +94,7 @@ export default function InstructionsScreen() {
   const selectedAgent = agents.find((a) => a.id === selectedAgentId);
   const isOffline = selectedAgent?.status !== "online";
 
-  // Cycle agent selection
+  // Cycle node selection
   const cycleAgent = () => {
     if (agents.length === 0) return;
     const currentIdx = agents.findIndex((a) => a.id === selectedAgentId);
@@ -131,9 +131,9 @@ export default function InstructionsScreen() {
           </Text>
         </View>
 
-        {/* Agent selector */}
+        {/* Node selector */}
         <View className="mb-4">
-          <Text className="text-foreground-secondary text-sm mb-1">Agent</Text>
+          <Text className="text-foreground-secondary text-sm mb-1">Node</Text>
           <Pressable
             className="bg-surface-light border border-border rounded-lg px-4 py-3"
             onPress={cycleAgent}
@@ -144,12 +144,12 @@ export default function InstructionsScreen() {
                     agents.find((a) => a.id === selectedAgentId)?.name ??
                     selectedAgentId
                   }${isOffline ? " (offline)" : ""}`
-                : "Select an agent..."}
+                : "Select a node..."}
             </Text>
           </Pressable>
           {agents.length > 1 ? (
             <Text className="text-foreground-secondary text-xs mt-1">
-              Tap to cycle through agents
+              Tap to cycle through nodes
             </Text>
           ) : null}
         </View>
@@ -158,10 +158,10 @@ export default function InstructionsScreen() {
         {selectedAgentId && isOffline ? (
           <View className="items-center justify-center py-16">
             <Text className="text-foreground text-xl font-semibold mb-2">
-              Agent Offline
+              Node Offline
             </Text>
             <Text className="text-foreground-secondary text-sm text-center px-8">
-              Connect the agent to manage instructions.
+              Connect the node to manage instructions.
             </Text>
           </View>
         ) : selectedAgentId ? (
@@ -257,13 +257,13 @@ export default function InstructionsScreen() {
             )}
           </>
         ) : (
-          // No agent selected
+          // No node selected
           <View className="items-center justify-center py-16">
             <Text className="text-foreground text-xl font-semibold mb-2">
-              Select an Agent
+              Select a Node
             </Text>
             <Text className="text-foreground-secondary text-sm text-center px-8">
-              Select an agent to manage its global instructions.
+              Select a node to manage its global instructions.
             </Text>
           </View>
         )}
