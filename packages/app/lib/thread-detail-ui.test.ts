@@ -44,17 +44,17 @@ test("copyMessageContent accepts clipboard writers that return a success flag", 
   assert.equal(copied, "copied");
 });
 
-test("getComposerCardClassName renders a top-bordered container", () => {
+test("getComposerCardClassName renders a bordered container", () => {
   const className = getComposerCardClassName();
 
-  assert.match(className, /border-t/);
-  assert.match(className, /border-border/);
+  assert.match(className, /border/);
+  assert.match(className, /bg-surface/);
 });
 
 test("getComposerSubmitButtonClassName uses a muted style when disabled", () => {
   assert.match(
     getComposerSubmitButtonClassName({ disabled: true }),
-    /border-border/,
+    /bg-surface-light/,
   );
   assert.match(
     getComposerSubmitTextClassName({ disabled: true }),
@@ -76,7 +76,7 @@ test("getComposerSubmitButtonClassName uses the foreground style when enabled", 
 test("getComposerIconButtonClassName renders a compact icon button", () => {
   const className = getComposerIconButtonClassName({ disabled: false });
 
-  assert.match(className, /h-9/);
+  assert.match(className, /h-8/);
 });
 
 test("getComposerToolbarClassName renders a toolbar row", () => {

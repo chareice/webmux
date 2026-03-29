@@ -1101,28 +1101,18 @@ export default function ThreadDetailScreen() {
             {active || canContinueTurn(latestTurn) ? (
               <>
                 <View className={getComposerCardClassName()}>
-                  {/* Options panel (only when not active) */}
-                  {!active ? (
-                    <TurnOptionsPanel
-                      tool={run.tool}
-                      options={turnOptions}
-                      onChange={setTurnOptions}
-                      expanded={showOptions}
-                      onToggle={() => setShowOptions((v) => !v)}
-                    />
-                  ) : null}
                   {/* Attachment thumbnails */}
                   {attachments.length > 0 ? (
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
-                      className="mb-2"
-                      contentContainerClassName="gap-2 pr-0.5"
+                      className="px-3 pt-2"
+                      contentContainerClassName="gap-2"
                     >
                       {attachments.map((a) => (
                         <View
                           key={a.id}
-                          className="relative h-16 w-16 overflow-hidden rounded-xl bg-surface"
+                          className="relative h-16 w-16 overflow-hidden bg-surface-light"
                         >
                           <Image
                             source={{ uri: a.previewUri }}
@@ -1130,7 +1120,7 @@ export default function ThreadDetailScreen() {
                             resizeMode="cover"
                           />
                           <Pressable
-                            className="absolute top-1 right-1 h-5 w-5 items-center justify-center rounded-full bg-black/60"
+                            className="absolute top-1 right-1 h-5 w-5 items-center justify-center bg-black/60"
                             onPress={() => removeAttachment(a.id)}
                           >
                             <Text className="text-white text-[10px] font-bold leading-none">
@@ -1158,7 +1148,7 @@ export default function ThreadDetailScreen() {
                     />
                   ) : null}
 
-                  {/* Text input (full width) */}
+                  {/* Text input */}
                   <TextInput
                     ref={textInputRef}
                     className={getComposerInputClassName()}
@@ -1177,9 +1167,9 @@ export default function ThreadDetailScreen() {
                     }}
                   />
 
-                  {/* Toolbar row */}
+                  {/* Toolbar row: Attach + Options + Send */}
                   <View className={getComposerToolbarClassName()}>
-                    {/* Image button */}
+                    {/* Attach */}
                     <Pressable
                       className={getComposerIconButtonClassName({
                         disabled: attachments.length >= MAX_ATTACHMENTS,
@@ -1198,7 +1188,19 @@ export default function ThreadDetailScreen() {
                       />
                     </Pressable>
 
-                    {/* Send button */}
+                    {/* Options toggle (inline, only when not active) */}
+                    {!active ? (
+                      <Pressable
+                        className="h-8 shrink-0 items-center justify-center px-3 active:opacity-60"
+                        onPress={() => setShowOptions((v) => !v)}
+                      >
+                        <Text className="text-foreground-secondary text-xs">
+                          Options{(!!turnOptions.model || !!(run.tool === "claude" ? turnOptions.claudeEffort : turnOptions.codexEffort) || !!turnOptions.clearSession) ? " ·" : ""}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+
+                    {/* Send */}
                     <Pressable
                       className={`${getComposerSubmitButtonClassName({
                         disabled: !hasContent,
@@ -1219,6 +1221,17 @@ export default function ThreadDetailScreen() {
                       )}
                     </Pressable>
                   </View>
+
+                  {/* Expanded options panel */}
+                  {!active && showOptions ? (
+                    <TurnOptionsPanel
+                      tool={run.tool}
+                      options={turnOptions}
+                      onChange={setTurnOptions}
+                      expanded={showOptions}
+                      onToggle={() => setShowOptions((v) => !v)}
+                    />
+                  ) : null}
                 </View>
 
                 {/* Error banner */}
@@ -1651,95 +1664,78 @@ function TurnOptionsPanel({
     !!options.model || !!activeEffort || !!options.clearSession;
 
   return (
-    <View>
+    <View className="px-3 pb-3 border-t border-border/30">
+      {/* Model */}
+      <View className="mt-2 mb-2">
+        <Text className="text-foreground-secondary text-xs mb-1">Model</Text>
+        <TextInput
+          className="border-b border-border px-0 py-1 text-foreground text-sm outline-none bg-surface"
+          placeholder={
+            tool === "claude" ? "e.g. claude-sonnet-4-6" : "e.g. o4-mini"
+          }
+          placeholderTextColor={colors.placeholder}
+          value={options.model ?? ""}
+          onChangeText={(text) =>
+            onChange({ ...options, model: text || undefined })
+          }
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </View>
+
+      {/* Effort */}
+      <View className="mb-2">
+        <Text className="text-foreground-secondary text-xs mb-1">Effort</Text>
+        <View className="flex-row flex-wrap gap-1">
+          {efforts.map((level) => {
+            const isActive = activeEffort === level;
+            return (
+              <Pressable
+                key={level}
+                className={`px-3 py-1 border ${isActive ? "bg-foreground border-foreground" : "border-border"}`}
+                onPress={() => {
+                  if (tool === "claude") {
+                    onChange({
+                      ...options,
+                      claudeEffort: isActive
+                        ? undefined
+                        : (level as RunTurnOptions["claudeEffort"]),
+                    });
+                  } else {
+                    onChange({
+                      ...options,
+                      codexEffort: isActive
+                        ? undefined
+                        : (level as RunTurnOptions["codexEffort"]),
+                    });
+                  }
+                }}
+              >
+                <Text
+                  className={`text-xs ${isActive ? "text-background font-semibold" : "text-foreground-secondary"}`}
+                >
+                  {level}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Clear session */}
       <Pressable
-        className="flex-row items-center px-4 py-2 border-t border-border"
-        onPress={onToggle}
+        className="flex-row items-center gap-2"
+        onPress={() =>
+          onChange({
+            ...options,
+            clearSession: !options.clearSession,
+          })
+        }
       >
-        <Text className="text-foreground-secondary text-xs">
-          {expanded ? "–" : "+"} Options{hasActive ? " ·" : ""}
+        <Text className="text-foreground text-xs">
+          {options.clearSession ? "☒" : "☐"} Clear session
         </Text>
       </Pressable>
-
-      {expanded ? (
-        <View className="px-4 pb-3 border-t border-border/50">
-          {/* Model */}
-          <View className="mt-3 mb-3">
-            <Text className="text-foreground-secondary text-xs mb-1.5">
-              Model
-            </Text>
-            <TextInput
-              className="border-b border-border px-0 py-1.5 text-foreground text-sm outline-none"
-              placeholder={
-                tool === "claude" ? "e.g. claude-sonnet-4-6" : "e.g. o4-mini"
-              }
-              placeholderTextColor={colors.placeholder}
-              value={options.model ?? ""}
-              onChangeText={(text) =>
-                onChange({ ...options, model: text || undefined })
-              }
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-
-          {/* Effort */}
-          <View className="mb-3">
-            <Text className="text-foreground-secondary text-xs mb-1.5">
-              Effort
-            </Text>
-            <View className="flex-row flex-wrap gap-1">
-              {efforts.map((level) => {
-                const isActive = activeEffort === level;
-                return (
-                  <Pressable
-                    key={level}
-                    className={`px-3 py-1 border ${isActive ? "bg-foreground border-foreground" : "border-border"}`}
-                    onPress={() => {
-                      if (tool === "claude") {
-                        onChange({
-                          ...options,
-                          claudeEffort: isActive
-                            ? undefined
-                            : (level as RunTurnOptions["claudeEffort"]),
-                        });
-                      } else {
-                        onChange({
-                          ...options,
-                          codexEffort: isActive
-                            ? undefined
-                            : (level as RunTurnOptions["codexEffort"]),
-                        });
-                      }
-                    }}
-                  >
-                    <Text
-                      className={`text-xs ${isActive ? "text-background font-semibold" : "text-foreground-secondary"}`}
-                    >
-                      {level}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* Clear session */}
-          <Pressable
-            className="flex-row items-center gap-2"
-            onPress={() =>
-              onChange({
-                ...options,
-                clearSession: !options.clearSession,
-              })
-            }
-          >
-            <Text className="text-foreground text-xs">
-              {options.clearSession ? "☒" : "☐"} Clear session
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
     </View>
   );
 }
