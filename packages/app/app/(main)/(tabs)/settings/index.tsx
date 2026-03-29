@@ -8,10 +8,10 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../../../lib/auth";
-import { useTheme } from "../../../lib/theme";
-import { checkForUpdate, getCurrentVersionInfo } from "../../../lib/update";
-import type { ThemePreference } from "../../../lib/theme-utils";
+import { useAuth } from "../../../../lib/auth";
+import { useTheme } from "../../../../lib/theme";
+import { checkForUpdate, getCurrentVersionInfo } from "../../../../lib/update";
+import type { ThemePreference } from "../../../../lib/theme-utils";
 
 interface SettingsRow {
   label: string;

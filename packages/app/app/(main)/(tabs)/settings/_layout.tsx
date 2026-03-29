@@ -1,5 +1,5 @@
 import { Stack } from "expo-router";
-import { useTheme } from "../../../lib/theme";
+import { useTheme } from "../../../../lib/theme";
 
 export default function SettingsLayout() {
   const { colors } = useTheme();

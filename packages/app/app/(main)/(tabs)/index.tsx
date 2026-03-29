@@ -10,13 +10,13 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
-import { useWorkpaths } from "../../lib/workpath-context";
-import { createRegistrationToken } from "../../lib/api";
-import { LAST_SERVER_URL_KEY } from "../../lib/auth-utils";
-import { buildRegistrationCommand } from "../../lib/registration-utils";
-import { storage } from "../../lib/storage";
-import { useTheme } from "../../lib/theme";
-import type { Workpath } from "../../lib/workpath";
+import { useWorkpaths } from "../../../lib/workpath-context";
+import { createRegistrationToken } from "../../../lib/api";
+import { LAST_SERVER_URL_KEY } from "../../../lib/auth-utils";
+import { buildRegistrationCommand } from "../../../lib/registration-utils";
+import { storage } from "../../../lib/storage";
+import { useTheme } from "../../../lib/theme";
+import type { Workpath } from "../../../lib/workpath";
 
 // --- Onboarding: inline node registration ---
 

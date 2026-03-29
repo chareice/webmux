@@ -18,11 +18,11 @@ import {
   createRegistrationToken,
   deleteAgent,
   renameAgent,
-} from "../../../lib/api";
-import { LAST_SERVER_URL_KEY } from "../../../lib/auth-utils";
-import { buildRegistrationCommand } from "../../../lib/registration-utils";
-import { storage } from "../../../lib/storage";
-import { useTheme } from "../../../lib/theme";
+} from "../../../../lib/api";
+import { LAST_SERVER_URL_KEY } from "../../../../lib/auth-utils";
+import { buildRegistrationCommand } from "../../../../lib/registration-utils";
+import { storage } from "../../../../lib/storage";
+import { useTheme } from "../../../../lib/theme";
 
 interface CachedToken {
   token: string;

@@ -10,10 +10,10 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import type { AgentInfo, RunTool } from "@webmux/shared";
-import { listAgents, getInstructions, saveInstructions } from "../../../lib/api";
-import { getKeyboardAwareScrollProps } from "../../../lib/mobile-layout";
-import { getSettingsRoute } from "../../../lib/route-utils";
-import { useTheme } from "../../../lib/theme";
+import { listAgents, getInstructions, saveInstructions } from "../../../../lib/api";
+import { getKeyboardAwareScrollProps } from "../../../../lib/mobile-layout";
+import { getSettingsRoute } from "../../../../lib/route-utils";
+import { useTheme } from "../../../../lib/theme";
 
 const TOOLS: { key: RunTool; label: string; file: string }[] = [
   { key: "claude", label: "Claude Code", file: "~/.claude/CLAUDE.md" },
