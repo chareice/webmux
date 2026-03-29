@@ -4,11 +4,12 @@ import {
   Text,
   Pressable,
   ScrollView,
+  RefreshControl,
   Platform,
   useWindowDimensions,
   ActivityIndicator,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useWorkpaths } from "../../lib/workpath-context";
 import { createRegistrationToken } from "../../lib/api";
 import { LAST_SERVER_URL_KEY } from "../../lib/auth-utils";
@@ -213,10 +214,24 @@ function WorkpathCard({
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { workpaths, agents, isLoading } = useWorkpaths();
+  const { workpaths, agents, isLoading, reload } = useWorkpaths();
+  const [refreshing, setRefreshing] = useState(false);
 
   const { width } = useWindowDimensions();
   const isWideScreen = Platform.OS === "web" && width >= 768;
+
+  // Reload data when screen regains focus (e.g. after creating a thread)
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+    }, [reload]),
+  );
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await reload();
+    setRefreshing(false);
+  }, [reload]);
 
   const hasNodes = agents.size > 0;
 
@@ -257,7 +272,13 @@ export default function HomeScreen() {
       </View>
 
       {/* Workpath list */}
-      <ScrollView className="flex-1" contentContainerClassName="px-4 pb-8">
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName="px-4 pb-8"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => void handleRefresh()} />
+        }
+      >
         {workpaths.length === 0 ? (
           <View className="items-center py-12">
             <Text className="text-foreground-secondary text-sm">
