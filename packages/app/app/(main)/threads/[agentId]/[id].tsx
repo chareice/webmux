@@ -10,8 +10,10 @@ import {
   BackHandler,
   Platform,
   Image,
+  KeyboardAvoidingView,
   useWindowDimensions,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -56,7 +58,7 @@ import {
   getMessageCopyButtonClassName,
   getMessageCopyTextClassName,
 } from "../../../../lib/thread-detail-ui";
-import { getKeyboardAwareScrollProps } from "../../../../lib/mobile-layout";
+import { getKeyboardAwareScrollProps, getKeyboardAvoidingBehavior } from "../../../../lib/mobile-layout";
 import { useTheme } from "../../../../lib/theme";
 import { getRunStatusThemeColor } from "../../../../lib/theme-utils";
 import { canContinueTurn, canRetryTurn } from "../../../../lib/thread-utils";
@@ -753,7 +755,7 @@ export default function ThreadDetailScreen() {
   // --- Render ---
 
   return (
-    <View className="flex-1 bg-background">
+    <SafeAreaView className="flex-1 bg-background" edges={["top"]}>
       {/* Compact header (always visible) */}
       <View className="bg-surface px-4 py-2.5 border-b border-border">
         <View className="flex-row items-center gap-2">
@@ -826,7 +828,11 @@ export default function ThreadDetailScreen() {
       </View>
 
       {/* Main content area */}
-      <View className="flex-1">
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={getKeyboardAvoidingBehavior(Platform.OS)}
+        enabled={Platform.OS !== "web"}
+      >
         {/* Timeline */}
           <ScrollView
             ref={scrollViewRef}
@@ -1164,7 +1170,7 @@ export default function ThreadDetailScreen() {
               </Text>
             )}
           </View>
-      </View>
+      </KeyboardAvoidingView>
 
       {/* Tool detail overlay */}
       {toolDetailItems ? (
@@ -1175,7 +1181,7 @@ export default function ThreadDetailScreen() {
           />
         </View>
       ) : null}
-    </View>
+    </SafeAreaView>
   );
 }
 
