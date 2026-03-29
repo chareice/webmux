@@ -1217,14 +1217,11 @@ export default function ThreadDetailScreen() {
 }
 
 function ImageComposerIcon({ disabled }: { disabled: boolean }) {
+  const color = disabled ? "text-foreground-secondary/30" : "text-foreground-secondary";
   return (
-    <Text
-      className={`text-xs ${
-        disabled ? "text-foreground-secondary/40" : "text-foreground-secondary"
-      }`}
-    >
-      Attach
-    </Text>
+    <View className={`h-7 w-7 border border-border items-center justify-center ${disabled ? "opacity-40" : ""}`}>
+      <Text className={`text-base leading-none ${color}`}>+</Text>
+    </View>
   );
 }
 

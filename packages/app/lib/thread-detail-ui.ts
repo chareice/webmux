@@ -31,7 +31,7 @@ export function getComposerIconButtonClassName({
   disabled,
 }: ComposerStateOptions): string {
   return [
-    "h-8 shrink-0 items-center justify-center px-3",
+    "shrink-0 items-center justify-center",
     disabled ? "opacity-30" : "active:opacity-60",
   ]
     .filter(Boolean)
