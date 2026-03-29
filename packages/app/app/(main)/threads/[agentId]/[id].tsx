@@ -7,6 +7,7 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  BackHandler,
   Platform,
   Image,
   useWindowDimensions,
@@ -381,6 +382,42 @@ export default function ThreadDetailScreen() {
       }
     };
   }, []);
+
+  // --- Tool detail overlay: intercept back gesture ---
+
+  const closeToolDetail = useCallback(() => {
+    if (Platform.OS === "web" && toolDetailItems) {
+      // Pop the history entry we pushed; the popstate handler sets state to null
+      window.history.back();
+    } else {
+      setToolDetailItems(null);
+    }
+  }, [toolDetailItems]);
+
+  useEffect(() => {
+    if (!toolDetailItems) return;
+
+    // Native Android: intercept hardware back button
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setToolDetailItems(null);
+      return true;
+    });
+
+    // Web: push a history entry so browser back closes the overlay
+    if (Platform.OS === "web") {
+      window.history.pushState({ toolDetail: true }, "");
+      const handlePopState = () => {
+        setToolDetailItems(null);
+      };
+      window.addEventListener("popstate", handlePopState);
+      return () => {
+        sub.remove();
+        window.removeEventListener("popstate", handlePopState);
+      };
+    }
+
+    return () => sub.remove();
+  }, [toolDetailItems]);
 
   // --- Handlers ---
 
@@ -1134,7 +1171,7 @@ export default function ThreadDetailScreen() {
         <View className="absolute inset-0 bg-background">
           <ToolDetailView
             items={toolDetailItems}
-            onClose={() => setToolDetailItems(null)}
+            onClose={closeToolDetail}
           />
         </View>
       ) : null}
