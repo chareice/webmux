@@ -11,7 +11,7 @@ use tracing_subscriber::EnvFilter;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Parser)]
-#[command(name = "webmux", about = "Webmux CLI — control AI coding agents", version = VERSION)]
+#[command(name = "webmux", about = "Webmux CLI — control AI coding nodes", version = VERSION)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -28,16 +28,16 @@ enum Commands {
     },
     /// Show connection status
     Status,
-    /// List agents
-    Agents {
+    /// List nodes
+    Nodes {
         #[arg(long, default_value = "text")]
         output: OutputFormat,
     },
     /// Start a run and stream results
     Run {
-        /// Agent name or ID
+        /// Node name or ID
         #[arg(long)]
-        agent: String,
+        node: String,
         /// Tool (claude or codex)
         #[arg(long, default_value = "claude")]
         tool: String,
@@ -60,7 +60,7 @@ enum Commands {
     /// List threads
     Threads {
         #[arg(long)]
-        agent: Option<String>,
+        node: Option<String>,
         #[arg(long, default_value = "text")]
         output: OutputFormat,
     },
@@ -127,12 +127,12 @@ async fn main() -> anyhow::Result<()> {
             let cfg = config::require_config();
             commands::status::cmd_status(&cfg).await?;
         }
-        Commands::Agents { output } => {
+        Commands::Nodes { output } => {
             let cfg = config::require_config();
-            commands::agents::cmd_agents(&cfg, OutputMode::from(&output)).await?;
+            commands::nodes::cmd_nodes(&cfg, OutputMode::from(&output)).await?;
         }
         Commands::Run {
-            agent,
+            node,
             tool,
             repo,
             prompt,
@@ -143,7 +143,7 @@ async fn main() -> anyhow::Result<()> {
             let cfg = config::require_config();
             commands::run::cmd_run(
                 &cfg,
-                &agent,
+                &node,
                 &tool,
                 &repo,
                 prompt.as_deref(),
@@ -153,9 +153,9 @@ async fn main() -> anyhow::Result<()> {
             )
             .await?;
         }
-        Commands::Threads { agent, output } => {
+        Commands::Threads { node, output } => {
             let cfg = config::require_config();
-            commands::threads::cmd_threads(&cfg, agent.as_deref(), OutputMode::from(&output))
+            commands::threads::cmd_threads(&cfg, node.as_deref(), OutputMode::from(&output))
                 .await?;
         }
         Commands::Thread { command } => {

@@ -1,4 +1,4 @@
-pub mod agents;
+pub mod nodes;
 pub mod login;
 pub mod run;
 pub mod status;
