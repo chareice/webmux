@@ -154,9 +154,9 @@ export default function LoginScreen() {
                   <Pressable
                     key={provider.value}
                     onPress={() => void handleLogin(provider.value)}
-                    className={`rounded-lg py-3 px-4 items-center active:opacity-80 ${
+                    className={`py-3 px-4 items-center active:opacity-80 ${
                       isGitHub
-                        ? "bg-accent"
+                        ? "bg-foreground"
                         : "bg-background border border-border"
                     } ${activeProvider ? "opacity-80" : ""}`}
                     disabled={activeProvider !== null}
@@ -168,7 +168,7 @@ export default function LoginScreen() {
                     ) : (
                       <Text
                         className={`font-semibold text-base ${
-                          isGitHub ? "text-white" : "text-foreground"
+                          isGitHub ? "text-background" : "text-foreground"
                         }`}
                       >
                         {provider.label}
