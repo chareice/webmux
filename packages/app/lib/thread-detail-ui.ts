@@ -20,7 +20,7 @@ export function getComposerCardClassName(): string {
 }
 
 export function getComposerInputClassName(): string {
-  return "min-h-[40px] max-h-[160px] px-1 text-[15px] leading-5 text-foreground";
+  return "min-h-[40px] max-h-[160px] px-2 py-2 text-[15px] leading-5 text-foreground rounded-lg bg-surface border border-border/50 focus:border-accent/50 outline-none";
 }
 
 export function getComposerToolbarClassName(): string {

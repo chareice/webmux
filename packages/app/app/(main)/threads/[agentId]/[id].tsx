@@ -226,7 +226,8 @@ export default function ThreadDetailScreen() {
 
   const [run, setRun] = useState<Run | null>(null);
   const [turns, setTurns] = useState<RunTurnDetail[]>([]);
-  const [followUp, setFollowUp] = useState("");
+  const followUpRef = useRef("");
+  const [hasText, setHasText] = useState(false);
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
   const [turnOptions, setTurnOptions] = useState<RunTurnOptions>({});
   const [showOptions, setShowOptions] = useState(false);
@@ -271,7 +272,9 @@ export default function ThreadDetailScreen() {
     setRun(null);
     setTurns([]);
     setError(null);
-    setFollowUp("");
+    followUpRef.current = "";
+    setHasText(false);
+    if (textInputRef.current) textInputRef.current.clear();
     setAttachments([]);
     setIsLoading(true);
     void fetchDetail();
@@ -352,7 +355,7 @@ export default function ThreadDetailScreen() {
 
   const segments = groupIntoSegments(nonQueuedTurns);
 
-  const hasContent = followUp.trim().length > 0 || attachments.length > 0;
+  const hasContent = hasText || attachments.length > 0;
 
   // --- Auto-refresh fallback for active threads ---
 
@@ -448,7 +451,7 @@ export default function ThreadDetailScreen() {
       const opts =
         Object.keys(turnOptions).length > 0 ? turnOptions : undefined;
       const body: ContinueRunRequest = {
-        prompt: followUp.trim(),
+        prompt: followUpRef.current.trim(),
         ...(uploadAttachments.length > 0
           ? { attachments: uploadAttachments }
           : {}),
@@ -458,7 +461,9 @@ export default function ThreadDetailScreen() {
       const data = await continueThread(agentId, threadId, body);
       setRun(data.run);
       setTurns(data.turns);
-      setFollowUp("");
+      followUpRef.current = "";
+      setHasText(false);
+      if (textInputRef.current) textInputRef.current.clear();
       // Clean up object URLs on web
       if (Platform.OS === "web") {
         for (const a of attachments) URL.revokeObjectURL(a.previewUri);
@@ -645,8 +650,8 @@ export default function ThreadDetailScreen() {
       if (imageFiles.length === 0) return;
 
       // Prevent the default text paste for image-only pastes
-      const hasText = Array.from(items).some((item) => item.type === "text/plain");
-      if (!hasText) e.preventDefault();
+      const hasTextItem = Array.from(items).some((item) => item.type === "text/plain");
+      if (!hasTextItem) e.preventDefault();
 
       const remaining = MAX_ATTACHMENTS - attachmentsRef.current.length;
       if (remaining <= 0) return;
@@ -1154,8 +1159,11 @@ export default function ThreadDetailScreen() {
                     placeholderTextColor="#565f89"
                     multiline
                     textAlignVertical="top"
-                    value={followUp}
-                    onChangeText={setFollowUp}
+                    onChangeText={(text) => {
+                      followUpRef.current = text;
+                      const nowHas = text.trim().length > 0;
+                      if (nowHas !== hasText) setHasText(nowHas);
+                    }}
                   />
 
                   {/* Toolbar row */}
