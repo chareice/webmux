@@ -12,11 +12,12 @@ import type { Run } from "@webmux/shared";
 import {
   timeAgo,
   toolLabel,
-  runStatusColor,
   runStatusLabel,
 } from "@webmux/shared";
 import { useWorkpaths } from "../../lib/workpath-context";
 import { deleteThread } from "../../lib/api";
+import { useTheme } from "../../lib/theme";
+import { getRunStatusThemeColor } from "../../lib/theme-utils";
 
 // --- Thread Row (same pattern as index.tsx) ---
 
@@ -31,7 +32,9 @@ function ThreadRow({
   onDelete: () => void;
   onPress: () => void;
 }) {
+  const { colors } = useTheme();
   const isClaude = run.tool !== "codex";
+  const statusColor = getRunStatusThemeColor(run.status, colors);
 
   const handleDelete = () => {
     if (Platform.OS === "web") {
@@ -93,11 +96,11 @@ function ThreadRow({
         <View className="flex-row items-center gap-1">
           <View
             className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: runStatusColor(run.status) }}
+            style={{ backgroundColor: statusColor }}
           />
           <Text
             className="text-[11px]"
-            style={{ color: runStatusColor(run.status) }}
+            style={{ color: statusColor }}
           >
             {runStatusLabel(run.status)}
           </Text>

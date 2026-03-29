@@ -11,6 +11,7 @@ import { useAuth } from "../../lib/auth";
 import { Sidebar } from "../../components/Sidebar";
 import { WorkpathProvider, useWorkpaths } from "../../lib/workpath-context";
 import { getKeyboardAvoidingBehavior } from "../../lib/mobile-layout";
+import { useTheme } from "../../lib/theme";
 
 function MainContent() {
   const { width } = useWindowDimensions();
@@ -52,11 +53,12 @@ function MainContent() {
 
 export default function MainLayout() {
   const { isLoading, isLoggedIn } = useAuth();
+  const { colors } = useTheme();
 
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator color="#1a1a1a" size="large" />
+        <ActivityIndicator color={colors.accent} size="large" />
       </View>
     );
   }
