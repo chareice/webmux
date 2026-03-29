@@ -254,24 +254,6 @@ export default function HomeScreen() {
   // --- Mobile view: workpath list ---
   return (
     <View className="flex-1 bg-background">
-      {/* Header */}
-      <View className="px-4 pt-2 pb-3 flex-row items-center gap-3">
-        <Text className="text-foreground text-2xl font-bold flex-1">webmux</Text>
-        <Pressable
-          className="bg-accent rounded-md px-3 py-1.5"
-          onPress={() => router.push("/(main)/threads/new" as never)}
-        >
-          <Text className="text-background text-xs font-semibold">+ New</Text>
-        </Pressable>
-        <Pressable
-          className="bg-surface border border-border rounded-md px-3 py-1.5"
-          onPress={() => router.push("/(main)/settings" as never)}
-        >
-          <Text className="text-foreground-secondary text-xs">Settings</Text>
-        </Pressable>
-      </View>
-
-      {/* Workpath list */}
       <ScrollView
         className="flex-1"
         contentContainerClassName="px-4 pb-8"
