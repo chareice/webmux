@@ -158,7 +158,10 @@ export function connectQrWebSocket(
   onMessage: (data: { type: string; token?: string; message?: string }) => void,
   onClose?: () => void,
 ): WebSocket {
-  const wsProtocol = _baseUrl.startsWith('https') ? 'wss' : 'ws'
+  const isSecure = _baseUrl
+    ? _baseUrl.startsWith('https')
+    : typeof window !== 'undefined' && window.location.protocol === 'https:'
+  const wsProtocol = isSecure ? 'wss' : 'ws'
   const host = _baseUrl.replace(/^https?:\/\//, '') || window.location.host
   const wsUrl = `${wsProtocol}://${host}/ws/qr/${encodeURIComponent(sessionId)}`
 
