@@ -882,6 +882,7 @@ mod tests {
     use crate::auth::sign_jwt;
     use crate::db;
     use crate::mobile_version::{MobileVersionConfig, MobileVersionResolver};
+    use crate::qr_hub::QrSessionHub;
     use crate::state::{AppState, ServerConfig};
     use crate::ws::agent_hub::AgentHub;
     use axum::body::{Body, to_bytes};
@@ -995,6 +996,7 @@ mod tests {
         Arc::new(AppState {
             db,
             hub: Arc::new(RwLock::new(AgentHub::new())),
+            qr_hub: Arc::new(RwLock::new(QrSessionHub::new())),
             config: Arc::new(ServerConfig {
                 jwt_secret: "test-secret".to_string(),
                 github_client_id: None,
