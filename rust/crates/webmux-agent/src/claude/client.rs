@@ -21,6 +21,8 @@ pub struct ClaudeClientOptions {
 pub struct ClaudeHandle {
     child: Option<Child>,
     pub rx: mpsc::Receiver<ClaudeStreamEvent>,
+    /// Channel to write messages to the CLI's stdin (stream-json protocol).
+    stdin_tx: Option<mpsc::UnboundedSender<String>>,
 }
 
 /// Events produced by the Claude subprocess.
@@ -34,28 +36,29 @@ pub enum ClaudeStreamEvent {
 }
 
 impl ClaudeHandle {
-    /// Send SIGINT to the Claude process (interrupt).
+    /// Send an interrupt control request to the Claude process via stdin.
+    ///
+    /// Uses the SDK's native `control_request` protocol instead of OS signals.
+    /// The CLI handles the interrupt internally and responds via stdout.
     pub fn interrupt(&mut self) {
-        #[cfg(unix)]
-        {
-            if let Some(child) = &self.child {
-                if let Some(id) = child.id() {
-                    // Safety: sending SIGINT to a known child process
-                    unsafe {
-                        libc::kill(id as libc::pid_t, libc::SIGINT);
-                    }
-                }
+        if let Some(tx) = &self.stdin_tx {
+            let request_id = format!("{:x}", rand_id());
+            let msg = serde_json::json!({
+                "type": "control_request",
+                "request_id": request_id,
+                "request": { "subtype": "interrupt" }
+            });
+            let payload = format!("{}\n", serde_json::to_string(&msg).unwrap());
+            if tx.send(payload).is_err() {
+                warn!("failed to send interrupt: stdin channel closed");
             }
-        }
-        #[cfg(not(unix))]
-        {
-            // On non-unix, fall back to killing the process
-            self.close();
         }
     }
 
     /// Kill the subprocess.
     pub fn close(&mut self) {
+        // Drop the stdin channel first so the writer task exits
+        self.stdin_tx.take();
         if let Some(mut child) = self.child.take() {
             let _ = child.start_kill();
         }
@@ -68,13 +71,22 @@ impl Drop for ClaudeHandle {
     }
 }
 
-/// Build the stdin payload for the Claude CLI.
+/// Generate a simple random-ish ID for control request tracking.
+fn rand_id() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos() as u64;
+    // Mix with a counter-like value for uniqueness within the same nanosecond
+    nanos ^ (nanos >> 16)
+}
+
+/// Build the stdin payload as an SDKUserMessage for the stream-json protocol.
 ///
-/// When images are present we construct an SDKUserMessage JSON object with
-/// native image content blocks. The caller must also pass `--input-format
-/// stream-json` so the CLI interprets it correctly. This way images are
-/// tokenised as vision tokens (~1600 tokens per image) rather than as raw
-/// base64 text (millions of tokens), avoiding "prompt is too long" errors.
+/// Always constructs a proper SDKUserMessage JSON object. When images are
+/// present, they are sent as native image content blocks so they consume
+/// vision tokens (~1600 per image) instead of raw base64 text tokens.
 fn build_stream_json_payload(
     prompt: &str,
     attachments: &[RunImageAttachmentUpload],
@@ -108,19 +120,18 @@ fn build_stream_json_payload(
         "session_id": ""
     });
 
-    // NDJSON: one JSON object per line, then close stdin
     format!("{}\n", serde_json::to_string(&message).unwrap())
 }
 
 /// Spawn the `claude` CLI process and return a handle.
 ///
-/// The process is started with `--print --output-format stream-json` so that
-/// it emits one JSON object per line on stdout. We read those lines, parse
-/// them as `ClaudeMessage`, and forward them over a channel.
+/// The process uses `--input-format stream-json --output-format stream-json`
+/// for bidirectional JSON communication. This enables the native SDK control
+/// protocol: the handle can send `control_request` messages (like interrupt)
+/// via stdin, and the CLI responds via stdout.
 ///
-/// When image attachments are present, `--input-format stream-json` is added
-/// and the prompt is wrapped in an SDKUserMessage with native image content
-/// blocks so that images consume vision tokens instead of text tokens.
+/// Stdin remains open for the lifetime of the handle so that control messages
+/// can be sent at any time.
 pub fn start_claude(
     prompt: &str,
     options: &ClaudeClientOptions,
@@ -128,22 +139,15 @@ pub fn start_claude(
     let claude_bin = std::env::var("WEBMUX_CLAUDE_PATH")
         .unwrap_or_else(|_| "claude".to_string());
 
-    let has_images = !options.attachments.is_empty();
-
     let mut cmd = Command::new(&claude_bin);
     cmd.arg("--print")
         .arg("--verbose")
         .arg("--output-format")
         .arg("stream-json")
+        .arg("--input-format")
+        .arg("stream-json")
         .arg("--dangerously-skip-permissions");
 
-    // Use stream-json input when images are present so they are sent as
-    // native image content blocks instead of base64 text in the prompt.
-    if has_images {
-        cmd.arg("--input-format").arg("stream-json");
-    }
-
-    // Set working directory via process cwd, not CLI flag
     cmd.current_dir(&options.cwd);
 
     if let Some(model) = &options.model {
@@ -166,19 +170,29 @@ pub fn start_claude(
         .spawn()
         .map_err(|e| format!("failed to spawn claude: {e}"))?;
 
-    // Write prompt to stdin. When images are present, send a structured
-    // SDKUserMessage; otherwise send plain text.
-    let payload = if has_images {
-        build_stream_json_payload(prompt, &options.attachments)
-    } else {
-        prompt.to_string()
-    };
+    // Set up a channel-backed stdin writer so we can send messages at any time.
+    // The prompt is sent immediately; subsequent messages (like interrupt) can
+    // be sent later via the channel.
+    let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<String>();
+
+    let payload = build_stream_json_payload(prompt, &options.attachments);
+    // Enqueue the initial prompt — will be written by the stdin task below
+    let _ = stdin_tx.send(payload);
+
     let mut stdin = child.stdin.take().expect("stdin is piped");
     tokio::spawn(async move {
-        if let Err(e) = stdin.write_all(payload.as_bytes()).await {
-            warn!("failed to write prompt to claude stdin: {e}");
+        while let Some(msg) = stdin_rx.recv().await {
+            if let Err(e) = stdin.write_all(msg.as_bytes()).await {
+                warn!("failed to write to claude stdin: {e}");
+                break;
+            }
+            if let Err(e) = stdin.flush().await {
+                warn!("failed to flush claude stdin: {e}");
+                break;
+            }
         }
-        drop(stdin); // close stdin
+        // Channel closed — drop stdin to signal EOF to the CLI process
+        drop(stdin);
     });
 
     // Read stderr in background (for diagnostics)
@@ -204,6 +218,13 @@ pub fn start_claude(
                 Ok(Some(line)) => {
                     let trimmed = line.trim();
                     if trimmed.is_empty() {
+                        continue;
+                    }
+                    // Skip control_response messages from the CLI — they are
+                    // acknowledgements of our control_request messages (e.g.
+                    // interrupt) and don't need to be forwarded.
+                    if trimmed.contains("\"control_response\"") {
+                        debug!(target: "claude_control", "control_response: {}", trimmed);
                         continue;
                     }
                     match serde_json::from_str::<ClaudeMessage>(trimmed) {
@@ -235,6 +256,6 @@ pub fn start_claude(
     Ok(ClaudeHandle {
         child: Some(child),
         rx,
+        stdin_tx: Some(stdin_tx),
     })
 }
-
