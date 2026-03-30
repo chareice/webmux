@@ -1,15 +1,16 @@
-name: Build and Publish Agent
+name: Build and Release Node Binary
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build-agent:
+  build-node:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -23,14 +24,20 @@ jobs:
         with:
           workspaces: rust
 
-      - run: cd rust && cargo build --release --bin webmux-agent
+      - run: cd rust && cargo build --release --bin webmux-node
 
-      - name: Get version
-        id: version
-        run: echo "version=$(cd rust && cargo metadata --no-deps --format-version 1 | python3 -c 'import sys,json; pkgs=json.load(sys.stdin)["packages"]; print([p["version"] for p in pkgs if p["name"]=="webmux-agent"][0])')" >> $GITHUB_OUTPUT
-
-      - name: Upload agent binary
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: webmux-agent-linux-x64
-          path: rust/target/release/webmux-agent
+          name: webmux-node-linux-x64
+          path: rust/target/release/webmux-node
+
+      - name: Upload binary to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp rust/target/release/webmux-node webmux-node-linux-x64
+          gh release upload "${{ github.ref_name }}" \
+            webmux-node-linux-x64#webmux-node-linux-x64 \
+            --clobber

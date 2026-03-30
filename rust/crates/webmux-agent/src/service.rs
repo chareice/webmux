@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-pub const SERVICE_NAME: &str = "webmux-agent";
+pub const SERVICE_NAME: &str = "webmux-node";
 
 /// Render a systemd unit file.
 pub fn render_service_unit(
@@ -15,7 +15,7 @@ pub fn render_service_unit(
     let auto_upgrade_val = if auto_upgrade { "1" } else { "0" };
     format!(
         r#"[Unit]
-Description=Webmux Agent ({agent_name})
+Description=Webmux Node ({agent_name})
 After=network-online.target
 Wants=network-online.target
 

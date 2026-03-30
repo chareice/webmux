@@ -42,6 +42,6 @@ test("buildRegistrationCommand uses the resolved server URL", () => {
       serverUrl: "https://webmux.nas.chareice.site",
       windowOrigin: "http://127.0.0.1:4001",
     }),
-    "npx @webmux/agent register --server https://webmux.nas.chareice.site --token token-123",
+    "webmux-node register --server https://webmux.nas.chareice.site --token token-123",
   );
 });

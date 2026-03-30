@@ -17,7 +17,7 @@ pub fn build_agent_upgrade_policy(
         .as_deref()
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
-        .unwrap_or("@webmux/agent")
+        .unwrap_or("webmux-node")
         .to_string();
 
     let target_version = normalize_version_option(options.target_version.as_deref());

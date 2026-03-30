@@ -40,9 +40,13 @@ export function resolveRegistrationTokenResponse(
   };
 }
 
+export function buildInstallCommand(): string {
+  return `curl -sSL https://github.com/chareice/webmux/releases/latest/download/webmux-node-linux-x64 -o ~/.local/bin/webmux-node && chmod +x ~/.local/bin/webmux-node`;
+}
+
 export function buildRegistrationCommand(
   options: RegistrationCommandOptions,
 ): string {
   const serverUrl = getRegistrationServerUrl(options);
-  return `npx @webmux/agent register --server ${serverUrl} --token ${options.token}`;
+  return `webmux-node register --server ${serverUrl} --token ${options.token}`;
 }

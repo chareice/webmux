@@ -6,6 +6,7 @@ mod repositories;
 mod run_wrapper;
 mod session_store;
 mod service;
+mod updater;
 
 use clap::{Parser, Subcommand};
 use tracing::{error, info};
@@ -24,7 +25,7 @@ const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(name = "webmux-agent", about = "Webmux agent — connects your machine to the webmux server", version = AGENT_VERSION)]
+#[command(name = "webmux-node", about = "Webmux node — connects your machine to the webmux server", version = AGENT_VERSION)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -32,7 +33,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Register this agent with a webmux server
+    /// Register this node with a webmux server
     Register {
         /// Server URL (e.g. https://webmux.example.com)
         #[arg(long)]
@@ -40,14 +41,16 @@ enum Commands {
         /// One-time registration token from the server
         #[arg(long)]
         token: String,
-        /// Display name for this agent (defaults to hostname)
+        /// Display name for this node (defaults to hostname)
         #[arg(long)]
         name: Option<String>,
     },
-    /// Start the agent and connect to the server
+    /// Start the node and connect to the server
     Start,
-    /// Show agent status and credentials info
+    /// Show node status and credentials info
     Status,
+    /// Check for updates and upgrade to the latest version
+    Update,
     /// Manage the systemd service
     #[command(subcommand)]
     Service(ServiceCommands),
@@ -98,6 +101,9 @@ async fn main() {
         Commands::Status => {
             cmd_status();
         }
+        Commands::Update => {
+            cmd_update().await;
+        }
         Commands::Service(sub) => match sub {
             ServiceCommands::Install { no_auto_upgrade } => {
                 cmd_service_install(!no_auto_upgrade);
@@ -127,7 +133,7 @@ async fn cmd_register(server: &str, token: &str, name: Option<&str>) {
         });
 
     info!("Registering with server {server_url}...");
-    info!("Agent name: {agent_name}");
+    info!("Node name: {agent_name}");
 
     let body = webmux_shared::RegisterAgentRequest {
         token: token.to_string(),
@@ -179,8 +185,8 @@ async fn cmd_register(server: &str, token: &str, name: Option<&str>) {
     info!("Credentials saved to {}", creds_path.display());
     println!();
     println!("Next steps:");
-    println!("  webmux-agent start              # run once");
-    println!("  webmux-agent service install     # install as managed systemd service");
+    println!("  webmux-node start              # run once");
+    println!("  webmux-node service install     # install as managed systemd service");
 }
 
 async fn cmd_start() {
@@ -189,16 +195,25 @@ async fn cmd_start() {
         None => {
             let path = credentials_path();
             error!(
-                "No credentials found at {}. Run \"webmux-agent register\" first.",
+                "No credentials found at {}. Run \"webmux-node register\" first.",
                 path.display()
             );
             std::process::exit(1);
         }
     };
 
-    info!("Starting agent \"{}\"...", creds.name);
+    info!("Starting node \"{}\"...", creds.name);
     info!("Server: {}", creds.server_url);
     info!("Agent ID: {}", creds.agent_id);
+
+    // Best-effort update check
+    match updater::check_for_update().await {
+        Ok(Some((tag, _url))) => {
+            let latest = tag.trim_start_matches('v');
+            info!("Update available: {latest} (current: {AGENT_VERSION}). Run \"webmux-node update\" to upgrade.");
+        }
+        _ => {}
+    }
 
     let workspace_root = dirs::home_dir()
         .map(|p| p.to_string_lossy().to_string())
@@ -243,15 +258,15 @@ fn cmd_status() {
         Some(c) => c,
         None => {
             let path = credentials_path();
-            println!("[agent] Not registered. No credentials found at {}.", path.display());
+            println!("[node] Not registered. No credentials found at {}.", path.display());
             return;
         }
     };
 
-    println!("Agent Name:       {}", creds.name);
-    println!("Agent Version:    {AGENT_VERSION}");
+    println!("Node Name:       {}", creds.name);
+    println!("Node Version:    {AGENT_VERSION}");
     println!("Server URL:       {}", creds.server_url);
-    println!("Agent ID:         {}", creds.agent_id);
+    println!("Node ID:         {}", creds.agent_id);
     println!(
         "Credentials File: {}",
         credentials_path().display()
@@ -270,11 +285,42 @@ fn cmd_status() {
     }
 }
 
+async fn cmd_update() {
+    info!("Checking for updates...");
+    match updater::check_for_update().await {
+        Ok(Some((tag, url))) => {
+            let latest = tag.trim_start_matches('v');
+            println!("New version available: {latest} (current: {AGENT_VERSION})");
+            println!("Downloading...");
+            match updater::perform_update(&url, &tag).await {
+                Ok(()) => {
+                    println!("Updated to {latest}. Restart to use the new version.");
+                    // If running as a service, hint about restart
+                    if std::env::var("WEBMUX_AGENT_SERVICE").is_ok() {
+                        println!("  systemctl --user restart webmux-node");
+                    }
+                }
+                Err(e) => {
+                    error!("Update failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Ok(None) => {
+            println!("Already up to date (version {AGENT_VERSION}).");
+        }
+        Err(e) => {
+            error!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn cmd_service_install(auto_upgrade: bool) {
     let creds = match load_credentials() {
         Some(c) => c,
         None => {
-            error!("Not registered. Run \"webmux-agent register\" first.");
+            error!("Not registered. Run \"webmux-node register\" first.");
             std::process::exit(1);
         }
     };
@@ -291,7 +337,7 @@ fn cmd_service_install(auto_upgrade: bool) {
             println!("Useful commands:");
             println!("  systemctl --user status {SERVICE_NAME}");
             println!("  journalctl --user -u {SERVICE_NAME} -f");
-            println!("  webmux-agent service uninstall");
+            println!("  webmux-node service uninstall");
         }
         Err(e) => {
             let home = dirs::home_dir()

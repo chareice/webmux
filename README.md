@@ -111,7 +111,7 @@ GITHUB_CLIENT_SECRET=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 
-WEBMUX_AGENT_PACKAGE_NAME=@webmux/agent
+WEBMUX_AGENT_PACKAGE_NAME=webmux-node
 WEBMUX_AGENT_TARGET_VERSION=
 WEBMUX_AGENT_MIN_VERSION=
 
@@ -122,23 +122,28 @@ WEBMUX_MOBILE_DOWNLOAD_URL=
 WEBMUX_MOBILE_MIN_VERSION=
 ```
 
-## Managed agent service
+## Managed node service
 
-Register a machine once, then run the agent manually or install the managed
-user service:
+Install the binary, register the machine, then run it or install as a service:
 
 ```bash
-pnpm dlx @webmux/agent register \
+# Install
+curl -sSL https://github.com/chareice/webmux/releases/latest/download/webmux-node-linux-x64 \
+  -o ~/.local/bin/webmux-node && chmod +x ~/.local/bin/webmux-node
+
+# Register
+webmux-node register \
   --server https://webmux.example.com \
   --token <registration-token> \
   --name my-nas
 
-pnpm dlx @webmux/agent start
-pnpm dlx @webmux/agent service install
-```
+# Run once or install as systemd service
+webmux-node start
+webmux-node service install
 
-When the server advertises a newer target version, managed agents can upgrade to
-that exact release. Manual `start` runs do not mutate themselves.
+# Update to latest version
+webmux-node update
+```
 
 ## API surface
 
