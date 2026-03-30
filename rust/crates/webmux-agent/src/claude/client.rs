@@ -14,6 +14,7 @@ pub struct ClaudeClientOptions {
     pub resume: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub attachments: Vec<RunImageAttachmentUpload>,
 }
 
 /// Handle returned from `start_claude`. Receives parsed events via channel.
@@ -67,30 +68,48 @@ impl Drop for ClaudeHandle {
     }
 }
 
-/// Build a prompt string that embeds base64 image attachments as data URIs
-/// in a markdown image tag. (The Claude CLI `--print --output-format stream-json`
-/// does not support multi-content messages directly, so we inline images into
-/// the prompt text.)
-pub fn build_claude_prompt_with_images(
+/// Build the stdin payload for the Claude CLI.
+///
+/// When images are present we construct an SDKUserMessage JSON object with
+/// native image content blocks. The caller must also pass `--input-format
+/// stream-json` so the CLI interprets it correctly. This way images are
+/// tokenised as vision tokens (~1600 tokens per image) rather than as raw
+/// base64 text (millions of tokens), avoiding "prompt is too long" errors.
+fn build_stream_json_payload(
     prompt: &str,
     attachments: &[RunImageAttachmentUpload],
 ) -> String {
-    if attachments.is_empty() {
-        return prompt.to_string();
-    }
-
-    let mut parts: Vec<String> = Vec::new();
+    let mut content = Vec::new();
     for attachment in attachments {
-        parts.push(format!(
-            "![{}](data:{};base64,{})",
-            attachment.name, attachment.mime_type, attachment.base64
-        ));
+        content.push(serde_json::json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": attachment.mime_type,
+                "data": attachment.base64
+            }
+        }));
     }
     let trimmed = prompt.trim();
     if !trimmed.is_empty() {
-        parts.push(trimmed.to_string());
+        content.push(serde_json::json!({
+            "type": "text",
+            "text": trimmed
+        }));
     }
-    parts.join("\n\n")
+
+    let message = serde_json::json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": content
+        },
+        "parent_tool_use_id": null,
+        "session_id": ""
+    });
+
+    // NDJSON: one JSON object per line, then close stdin
+    format!("{}\n", serde_json::to_string(&message).unwrap())
 }
 
 /// Spawn the `claude` CLI process and return a handle.
@@ -98,6 +117,10 @@ pub fn build_claude_prompt_with_images(
 /// The process is started with `--print --output-format stream-json` so that
 /// it emits one JSON object per line on stdout. We read those lines, parse
 /// them as `ClaudeMessage`, and forward them over a channel.
+///
+/// When image attachments are present, `--input-format stream-json` is added
+/// and the prompt is wrapped in an SDKUserMessage with native image content
+/// blocks so that images consume vision tokens instead of text tokens.
 pub fn start_claude(
     prompt: &str,
     options: &ClaudeClientOptions,
@@ -105,12 +128,20 @@ pub fn start_claude(
     let claude_bin = std::env::var("WEBMUX_CLAUDE_PATH")
         .unwrap_or_else(|_| "claude".to_string());
 
+    let has_images = !options.attachments.is_empty();
+
     let mut cmd = Command::new(&claude_bin);
     cmd.arg("--print")
         .arg("--verbose")
         .arg("--output-format")
         .arg("stream-json")
         .arg("--dangerously-skip-permissions");
+
+    // Use stream-json input when images are present so they are sent as
+    // native image content blocks instead of base64 text in the prompt.
+    if has_images {
+        cmd.arg("--input-format").arg("stream-json");
+    }
 
     // Set working directory via process cwd, not CLI flag
     cmd.current_dir(&options.cwd);
@@ -135,11 +166,16 @@ pub fn start_claude(
         .spawn()
         .map_err(|e| format!("failed to spawn claude: {e}"))?;
 
-    // Write prompt to stdin
-    let prompt_owned = prompt.to_string();
+    // Write prompt to stdin. When images are present, send a structured
+    // SDKUserMessage; otherwise send plain text.
+    let payload = if has_images {
+        build_stream_json_payload(prompt, &options.attachments)
+    } else {
+        prompt.to_string()
+    };
     let mut stdin = child.stdin.take().expect("stdin is piped");
     tokio::spawn(async move {
-        if let Err(e) = stdin.write_all(prompt_owned.as_bytes()).await {
+        if let Err(e) = stdin.write_all(payload.as_bytes()).await {
             warn!("failed to write prompt to claude stdin: {e}");
         }
         drop(stdin); // close stdin

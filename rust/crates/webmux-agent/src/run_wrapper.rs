@@ -9,8 +9,7 @@ use webmux_shared::{
 };
 
 use crate::claude::client::{
-    build_claude_prompt_with_images, start_claude, ClaudeClientOptions,
-    ClaudeHandle, ClaudeStreamEvent,
+    start_claude, ClaudeClientOptions, ClaudeHandle, ClaudeStreamEvent,
 };
 use crate::claude::event::ClaudeMessageParser;
 use crate::codex::client::{start_codex, CodexClientOptions, CodexHandle, CodexStreamEvent};
@@ -290,16 +289,10 @@ async fn run_claude<FEvent, FFinish, FItem, FThread>(
         resume,
         model: opts.options.model.clone(),
         effort: opts.options.claude_effort.as_ref().map(|e| format!("{e:?}").to_lowercase()),
+        attachments: opts.attachments.clone(),
     };
 
-    // Build prompt with images if needed
-    let prompt = if opts.attachments.is_empty() {
-        opts.prompt.clone()
-    } else {
-        build_claude_prompt_with_images(&opts.prompt, &opts.attachments)
-    };
-
-    let mut handle = match start_claude(&prompt, &claude_opts) {
+    let mut handle = match start_claude(&opts.prompt, &claude_opts) {
         Ok(h) => h,
         Err(e) => {
             (cb.on_item)(RunTimelineEventPayload::Activity {
