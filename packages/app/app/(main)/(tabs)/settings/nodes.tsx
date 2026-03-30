@@ -20,7 +20,7 @@ import {
   renameAgent,
 } from "../../../../lib/api";
 import { LAST_SERVER_URL_KEY } from "../../../../lib/auth-utils";
-import { buildRegistrationCommand } from "../../../../lib/registration-utils";
+import { buildInstallCommand, buildRegistrationCommand } from "../../../../lib/registration-utils";
 import { storage } from "../../../../lib/storage";
 import { useTheme } from "../../../../lib/theme";
 
@@ -191,15 +191,15 @@ export default function NodesScreen() {
 
   const copyCommand = async () => {
     if (!registrationCommand) return;
+    const allCommands = `${buildInstallCommand()}\n${registrationCommand}\nwebmux-node service install`;
     try {
       if (
         Platform.OS === "web" &&
         typeof navigator !== "undefined" &&
         navigator.clipboard
       ) {
-        await navigator.clipboard.writeText(registrationCommand);
+        await navigator.clipboard.writeText(allCommands);
       }
-      // On native without expo-clipboard, copy is not supported — but we still show "Copied" feedback
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -418,21 +418,44 @@ export default function NodesScreen() {
               </View>
             ) : registrationCommand ? (
               <View>
-                <Text className="text-foreground-secondary text-sm mb-3">
-                  Run this command on the target machine:
+                {/* Step 1: Install */}
+                <Text className="text-foreground-secondary text-sm mb-2">
+                  1. Install the binary:
+                </Text>
+                <View className="bg-background rounded-lg p-3 mb-3 border border-border">
+                  <Text className="text-foreground text-xs font-mono" selectable>
+                    {buildInstallCommand()}
+                  </Text>
+                </View>
+
+                {/* Step 2: Register */}
+                <Text className="text-foreground-secondary text-sm mb-2">
+                  2. Register with the server:
                 </Text>
                 <View className="bg-background rounded-lg p-3 mb-3 border border-border">
                   <Text className="text-foreground text-xs font-mono" selectable>
                     {registrationCommand}
                   </Text>
                 </View>
+
+                {/* Step 3: Start as service */}
+                <Text className="text-foreground-secondary text-sm mb-2">
+                  3. Install as a service (auto-start on boot):
+                </Text>
+                <View className="bg-background rounded-lg p-3 mb-3 border border-border">
+                  <Text className="text-foreground text-xs font-mono" selectable>
+                    webmux-node service install
+                  </Text>
+                </View>
+
+                {/* Copy & Regenerate buttons */}
                 <View className="flex-row gap-2 mb-3">
                   <Pressable
                     className="flex-row items-center bg-surface-light rounded-lg px-3 py-2"
                     onPress={() => void copyCommand()}
                   >
                     <Text className="text-foreground text-sm">
-                      {copied ? "Copied!" : "Copy"}
+                      {copied ? "Copied!" : "Copy All"}
                     </Text>
                   </Pressable>
                   <Pressable
@@ -442,9 +465,9 @@ export default function NodesScreen() {
                     <Text className="text-foreground text-sm">Regenerate</Text>
                   </Pressable>
                 </View>
+
                 <Text className="text-foreground-secondary text-xs mb-4">
-                  The node name defaults to the machine's hostname. Use --name
-                  to override.
+                  Use --name to set a custom node name (defaults to hostname).
                 </Text>
                 <Pressable
                   className="bg-accent rounded-lg py-2.5 items-center"
