@@ -18,6 +18,7 @@
     "@webmux/shared": "workspace:*",
     "expo": "~55.0.8",
     "expo-application": "^55.0.10",
+    "expo-camera": "^55.0.11",
     "expo-clipboard": "~55.0.9",
     "expo-constants": "~55.0.9",
     "expo-device": "~55.0.10",
@@ -37,7 +38,8 @@
     "react-native-safe-area-context": "^5.6.2",
     "react-native-screens": "^4.23.0",
     "react-native-web": "~0.21.2",
-    "react-native-worklets": "0.8.1"
+    "react-native-worklets": "0.8.1",
+    "react-qr-code": "^2.0.18"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",

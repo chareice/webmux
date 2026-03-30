@@ -5,6 +5,7 @@ pub mod auth;
 pub mod llm_configs;
 pub mod mobile;
 pub mod projects;
+pub mod qr_login;
 pub mod tasks;
 pub mod threads;
 
@@ -32,4 +33,5 @@ fn api_routes() -> Router<Arc<AppState>> {
         .merge(llm_configs::routes())
         .merge(mobile::routes())
         .merge(actions::routes())
+        .merge(qr_login::routes())
 }

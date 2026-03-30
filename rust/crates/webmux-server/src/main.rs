@@ -4,6 +4,7 @@ pub mod db;
 pub mod error;
 pub mod mobile_version;
 pub mod notification;
+pub mod qr_hub;
 pub mod routes;
 pub mod state;
 pub mod ws;
@@ -117,9 +118,11 @@ async fn main() {
     ));
 
     // Build AppState
+    let qr_hub = Arc::new(RwLock::new(qr_hub::QrSessionHub::new()));
     let state = Arc::new(AppState {
         db: db_pool,
         hub,
+        qr_hub,
         config,
         mobile_version_resolver,
     });
@@ -139,6 +142,10 @@ async fn main() {
         .route(
             "/ws/project",
             axum::routing::get(handlers::ws_project_handler),
+        )
+        .route(
+            "/ws/qr/{session_id}",
+            axum::routing::get(crate::ws::qr::ws_qr_handler),
         )
         .with_state(ws_state);
 

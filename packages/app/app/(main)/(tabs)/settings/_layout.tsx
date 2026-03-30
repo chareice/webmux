@@ -17,6 +17,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="nodes" options={{ title: "Nodes" }} />
       <Stack.Screen name="instructions" options={{ title: "Instructions" }} />
+      <Stack.Screen name="scan" options={{ title: "Scan to Login", headerShown: false }} />
     </Stack>
   );
 }

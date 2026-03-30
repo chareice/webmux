@@ -90,6 +90,20 @@ export default function SettingsScreen() {
           ))}
         </View>
 
+        {Platform.OS !== "web" && (
+          <Pressable
+            className="bg-surface rounded-xl p-4 border border-border mb-6"
+            onPress={() => router.push("/(main)/settings/scan" as never)}
+          >
+            <Text className="text-foreground text-base font-semibold">
+              Scan to Login
+            </Text>
+            <Text className="text-foreground-secondary text-sm mt-0.5">
+              Scan QR code to log in on another device
+            </Text>
+          </Pressable>
+        )}
+
         <View className="bg-surface rounded-xl p-4 border border-border mb-6">
           <Text className="text-foreground text-base font-semibold mb-1">
             Appearance

@@ -187,3 +187,12 @@ pub struct ApiTokenRow {
     pub last_used_at: Option<i64>,
     pub expires_at: Option<i64>,
 }
+
+#[derive(Debug, Clone)]
+pub struct QrLoginSessionRow {
+    pub id: String,
+    pub status: String,
+    pub user_id: Option<String>,
+    pub created_at: i64,
+    pub expires_at: i64,
+}

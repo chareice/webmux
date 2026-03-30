@@ -135,6 +135,51 @@ export async function devLogin(): Promise<{ token: string } | null> {
   }
 }
 
+// --- QR Login ---
+
+export interface QrCreateResponse {
+  sessionId: string
+  qrUrl: string
+}
+
+export async function createQrSession(): Promise<QrCreateResponse> {
+  return request<QrCreateResponse>('/api/auth/qr/create', { method: 'POST' })
+}
+
+export async function confirmQrSession(sessionId: string): Promise<void> {
+  await request('/api/auth/qr/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId }),
+  })
+}
+
+export function connectQrWebSocket(
+  sessionId: string,
+  onMessage: (data: { type: string; token?: string; message?: string }) => void,
+  onClose?: () => void,
+): WebSocket {
+  const wsProtocol = _baseUrl.startsWith('https') ? 'wss' : 'ws'
+  const host = _baseUrl.replace(/^https?:\/\//, '') || window.location.host
+  const wsUrl = `${wsProtocol}://${host}/ws/qr/${encodeURIComponent(sessionId)}`
+
+  const ws = new WebSocket(wsUrl)
+
+  ws.onmessage = (event: MessageEvent) => {
+    try {
+      const data = JSON.parse(event.data as string)
+      onMessage(data)
+    } catch {
+      // Ignore malformed messages
+    }
+  }
+
+  ws.onclose = () => {
+    onClose?.()
+  }
+
+  return ws
+}
+
 // --- Agents ---
 
 export async function listAgents(): Promise<AgentListResponse> {
