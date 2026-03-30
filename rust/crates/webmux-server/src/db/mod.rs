@@ -7,6 +7,7 @@ pub mod tasks;
 pub mod llm_configs;
 pub mod notifications;
 pub mod api_tokens;
+pub mod qr_login_sessions;
 
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -228,6 +229,15 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             expires_at   INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_api_tokens_token_hash ON api_tokens(token_hash);
+
+        CREATE TABLE IF NOT EXISTS qr_login_sessions (
+            id         TEXT PRIMARY KEY,
+            status     TEXT NOT NULL DEFAULT 'pending',
+            user_id    TEXT,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
         ",
     )?;
 
