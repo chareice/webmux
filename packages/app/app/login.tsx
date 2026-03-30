@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   View,
@@ -13,7 +13,7 @@ import {
 import { Redirect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../lib/auth";
-import { getOAuthUrl, configure } from "../lib/api";
+import { getOAuthUrl, configure, createQrSession, connectQrWebSocket } from "../lib/api";
 import {
   LAST_SERVER_URL_KEY,
   normalizeServerUrl,
@@ -26,6 +26,162 @@ import {
 } from "../lib/mobile-layout";
 import { storage } from "../lib/storage";
 import { useTheme } from "../lib/theme";
+
+const QR_EXPIRY_SECONDS = 120;
+
+type QrState = "loading" | "ready" | "expired" | "confirmed";
+
+function QrLoginSection() {
+  const { login } = useAuth();
+  const [qrState, setQrState] = useState<QrState>("loading");
+  const [qrUrl, setQrUrl] = useState("");
+  const [secondsLeft, setSecondsLeft] = useState(QR_EXPIRY_SECONDS);
+  const wsRef = useRef<WebSocket | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const closeWs = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+  }, []);
+
+  const startSession = useCallback(async () => {
+    closeWs();
+    clearTimer();
+    setQrState("loading");
+    setSecondsLeft(QR_EXPIRY_SECONDS);
+
+    try {
+      const { sessionId, qrUrl: url } = await createQrSession();
+      setQrUrl(url);
+      setQrState("ready");
+
+      // Start countdown timer
+      timerRef.current = setInterval(() => {
+        setSecondsLeft((prev) => {
+          if (prev <= 1) {
+            clearTimer();
+            closeWs();
+            setQrState("expired");
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      // Connect WebSocket
+      wsRef.current = connectQrWebSocket(
+        sessionId,
+        (data) => {
+          if (data.type === "confirmed" && data.token) {
+            clearTimer();
+            setQrState("confirmed");
+            void login("", data.token);
+          }
+        },
+        () => {
+          // WebSocket closed unexpectedly — if not already confirmed/expired, mark expired
+          setQrState((prev) => {
+            if (prev === "ready") {
+              clearTimer();
+              return "expired";
+            }
+            return prev;
+          });
+        },
+      );
+    } catch {
+      // If session creation fails, show expired state so user can retry
+      setQrState("expired");
+    }
+  }, [login, closeWs, clearTimer]);
+
+  useEffect(() => {
+    void startSession();
+    return () => {
+      clearTimer();
+      closeWs();
+    };
+  }, [startSession, clearTimer, closeWs]);
+
+  const formatTime = (seconds: number): string => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  return (
+    <View className="items-center mb-6">
+      <View className="w-[200px] h-[200px] items-center justify-center bg-white rounded-lg relative">
+        {qrState === "loading" && <ActivityIndicator size="large" />}
+        {(qrState === "ready" || qrState === "expired") && qrUrl && (
+          <QrCodeImage value={qrUrl} expired={qrState === "expired"} />
+        )}
+        {qrState === "confirmed" && (
+          <Text className="text-green text-base font-semibold">✓ Confirmed</Text>
+        )}
+        {qrState === "expired" && (
+          <Pressable
+            onPress={() => void startSession()}
+            className="absolute inset-0 items-center justify-center bg-black/50 rounded-lg"
+          >
+            <Text className="text-white text-sm font-semibold text-center">
+              Expired, click to refresh
+            </Text>
+          </Pressable>
+        )}
+      </View>
+      {qrState === "ready" && (
+        <>
+          <Text className="text-foreground-secondary text-sm mt-3">
+            Scan with phone
+          </Text>
+          <Text className="text-foreground-secondary text-sm mt-1 font-mono">
+            {formatTime(secondsLeft)}
+          </Text>
+        </>
+      )}
+      {qrState === "loading" && (
+        <Text className="text-foreground-secondary text-sm mt-3">
+          Generating QR code…
+        </Text>
+      )}
+
+      {/* Divider */}
+      <View className="flex-row items-center mt-6 w-full">
+        <View className="flex-1 h-px bg-border" />
+        <Text className="text-foreground-secondary text-sm mx-4">or</Text>
+        <View className="flex-1 h-px bg-border" />
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Lazy-loaded QR code renderer (web only, so dynamic import is fine).
+ * We use a separate component to keep the conditional import clean.
+ */
+function QrCodeImage({ value, expired }: { value: string; expired: boolean }) {
+  // react-qr-code is only needed on web; import it at the top level since
+  // this component is only rendered when Platform.OS === 'web'.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const QRCode = require("react-qr-code").default;
+  return (
+    <View style={{ opacity: expired ? 0.3 : 1 }}>
+      <QRCode value={value} size={184} />
+    </View>
+  );
+}
 
 export default function LoginScreen() {
   const { isLoggedIn } = useAuth();
@@ -115,6 +271,9 @@ export default function LoginScreen() {
             <Text className="text-foreground-secondary text-center mb-8">
               Sign in to continue
             </Text>
+
+            {/* QR login (web only) */}
+            {Platform.OS === "web" && <QrLoginSection />}
 
             {/* Server URL input (mobile only) */}
             {Platform.OS !== "web" && (
