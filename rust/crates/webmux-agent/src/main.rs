@@ -6,6 +6,7 @@ mod repositories;
 mod run_wrapper;
 mod session_store;
 mod service;
+mod updater;
 
 use clap::{Parser, Subcommand};
 use tracing::{error, info};
@@ -48,6 +49,8 @@ enum Commands {
     Start,
     /// Show node status and credentials info
     Status,
+    /// Check for updates and upgrade to the latest version
+    Update,
     /// Manage the systemd service
     #[command(subcommand)]
     Service(ServiceCommands),
@@ -97,6 +100,9 @@ async fn main() {
         }
         Commands::Status => {
             cmd_status();
+        }
+        Commands::Update => {
+            cmd_update().await;
         }
         Commands::Service(sub) => match sub {
             ServiceCommands::Install { no_auto_upgrade } => {
@@ -200,6 +206,15 @@ async fn cmd_start() {
     info!("Server: {}", creds.server_url);
     info!("Agent ID: {}", creds.agent_id);
 
+    // Best-effort update check
+    match updater::check_for_update().await {
+        Ok(Some((tag, _url))) => {
+            let latest = tag.trim_start_matches('v');
+            info!("Update available: {latest} (current: {AGENT_VERSION}). Run \"webmux-node update\" to upgrade.");
+        }
+        _ => {}
+    }
+
     let workspace_root = dirs::home_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| "/".to_string());
@@ -267,6 +282,37 @@ fn cmd_status() {
             "Auto Upgrade:     {}",
             if config.auto_upgrade { "yes" } else { "no" }
         );
+    }
+}
+
+async fn cmd_update() {
+    info!("Checking for updates...");
+    match updater::check_for_update().await {
+        Ok(Some((tag, url))) => {
+            let latest = tag.trim_start_matches('v');
+            println!("New version available: {latest} (current: {AGENT_VERSION})");
+            println!("Downloading...");
+            match updater::perform_update(&url, &tag).await {
+                Ok(()) => {
+                    println!("Updated to {latest}. Restart to use the new version.");
+                    // If running as a service, hint about restart
+                    if std::env::var("WEBMUX_AGENT_SERVICE").is_ok() {
+                        println!("  systemctl --user restart webmux-node");
+                    }
+                }
+                Err(e) => {
+                    error!("Update failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Ok(None) => {
+            println!("Already up to date (version {AGENT_VERSION}).");
+        }
+        Err(e) => {
+            error!("{e}");
+            std::process::exit(1);
+        }
     }
 }
 
