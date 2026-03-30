@@ -143,6 +143,10 @@ async fn main() {
             "/ws/project",
             axum::routing::get(handlers::ws_project_handler),
         )
+        .route(
+            "/ws/qr/{session_id}",
+            axum::routing::get(crate::ws::qr::ws_qr_handler),
+        )
         .with_state(ws_state);
 
     // Static file serving with SPA fallback
