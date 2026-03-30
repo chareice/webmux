@@ -81,6 +81,17 @@ describe("deriveWorkpaths", () => {
     assert.equal(result[0].activeCount, 2);
   });
 
+  it("counts unread threads", () => {
+    const runs = [
+      makeRun({ id: "r1", unread: true }),
+      makeRun({ id: "r2", unread: false }),
+      makeRun({ id: "r3", unread: true }),
+    ];
+    const agents = new Map([["a1", makeAgent({})]]);
+    const result = deriveWorkpaths(runs, agents);
+    assert.equal(result[0].unreadCount, 2);
+  });
+
   it("returns empty array for no runs", () => {
     const result = deriveWorkpaths([], new Map());
     assert.deepEqual(result, []);

@@ -502,12 +502,19 @@ async fn mark_read(
         match r {
             None => Err("not_found"),
             Some(r) if r.user_id != user_id => Err("forbidden"),
-            Some(_) => { mark_run_read(&conn, &id).map_err(|_| "internal")?; Ok(()) }
+            Some(_) => { mark_run_read(&conn, &id).map_err(|_| "internal")?; Ok(id) }
         }
     }).await;
 
     match result {
-        Ok(Ok(())) => (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response(),
+        Ok(Ok(run_id)) => {
+            // Broadcast updated run to all connected clients so unread state syncs in real-time
+            let hub = state.hub.read().await;
+            if let Ok(conn) = state.db.get() {
+                agent_hub::broadcast_run_snapshot(&hub, &conn, &run_id, None);
+            }
+            (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response()
+        }
         Ok(Err("not_found")) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Run not found" }))).into_response(),
         Ok(Err("forbidden")) => (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "Not your run" }))).into_response(),
         Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e }))).into_response(),

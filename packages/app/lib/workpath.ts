@@ -18,6 +18,8 @@ export interface Workpath {
   hasActive: boolean;
   /** Count of active threads */
   activeCount: number;
+  /** Count of unread threads */
+  unreadCount: number;
   /** Most recent updatedAt */
   latestUpdate: number;
 }
@@ -48,6 +50,7 @@ export function deriveWorkpaths(
       runs: groupRuns,
       hasActive: activeRuns.length > 0,
       activeCount: activeRuns.length,
+      unreadCount: groupRuns.filter((r) => r.unread).length,
       latestUpdate: groupRuns[0].updatedAt,
     });
   }

@@ -313,6 +313,15 @@ export async function deleteThread(
   })
 }
 
+export async function markThreadRead(
+  agentId: string,
+  threadId: string,
+): Promise<void> {
+  await request(`/api/agents/${agentId}/threads/${threadId}/read`, {
+    method: 'POST',
+  })
+}
+
 // --- Turn Queue ---
 
 export async function updateQueuedTurn(
