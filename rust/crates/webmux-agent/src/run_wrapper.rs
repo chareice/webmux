@@ -1,4 +1,6 @@
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use tokio::process::Command;
 use tracing::error;
@@ -29,6 +31,8 @@ pub struct RunWrapperOptions {
     pub prompt: String,
     pub attachments: Vec<RunImageAttachmentUpload>,
     pub options: RunTurnOptions,
+    /// Shared flag set by the caller when an interrupt is requested.
+    pub interrupted: Arc<AtomicBool>,
 }
 
 /// Callbacks invoked during a run.
@@ -192,7 +196,6 @@ async fn run_codex<FEvent, FFinish, FItem, FThread>(
 
     let current_status = RunStatus::Running;
     let mut latest_summary: Option<String> = None;
-    let interrupted = false;
     let mut saw_turn_completed = false;
     let mut announced_thread_id = opts.tool_thread_id.clone();
     let mut final_result: Option<RunStatus> = None;
@@ -244,6 +247,7 @@ async fn run_codex<FEvent, FFinish, FItem, FThread>(
 
     prepared.cleanup().await;
 
+    let interrupted = opts.interrupted.load(Ordering::Relaxed);
     let final_status = final_result.unwrap_or_else(|| {
         if interrupted {
             RunStatus::Interrupted
@@ -312,7 +316,6 @@ async fn run_claude<FEvent, FFinish, FItem, FThread>(
 
     let current_status = RunStatus::Running;
     let mut latest_summary: Option<String> = None;
-    let interrupted = false;
     let mut announced_thread_id = opts.tool_thread_id.clone();
     let mut final_result: Option<RunStatus> = None;
 
@@ -339,6 +342,7 @@ async fn run_claude<FEvent, FFinish, FItem, FThread>(
                 }
 
                 if let Some(fs) = result.final_status {
+                    let interrupted = opts.interrupted.load(Ordering::Relaxed);
                     let status = if interrupted {
                         RunStatus::Interrupted
                     } else {
@@ -362,6 +366,7 @@ async fn run_claude<FEvent, FFinish, FItem, FThread>(
         }
     }
 
+    let interrupted = opts.interrupted.load(Ordering::Relaxed);
     let final_status = final_result.unwrap_or_else(|| {
         if interrupted {
             RunStatus::Interrupted

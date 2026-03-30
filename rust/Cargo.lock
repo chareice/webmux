@@ -2584,7 +2584,6 @@ dependencies = [
  "dirs",
  "futures-util",
  "hostname",
- "libc",
  "reqwest",
  "rusqlite",
  "serde",
