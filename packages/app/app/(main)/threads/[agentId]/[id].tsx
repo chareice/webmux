@@ -369,6 +369,20 @@ export default function ThreadDetailScreen({
 
   const segments = groupIntoSegments(nonQueuedTurns);
 
+  // Extract the latest todo from all turns for the pinned panel
+  const latestTodo = (() => {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      for (let j = turns[i].items.length - 1; j >= 0; j--) {
+        if (turns[i].items[j].type === "todo") {
+          return turns[i].items[j] as Extract<RunTimelineEvent, { type: "todo" }>;
+        }
+      }
+    }
+    return null;
+  })();
+
+  const [isTodoExpanded, setIsTodoExpanded] = useState(false);
+
   const hasContent = hasText || attachments.length > 0;
 
   // --- Auto-refresh fallback for active threads ---
@@ -996,6 +1010,15 @@ export default function ThreadDetailScreen({
 
           {/* Footer / Composer */}
           <View className="bg-surface border-t border-border px-3.5 pt-3 pb-3">
+            {/* Pinned Todo Panel */}
+            {latestTodo && latestTodo.items.length > 0 ? (
+              <PinnedTodoPanel
+                todo={latestTodo}
+                expanded={isTodoExpanded}
+                onToggle={() => setIsTodoExpanded((v) => !v)}
+              />
+            ) : null}
+
             {/* Interrupt button (mobile, when active) */}
             {active && !isWideScreen ? (
               <Pressable
@@ -1114,6 +1137,21 @@ export default function ThreadDetailScreen({
                       const nowHas = text.trim().length > 0;
                       if (nowHas !== hasText) setHasText(nowHas);
                     }}
+                    {...(Platform.OS === "web"
+                      ? {
+                          onKeyPress: (e: any) => {
+                            if (
+                              e.nativeEvent.key === "Enter" &&
+                              !e.nativeEvent.shiftKey
+                            ) {
+                              e.preventDefault();
+                              if (!isContinuing && hasContent) {
+                                void handleContinue();
+                              }
+                            }
+                          },
+                        }
+                      : {})}
                   />
 
                   {/* Toolbar row: Attach + Options + Send */}
@@ -1312,20 +1350,14 @@ function ToolsGroup({
   items: RunTimelineEvent[];
   onOpenDetail: (items: RunTimelineEvent[]) => void;
 }) {
-  // Show todos inline, separate from the collapsible tools group
-  const todoItems = items.filter((i) => i.type === "todo");
+  // Filter out todos — they are shown in the pinned panel above the composer
   const rest = items.filter((i) => i.type !== "todo");
+
+  if (rest.length === 0) return null;
 
   return (
     <>
-      {todoItems.map((item) =>
-        item.type === "todo" ? (
-          <TodoCard key={item.id} item={item} />
-        ) : null
-      )}
-      {rest.length > 0 ? (
-        <ToolsGroupInner items={rest} onOpenDetail={onOpenDetail} />
-      ) : null}
+      <ToolsGroupInner items={rest} onOpenDetail={onOpenDetail} />
     </>
   );
 }
@@ -1431,6 +1463,77 @@ function TodoCard({
           </Text>
         </View>
       ))}
+    </View>
+  );
+}
+
+function PinnedTodoPanel({
+  todo,
+  expanded,
+  onToggle,
+}: {
+  todo: Extract<RunTimelineEvent, { type: "todo" }>;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const completedCount = todo.items.filter(
+    (e: TodoEntry) => e.status === "completed"
+  ).length;
+  const totalCount = todo.items.length;
+  const inProgressItem = todo.items.find((e: TodoEntry) => e.status === "in_progress");
+
+  return (
+    <View className="mb-2">
+      <Pressable
+        className="flex-row items-center justify-between py-2"
+        onPress={onToggle}
+      >
+        <View className="flex-row items-center gap-2 flex-1 min-w-0">
+          <Text className="text-foreground-secondary text-xs">
+            {expanded ? "▼" : "▶"}
+          </Text>
+          <Text className="text-foreground-secondary text-xs font-semibold">
+            Todo
+          </Text>
+          <Text className="text-foreground-secondary text-xs">
+            {completedCount}/{totalCount}
+          </Text>
+          {!expanded && inProgressItem ? (
+            <Text
+              className="text-foreground text-xs flex-1"
+              numberOfLines={1}
+            >
+              — {inProgressItem.text}
+            </Text>
+          ) : null}
+        </View>
+      </Pressable>
+      {expanded ? (
+        <View className="pl-4 pb-1">
+          {todo.items.map((entry: TodoEntry, i: number) => (
+            <View key={i} className="flex-row items-start gap-2 py-0.5">
+              <Text className="text-foreground-secondary text-xs mt-0.5">
+                {entry.status === "completed"
+                  ? "✓"
+                  : entry.status === "in_progress"
+                    ? "●"
+                    : "○"}
+              </Text>
+              <Text
+                className={`text-xs flex-1 ${
+                  entry.status === "completed"
+                    ? "text-foreground-secondary line-through"
+                    : entry.status === "in_progress"
+                      ? "text-accent"
+                      : "text-foreground"
+                }`}
+              >
+                {entry.text}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }

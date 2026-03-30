@@ -431,10 +431,10 @@ export default function NewThreadScreen() {
   }
 
   return (
-    <View className="flex-1 bg-background">
+    <View className="flex-1 bg-background items-center">
       <ScrollView
-        className="flex-1"
-        contentContainerClassName="p-4 pb-8"
+        className="flex-1 w-full max-w-2xl"
+        contentContainerClassName="p-4 pb-8 pt-8"
         keyboardShouldPersistTaps="handled"
         {...getKeyboardAwareScrollProps(Platform.OS)}
       >
