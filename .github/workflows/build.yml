@@ -23,7 +23,7 @@ jobs:
         with:
           workspaces: rust
 
-      - run: cd rust && cargo build --release --bin webmux-agent
+      - run: cd rust && cargo build --release --bin webmux-node
 
       - name: Get version
         id: version
@@ -32,5 +32,5 @@ jobs:
       - name: Upload agent binary
         uses: actions/upload-artifact@v4
         with:
-          name: webmux-agent-linux-x64
-          path: rust/target/release/webmux-agent
+          name: webmux-node-linux-x64
+          path: rust/target/release/webmux-node
