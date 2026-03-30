@@ -131,6 +131,7 @@ export default function NewThreadScreen() {
 
   const previousAgentRef = useRef("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const promptInputRef = useRef<TextInput>(null);
 
   const fetchAgentsData = useCallback(async () => {
     try {
@@ -309,6 +310,62 @@ export default function NewThreadScreen() {
       return prev.filter((a) => a.id !== id);
     });
   };
+
+  // --- Paste image handling (web) ---
+
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !promptInputRef.current) return;
+
+    const node = promptInputRef.current as unknown as HTMLElement;
+    if (!node || !node.addEventListener) return;
+
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) imageFiles.push(file);
+        }
+      }
+
+      if (imageFiles.length === 0) return;
+
+      const hasTextItem = Array.from(items).some((item) => item.type === "text/plain");
+      if (!hasTextItem) e.preventDefault();
+
+      const remaining = MAX_ATTACHMENTS - attachmentsRef.current.length;
+      if (remaining <= 0) return;
+
+      const toAdd = imageFiles.slice(0, remaining);
+      void (async () => {
+        const newAttachments: DraftAttachment[] = [];
+        for (const file of toAdd) {
+          const base64 = await fileToBase64Web(file);
+          newAttachments.push({
+            id: generateId(),
+            name: file.name || "pasted-image.png",
+            mimeType: file.type,
+            sizeBytes: file.size,
+            previewUri: URL.createObjectURL(file),
+            base64,
+          });
+        }
+        setAttachments((prev) => [...prev, ...newAttachments]);
+      })();
+    };
+
+    node.addEventListener("paste", handlePaste as EventListener);
+    return () => {
+      node.removeEventListener("paste", handlePaste as EventListener);
+    };
+  }, [promptInputRef.current]);
 
   const hasContent = prompt.trim().length > 0 || attachments.length > 0;
 
@@ -630,6 +687,7 @@ export default function NewThreadScreen() {
             {selectedImportSession ? "Next Message" : "Prompt"}
           </Text>
           <TextInput
+            ref={promptInputRef}
             className="bg-surface border border-border rounded-lg px-4 py-3 text-foreground min-h-[120px]"
             placeholder={
               selectedImportSession
