@@ -1034,8 +1034,8 @@ export default function ThreadDetailScreen({
               />
             ) : null}
 
-            {/* Interrupt button (mobile, when active) */}
-            {active && !isWideScreen ? (
+            {/* Interrupt button (when active) */}
+            {active ? (
               <Pressable
                 className="mb-2.5 flex-row items-center justify-center gap-1 rounded-xl bg-orange/20 px-4 py-3"
                 onPress={() => void handleInterrupt()}
