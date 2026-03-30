@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -355,6 +356,7 @@ impl SessionResult {
 struct RunEntry {
     turn_id: String,
     handle: ActiveHandle,
+    interrupted: Arc<AtomicBool>,
 }
 
 struct TaskSession {
@@ -622,6 +624,8 @@ async fn handle_run_start(
         }
     }
 
+    let interrupted_flag = Arc::new(AtomicBool::new(false));
+
     let opts = RunWrapperOptions {
         run_id: run_id.clone(),
         tool,
@@ -630,6 +634,7 @@ async fn handle_run_start(
         prompt,
         attachments,
         options,
+        interrupted: interrupted_flag.clone(),
     };
 
     // We need to run the start_run in a spawned task because it blocks on the subprocess.
@@ -654,6 +659,7 @@ async fn handle_run_start(
             RunEntry {
                 turn_id: turn_id.clone(),
                 handle: ActiveHandle::None,
+                interrupted: interrupted_flag,
             },
         );
     }
@@ -712,6 +718,7 @@ async fn handle_run_interrupt(
     let mut map = runs.lock().await;
     if let Some(entry) = map.get_mut(run_id) {
         if entry.turn_id == turn_id {
+            entry.interrupted.store(true, Ordering::Relaxed);
             entry.handle.interrupt();
         } else {
             warn!("run-turn-interrupt: no matching turn for {run_id}/{turn_id}");
@@ -894,6 +901,8 @@ async fn start_task_run(
         }
     );
 
+    let interrupted_flag = Arc::new(AtomicBool::new(false));
+
     let opts = RunWrapperOptions {
         run_id: run_id.clone(),
         tool,
@@ -907,6 +916,7 @@ async fn start_task_run(
             codex_effort: None,
             clear_session: None,
         },
+        interrupted: interrupted_flag.clone(),
     };
 
     // Track task run
@@ -929,6 +939,7 @@ async fn start_task_run(
             RunEntry {
                 turn_id: turn_id.clone(),
                 handle: ActiveHandle::None,
+                interrupted: interrupted_flag,
             },
         );
     }
