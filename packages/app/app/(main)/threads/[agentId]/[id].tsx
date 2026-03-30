@@ -63,6 +63,7 @@ import { useTheme } from "../../../../lib/theme";
 import { getRunStatusThemeColor } from "../../../../lib/theme-utils";
 import { canContinueTurn, canRetryTurn } from "../../../../lib/thread-utils";
 import { createReconnectableSocket } from "../../../../lib/websocket";
+import { ThreadDrawer } from "../../../../components/ThreadDrawer";
 
 // --- Constants ---
 
@@ -215,13 +216,25 @@ function fileToBase64Web(file: File): Promise<string> {
 
 // --- Main Screen ---
 
-export default function ThreadDetailScreen() {
+export interface ThreadDetailScreenProps {
+  agentIdProp?: string;
+  threadIdProp?: string;
+  onClose?: () => void;
+}
+
+export default function ThreadDetailScreen({
+  agentIdProp,
+  threadIdProp,
+  onClose,
+}: ThreadDetailScreenProps = {}) {
   const router = useRouter();
   const { colors } = useTheme();
-  const { agentId, id: threadId } = useLocalSearchParams<{
+  const params = useLocalSearchParams<{
     agentId: string;
     id: string;
   }>();
+  const agentId = agentIdProp ?? params.agentId;
+  const threadId = threadIdProp ?? params.id;
   const { width } = useWindowDimensions();
   const isWideScreen = Platform.OS === "web" && width >= 768;
 
@@ -442,7 +455,9 @@ export default function ThreadDetailScreen() {
     const doDelete = async () => {
       try {
         await deleteThread(agentId, threadId);
-        if (Platform.OS === "web") {
+        if (onClose) {
+          onClose();
+        } else if (Platform.OS === "web") {
           router.navigate("/(main)" as never);
         } else {
           router.back();
@@ -759,14 +774,22 @@ export default function ThreadDetailScreen() {
       {/* Compact header (always visible) */}
       <View className="bg-surface px-4 py-2.5 border-b border-border">
         <View className="flex-row items-center gap-2">
-          {!isWideScreen ? (
-            <Pressable
-              className="bg-surface-light rounded-md px-2.5 py-1.5"
-              onPress={() => router.back()}
-            >
-              <Text className="text-foreground-secondary text-sm">Back</Text>
-            </Pressable>
-          ) : null}
+          <Pressable
+            className="bg-surface-light rounded-md px-2.5 py-1.5"
+            onPress={() => {
+              if (onClose) {
+                onClose();
+              } else if (isWideScreen) {
+                router.navigate("/(main)" as never);
+              } else {
+                router.back();
+              }
+            }}
+          >
+            <Text className="text-foreground-secondary text-sm">
+              {onClose ? "\u2715" : isWideScreen ? "\u2190 Canvas" : "Back"}
+            </Text>
+          </Pressable>
 
           <Text className="text-foreground font-semibold text-sm" numberOfLines={1}>
             {repoName(run.repoPath)}
@@ -1174,12 +1197,28 @@ export default function ThreadDetailScreen() {
 
       {/* Tool detail overlay */}
       {toolDetailItems ? (
-        <View className="absolute inset-0 bg-background">
-          <ToolDetailView
-            items={toolDetailItems}
+        onClose ? (
+          // Drawer mode: open as a second-layer drawer
+          <ThreadDrawer
             onClose={closeToolDetail}
-          />
-        </View>
+            zIndex={60}
+            widthRatio={0.45}
+            minWidth={400}
+          >
+            <ToolDetailView
+              items={toolDetailItems}
+              onClose={closeToolDetail}
+            />
+          </ThreadDrawer>
+        ) : (
+          // Full-page mode: overlay
+          <View className="absolute inset-0 bg-background">
+            <ToolDetailView
+              items={toolDetailItems}
+              onClose={closeToolDetail}
+            />
+          </View>
+        )
       ) : null}
     </SafeAreaView>
   );

@@ -64,7 +64,12 @@ export function LeftPanel({ activeThreadId }: LeftPanelProps) {
     <View className="w-72 bg-surface border-r border-border flex-1">
       {/* Header */}
       <View className="h-12 px-4 flex-row items-center border-b border-border">
-        <Text className="text-foreground text-lg font-bold flex-1">webmux</Text>
+        <Pressable
+          className="flex-1"
+          onPress={() => router.navigate("/(main)" as never)}
+        >
+          <Text className="text-foreground text-lg font-bold">webmux</Text>
+        </Pressable>
         <Pressable
           className="bg-accent rounded-md px-2.5 py-1"
           onPress={handleNewThread}

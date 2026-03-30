@@ -34,6 +34,7 @@ export function WorkpathProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const hasAutoSelected = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = useCallback(async (showLoading = false) => {
@@ -74,9 +75,11 @@ export function WorkpathProvider({ children }: { children: React.ReactNode }) {
 
   const workpaths = useMemo(() => deriveWorkpaths(runs, agents), [runs, agents]);
 
+  // Auto-select first workpath only on initial load
   useEffect(() => {
-    if (!selectedPath && workpaths.length > 0) {
+    if (!hasAutoSelected.current && !selectedPath && workpaths.length > 0) {
       setSelectedPath(workpaths[0].repoPath);
+      hasAutoSelected.current = true;
     }
   }, [workpaths, selectedPath]);
 
