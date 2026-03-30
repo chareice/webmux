@@ -15,7 +15,7 @@ import {
 import type { Run } from "@webmux/shared";
 import { useWorkpaths } from "../../lib/workpath-context";
 import { deleteThread } from "../../lib/api";
-import { ThreadRow } from "../../components/ThreadRow";
+import { ThreadCard } from "../../components/ThreadCard";
 
 export default function WorkpathScreen() {
   const router = useRouter();
@@ -43,15 +43,6 @@ export default function WorkpathScreen() {
     () => workpaths.find((wp) => wp.repoPath === path) ?? null,
     [workpaths, path],
   );
-
-  const handleDeleteThread = async (run: Run) => {
-    try {
-      await deleteThread(run.agentId, run.id);
-      setRuns((prev) => prev.filter((r) => r.id !== run.id));
-    } catch {
-      await reload();
-    }
-  };
 
   if (!workpath) {
     return (
@@ -87,10 +78,10 @@ export default function WorkpathScreen() {
         }}
       />
 
-      {/* Thread list */}
+      {/* Thread card list */}
       <ScrollView
         className="flex-1"
-        contentContainerClassName="p-4"
+        contentContainerClassName="p-3"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => void handleRefresh()} />
         }
@@ -100,19 +91,20 @@ export default function WorkpathScreen() {
             No threads in this workpath yet.
           </Text>
         ) : (
-          workpath.runs.map((run) => (
-            <ThreadRow
-              key={run.id}
-              run={run}
-              agentName={agents.get(run.agentId)?.name}
-              onDelete={() => void handleDeleteThread(run)}
-              onPress={() =>
-                router.push(
-                  `/(main)/threads/${run.agentId}/${run.id}` as never,
-                )
-              }
-            />
-          ))
+          <View style={{ gap: 8 }}>
+            {workpath.runs.map((run) => (
+              <ThreadCard
+                key={run.id}
+                run={run}
+                agentName={agents.get(run.agentId)?.name}
+                onPress={() =>
+                  router.push(
+                    `/(main)/threads/${run.agentId}/${run.id}` as never,
+                  )
+                }
+              />
+            ))}
+          </View>
         )}
       </ScrollView>
     </View>
