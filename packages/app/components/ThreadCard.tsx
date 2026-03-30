@@ -65,6 +65,11 @@ export function ThreadCard({
 
       {/* Card header */}
       <View className="px-3 py-2 flex-row items-center gap-2 border-b border-border bg-surface">
+        {/* Unread dot */}
+        {run.unread ? (
+          <View className="w-2 h-2 rounded-full bg-red" />
+        ) : null}
+
         {/* Tool badge */}
         <View
           className={`rounded px-1.5 py-0.5 ${isClaude ? "bg-foreground" : "bg-background border border-foreground"}`}

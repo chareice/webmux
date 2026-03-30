@@ -90,6 +90,13 @@ export function LeftPanel({ activeThreadId }: LeftPanelProps) {
               <Text className="text-foreground text-sm font-semibold flex-1" numberOfLines={1}>
                 {selectedWorkpath?.dirName ?? "Select workpath"}
               </Text>
+              {selectedWorkpath?.unreadCount ? (
+                <View className="bg-red/20 rounded-full w-5 h-5 items-center justify-center mr-1">
+                  <Text className="text-red text-[10px] font-bold">
+                    {selectedWorkpath.unreadCount}
+                  </Text>
+                </View>
+              ) : null}
               {selectedWorkpath?.activeCount ? (
                 <View className="bg-accent/20 rounded px-1.5 py-0.5 mr-2">
                   <Text className="text-accent text-xs font-medium">
@@ -124,6 +131,13 @@ export function LeftPanel({ activeThreadId }: LeftPanelProps) {
                         >
                           {wp.dirName}
                         </Text>
+                        {wp.unreadCount > 0 ? (
+                          <View className="bg-red/20 rounded-full w-4 h-4 items-center justify-center">
+                            <Text className="text-red text-[9px] font-bold">
+                              {wp.unreadCount}
+                            </Text>
+                          </View>
+                        ) : null}
                         {wp.activeCount > 0 ? (
                           <View className="bg-accent/20 rounded px-1 py-0.5">
                             <Text className="text-accent text-[10px] font-medium">

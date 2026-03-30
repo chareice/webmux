@@ -45,6 +45,7 @@ import {
   deleteQueuedTurn,
   resumeQueue,
   discardQueue,
+  markThreadRead,
   getBaseUrl,
   getToken,
 } from "../../../../lib/api";
@@ -65,6 +66,7 @@ import { useTheme } from "../../../../lib/theme";
 import { getRunStatusThemeColor } from "../../../../lib/theme-utils";
 import { canContinueTurn, canRetryTurn } from "../../../../lib/thread-utils";
 import { createReconnectableSocket } from "../../../../lib/websocket";
+import { useWorkpaths } from "../../../../lib/workpath-context";
 import { ThreadDrawer } from "../../../../components/ThreadDrawer";
 
 // --- Constants ---
@@ -240,6 +242,8 @@ export default function ThreadDetailScreen({
   const { width } = useWindowDimensions();
   const isWideScreen = Platform.OS === "web" && width >= 768;
 
+  const { setRuns } = useWorkpaths();
+
   const [run, setRun] = useState<Run | null>(null);
   const [turns, setTurns] = useState<RunTurnDetail[]>([]);
   const followUpRef = useRef("");
@@ -281,6 +285,17 @@ export default function ThreadDetailScreen({
       setIsLoading(false);
     }
   }, [agentId, threadId]);
+
+  // Mark thread as read when entering detail view
+  useEffect(() => {
+    if (!agentId || !threadId) return;
+    // Optimistically clear unread in sidebar
+    setRuns((prev) =>
+      prev.map((r) => (r.id === threadId ? { ...r, unread: false } : r)),
+    );
+    // Notify server (also broadcasts to other clients via WS)
+    void markThreadRead(agentId, threadId);
+  }, [agentId, threadId, setRuns]);
 
   useEffect(() => {
     setRun(null);

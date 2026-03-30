@@ -53,6 +53,11 @@ export function ThreadRow({
     >
       {/* Top row: badges + time + delete */}
       <View className="flex-row items-center gap-2 mb-1.5">
+        {/* Unread dot */}
+        {run.unread && !isActive ? (
+          <View className="w-2 h-2 rounded-full bg-red" />
+        ) : null}
+
         {/* Tool badge */}
         <View
           className={`rounded px-1.5 py-0.5 ${isClaude ? "bg-foreground" : "bg-background border border-foreground"}`}
