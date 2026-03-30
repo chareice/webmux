@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import {
   View,
   Text,
   Pressable,
   ScrollView,
+  FlatList,
   TextInput,
   ActivityIndicator,
   Alert,
@@ -13,6 +14,7 @@ import {
   KeyboardAvoidingView,
   useWindowDimensions,
 } from "react-native";
+import type { ListRenderItemInfo } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -257,7 +259,7 @@ export default function ThreadDetailScreen({
     RunTimelineEvent[] | null
   >(null);
 
-  const scrollViewRef = useRef<ScrollView>(null);
+  const flatListRef = useRef<FlatList<ConversationSegment>>(null);
   const textInputRef = useRef<TextInput>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -381,13 +383,17 @@ export default function ThreadDetailScreen({
     return () => clearInterval(interval);
   }, [active, fetchDetail]);
 
-  // --- Auto-scroll on new events ---
+  // --- Auto-scroll: with inverted FlatList, scrollToOffset(0) = bottom ---
 
+  const prevTurnCountRef = useRef(turns.length);
   useEffect(() => {
-    if (!scrollViewRef.current) return;
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 50);
+    // Only auto-scroll when new turns arrive (not on initial load, inverted handles that)
+    if (turns.length > prevTurnCountRef.current && flatListRef.current) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }, 50);
+    }
+    prevTurnCountRef.current = turns.length;
   }, [turns]);
 
   useEffect(() => {
@@ -609,6 +615,123 @@ export default function ThreadDetailScreen({
       copyFeedbackTimeoutRef.current = null;
     }, 1600);
   }, []);
+
+  // --- FlatList helpers (must be after handler definitions) ---
+
+  // Reverse for inverted FlatList: newest at index 0 = bottom of screen
+  const invertedSegments = useMemo(() => [...segments].reverse(), [segments]);
+
+  const keyExtractor = useCallback(
+    (item: ConversationSegment) => `${item.type}-${item.id}`,
+    [],
+  );
+
+  const renderSegmentItem = useCallback(
+    ({ item: segment }: ListRenderItemInfo<ConversationSegment>) => {
+      if (segment.type === "user") {
+        return (
+          <UserSegment
+            segment={segment}
+            copiedMessageId={copiedMessageId}
+            onCopyMessage={handleCopyMessage}
+          />
+        );
+      }
+      if (segment.type === "assistant") {
+        return (
+          <AssistantSegment
+            segment={segment}
+            copiedMessageId={copiedMessageId}
+            onCopyMessage={handleCopyMessage}
+          />
+        );
+      }
+      if (segment.type === "system") {
+        return <SystemSegment segment={segment} />;
+      }
+      // tools segment
+      return (
+        <ToolsGroup
+          items={segment.items}
+          onOpenDetail={setToolDetailItems}
+        />
+      );
+    },
+    [copiedMessageId, handleCopyMessage],
+  );
+
+  // ListHeaderComponent in inverted mode appears at the BOTTOM (below newest content)
+  const listHeader = useMemo(() => {
+    const elements: React.ReactNode[] = [];
+
+    // Queued turns
+    if (queuedTurns.length > 0) {
+      elements.push(
+        <View key="queued" className="mt-4">
+          <Text className="text-foreground-secondary text-xs uppercase tracking-wider mb-2">
+            Queued ({queuedTurns.length})
+          </Text>
+          {queuedTurns.map((turn) => (
+            <QueuedTurnCard
+              key={turn.id}
+              turn={turn}
+              isEditing={editingTurnId === turn.id}
+              editingPrompt={editingPrompt}
+              onStartEdit={() => {
+                setEditingTurnId(turn.id);
+                setEditingPrompt(turn.prompt);
+              }}
+              onCancelEdit={() => setEditingTurnId(null)}
+              onChangeEditPrompt={setEditingPrompt}
+              onSave={() =>
+                void handleUpdateQueuedTurn(turn.id, editingPrompt)
+              }
+              onDelete={() => void handleDeleteQueuedTurn(turn.id)}
+            />
+          ))}
+        </View>,
+      );
+    }
+
+    // Waiting indicator for active turns
+    if (
+      active &&
+      nonQueuedTurns.length > 0 &&
+      nonQueuedTurns[nonQueuedTurns.length - 1].items.length === 0
+    ) {
+      elements.push(
+        <View key="waiting" className="flex-row items-center gap-2 py-4">
+          <ActivityIndicator size="small" color={colors.accent} />
+          <Text className="text-foreground-secondary text-sm">
+            Waiting for events...
+          </Text>
+        </View>,
+      );
+    }
+
+    if (elements.length === 0) return null;
+    return <>{elements}</>;
+  }, [
+    queuedTurns,
+    editingTurnId,
+    editingPrompt,
+    active,
+    nonQueuedTurns,
+    colors.accent,
+  ]);
+
+  const listEmpty = useMemo(
+    () => (
+      <View className="items-center py-16" style={{ scaleY: -1 }}>
+        <Text className="text-foreground-secondary text-sm">
+          {active
+            ? "Thread started. Waiting for events..."
+            : "No timeline recorded."}
+        </Text>
+      </View>
+    ),
+    [active],
+  );
 
   // --- Image attachment handling ---
 
@@ -856,164 +979,20 @@ export default function ThreadDetailScreen({
         behavior={getKeyboardAvoidingBehavior(Platform.OS)}
         enabled={Platform.OS !== "web"}
       >
-        {/* Timeline */}
-          <ScrollView
-            ref={scrollViewRef}
+        {/* Timeline (inverted FlatList — newest at bottom, virtualized) */}
+          <FlatList<ConversationSegment>
+            ref={flatListRef}
+            inverted
+            data={invertedSegments}
+            renderItem={renderSegmentItem}
+            keyExtractor={keyExtractor}
             className="flex-1"
             contentContainerClassName="p-4 pb-8"
             keyboardShouldPersistTaps="handled"
+            ListHeaderComponent={listHeader}
+            ListEmptyComponent={listEmpty}
             {...getKeyboardAwareScrollProps(Platform.OS)}
-          >
-            {segments.length === 0 && queuedTurns.length === 0 ? (
-              <View className="items-center py-16">
-                <Text className="text-foreground-secondary text-sm">
-                  {active
-                    ? "Thread started. Waiting for events..."
-                    : "No timeline recorded."}
-                </Text>
-              </View>
-            ) : (
-              segments.map((segment) => {
-                if (segment.type === "user") {
-                  const copied = copiedMessageId === segment.id;
-
-                  return (
-                    <View
-                      key={segment.id}
-                      className="self-end mb-3 max-w-[88%] rounded-2xl border border-accent/10 bg-accent/10 px-3.5 py-3"
-                    >
-                      <View className="mb-1.5 flex-row items-center gap-2">
-                        <Text className="flex-1 text-accent text-xs font-semibold">
-                          You
-                        </Text>
-                        <Pressable
-                          className={getMessageCopyButtonClassName({ copied })}
-                          disabled={!segment.text}
-                          onPress={() =>
-                            void handleCopyMessage(segment.id, segment.text)
-                          }
-                        >
-                          <Text
-                            className={getMessageCopyTextClassName({ copied })}
-                          >
-                            {copied ? "Copied" : "Copy"}
-                          </Text>
-                        </Pressable>
-                      </View>
-                      {segment.text ? (
-                        <Text
-                          className="text-foreground text-sm leading-5"
-                          selectable
-                        >
-                          {segment.text}
-                        </Text>
-                      ) : null}
-                      {segment.attachmentCount > 0 ? (
-                        <Text className="text-foreground-secondary text-xs mt-1">
-                          {segment.attachmentCount} image
-                          {segment.attachmentCount > 1 ? "s" : ""} attached
-                        </Text>
-                      ) : null}
-                    </View>
-                  );
-                }
-
-                if (segment.type === "assistant") {
-                  const copied = copiedMessageId === `assistant-${segment.id}`;
-
-                  return (
-                    <View
-                      key={segment.id}
-                      className="mb-3 max-w-[88%] rounded-2xl border border-border bg-surface px-3.5 py-3"
-                    >
-                      <View className="mb-1.5 flex-row items-center gap-2">
-                        <Text className="flex-1 text-foreground-secondary text-xs font-semibold">
-                          Assistant
-                        </Text>
-                        <Pressable
-                          className={getMessageCopyButtonClassName({ copied })}
-                          onPress={() =>
-                            void handleCopyMessage(
-                              `assistant-${segment.id}`,
-                              segment.text,
-                            )
-                          }
-                        >
-                          <Text
-                            className={getMessageCopyTextClassName({ copied })}
-                          >
-                            {copied ? "Copied" : "Copy"}
-                          </Text>
-                        </Pressable>
-                      </View>
-                      <MessageContent content={segment.text} />
-                    </View>
-                  );
-                }
-
-                if (segment.type === "system") {
-                  return (
-                    <View
-                      key={segment.id}
-                      className="py-1.5 mb-2"
-                    >
-                      <Text className="text-foreground-secondary text-xs text-center">
-                        {segment.text}
-                      </Text>
-                    </View>
-                  );
-                }
-
-                // tools segment
-                return (
-                  <ToolsGroup
-                    key={segment.id}
-                    items={segment.items}
-                    onOpenDetail={setToolDetailItems}
-                  />
-                );
-              })
-            )}
-
-            {/* Queued turns */}
-            {queuedTurns.length > 0 ? (
-              <View className="mt-4">
-                <Text className="text-foreground-secondary text-xs uppercase tracking-wider mb-2">
-                  Queued ({queuedTurns.length})
-                </Text>
-                {queuedTurns.map((turn) => (
-                  <QueuedTurnCard
-                    key={turn.id}
-                    turn={turn}
-                    isEditing={editingTurnId === turn.id}
-                    editingPrompt={editingPrompt}
-                    onStartEdit={() => {
-                      setEditingTurnId(turn.id);
-                      setEditingPrompt(turn.prompt);
-                    }}
-                    onCancelEdit={() => setEditingTurnId(null)}
-                    onChangeEditPrompt={setEditingPrompt}
-                    onSave={() =>
-                      void handleUpdateQueuedTurn(turn.id, editingPrompt)
-                    }
-                    onDelete={() => void handleDeleteQueuedTurn(turn.id)}
-                  />
-                ))}
-              </View>
-            ) : null}
-
-            {/* Waiting indicator for active turns */}
-            {active &&
-              nonQueuedTurns.length > 0 &&
-              nonQueuedTurns[nonQueuedTurns.length - 1].items.length === 0 ? (
-              <View className="flex-row items-center gap-2 py-4">
-                <ActivityIndicator size="small" color={colors.accent} />
-                <Text className="text-foreground-secondary text-sm">
-                  Waiting for events...
-                </Text>
-              </View>
-            ) : null}
-          </ScrollView>
+          />
 
           {/* Footer / Composer */}
           <View className="bg-surface border-t border-border px-3.5 pt-3 pb-3">
@@ -1232,6 +1211,93 @@ function ImageComposerIcon({ disabled }: { disabled: boolean }) {
     </View>
   );
 }
+
+// --- Memoized segment components for FlatList ---
+
+const UserSegment = memo(function UserSegment({
+  segment,
+  copiedMessageId,
+  onCopyMessage,
+}: {
+  segment: Extract<ConversationSegment, { type: "user" }>;
+  copiedMessageId: string | null;
+  onCopyMessage: (id: string, content: string) => void;
+}) {
+  const copied = copiedMessageId === segment.id;
+  return (
+    <View className="self-end mb-3 max-w-[88%] rounded-2xl border border-accent/10 bg-accent/10 px-3.5 py-3">
+      <View className="mb-1.5 flex-row items-center gap-2">
+        <Text className="flex-1 text-accent text-xs font-semibold">You</Text>
+        <Pressable
+          className={getMessageCopyButtonClassName({ copied })}
+          disabled={!segment.text}
+          onPress={() => void onCopyMessage(segment.id, segment.text)}
+        >
+          <Text className={getMessageCopyTextClassName({ copied })}>
+            {copied ? "Copied" : "Copy"}
+          </Text>
+        </Pressable>
+      </View>
+      {segment.text ? (
+        <Text className="text-foreground text-sm leading-5" selectable>
+          {segment.text}
+        </Text>
+      ) : null}
+      {segment.attachmentCount > 0 ? (
+        <Text className="text-foreground-secondary text-xs mt-1">
+          {segment.attachmentCount} image
+          {segment.attachmentCount > 1 ? "s" : ""} attached
+        </Text>
+      ) : null}
+    </View>
+  );
+});
+
+const AssistantSegment = memo(function AssistantSegment({
+  segment,
+  copiedMessageId,
+  onCopyMessage,
+}: {
+  segment: Extract<ConversationSegment, { type: "assistant" }>;
+  copiedMessageId: string | null;
+  onCopyMessage: (id: string, content: string) => void;
+}) {
+  const copied = copiedMessageId === `assistant-${segment.id}`;
+  return (
+    <View className="mb-3 max-w-[88%] rounded-2xl border border-border bg-surface px-3.5 py-3">
+      <View className="mb-1.5 flex-row items-center gap-2">
+        <Text className="flex-1 text-foreground-secondary text-xs font-semibold">
+          Assistant
+        </Text>
+        <Pressable
+          className={getMessageCopyButtonClassName({ copied })}
+          onPress={() =>
+            void onCopyMessage(`assistant-${segment.id}`, segment.text)
+          }
+        >
+          <Text className={getMessageCopyTextClassName({ copied })}>
+            {copied ? "Copied" : "Copy"}
+          </Text>
+        </Pressable>
+      </View>
+      <MessageContent content={segment.text} />
+    </View>
+  );
+});
+
+const SystemSegment = memo(function SystemSegment({
+  segment,
+}: {
+  segment: Extract<ConversationSegment, { type: "system" }>;
+}) {
+  return (
+    <View className="py-1.5 mb-2">
+      <Text className="text-foreground-secondary text-xs text-center">
+        {segment.text}
+      </Text>
+    </View>
+  );
+});
 
 // --- Sub-components ---
 
