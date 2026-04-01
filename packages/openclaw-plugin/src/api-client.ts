@@ -29,8 +29,14 @@ export function createWebmuxClient(
     });
 
     if (!resp.ok) {
-      const text = await resp.text().catch(() => "");
-      throw new Error(`Webmux API error ${resp.status}: ${text}`);
+      let message = "";
+      try {
+        const data = await resp.json() as Record<string, unknown>;
+        message = typeof data.error === "string" ? data.error : JSON.stringify(data);
+      } catch {
+        message = await resp.text().catch(() => "");
+      }
+      throw new Error(`Webmux API error ${resp.status}: ${message}`);
     }
 
     if (resp.status === 204) return undefined as T;
@@ -60,12 +66,12 @@ export function createWebmuxClient(
       request<{ projects: Project[] }>("GET", "/api/projects"),
 
     createProject: (body: { name: string; description?: string; repoPath: string; agentId: string; defaultTool?: string }) =>
-      request<Project>("POST", "/api/projects", body),
+      request<{ project: Project }>("POST", "/api/projects", body).then((res) => res.project),
 
     listTasks: (projectId: string) =>
-      request<{ project: Project; tasks: Task[] }>("GET", `/api/projects/${encodeURIComponent(projectId)}/tasks`),
+      request<{ tasks: Task[] }>("GET", `/api/projects/${encodeURIComponent(projectId)}/tasks`),
 
     createTask: (projectId: string, body: { title: string; prompt?: string; priority?: number; tool?: string }) =>
-      request<Task>("POST", `/api/projects/${encodeURIComponent(projectId)}/tasks`, body),
+      request<{ task: Task }>("POST", `/api/projects/${encodeURIComponent(projectId)}/tasks`, body).then((res) => res.task),
   };
 }

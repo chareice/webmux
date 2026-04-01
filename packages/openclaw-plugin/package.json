@@ -3,11 +3,22 @@
   "version": "0.1.0",
   "type": "module",
   "description": "OpenClaw plugin for Webmux remote coding",
-  "main": "index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "skills"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
   "peerDependencies": {
     "openclaw": ">=2026.0.0"
   },
   "openclaw": {
-    "extensions": ["./index.ts"]
+    "extensions": ["./dist/index.js"]
   }
 }
