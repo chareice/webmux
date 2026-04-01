@@ -1,6 +1,7 @@
 import { readConfig } from "./src/config.js";
 import { createWebmuxClient } from "./src/api-client.js";
 import { registerAgentTools } from "./src/tools/agents.js";
+import { registerThreadTools } from "./src/tools/threads.js";
 
 export default function register(api: any) {
   const config = readConfig(api.pluginConfig ?? {});
@@ -13,4 +14,5 @@ export default function register(api: any) {
   const client = createWebmuxClient(config, api.logger ?? { debug: () => {} });
 
   registerAgentTools(api, client);
+  registerThreadTools(api, client);
 }
