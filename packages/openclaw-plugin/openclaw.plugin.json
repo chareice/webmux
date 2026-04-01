@@ -1,0 +1,31 @@
+{
+  "id": "webmux",
+  "name": "Webmux Remote Coding",
+  "description": "Run AI coding tasks on remote machines via Webmux",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "webmuxUrl": {
+        "type": "string",
+        "description": "Webmux server URL (e.g. https://webmux.example.com)"
+      },
+      "webmuxToken": {
+        "type": "string",
+        "description": "Webmux API token (wmx_...)",
+        "sensitive": true
+      },
+      "requestTimeoutMs": {
+        "type": "integer",
+        "minimum": 5000,
+        "default": 30000
+      }
+    },
+    "required": ["webmuxUrl", "webmuxToken"]
+  },
+  "uiHints": {
+    "configFields": [
+      { "key": "webmuxUrl", "label": "Server URL", "placeholder": "https://webmux.example.com" },
+      { "key": "webmuxToken", "label": "API Token", "placeholder": "wmx_..." }
+    ]
+  }
+}

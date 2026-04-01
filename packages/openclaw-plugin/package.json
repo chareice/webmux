@@ -1,0 +1,13 @@
+{
+  "name": "@webmux/openclaw-plugin",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenClaw plugin for Webmux remote coding",
+  "main": "index.ts",
+  "peerDependencies": {
+    "openclaw": ">=2026.0.0"
+  },
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  }
+}
