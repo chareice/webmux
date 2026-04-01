@@ -42,16 +42,16 @@ export function createWebmuxClient(
       request<{ agents: AgentInfo[] }>("GET", "/api/agents"),
 
     createThread: (agentId: string, body: StartRunRequest) =>
-      request<{ run: Run; turns: RunTurnDetail[] }>("POST", `/api/agents/${agentId}/threads`, body),
+      request<{ run: Run }>("POST", `/api/agents/${encodeURIComponent(agentId)}/threads`, body),
 
     getThread: (agentId: string, threadId: string) =>
-      request<{ run: Run; turns: RunTurnDetail[] }>("GET", `/api/agents/${agentId}/threads/${threadId}`),
+      request<{ run: Run; turns: RunTurnDetail[] }>("GET", `/api/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(threadId)}`),
 
     continueThread: (agentId: string, threadId: string, body: ContinueRunRequest) =>
-      request<{ run: Run; turns: RunTurnDetail[] }>("POST", `/api/agents/${agentId}/threads/${threadId}/turns`, body),
+      request<{ run: Run; turns: RunTurnDetail[] }>("POST", `/api/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(threadId)}/turns`, body),
 
     interruptThread: (agentId: string, threadId: string) =>
-      request<void>("POST", `/api/agents/${agentId}/threads/${threadId}/interrupt`, {}),
+      request<void>("POST", `/api/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(threadId)}/interrupt`),
 
     listThreads: () =>
       request<{ runs: Run[] }>("GET", "/api/threads"),
@@ -63,9 +63,9 @@ export function createWebmuxClient(
       request<Project>("POST", "/api/projects", body),
 
     listTasks: (projectId: string) =>
-      request<{ project: Project; tasks: Task[] }>("GET", `/api/projects/${projectId}/tasks`),
+      request<{ project: Project; tasks: Task[] }>("GET", `/api/projects/${encodeURIComponent(projectId)}/tasks`),
 
     createTask: (projectId: string, body: { title: string; prompt?: string; priority?: number; tool?: string }) =>
-      request<Task>("POST", `/api/projects/${projectId}/tasks`, body),
+      request<Task>("POST", `/api/projects/${encodeURIComponent(projectId)}/tasks`, body),
   };
 }

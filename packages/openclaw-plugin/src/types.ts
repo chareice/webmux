@@ -115,10 +115,12 @@ export type Task = {
   status: TaskStatus;
   priority: number;
   branchName: string | null;
+  worktreePath: string | null;
   runId: string | null;
   errorMessage: string | null;
   summary: string | null;
   createdAt: number;
   updatedAt: number;
+  claimedAt: number | null;
   completedAt: number | null;
 };
