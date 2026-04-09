@@ -19,20 +19,33 @@ pub struct TerminalInfo {
 
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
     info: TerminalInfo,
     output_tx: broadcast::Sender<Vec<u8>>,
     // Ring buffer of recent output for replay to new connections
     output_buffer: Arc<Mutex<Vec<u8>>>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type")]
+pub enum TerminalEvent {
+    #[serde(rename = "created")]
+    Created { terminal: TerminalInfo },
+    #[serde(rename = "destroyed")]
+    Destroyed { id: String },
+}
+
 pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>,
+    event_tx: broadcast::Sender<TerminalEvent>,
 }
 
 impl PtyManager {
     pub fn new() -> Self {
+        let (event_tx, _) = broadcast::channel(64);
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            event_tx,
         }
     }
 
@@ -68,6 +81,12 @@ impl PtyManager {
 
         let (output_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
+
+        // Take writer before spawning reader thread
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| format!("Failed to get writer: {}", e))?;
 
         // Spawn reader thread to broadcast PTY output
         let reader = pair
@@ -105,6 +124,7 @@ impl PtyManager {
 
         let session = PtySession {
             master: pair.master,
+            writer,
             info: info.clone(),
             output_tx,
             output_buffer,
@@ -114,6 +134,10 @@ impl PtyManager {
             .lock()
             .map_err(|e| format!("Lock poisoned: {}", e))?
             .insert(id, session);
+
+        let _ = self.event_tx.send(TerminalEvent::Created {
+            terminal: info.clone(),
+        });
 
         Ok(info)
     }
@@ -133,6 +157,11 @@ impl PtyManager {
             .map_err(|e| format!("Lock poisoned: {}", e))?
             .remove(id)
             .ok_or_else(|| format!("Terminal {} not found", id))?;
+
+        let _ = self.event_tx.send(TerminalEvent::Destroyed {
+            id: id.to_string(),
+        });
+
         Ok(())
     }
 
@@ -172,14 +201,15 @@ impl PtyManager {
             .get_mut(id)
             .ok_or_else(|| format!("Terminal {} not found", id))?;
 
-        let mut writer = session
-            .master
-            .take_writer()
-            .map_err(|e| format!("Failed to get writer: {}", e))?;
-
-        writer
+        session
+            .writer
             .write_all(data)
             .map_err(|e| format!("Failed to write: {}", e))?;
+
+        session
+            .writer
+            .flush()
+            .map_err(|e| format!("Failed to flush: {}", e))?;
 
         Ok(())
     }
@@ -200,6 +230,10 @@ impl PtyManager {
         let rx = session.output_tx.subscribe();
 
         Ok((buffer, rx))
+    }
+
+    pub fn subscribe_events(&self) -> broadcast::Receiver<TerminalEvent> {
+        self.event_tx.subscribe()
     }
 }
 

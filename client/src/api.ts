@@ -35,3 +35,8 @@ export function terminalWsUrl(id: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${window.location.host}/ws/terminal/${id}`
 }
+
+export function eventsWsUrl(): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${proto}//${window.location.host}/ws/events`
+}

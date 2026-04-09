@@ -1,37 +1,66 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { TerminalInfo } from './types'
 import { Sidebar } from './components/Sidebar'
 import { Canvas } from './components/Canvas'
-import { TerminalModal } from './components/TerminalModal'
-import { createTerminal, destroyTerminal, listTerminals } from './api'
+import { createTerminal, destroyTerminal, listTerminals, eventsWsUrl } from './api'
 
 export function App() {
   const [terminals, setTerminals] = useState<TerminalInfo[]>([])
-  const [expandedTerminal, setExpandedTerminal] = useState<TerminalInfo | null>(null)
+  const [maximizedId, setMaximizedId] = useState<string | null>(null)
+  const maximizedRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    maximizedRef.current = maximizedId
+  }, [maximizedId])
 
   useEffect(() => {
     listTerminals().then(setTerminals)
   }, [])
 
+  // Subscribe to server events for cross-tab sync
+  useEffect(() => {
+    const ws = new WebSocket(eventsWsUrl())
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+        if (msg.type === 'created') {
+          setTerminals(prev => {
+            if (prev.some(t => t.id === msg.terminal.id)) return prev
+            return [...prev, msg.terminal]
+          })
+        } else if (msg.type === 'destroyed') {
+          setTerminals(prev => prev.filter(t => t.id !== msg.id))
+          if (maximizedRef.current === msg.id) {
+            setMaximizedId(null)
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    ws.onclose = () => {
+      setTimeout(() => {
+        listTerminals().then(setTerminals)
+      }, 1000)
+    }
+
+    return () => ws.close()
+  }, [])
+
   const handleCreateTerminal = useCallback(async (cwd: string) => {
-    const info = await createTerminal(cwd)
-    setTerminals(prev => [...prev, info])
+    await createTerminal(cwd)
   }, [])
 
   const handleDestroyTerminal = useCallback(async (id: string) => {
     await destroyTerminal(id)
-    setTerminals(prev => prev.filter(t => t.id !== id))
-    if (expandedTerminal?.id === id) {
-      setExpandedTerminal(null)
-    }
-  }, [expandedTerminal])
-
-  const handleExpand = useCallback((terminal: TerminalInfo) => {
-    setExpandedTerminal(terminal)
   }, [])
 
-  const handleCloseModal = useCallback(() => {
-    setExpandedTerminal(null)
+  const handleMaximize = useCallback((id: string) => {
+    setMaximizedId(id)
+  }, [])
+
+  const handleMinimize = useCallback(() => {
+    setMaximizedId(null)
   }, [])
 
   return (
@@ -43,16 +72,11 @@ export function App() {
       <Sidebar onCreateTerminal={handleCreateTerminal} />
       <Canvas
         terminals={terminals}
-        onExpand={handleExpand}
+        maximizedId={maximizedId}
+        onMaximize={handleMaximize}
+        onMinimize={handleMinimize}
         onDestroy={handleDestroyTerminal}
       />
-      {expandedTerminal && (
-        <TerminalModal
-          terminal={expandedTerminal}
-          onClose={handleCloseModal}
-          onDestroy={handleDestroyTerminal}
-        />
-      )}
     </div>
   )
 }

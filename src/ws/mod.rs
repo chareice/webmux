@@ -110,6 +110,33 @@ async fn handle_socket(socket: WebSocket, terminal_id: String, state: AppState) 
     }
 }
 
+async fn events_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> Response {
+    ws.on_upgrade(move |socket| handle_events(socket, state))
+}
+
+async fn handle_events(socket: WebSocket, state: AppState) {
+    let (mut sender, _receiver) = socket.split();
+    let mut rx = state.subscribe_events();
+
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                let msg = serde_json::to_string(&event).unwrap();
+                if sender.send(Message::Text(msg.into())).await.is_err() {
+                    break;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+        }
+    }
+}
+
 pub fn router() -> Router<AppState> {
-    Router::new().route("/ws/terminal/{id}", get(ws_handler))
+    Router::new()
+        .route("/ws/terminal/{id}", get(ws_handler))
+        .route("/ws/events", get(events_handler))
 }

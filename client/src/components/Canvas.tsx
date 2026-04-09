@@ -3,11 +3,13 @@ import { TerminalCard } from './TerminalCard'
 
 interface CanvasProps {
   terminals: TerminalInfo[]
-  onExpand: (terminal: TerminalInfo) => void
+  maximizedId: string | null
+  onMaximize: (id: string) => void
+  onMinimize: () => void
   onDestroy: (id: string) => void
 }
 
-export function Canvas({ terminals, onExpand, onDestroy }: CanvasProps) {
+export function Canvas({ terminals, maximizedId, onMaximize, onMinimize, onDestroy }: CanvasProps) {
   return (
     <main style={{
       flex: 1,
@@ -40,7 +42,9 @@ export function Canvas({ terminals, onExpand, onDestroy }: CanvasProps) {
             <TerminalCard
               key={terminal.id}
               terminal={terminal}
-              onExpand={() => onExpand(terminal)}
+              maximized={maximizedId === terminal.id}
+              onMaximize={() => onMaximize(terminal.id)}
+              onMinimize={onMinimize}
               onDestroy={() => onDestroy(terminal.id)}
             />
           ))}
