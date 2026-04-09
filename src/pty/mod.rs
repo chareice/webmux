@@ -2,7 +2,11 @@ use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
+use tokio::sync::broadcast;
 use uuid::Uuid;
+
+const OUTPUT_BUFFER_SIZE: usize = 64 * 1024; // 64KB scrollback buffer
+const BROADCAST_CAPACITY: usize = 256;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TerminalInfo {
@@ -16,6 +20,9 @@ pub struct TerminalInfo {
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
     info: TerminalInfo,
+    output_tx: broadcast::Sender<Vec<u8>>,
+    // Ring buffer of recent output for replay to new connections
+    output_buffer: Arc<Mutex<Vec<u8>>>,
 }
 
 pub struct PtyManager {
@@ -48,7 +55,6 @@ impl PtyManager {
             .spawn_command(cmd)
             .map_err(|e| format!("Failed to spawn command: {}", e))?;
 
-        // Drop slave after spawning - we only need the master side
         drop(pair.slave);
 
         let id = Uuid::new_v4().to_string();
@@ -60,9 +66,48 @@ impl PtyManager {
             rows,
         };
 
+        let (output_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
+
+        // Spawn reader thread to broadcast PTY output
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| format!("Failed to get reader: {}", e))?;
+
+        let tx_clone = output_tx.clone();
+        let buf_clone = output_buffer.clone();
+        std::thread::spawn(move || {
+            let mut reader = reader;
+            let mut buf = [0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let data = buf[..n].to_vec();
+                        // Append to ring buffer
+                        {
+                            let mut buffer = buf_clone.lock().unwrap();
+                            buffer.extend_from_slice(&data);
+                            // Trim to max size
+                            if buffer.len() > OUTPUT_BUFFER_SIZE {
+                                let drain_to = buffer.len() - OUTPUT_BUFFER_SIZE;
+                                buffer.drain(..drain_to);
+                            }
+                        }
+                        // Broadcast (ignore if no receivers)
+                        let _ = tx_clone.send(data);
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
         let session = PtySession {
             master: pair.master,
             info: info.clone(),
+            output_tx,
+            output_buffer,
         };
 
         self.sessions
@@ -139,23 +184,22 @@ impl PtyManager {
         Ok(())
     }
 
-    pub fn take_reader(
-        &self,
-        id: &str,
-    ) -> Result<Box<dyn Read + Send>, String> {
-        let mut sessions = self
+    /// Subscribe to terminal output. Returns (buffered_output, receiver).
+    /// The buffered output contains all recent output for replay.
+    pub fn subscribe(&self, id: &str) -> Result<(Vec<u8>, broadcast::Receiver<Vec<u8>>), String> {
+        let sessions = self
             .sessions
             .lock()
             .map_err(|e| format!("Lock poisoned: {}", e))?;
 
         let session = sessions
-            .get_mut(id)
+            .get(id)
             .ok_or_else(|| format!("Terminal {} not found", id))?;
 
-        session
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get reader: {}", e))
+        let buffer = session.output_buffer.lock().unwrap().clone();
+        let rx = session.output_tx.subscribe();
+
+        Ok((buffer, rx))
     }
 }
 
@@ -218,22 +262,67 @@ mod tests {
     }
 
     #[test]
-    fn test_write_and_read_terminal() {
+    fn test_subscribe_and_write() {
         let manager = PtyManager::new();
         let info = manager.create_terminal("/tmp", 80, 24).unwrap();
 
-        // Get reader before writing
-        let mut reader = manager.take_reader(&info.id).unwrap();
+        let (buffer, mut rx) = manager.subscribe(&info.id).unwrap();
 
-        // Write to terminal
+        // Wait a moment for shell prompt to arrive
+        thread::sleep(Duration::from_millis(300));
+
+        // Buffer should have some shell prompt
+        let buffer2 = manager
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&info.id)
+            .unwrap()
+            .output_buffer
+            .lock()
+            .unwrap()
+            .clone();
+        assert!(!buffer2.is_empty() || !buffer.is_empty());
+
+        // Write to terminal and check broadcast
         manager
-            .write_to_terminal(&info.id, b"echo hello\n")
+            .write_to_terminal(&info.id, b"echo test\n")
             .unwrap();
 
-        // Read output (with timeout)
-        let mut buf = [0u8; 1024];
         thread::sleep(Duration::from_millis(200));
-        let n = reader.read(&mut buf).unwrap();
-        assert!(n > 0);
+
+        // Should receive something via broadcast
+        let mut received = false;
+        while let Ok(_data) = rx.try_recv() {
+            received = true;
+        }
+        assert!(received);
+    }
+
+    #[test]
+    fn test_multiple_subscribers() {
+        let manager = PtyManager::new();
+        let info = manager.create_terminal("/tmp", 80, 24).unwrap();
+
+        let (_buf1, mut rx1) = manager.subscribe(&info.id).unwrap();
+        let (_buf2, mut rx2) = manager.subscribe(&info.id).unwrap();
+
+        manager
+            .write_to_terminal(&info.id, b"echo multi\n")
+            .unwrap();
+
+        thread::sleep(Duration::from_millis(200));
+
+        // Both subscribers should receive data
+        let mut rx1_got = false;
+        let mut rx2_got = false;
+        while let Ok(_) = rx1.try_recv() {
+            rx1_got = true;
+        }
+        while let Ok(_) = rx2.try_recv() {
+            rx2_got = true;
+        }
+        assert!(rx1_got);
+        assert!(rx2_got);
     }
 }

@@ -41,8 +41,8 @@ async fn ws_handler(
 async fn handle_socket(socket: WebSocket, terminal_id: String, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
 
-    // Get reader from PTY
-    let reader = match state.take_reader(&terminal_id) {
+    // Subscribe to terminal output broadcast
+    let (buffer, mut rx) = match state.subscribe(&terminal_id) {
         Ok(r) => r,
         Err(e) => {
             let msg = serde_json::to_string(&ServerMessage::Error { message: e }).unwrap();
@@ -51,33 +51,29 @@ async fn handle_socket(socket: WebSocket, terminal_id: String, state: AppState) 
         }
     };
 
-    // Channel for PTY output -> WebSocket
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(32);
+    // Send buffered output first (replay history)
+    if !buffer.is_empty() {
+        let text = String::from_utf8_lossy(&buffer).to_string();
+        let msg = serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
+        if sender.send(Message::Text(msg.into())).await.is_err() {
+            return;
+        }
+    }
 
-    // Blocking thread to read PTY output
-    let _read_handle = std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        let mut reader = reader;
+    // Task: forward broadcast output to WebSocket
+    let send_task = tokio::spawn(async move {
         loop {
-            match std::io::Read::read(&mut reader, &mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if tx.blocking_send(buf[..n].to_vec()).is_err() {
+            match rx.recv().await {
+                Ok(data) => {
+                    let text = String::from_utf8_lossy(&data).to_string();
+                    let msg =
+                        serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
+                    if sender.send(Message::Text(msg.into())).await.is_err() {
                         break;
                     }
                 }
-                Err(_) => break,
-            }
-        }
-    });
-
-    // Task: forward PTY output to WebSocket
-    let send_task = tokio::spawn(async move {
-        while let Some(data) = rx.recv().await {
-            let text = String::from_utf8_lossy(&data).to_string();
-            let msg = serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
-            if sender.send(Message::Text(msg.into())).await.is_err() {
-                break;
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
             }
         }
     });
