@@ -1,0 +1,21 @@
+[package]
+name = "terminal-canvas"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+portable-pty = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+futures = "0.3"
+
+[dev-dependencies]
+tokio-tungstenite = "0.26"
+reqwest = { version = "0.12", features = ["json"] }
+tempfile = "3"
