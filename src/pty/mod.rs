@@ -23,8 +23,8 @@ struct PtySession {
     info: TerminalInfo,
     output_tx: broadcast::Sender<Vec<u8>>,
     output_buffer: Arc<Mutex<Vec<u8>>>,
-    // Virtual terminal screen for reading parsed content
     screen: Arc<Mutex<vt100::Parser>>,
+    active_client: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -34,6 +34,11 @@ pub enum TerminalEvent {
     Created { terminal: TerminalInfo },
     #[serde(rename = "destroyed")]
     Destroyed { id: String },
+    #[serde(rename = "control_changed")]
+    ControlChanged {
+        terminal_id: String,
+        active_client: Option<String>,
+    },
 }
 
 pub struct PtyManager {
@@ -169,6 +174,7 @@ impl PtyManager {
             output_tx,
             output_buffer,
             screen,
+            active_client: None,
         };
 
         self.sessions
@@ -306,6 +312,61 @@ impl PtyManager {
         Ok(lines)
     }
 
+    /// Check if a client is the active controller
+    pub fn is_active_client(&self, terminal_id: &str, client_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .ok()
+            .and_then(|s| s.get(terminal_id).map(|sess| {
+                sess.active_client.as_deref() == Some(client_id)
+            }))
+            .unwrap_or(false)
+    }
+
+    /// Get the current active client for a terminal
+    pub fn get_active_client(&self, terminal_id: &str) -> Option<String> {
+        self.sessions
+            .lock()
+            .ok()
+            .and_then(|s| s.get(terminal_id)?.active_client.clone())
+    }
+
+    /// Take control of a terminal. Returns Ok(true) if control was acquired.
+    pub fn take_control(&self, terminal_id: &str, client_id: &str) -> Result<bool, String> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {}", e))?;
+
+        let session = sessions
+            .get_mut(terminal_id)
+            .ok_or_else(|| format!("Terminal {} not found", terminal_id))?;
+
+        session.active_client = Some(client_id.to_string());
+
+        let _ = self.event_tx.send(TerminalEvent::ControlChanged {
+            terminal_id: terminal_id.to_string(),
+            active_client: Some(client_id.to_string()),
+        });
+
+        Ok(true)
+    }
+
+    /// Release control of a terminal
+    pub fn release_control(&self, terminal_id: &str, client_id: &str) {
+        if let Ok(mut sessions) = self.sessions.lock() {
+            if let Some(session) = sessions.get_mut(terminal_id) {
+                if session.active_client.as_deref() == Some(client_id) {
+                    session.active_client = None;
+                    let _ = self.event_tx.send(TerminalEvent::ControlChanged {
+                        terminal_id: terminal_id.to_string(),
+                        active_client: None,
+                    });
+                }
+            }
+        }
+    }
+
     pub fn subscribe_events(&self) -> broadcast::Receiver<TerminalEvent> {
         self.event_tx.subscribe()
     }
@@ -435,14 +496,29 @@ mod tests {
     }
 
     #[test]
+    fn test_vt100_parser_basic() {
+        let mut parser = vt100::Parser::new(24, 80, 0);
+        parser.process(b"hello world\r\n");
+        let screen = parser.screen();
+        let contents = screen.contents();
+        eprintln!("vt100 contents: '{}'", contents.trim());
+        assert!(contents.contains("hello world"), "vt100 should parse basic text");
+
+        let rows: Vec<String> = screen.rows(0, 80).map(|r| r.trim_end().to_string()).collect();
+        eprintln!("vt100 rows: {:?}", &rows[..3]);
+        assert_eq!(rows[0], "hello world");
+    }
+
+    #[test]
     fn test_read_screen() {
         let manager = PtyManager::new();
-        let info = manager.create_terminal("/tmp", 80, 24).unwrap();
+        // Use bash directly to avoid fish startup delay
+        let info = manager
+            .create_terminal_with_shell("/tmp", 80, 24, Some("/bin/bash"))
+            .unwrap();
 
-        // Wait for shell prompt
         thread::sleep(Duration::from_millis(500));
 
-        // Write a command and wait for output
         manager
             .write_to_terminal(&info.id, b"echo SCREEN_TEST_OUTPUT\n")
             .unwrap();
@@ -463,7 +539,9 @@ mod tests {
     #[test]
     fn test_read_screen_last_n_lines() {
         let manager = PtyManager::new();
-        let info = manager.create_terminal("/tmp", 80, 24).unwrap();
+        let info = manager
+            .create_terminal_with_shell("/tmp", 80, 24, Some("/bin/bash"))
+            .unwrap();
 
         thread::sleep(Duration::from_millis(500));
 

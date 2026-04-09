@@ -9,6 +9,7 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::api::AppState;
 
@@ -19,6 +20,10 @@ enum ClientMessage {
     Input { data: String },
     #[serde(rename = "resize")]
     Resize { cols: u16, rows: u16 },
+    #[serde(rename = "take_control")]
+    TakeControl,
+    #[serde(rename = "release_control")]
+    ReleaseControl,
 }
 
 #[derive(Serialize)]
@@ -28,6 +33,13 @@ enum ServerMessage {
     Output { data: String },
     #[serde(rename = "error")]
     Error { message: String },
+    #[serde(rename = "connected")]
+    Connected {
+        client_id: String,
+        active_client: Option<String>,
+    },
+    #[serde(rename = "control_changed")]
+    ControlChanged { active_client: Option<String> },
 }
 
 async fn ws_handler(
@@ -40,9 +52,10 @@ async fn ws_handler(
 
 async fn handle_socket(socket: WebSocket, terminal_id: String, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
+    let client_id = Uuid::new_v4().to_string();
 
     // Subscribe to terminal output broadcast
-    let (buffer, mut rx) = match state.subscribe(&terminal_id) {
+    let (buffer, mut output_rx) = match state.subscribe(&terminal_id) {
         Ok(r) => r,
         Err(e) => {
             let msg = serde_json::to_string(&ServerMessage::Error { message: e }).unwrap();
@@ -51,7 +64,27 @@ async fn handle_socket(socket: WebSocket, terminal_id: String, state: AppState) 
         }
     };
 
-    // Send buffered output first (replay history)
+    // Subscribe to control change events
+    let mut event_rx = state.subscribe_events();
+
+    // If no active client, first connection becomes active automatically
+    let current_active = state.get_active_client(&terminal_id);
+    if current_active.is_none() {
+        let _ = state.take_control(&terminal_id, &client_id);
+    }
+
+    // Send connection info
+    let active = state.get_active_client(&terminal_id);
+    let msg = serde_json::to_string(&ServerMessage::Connected {
+        client_id: client_id.clone(),
+        active_client: active,
+    })
+    .unwrap();
+    if sender.send(Message::Text(msg.into())).await.is_err() {
+        return;
+    }
+
+    // Send buffered output
     if !buffer.is_empty() {
         let text = String::from_utf8_lossy(&buffer).to_string();
         let msg = serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
@@ -60,27 +93,51 @@ async fn handle_socket(socket: WebSocket, terminal_id: String, state: AppState) 
         }
     }
 
-    // Task: forward broadcast output to WebSocket
+    // Task: forward PTY output + control events to WebSocket
+    let tid_send = terminal_id.clone();
     let send_task = tokio::spawn(async move {
         loop {
-            match rx.recv().await {
-                Ok(data) => {
-                    let text = String::from_utf8_lossy(&data).to_string();
-                    let msg =
-                        serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
-                    if sender.send(Message::Text(msg.into())).await.is_err() {
-                        break;
+            tokio::select! {
+                result = output_rx.recv() => {
+                    match result {
+                        Ok(data) => {
+                            let text = String::from_utf8_lossy(&data).to_string();
+                            let msg = serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
+                            if sender.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                result = event_rx.recv() => {
+                    match result {
+                        Ok(event) => {
+                            // Only forward control_changed events for this terminal
+                            if let crate::pty::TerminalEvent::ControlChanged { terminal_id: tid, active_client } = &event {
+                                if tid == &tid_send {
+                                    let msg = serde_json::to_string(&ServerMessage::ControlChanged {
+                                        active_client: active_client.clone(),
+                                    }).unwrap();
+                                    if sender.send(Message::Text(msg.into())).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    }
+                }
             }
         }
     });
 
-    // Task: forward WebSocket input to PTY
+    // Task: receive WebSocket input, enforce control
     let state_clone = state.clone();
-    let terminal_id_clone = terminal_id.clone();
+    let tid_recv = terminal_id.clone();
+    let cid_recv = client_id.clone();
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
@@ -88,12 +145,22 @@ async fn handle_socket(socket: WebSocket, terminal_id: String, state: AppState) 
                     if let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) {
                         match client_msg {
                             ClientMessage::Input { data } => {
-                                let _ = state_clone
-                                    .write_to_terminal(&terminal_id_clone, data.as_bytes());
+                                if state_clone.is_active_client(&tid_recv, &cid_recv) {
+                                    let _ = state_clone
+                                        .write_to_terminal(&tid_recv, data.as_bytes());
+                                }
                             }
                             ClientMessage::Resize { cols, rows } => {
-                                let _ = state_clone
-                                    .resize_terminal(&terminal_id_clone, cols, rows);
+                                if state_clone.is_active_client(&tid_recv, &cid_recv) {
+                                    let _ =
+                                        state_clone.resize_terminal(&tid_recv, cols, rows);
+                                }
+                            }
+                            ClientMessage::TakeControl => {
+                                let _ = state_clone.take_control(&tid_recv, &cid_recv);
+                            }
+                            ClientMessage::ReleaseControl => {
+                                state_clone.release_control(&tid_recv, &cid_recv);
                             }
                         }
                     }
@@ -108,6 +175,9 @@ async fn handle_socket(socket: WebSocket, terminal_id: String, state: AppState) 
         _ = send_task => {},
         _ = recv_task => {},
     }
+
+    // Release control when disconnecting
+    state.release_control(&terminal_id, &client_id);
 }
 
 async fn events_handler(

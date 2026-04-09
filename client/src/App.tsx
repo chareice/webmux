@@ -7,6 +7,8 @@ import { createTerminal, destroyTerminal, listTerminals, eventsWsUrl } from './a
 export function App() {
   const [terminals, setTerminals] = useState<TerminalInfo[]>([])
   const [maximizedId, setMaximizedId] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768)
+  const [isMobile] = useState(() => window.innerWidth <= 768)
   const maximizedRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -17,7 +19,6 @@ export function App() {
     listTerminals().then(setTerminals)
   }, [])
 
-  // Subscribe to server events for cross-tab sync
   useEffect(() => {
     const ws = new WebSocket(eventsWsUrl())
 
@@ -49,7 +50,8 @@ export function App() {
 
   const handleCreateTerminal = useCallback(async (cwd: string) => {
     await createTerminal(cwd)
-  }, [])
+    if (isMobile) setSidebarOpen(false)
+  }, [isMobile])
 
   const handleDestroyTerminal = useCallback(async (id: string) => {
     await destroyTerminal(id)
@@ -68,8 +70,59 @@ export function App() {
       display: 'flex',
       height: '100vh',
       width: '100vw',
+      position: 'relative',
     }}>
-      <Sidebar onCreateTerminal={handleCreateTerminal} />
+      {/* Mobile hamburger button */}
+      {isMobile && !maximizedId && (
+        <button
+          onClick={() => setSidebarOpen(prev => !prev)}
+          style={{
+            position: 'fixed',
+            top: 12,
+            left: 12,
+            zIndex: 90,
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            color: 'var(--text-primary)',
+            cursor: 'pointer',
+            fontSize: 18,
+            padding: '6px 10px',
+            lineHeight: 1,
+          }}
+        >
+          ☰
+        </button>
+      )}
+
+      {/* Sidebar backdrop on mobile */}
+      {isMobile && sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 80,
+            background: 'rgba(0, 0, 0, 0.5)',
+          }}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div style={{
+        ...(isMobile ? {
+          position: 'fixed',
+          top: 0,
+          left: sidebarOpen ? 0 : '-100%',
+          height: '100vh',
+          zIndex: 85,
+          transition: 'left 0.25s ease',
+        } : {}),
+      }}>
+        <Sidebar onCreateTerminal={handleCreateTerminal} />
+      </div>
+
+      {/* Main content */}
       <Canvas
         terminals={terminals}
         maximizedId={maximizedId}

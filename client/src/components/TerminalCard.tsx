@@ -1,8 +1,9 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { TerminalInfo } from '../types'
 import { terminalWsUrl } from '../api'
+import { TerminalToolbar } from './TerminalToolbar'
 import '@xterm/xterm/css/xterm.css'
 
 const TERM_COLS = 120
@@ -17,14 +18,18 @@ interface TerminalCardProps {
 }
 
 export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDestroy }: TerminalCardProps) {
-  // Two mount points: one for card view, one for maximized view
   const cardMountRef = useRef<HTMLDivElement>(null)
   const maxMountRef = useRef<HTMLDivElement>(null)
-  // Persistent element that xterm renders into
   const termElRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
+
+  const [clientId, setClientId] = useState<string | null>(null)
+  const [activeClient, setActiveClient] = useState<string | null>(null)
+  const [isMobile] = useState(() => window.innerWidth <= 768)
+
+  const isController = clientId != null && clientId === activeClient
 
   // Create terminal and WebSocket once on mount
   useEffect(() => {
@@ -69,8 +74,17 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
-        if (msg.type === 'output') {
-          term.write(msg.data)
+        switch (msg.type) {
+          case 'output':
+            term.write(msg.data)
+            break
+          case 'connected':
+            setClientId(msg.client_id)
+            setActiveClient(msg.active_client)
+            break
+          case 'control_changed':
+            setActiveClient(msg.active_client)
+            break
         }
       } catch { /* ignore */ }
     }
@@ -95,19 +109,17 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
     }
   }, [terminal.id])
 
-  // Move the terminal element to the right container and handle sizing
+  // Move terminal element and handle sizing based on maximized state
   useEffect(() => {
     const termEl = termElRef.current
-    const term = termRef.current
     const fit = fitRef.current
     const ws = wsRef.current
-    if (!termEl || !term || !fit) return
+    if (!termEl || !fit) return
 
     if (maximized) {
       const mount = maxMountRef.current
       if (!mount) return
 
-      // Move terminal to maximized container
       mount.appendChild(termEl)
       termEl.style.transform = ''
       termEl.style.transformOrigin = ''
@@ -125,11 +137,10 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
             }))
           }
         } catch { /* ignore */ }
-        term.focus()
+        termRef.current?.focus()
       }
 
       const timer = setTimeout(doFit, 50)
-
       const observer = new ResizeObserver(doFit)
       observer.observe(mount)
 
@@ -141,16 +152,12 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
       const mount = cardMountRef.current
       if (!mount) return
 
-      // DO NOT resize terminal or send resize to PTY.
-      // Card view is just a CSS-scaled preview. PTY stays at maximized size.
       mount.appendChild(termEl)
       termEl.style.pointerEvents = 'none'
 
-      // Calculate scale to fit the card wrapper
       const calcScale = () => {
         const wrapperW = mount.clientWidth
         const wrapperH = mount.clientHeight
-        // Get actual terminal rendered size
         const termW = termEl.scrollWidth
         const termH = termEl.scrollHeight
         if (termW > 0 && termH > 0 && wrapperW > 0) {
@@ -161,7 +168,6 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
       }
 
       const timer = setTimeout(calcScale, 100)
-
       const observer = new ResizeObserver(calcScale)
       observer.observe(mount)
 
@@ -172,9 +178,51 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
     }
   }, [maximized])
 
+  const handleTakeControl = useCallback(() => {
+    const ws = wsRef.current
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'take_control' }))
+    }
+  }, [])
+
+  const handleToolbarKey = useCallback((data: string) => {
+    const ws = wsRef.current
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data }))
+    }
+    termRef.current?.focus()
+  }, [])
+
   const handleTitleClick = useCallback(() => {
     if (!maximized) onMaximize()
   }, [maximized, onMaximize])
+
+  // Control indicator
+  const controlBadge = activeClient == null ? null : isController ? (
+    <span style={{
+      fontSize: 9,
+      color: 'var(--accent)',
+      background: 'var(--accent-dim)',
+      borderRadius: 3,
+      padding: '1px 5px',
+      marginLeft: 6,
+      flexShrink: 0,
+    }}>
+      controlling
+    </span>
+  ) : (
+    <span style={{
+      fontSize: 9,
+      color: 'var(--warning)',
+      background: 'rgba(255, 217, 61, 0.15)',
+      borderRadius: 3,
+      padding: '1px 5px',
+      marginLeft: 6,
+      flexShrink: 0,
+    }}>
+      viewing
+    </span>
+  )
 
   return (
     <>
@@ -194,14 +242,14 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
       <div
         style={maximized ? {
           position: 'fixed',
-          top: '5vh',
-          left: '5vw',
-          width: '90vw',
-          height: '90vh',
+          top: isMobile ? 0 : '5vh',
+          left: isMobile ? 0 : '5vw',
+          width: isMobile ? '100vw' : '90vw',
+          height: isMobile ? '100vh' : '90vh',
           zIndex: 100,
           background: 'var(--bg-card)',
-          borderRadius: 8,
-          border: '2px solid var(--border-active)',
+          borderRadius: isMobile ? 0 : 8,
+          border: isMobile ? 'none' : '2px solid var(--border-active)',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
@@ -234,6 +282,7 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
             alignItems: 'center',
             gap: 6,
             overflow: 'hidden',
+            minWidth: 0,
           }}>
             <span style={{
               width: 8,
@@ -251,8 +300,9 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
             }}>
               {terminal.title}
             </span>
+            {maximized && controlBadge}
           </div>
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
             {!maximized && (
               <button
                 onClick={(e) => { e.stopPropagation(); onMaximize() }}
@@ -305,7 +355,39 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
           </div>
         </div>
 
-        {/* Terminal content - two mount points, terminal moves between them */}
+        {/* Take control banner (shown when maximized and not controlling) */}
+        {maximized && !isController && activeClient != null && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            padding: '8px 12px',
+            background: 'rgba(255, 217, 61, 0.1)',
+            borderBottom: '1px solid var(--border)',
+            fontSize: 13,
+            color: 'var(--warning)',
+          }}>
+            <span>Another device is controlling this terminal</span>
+            <button
+              onClick={handleTakeControl}
+              style={{
+                background: 'var(--accent-dim)',
+                border: '1px solid var(--accent)',
+                borderRadius: 4,
+                color: 'var(--accent)',
+                cursor: 'pointer',
+                fontSize: 12,
+                padding: '4px 12px',
+                fontWeight: 600,
+              }}
+            >
+              Take Control
+            </button>
+          </div>
+        )}
+
+        {/* Terminal content */}
         {maximized ? (
           <div
             ref={maxMountRef}
@@ -320,13 +402,18 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
             ref={cardMountRef}
             style={{
               flex: 1,
-              minHeight: 160,
+              minHeight: isMobile ? 120 : 160,
               overflow: 'hidden',
               cursor: 'pointer',
               position: 'relative',
             }}
             onClick={onMaximize}
           />
+        )}
+
+        {/* Mobile toolbar (shown when maximized and controlling) */}
+        {maximized && isController && isMobile && (
+          <TerminalToolbar onKey={handleToolbarKey} />
         )}
 
         {/* Footer */}
