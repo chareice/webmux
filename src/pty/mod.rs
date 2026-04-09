@@ -22,8 +22,9 @@ struct PtySession {
     writer: Box<dyn Write + Send>,
     info: TerminalInfo,
     output_tx: broadcast::Sender<Vec<u8>>,
-    // Ring buffer of recent output for replay to new connections
     output_buffer: Arc<Mutex<Vec<u8>>>,
+    // Virtual terminal screen for reading parsed content
+    screen: Arc<Mutex<vt100::Parser>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -81,6 +82,7 @@ impl PtyManager {
 
         let (output_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
+        let screen = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, 0)));
 
         // Take writer before spawning reader thread
         let writer = pair
@@ -96,6 +98,7 @@ impl PtyManager {
 
         let tx_clone = output_tx.clone();
         let buf_clone = output_buffer.clone();
+        let screen_clone = screen.clone();
         std::thread::spawn(move || {
             let mut reader = reader;
             let mut buf = [0u8; 4096];
@@ -108,11 +111,15 @@ impl PtyManager {
                         {
                             let mut buffer = buf_clone.lock().unwrap();
                             buffer.extend_from_slice(&data);
-                            // Trim to max size
                             if buffer.len() > OUTPUT_BUFFER_SIZE {
                                 let drain_to = buffer.len() - OUTPUT_BUFFER_SIZE;
                                 buffer.drain(..drain_to);
                             }
+                        }
+                        // Feed virtual terminal screen
+                        {
+                            let mut parser = screen_clone.lock().unwrap();
+                            parser.process(&data);
                         }
                         // Broadcast (ignore if no receivers)
                         let _ = tx_clone.send(data);
@@ -128,6 +135,7 @@ impl PtyManager {
             info: info.clone(),
             output_tx,
             output_buffer,
+            screen,
         };
 
         self.sessions
@@ -230,6 +238,39 @@ impl PtyManager {
         let rx = session.output_tx.subscribe();
 
         Ok((buffer, rx))
+    }
+
+    /// Read the last N lines from the terminal screen.
+    pub fn read_screen(&self, id: &str, last_n_lines: Option<usize>) -> Result<Vec<String>, String> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {}", e))?;
+
+        let session = sessions
+            .get(id)
+            .ok_or_else(|| format!("Terminal {} not found", id))?;
+
+        let parser = session.screen.lock().unwrap();
+        let screen = parser.screen();
+        let cols = screen.size().1;
+
+        let mut lines: Vec<String> = screen
+            .rows(0, cols)
+            .map(|row| row.trim_end().to_string())
+            .collect();
+
+        // Trim trailing empty lines
+        while matches!(lines.last(), Some(l) if l.is_empty()) {
+            lines.pop();
+        }
+
+        if let Some(n) = last_n_lines {
+            let start = lines.len().saturating_sub(n);
+            lines = lines[start..].to_vec();
+        }
+
+        Ok(lines)
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<TerminalEvent> {
@@ -358,5 +399,51 @@ mod tests {
         }
         assert!(rx1_got);
         assert!(rx2_got);
+    }
+
+    #[test]
+    fn test_read_screen() {
+        let manager = PtyManager::new();
+        let info = manager.create_terminal("/tmp", 80, 24).unwrap();
+
+        // Wait for shell prompt
+        thread::sleep(Duration::from_millis(500));
+
+        // Write a command and wait for output
+        manager
+            .write_to_terminal(&info.id, b"echo SCREEN_TEST_OUTPUT\n")
+            .unwrap();
+
+        thread::sleep(Duration::from_millis(1000));
+
+        let lines = manager.read_screen(&info.id, None).unwrap();
+        assert!(!lines.is_empty(), "Screen should have content");
+
+        let content = lines.join("\n");
+        assert!(
+            content.contains("SCREEN_TEST_OUTPUT"),
+            "Screen content should contain test output, got: {}",
+            content
+        );
+    }
+
+    #[test]
+    fn test_read_screen_last_n_lines() {
+        let manager = PtyManager::new();
+        let info = manager.create_terminal("/tmp", 80, 24).unwrap();
+
+        thread::sleep(Duration::from_millis(500));
+
+        manager
+            .write_to_terminal(&info.id, b"echo line1; echo line2; echo line3\n")
+            .unwrap();
+
+        thread::sleep(Duration::from_millis(1000));
+
+        let all = manager.read_screen(&info.id, None).unwrap();
+        assert!(all.len() >= 3, "Should have at least 3 lines, got {}", all.len());
+
+        let last_2 = manager.read_screen(&info.id, Some(2)).unwrap();
+        assert_eq!(last_2.len(), 2);
     }
 }

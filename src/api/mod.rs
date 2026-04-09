@@ -70,6 +70,36 @@ async fn resize_terminal(
         .map_err(|e| (StatusCode::NOT_FOUND, e))
 }
 
+#[derive(Deserialize)]
+pub struct InputRequest {
+    pub data: String,
+}
+
+async fn write_input(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<InputRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .write_to_terminal(&id, req.data.as_bytes())
+        .map(|_| StatusCode::OK)
+        .map_err(|e| (StatusCode::NOT_FOUND, e))
+}
+
+async fn read_screen(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Vec<String>>, (StatusCode, String)> {
+    let lines = params
+        .get("lines")
+        .and_then(|s| s.parse::<usize>().ok());
+    state
+        .read_screen(&id, lines)
+        .map(Json)
+        .map_err(|e| (StatusCode::NOT_FOUND, e))
+}
+
 async fn list_directory(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Vec<DirEntry>>, (StatusCode, String)> {
@@ -114,6 +144,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/terminals", post(create_terminal))
         .route("/api/terminals/{id}", delete(destroy_terminal))
         .route("/api/terminals/{id}/resize", post(resize_terminal))
+        .route("/api/terminals/{id}/input", post(write_input))
+        .route("/api/terminals/{id}/screen", get(read_screen))
         .route("/api/fs/list", get(list_directory))
 }
 
