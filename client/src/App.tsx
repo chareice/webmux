@@ -3,13 +3,19 @@ import type { TerminalInfo } from './types'
 import { Sidebar } from './components/Sidebar'
 import { Canvas } from './components/Canvas'
 import { createTerminal, destroyTerminal, listTerminals, eventsWsUrl } from './api'
+import { useIsMobile } from './hooks'
 
 export function App() {
   const [terminals, setTerminals] = useState<TerminalInfo[]>([])
   const [maximizedId, setMaximizedId] = useState<string | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768)
-  const [isMobile] = useState(() => window.innerWidth <= 768)
+  const isMobile = useIsMobile()
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const maximizedRef = useRef<string | null>(null)
+
+  // Sync sidebar state when switching between mobile/desktop
+  useEffect(() => {
+    setSidebarOpen(!isMobile)
+  }, [isMobile])
 
   useEffect(() => {
     maximizedRef.current = maximizedId
@@ -71,6 +77,7 @@ export function App() {
       height: '100vh',
       width: '100vw',
       position: 'relative',
+      overflow: 'hidden',
     }}>
       {/* Mobile hamburger button */}
       {isMobile && !maximizedId && (
@@ -109,23 +116,25 @@ export function App() {
       )}
 
       {/* Sidebar */}
-      <div style={{
-        ...(isMobile ? {
-          position: 'fixed',
-          top: 0,
-          left: sidebarOpen ? 0 : '-100%',
-          height: '100vh',
-          zIndex: 85,
-          transition: 'left 0.25s ease',
-        } : {}),
-      }}>
-        <Sidebar onCreateTerminal={handleCreateTerminal} />
-      </div>
+      {(sidebarOpen || !isMobile) && (
+        <div style={{
+          ...(isMobile ? {
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            height: '100vh',
+            zIndex: 85,
+          } : {}),
+        }}>
+          <Sidebar onCreateTerminal={handleCreateTerminal} />
+        </div>
+      )}
 
       {/* Main content */}
       <Canvas
         terminals={terminals}
         maximizedId={maximizedId}
+        isMobile={isMobile}
         onMaximize={handleMaximize}
         onMinimize={handleMinimize}
         onDestroy={handleDestroyTerminal}

@@ -1,18 +1,16 @@
-import { useState } from 'react'
 import type { TerminalInfo } from '../types'
 import { TerminalCard } from './TerminalCard'
 
 interface CanvasProps {
   terminals: TerminalInfo[]
   maximizedId: string | null
+  isMobile: boolean
   onMaximize: (id: string) => void
   onMinimize: () => void
   onDestroy: (id: string) => void
 }
 
-export function Canvas({ terminals, maximizedId, onMaximize, onMinimize, onDestroy }: CanvasProps) {
-  const [isMobile] = useState(() => window.innerWidth <= 768)
-
+export function Canvas({ terminals, maximizedId, isMobile, onMaximize, onMinimize, onDestroy }: CanvasProps) {
   return (
     <main style={{
       flex: 1,
@@ -49,6 +47,7 @@ export function Canvas({ terminals, maximizedId, onMaximize, onMinimize, onDestr
               key={terminal.id}
               terminal={terminal}
               maximized={maximizedId === terminal.id}
+              isMobile={isMobile}
               onMaximize={() => onMaximize(terminal.id)}
               onMinimize={onMinimize}
               onDestroy={() => onDestroy(terminal.id)}

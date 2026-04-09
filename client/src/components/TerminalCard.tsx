@@ -12,12 +12,13 @@ const TERM_ROWS = 36
 interface TerminalCardProps {
   terminal: TerminalInfo
   maximized: boolean
+  isMobile: boolean
   onMaximize: () => void
   onMinimize: () => void
   onDestroy: () => void
 }
 
-export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDestroy }: TerminalCardProps) {
+export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMinimize, onDestroy }: TerminalCardProps) {
   const cardMountRef = useRef<HTMLDivElement>(null)
   const maxMountRef = useRef<HTMLDivElement>(null)
   const termElRef = useRef<HTMLDivElement | null>(null)
@@ -27,7 +28,6 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
 
   const [clientId, setClientId] = useState<string | null>(null)
   const [activeClient, setActiveClient] = useState<string | null>(null)
-  const [isMobile] = useState(() => window.innerWidth <= 768)
 
   const isController = clientId != null && clientId === activeClient
 
@@ -125,6 +125,10 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
       termEl.style.transformOrigin = ''
       termEl.style.pointerEvents = ''
 
+      // Restore xterm scrollbar in maximized view
+      const viewport = termEl.querySelector('.xterm-viewport') as HTMLElement | null
+      if (viewport) viewport.style.overflow = ''
+
       const doFit = () => {
         try {
           fit.fit()
@@ -154,6 +158,10 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
 
       mount.appendChild(termEl)
       termEl.style.pointerEvents = 'none'
+
+      // Hide xterm scrollbar in card view
+      const viewport = termEl.querySelector('.xterm-viewport') as HTMLElement | null
+      if (viewport) viewport.style.overflow = 'hidden'
 
       const calcScale = () => {
         const wrapperW = mount.clientWidth
@@ -401,8 +409,7 @@ export function TerminalCard({ terminal, maximized, onMaximize, onMinimize, onDe
           <div
             ref={cardMountRef}
             style={{
-              flex: 1,
-              minHeight: isMobile ? 120 : 160,
+              aspectRatio: '5 / 3',
               overflow: 'hidden',
               cursor: 'pointer',
               position: 'relative',
