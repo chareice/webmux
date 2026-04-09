@@ -19,6 +19,7 @@ pub struct CreateTerminalRequest {
     pub cols: u16,
     #[serde(default = "default_rows")]
     pub rows: u16,
+    pub shell: Option<String>,
 }
 
 fn default_cols() -> u16 {
@@ -44,7 +45,7 @@ async fn create_terminal(
     Json(req): Json<CreateTerminalRequest>,
 ) -> Result<Json<TerminalInfo>, (StatusCode, String)> {
     state
-        .create_terminal(&req.cwd, req.cols, req.rows)
+        .create_terminal_with_shell(&req.cwd, req.cols, req.rows, req.shell.as_deref())
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }

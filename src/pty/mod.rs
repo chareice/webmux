@@ -50,7 +50,37 @@ impl PtyManager {
         }
     }
 
+    /// Detect the user's login shell from /etc/passwd
+    fn detect_login_shell() -> String {
+        let user = std::env::var("USER").unwrap_or_default();
+        if !user.is_empty() {
+            if let Ok(output) = std::process::Command::new("getent")
+                .args(["passwd", &user])
+                .output()
+            {
+                if let Ok(line) = String::from_utf8(output.stdout) {
+                    if let Some(shell) = line.trim().rsplit(':').next() {
+                        if !shell.is_empty() && std::path::Path::new(shell).exists() {
+                            return shell.to_string();
+                        }
+                    }
+                }
+            }
+        }
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    }
+
     pub fn create_terminal(&self, cwd: &str, cols: u16, rows: u16) -> Result<TerminalInfo, String> {
+        self.create_terminal_with_shell(cwd, cols, rows, None)
+    }
+
+    pub fn create_terminal_with_shell(
+        &self,
+        cwd: &str,
+        cols: u16,
+        rows: u16,
+        shell: Option<&str>,
+    ) -> Result<TerminalInfo, String> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
@@ -62,7 +92,10 @@ impl PtyManager {
             })
             .map_err(|e| format!("Failed to open pty: {}", e))?;
 
-        let mut cmd = CommandBuilder::new_default_prog();
+        let shell_path = shell
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| Self::detect_login_shell());
+        let mut cmd = CommandBuilder::new(&shell_path);
         cmd.cwd(cwd);
 
         pair.slave
