@@ -352,20 +352,37 @@ async fn handle_events(socket: WebSocket, device_id: String, state: AppState) {
         state.manager.register_device(&device_id);
     }
 
-    let (mut sender, _receiver) = socket.split();
+    let (mut sender, mut receiver) = socket.split();
     let mut rx = state.manager.subscribe_events();
 
-    loop {
-        match rx.recv().await {
-            Ok(event) => {
-                let msg = serde_json::to_string(&event).unwrap();
-                if sender.send(Message::Text(msg.into())).await.is_err() {
-                    break;
+    // Task: forward events to browser
+    let send_task = tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let msg = serde_json::to_string(&event).unwrap();
+                    if sender.send(Message::Text(msg.into())).await.is_err() {
+                        break;
+                    }
                 }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
             }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
         }
+    });
+
+    // Task: detect client disconnect
+    let recv_task = tokio::spawn(async move {
+        while let Some(Ok(msg)) = receiver.next().await {
+            if matches!(msg, Message::Close(_)) {
+                break;
+            }
+        }
+    });
+
+    tokio::select! {
+        _ = send_task => {},
+        _ = recv_task => {},
     }
 
     if !device_id.is_empty() {
