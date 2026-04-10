@@ -13,6 +13,7 @@ import {
   listBookmarks,
   createBookmark,
   deleteBookmark,
+  createRegistrationToken,
 } from "@/lib/api";
 
 interface SidebarProps {
@@ -512,7 +513,146 @@ function MachineSection({
   );
 }
 
+function AddMachinePanel({ onClose }: { onClose: () => void }) {
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleGenerate = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await createRegistrationToken("");
+      setToken(resp.token);
+    } catch (e: any) {
+      setError(e.message || "Failed to generate token");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    handleGenerate();
+  }, [handleGenerate]);
+
+  const hubUrl =
+    Platform.OS === "web" && typeof window !== "undefined"
+      ? window.location.origin
+      : "http://<HUB_HOST>:3000";
+
+  const command = token
+    ? `webmux-node register --hub-url ${hubUrl} --token ${token}`
+    : "";
+
+  const handleCopy = useCallback(() => {
+    if (Platform.OS === "web" && typeof navigator !== "undefined") {
+      navigator.clipboard.writeText(command).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    }
+  }, [command]);
+
+  return (
+    <View
+      style={{
+        padding: 12,
+        borderTopWidth: 1,
+        borderTopColor: "rgb(26, 58, 92)",
+        backgroundColor: "rgb(17, 42, 69)",
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 12,
+            fontWeight: "600",
+            color: "rgb(224, 232, 240)",
+          }}
+        >
+          Add Machine
+        </Text>
+        <Pressable onPress={onClose} hitSlop={6}>
+          <Text style={{ fontSize: 12, color: "rgb(74, 97, 120)" }}>
+            &#x2715;
+          </Text>
+        </Pressable>
+      </View>
+
+      {loading && (
+        <Text style={{ fontSize: 11, color: "rgb(74, 97, 120)" }}>
+          Generating token...
+        </Text>
+      )}
+
+      {error && (
+        <Text style={{ fontSize: 11, color: "rgb(255, 100, 100)" }}>
+          {error}
+        </Text>
+      )}
+
+      {token && (
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontSize: 11, color: "rgb(122, 143, 166)" }}>
+            Run this command on the target machine:
+          </Text>
+          <View
+            style={{
+              backgroundColor: "rgb(13, 33, 55)",
+              borderWidth: 1,
+              borderColor: "rgb(26, 58, 92)",
+              borderRadius: 4,
+              padding: 8,
+            }}
+          >
+            <Text
+              selectable
+              style={{
+                fontSize: 11,
+                color: "rgb(0, 212, 170)",
+                fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+              }}
+            >
+              {command}
+            </Text>
+          </View>
+          <Pressable
+            onPress={handleCopy}
+            style={{
+              backgroundColor: copied
+                ? "rgba(0, 212, 170, 0.2)"
+                : "rgba(0, 212, 170, 0.1)",
+              borderWidth: 1,
+              borderColor: "rgb(0, 212, 170)",
+              borderRadius: 4,
+              paddingVertical: 6,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontSize: 12, color: "rgb(0, 212, 170)" }}>
+              {copied ? "Copied!" : "Copy command"}
+            </Text>
+          </Pressable>
+          <Text style={{ fontSize: 10, color: "rgb(74, 97, 120)" }}>
+            Token expires in 24 hours
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
+  const [showAddMachine, setShowAddMachine] = useState(false);
+
   return (
     <View
       style={{
@@ -533,6 +673,9 @@ export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
           paddingHorizontal: 12,
           borderBottomWidth: 1,
           borderBottomColor: "rgb(26, 58, 92)",
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
         }}
       >
         <Text
@@ -546,9 +689,25 @@ export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
         >
           Machines
         </Text>
+        <Pressable
+          onPress={() => setShowAddMachine(true)}
+          hitSlop={6}
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Text
+            style={{
+              fontSize: 16,
+              color: "rgb(74, 97, 120)",
+            }}
+          >
+            +
+          </Text>
+        </Pressable>
       </View>
       <ScrollView style={{ flex: 1 }}>
-        {machines.length === 0 ? (
+        {machines.length === 0 && !showAddMachine ? (
           <View style={{ padding: 20, alignItems: "center" }}>
             <Text
               style={{
@@ -569,6 +728,9 @@ export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
           ))
         )}
       </ScrollView>
+      {showAddMachine && (
+        <AddMachinePanel onClose={() => setShowAddMachine(false)} />
+      )}
     </View>
   );
 }
