@@ -7,7 +7,7 @@ interface CanvasProps {
   isMobile: boolean
   onMaximize: (id: string) => void
   onMinimize: () => void
-  onDestroy: (id: string) => void
+  onDestroy: (terminal: TerminalInfo) => void
 }
 
 export function Canvas({ terminals, maximizedId, isMobile, onMaximize, onMinimize, onDestroy }: CanvasProps) {
@@ -50,7 +50,7 @@ export function Canvas({ terminals, maximizedId, isMobile, onMaximize, onMinimiz
               isMobile={isMobile}
               onMaximize={() => onMaximize(terminal.id)}
               onMinimize={onMinimize}
-              onDestroy={() => onDestroy(terminal.id)}
+              onDestroy={() => onDestroy(terminal)}
             />
           ))}
         </div>

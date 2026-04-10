@@ -1,18 +1,18 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { TerminalInfo } from './types'
+import type { TerminalInfo, MachineInfo } from './types'
 import { Sidebar } from './components/Sidebar'
 import { Canvas } from './components/Canvas'
-import { createTerminal, destroyTerminal, listTerminals, eventsWsUrl } from './api'
+import { createTerminal, destroyTerminal, listTerminals, listMachines, eventsWsUrl } from './api'
 import { useIsMobile } from './hooks'
 
 export function App() {
+  const [machines, setMachines] = useState<MachineInfo[]>([])
   const [terminals, setTerminals] = useState<TerminalInfo[]>([])
   const [maximizedId, setMaximizedId] = useState<string | null>(null)
   const isMobile = useIsMobile()
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const maximizedRef = useRef<string | null>(null)
 
-  // Sync sidebar state when switching between mobile/desktop
   useEffect(() => {
     setSidebarOpen(!isMobile)
   }, [isMobile])
@@ -21,32 +21,73 @@ export function App() {
     maximizedRef.current = maximizedId
   }, [maximizedId])
 
+  // Restore maximized state from URL hash
   useEffect(() => {
+    const hash = window.location.hash
+    if (hash.startsWith('#/t/')) {
+      const id = hash.slice(4)
+      if (id) setMaximizedId(id)
+    }
+  }, [])
+
+  // Handle browser back button
+  useEffect(() => {
+    const onPopState = () => {
+      const hash = window.location.hash
+      if (hash.startsWith('#/t/')) {
+        setMaximizedId(hash.slice(4))
+      } else {
+        setMaximizedId(null)
+      }
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  // Load initial data
+  useEffect(() => {
+    listMachines().then(setMachines)
     listTerminals().then(setTerminals)
   }, [])
 
+  // Events WebSocket for live updates
   useEffect(() => {
     const ws = new WebSocket(eventsWsUrl())
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
-        if (msg.type === 'created') {
-          setTerminals(prev => {
-            if (prev.some(t => t.id === msg.terminal.id)) return prev
-            return [...prev, msg.terminal]
-          })
-        } else if (msg.type === 'destroyed') {
-          setTerminals(prev => prev.filter(t => t.id !== msg.id))
-          if (maximizedRef.current === msg.id) {
-            setMaximizedId(null)
-          }
+        switch (msg.type) {
+          case 'machine_online':
+            setMachines(prev => {
+              if (prev.some(m => m.id === msg.machine.id)) return prev
+              return [...prev, msg.machine]
+            })
+            break
+          case 'machine_offline':
+            setMachines(prev => prev.filter(m => m.id !== msg.machine_id))
+            // Also remove terminals from this machine
+            setTerminals(prev => prev.filter(t => t.machine_id !== msg.machine_id))
+            break
+          case 'terminal_created':
+            setTerminals(prev => {
+              if (prev.some(t => t.id === msg.terminal.id)) return prev
+              return [...prev, msg.terminal]
+            })
+            break
+          case 'terminal_destroyed':
+            setTerminals(prev => prev.filter(t => t.id !== msg.terminal_id))
+            if (maximizedRef.current === msg.terminal_id) {
+              setMaximizedId(null)
+            }
+            break
         }
       } catch { /* ignore */ }
     }
 
     ws.onclose = () => {
       setTimeout(() => {
+        listMachines().then(setMachines)
         listTerminals().then(setTerminals)
       }, 1000)
     }
@@ -54,21 +95,23 @@ export function App() {
     return () => ws.close()
   }, [])
 
-  const handleCreateTerminal = useCallback(async (cwd: string) => {
-    await createTerminal(cwd)
+  const handleCreateTerminal = useCallback(async (machineId: string, cwd: string) => {
+    await createTerminal(machineId, cwd)
     if (isMobile) setSidebarOpen(false)
   }, [isMobile])
 
-  const handleDestroyTerminal = useCallback(async (id: string) => {
-    await destroyTerminal(id)
+  const handleDestroyTerminal = useCallback(async (terminal: TerminalInfo) => {
+    await destroyTerminal(terminal.machine_id, terminal.id)
   }, [])
 
   const handleMaximize = useCallback((id: string) => {
     setMaximizedId(id)
+    window.history.pushState(null, '', `#/t/${id}`)
   }, [])
 
   const handleMinimize = useCallback(() => {
     setMaximizedId(null)
+    window.history.pushState(null, '', window.location.pathname)
   }, [])
 
   return (
@@ -126,7 +169,7 @@ export function App() {
             zIndex: 85,
           } : {}),
         }}>
-          <Sidebar onCreateTerminal={handleCreateTerminal} />
+          <Sidebar machines={machines} onCreateTerminal={handleCreateTerminal} />
         </div>
       )}
 

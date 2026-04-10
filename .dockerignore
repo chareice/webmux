@@ -1,13 +1,10 @@
-/target
+target/
 node_modules/
 packages/app/dist/
 packages/app/.expo/
 packages/app/android/
 packages/app/ios/
 packages/shared/dist/
-client/node_modules/
-client/dist/
+client/
 *.db
-*.db-shm
-*.db-wal
-.env
+.git/

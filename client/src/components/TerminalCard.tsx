@@ -1,9 +1,11 @@
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalInfo } from '../types'
 import { terminalWsUrl } from '../api'
 import { TerminalToolbar } from './TerminalToolbar'
+import { CommandBar } from './CommandBar'
 import '@xterm/xterm/css/xterm.css'
 
 const TERM_COLS = 120
@@ -26,11 +28,6 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
   const wsRef = useRef<WebSocket | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
 
-  const [clientId, setClientId] = useState<string | null>(null)
-  const [activeClient, setActiveClient] = useState<string | null>(null)
-
-  const isController = clientId != null && clientId === activeClient
-
   // Create terminal and WebSocket once on mount
   useEffect(() => {
     const termEl = document.createElement('div')
@@ -42,7 +39,11 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
       cols: TERM_COLS,
       rows: TERM_ROWS,
       fontSize: 14,
+      lineHeight: 1,
+      letterSpacing: 0,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+      allowTransparency: false,
+      rescaleOverlappingGlyphs: true,
       theme: {
         background: '#112a45',
         foreground: '#e0e8f0',
@@ -65,26 +66,24 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
     term.loadAddon(fit)
     term.open(termEl)
 
+    // WebGL renderer for better block character rendering (no gaps)
+    try {
+      term.loadAddon(new WebglAddon())
+    } catch {
+      // WebGL not available, fall back to default canvas renderer
+    }
+
     termRef.current = term
     fitRef.current = fit
 
-    const ws = new WebSocket(terminalWsUrl(terminal.id))
+    const ws = new WebSocket(terminalWsUrl(terminal.machine_id, terminal.id))
     wsRef.current = ws
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data)
-        switch (msg.type) {
-          case 'output':
-            term.write(msg.data)
-            break
-          case 'connected':
-            setClientId(msg.client_id)
-            setActiveClient(msg.active_client)
-            break
-          case 'control_changed':
-            setActiveClient(msg.active_client)
-            break
+        if (msg.type === 'output') {
+          term.write(msg.data)
         }
       } catch { /* ignore */ }
     }
@@ -103,11 +102,41 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
       }
     })
 
+    // Intercept paste events for image detection
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault()
+          e.stopPropagation()
+          const blob = item.getAsFile()
+          if (!blob) continue
+          const reader = new FileReader()
+          reader.onload = () => {
+            const base64 = (reader.result as string).split(',')[1]
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'image_paste',
+                data: base64,
+                mime: item.type,
+                filename: `tc-paste-${Date.now()}.png`,
+              }))
+            }
+          }
+          reader.readAsDataURL(blob)
+          return
+        }
+      }
+    }
+    termEl.addEventListener('paste', handlePaste)
+
     return () => {
+      termEl.removeEventListener('paste', handlePaste)
       ws.close()
       term.dispose()
     }
-  }, [terminal.id])
+  }, [terminal.id, terminal.machine_id])
 
   // Move terminal element and handle sizing based on maximized state
   useEffect(() => {
@@ -125,7 +154,6 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
       termEl.style.transformOrigin = ''
       termEl.style.pointerEvents = ''
 
-      // Restore xterm scrollbar in maximized view
       const viewport = termEl.querySelector('.xterm-viewport') as HTMLElement | null
       if (viewport) viewport.style.overflow = ''
 
@@ -159,7 +187,6 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
       mount.appendChild(termEl)
       termEl.style.pointerEvents = 'none'
 
-      // Hide xterm scrollbar in card view
       const viewport = termEl.querySelector('.xterm-viewport') as HTMLElement | null
       if (viewport) viewport.style.overflow = 'hidden'
 
@@ -186,13 +213,6 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
     }
   }, [maximized])
 
-  const handleTakeControl = useCallback(() => {
-    const ws = wsRef.current
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'take_control' }))
-    }
-  }, [])
-
   const handleToolbarKey = useCallback((data: string) => {
     const ws = wsRef.current
     if (ws?.readyState === WebSocket.OPEN) {
@@ -201,36 +221,21 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
     termRef.current?.focus()
   }, [])
 
+  const handleImagePaste = useCallback((base64: string, mime: string) => {
+    const ws = wsRef.current
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'image_paste',
+        data: base64,
+        mime,
+        filename: `tc-paste-${Date.now()}.png`,
+      }))
+    }
+  }, [])
+
   const handleTitleClick = useCallback(() => {
     if (!maximized) onMaximize()
   }, [maximized, onMaximize])
-
-  // Control indicator
-  const controlBadge = activeClient == null ? null : isController ? (
-    <span style={{
-      fontSize: 9,
-      color: 'var(--accent)',
-      background: 'var(--accent-dim)',
-      borderRadius: 3,
-      padding: '1px 5px',
-      marginLeft: 6,
-      flexShrink: 0,
-    }}>
-      controlling
-    </span>
-  ) : (
-    <span style={{
-      fontSize: 9,
-      color: 'var(--warning)',
-      background: 'rgba(255, 217, 61, 0.15)',
-      borderRadius: 3,
-      padding: '1px 5px',
-      marginLeft: 6,
-      flexShrink: 0,
-    }}>
-      viewing
-    </span>
-  )
 
   return (
     <>
@@ -308,7 +313,6 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
             }}>
               {terminal.title}
             </span>
-            {maximized && controlBadge}
           </div>
           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
             {!maximized && (
@@ -363,48 +367,21 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
           </div>
         </div>
 
-        {/* Take control banner (shown when maximized and not controlling) */}
-        {maximized && !isController && activeClient != null && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            padding: '8px 12px',
-            background: 'rgba(255, 217, 61, 0.1)',
-            borderBottom: '1px solid var(--border)',
-            fontSize: 13,
-            color: 'var(--warning)',
-          }}>
-            <span>Another device is controlling this terminal</span>
-            <button
-              onClick={handleTakeControl}
-              style={{
-                background: 'var(--accent-dim)',
-                border: '1px solid var(--accent)',
-                borderRadius: 4,
-                color: 'var(--accent)',
-                cursor: 'pointer',
-                fontSize: 12,
-                padding: '4px 12px',
-                fontWeight: 600,
-              }}
-            >
-              Take Control
-            </button>
-          </div>
-        )}
-
-        {/* Terminal content */}
+        {/* Terminal content + side panel */}
         {maximized ? (
-          <div
-            ref={maxMountRef}
-            style={{
-              flex: 1,
-              padding: 4,
-              overflow: 'hidden',
-            }}
-          />
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <div
+              ref={maxMountRef}
+              style={{
+                flex: 1,
+                padding: '8px 10px',
+                overflow: 'hidden',
+              }}
+            />
+            {!isMobile && (
+              <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
+            )}
+          </div>
         ) : (
           <div
             ref={cardMountRef}
@@ -418,8 +395,8 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
           />
         )}
 
-        {/* Mobile toolbar (shown when maximized and controlling) */}
-        {maximized && isController && isMobile && (
+        {/* Mobile toolbar */}
+        {maximized && isMobile && (
           <TerminalToolbar onKey={handleToolbarKey} />
         )}
 

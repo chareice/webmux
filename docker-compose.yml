@@ -1,0 +1,23 @@
+services:
+  server:
+    image: ghcr.io/chareice/webmux-server:main
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4317:4317"
+    volumes:
+      - webmux-data:/app/data
+    environment:
+      DATABASE_PATH: "/app/data/tc.db"
+      WEBMUX_STATIC_DIR: "/app/web"
+      JWT_SECRET: "${JWT_SECRET}"
+      GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID}"
+      GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET}"
+      WEBMUX_BASE_URL: "${WEBMUX_BASE_URL}"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+volumes:
+  webmux-data:

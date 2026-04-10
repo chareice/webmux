@@ -1,0 +1,26 @@
+[package]
+name = "tc-machine"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "webmux-node"
+path = "src/main.rs"
+
+[dependencies]
+tc-protocol = { path = "../protocol" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures = { workspace = true }
+portable-pty = { workspace = true }
+vt100 = { workspace = true }
+tokio-tungstenite = { workspace = true }
+url = "2"
+clap = { version = "4", features = ["derive"] }
+hostname = "0.4"
+dirs = { workspace = true }
+reqwest = { workspace = true }

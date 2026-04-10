@@ -1,0 +1,325 @@
+use std::sync::Arc;
+use futures::{SinkExt, StreamExt};
+use tokio::sync::mpsc;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tc_protocol::{HubToMachine, MachineToHub, DirEntry};
+
+use crate::pty::PtyManager;
+
+pub struct HubConnection {
+    pub machine_id: String,
+    pub machine_name: String,
+    pub machine_secret: String,
+    pub hub_url: String,
+    pub pty_manager: Arc<PtyManager>,
+}
+
+impl HubConnection {
+    /// Connect to the Hub and handle messages. Reconnects on failure.
+    pub async fn run(&self) {
+        loop {
+            tracing::info!("Connecting to Hub at {}", self.hub_url);
+            match self.connect_once().await {
+                Ok(()) => tracing::info!("Hub connection closed"),
+                Err(e) => tracing::error!("Hub connection error: {}", e),
+            }
+            tracing::info!("Reconnecting in 3 seconds...");
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        }
+    }
+
+    async fn connect_once(&self) -> Result<(), String> {
+        let (ws_stream, _) = connect_async(&self.hub_url)
+            .await
+            .map_err(|e| format!("WebSocket connect failed: {}", e))?;
+
+        let (mut ws_tx, mut ws_rx) = ws_stream.split();
+
+        // Send registration with real machine_secret
+        let register = MachineToHub::Register {
+            machine_id: self.machine_id.clone(),
+            machine_secret: self.machine_secret.clone(),
+            name: self.machine_name.clone(),
+            os: std::env::consts::OS.to_string(),
+            home_dir: dirs_home(),
+        };
+        let msg = serde_json::to_string(&register).unwrap();
+        ws_tx
+            .send(Message::Text(msg.into()))
+            .await
+            .map_err(|e| format!("Send failed: {}", e))?;
+
+        // Wait for AuthResult before proceeding
+        let auth_timeout = tokio::time::Duration::from_secs(10);
+        let auth_result = tokio::time::timeout(auth_timeout, async {
+            while let Some(Ok(msg)) = ws_rx.next().await {
+                if let Message::Text(text) = msg {
+                    if let Ok(hub_msg) = serde_json::from_str::<HubToMachine>(&text) {
+                        return Some(hub_msg);
+                    }
+                }
+            }
+            None
+        })
+        .await;
+
+        match auth_result {
+            Ok(Some(HubToMachine::AuthResult { ok: true, .. })) => {
+                tracing::info!("Machine authenticated successfully");
+            }
+            Ok(Some(HubToMachine::AuthResult { ok: false, message })) => {
+                return Err(format!(
+                    "Authentication failed: {}",
+                    message.unwrap_or_else(|| "unknown reason".to_string())
+                ));
+            }
+            Ok(Some(_)) => {
+                return Err("Expected AuthResult as first message from hub, got something else".to_string());
+            }
+            Ok(None) => {
+                return Err("Connection closed before receiving AuthResult".to_string());
+            }
+            Err(_) => {
+                return Err("Timed out waiting for AuthResult from hub".to_string());
+            }
+        }
+
+        // Channel for sending messages to Hub
+        let (send_tx, mut send_rx) = mpsc::unbounded_channel::<MachineToHub>();
+
+        // Spawn output forwarders for existing terminals
+        let pty = self.pty_manager.clone();
+
+        // Task: forward send_tx messages to WebSocket
+        let send_task = tokio::spawn(async move {
+            while let Some(msg) = send_rx.recv().await {
+                let text = serde_json::to_string(&msg).unwrap();
+                if ws_tx.send(Message::Text(text.into())).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // Task: receive Hub messages and handle them
+        let pty_recv = pty.clone();
+        let send_tx_recv = send_tx.clone();
+        let recv_task = tokio::spawn(async move {
+            while let Some(Ok(msg)) = ws_rx.next().await {
+                match msg {
+                    Message::Text(text) => {
+                        if let Ok(hub_msg) = serde_json::from_str::<HubToMachine>(&text) {
+                            handle_hub_message(hub_msg, &pty_recv, &send_tx_recv).await;
+                        }
+                    }
+                    Message::Ping(data) => {
+                        let _ = send_tx_recv.send(MachineToHub::Pong);
+                        // Also need to reply with pong at WS level - handled by tungstenite
+                        let _ = data; // tungstenite auto-responds to WS pings
+                    }
+                    Message::Close(_) => break,
+                    _ => {}
+                }
+            }
+        });
+
+        tokio::select! {
+            _ = send_task => {},
+            _ = recv_task => {},
+        }
+
+        Ok(())
+    }
+}
+
+async fn handle_hub_message(
+    msg: HubToMachine,
+    pty: &Arc<PtyManager>,
+    send_tx: &mpsc::UnboundedSender<MachineToHub>,
+) {
+    match msg {
+        HubToMachine::CreateTerminal { request_id, cwd, cols, rows } => {
+            let terminal_id = uuid::Uuid::new_v4().to_string();
+            match pty.create_terminal(&terminal_id, &cwd, cols, rows) {
+                Ok(info) => {
+                    // Send TerminalCreated FIRST so Hub creates output channel
+                    let _ = send_tx.send(MachineToHub::TerminalCreated {
+                        request_id,
+                        terminal_id: info.id.clone(),
+                        title: info.title,
+                        cwd: info.cwd,
+                        cols: info.cols,
+                        rows: info.rows,
+                    });
+
+                    // Then start output forwarding
+                    if let Ok((buffer, mut rx)) = pty.subscribe(&terminal_id) {
+                        let tx = send_tx.clone();
+                        let tid = terminal_id.clone();
+
+                        // Send buffered output
+                        if !buffer.is_empty() {
+                            let text = String::from_utf8_lossy(&buffer).to_string();
+                            let _ = tx.send(MachineToHub::TerminalOutput {
+                                terminal_id: tid.clone(),
+                                data: text,
+                            });
+                        }
+
+                        // Forward live output
+                        tokio::spawn(async move {
+                            loop {
+                                match rx.recv().await {
+                                    Ok(data) => {
+                                        let text = String::from_utf8_lossy(&data).to_string();
+                                        if tx.send(MachineToHub::TerminalOutput {
+                                            terminal_id: tid.clone(),
+                                            data: text,
+                                        }).is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                                }
+                            }
+                        });
+                    }
+                }
+                Err(e) => {
+                    let _ = send_tx.send(MachineToHub::TerminalCreateError {
+                        request_id,
+                        error: e,
+                    });
+                }
+            }
+        }
+        HubToMachine::DestroyTerminal { terminal_id } => {
+            let _ = pty.destroy_terminal(&terminal_id);
+            let _ = send_tx.send(MachineToHub::TerminalDestroyed { terminal_id });
+        }
+        HubToMachine::TerminalInput { terminal_id, data } => {
+            let _ = pty.write_to_terminal(&terminal_id, data.as_bytes());
+        }
+        HubToMachine::TerminalResize { terminal_id, cols, rows } => {
+            let _ = pty.resize_terminal(&terminal_id, cols, rows);
+        }
+        HubToMachine::FsListDir { request_id, path } => {
+            let resolved = expand_tilde(&path);
+            match read_directory(&resolved) {
+                Ok(entries) => {
+                    let _ = send_tx.send(MachineToHub::FsListResult { request_id, entries });
+                }
+                Err(e) => {
+                    let _ = send_tx.send(MachineToHub::FsListError { request_id, error: e });
+                }
+            }
+        }
+        HubToMachine::ImagePaste { terminal_id, data, mime, filename } => {
+            match handle_image_paste(pty, &terminal_id, &data, &mime, &filename) {
+                Ok(path) => tracing::info!("Image saved to {}, path injected to terminal {}", path, terminal_id),
+                Err(e) => tracing::error!("Image paste failed: {}", e),
+            }
+        }
+        HubToMachine::AuthResult { ok, message } => {
+            if ok {
+                tracing::info!("Machine authenticated successfully");
+            } else {
+                tracing::error!(
+                    "Machine authentication failed: {}",
+                    message.unwrap_or_default()
+                );
+            }
+        }
+        HubToMachine::Ping => {
+            let _ = send_tx.send(MachineToHub::Pong);
+        }
+    }
+}
+
+fn handle_image_paste(
+    pty: &Arc<PtyManager>,
+    terminal_id: &str,
+    base64_data: &str,
+    _mime: &str,
+    filename: &str,
+) -> Result<String, String> {
+    use std::io::Write;
+
+    // Decode base64
+    let data = base64_decode(base64_data)
+        .map_err(|e| format!("Base64 decode failed: {}", e))?;
+
+    // Save to temp file
+    let tmp_dir = std::env::temp_dir();
+    let path = tmp_dir.join(filename);
+    let mut file = std::fs::File::create(&path)
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+    file.write_all(&data)
+        .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+    let path_str = path.to_string_lossy().to_string();
+
+    // Inject path into PTY stdin with bracketed paste
+    let paste_data = format!("\x1b[200~{}\x1b[201~", path_str);
+    pty.write_to_terminal(terminal_id, paste_data.as_bytes())?;
+
+    Ok(path_str)
+}
+
+fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
+    // Simple base64 decoder
+    let table: Vec<u8> = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        .to_vec();
+    let mut output = Vec::new();
+    let mut buf: u32 = 0;
+    let mut bits: u32 = 0;
+
+    for &byte in input.as_bytes() {
+        if byte == b'=' || byte == b'\n' || byte == b'\r' || byte == b' ' {
+            continue;
+        }
+        let val = table.iter().position(|&b| b == byte)
+            .ok_or_else(|| format!("Invalid base64 char: {}", byte as char))? as u32;
+        buf = (buf << 6) | val;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            output.push((buf >> bits) as u8);
+            buf &= (1 << bits) - 1;
+        }
+    }
+    Ok(output)
+}
+
+fn read_directory(path: &str) -> Result<Vec<DirEntry>, String> {
+    let entries = std::fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))?;
+
+    let mut result: Vec<DirEntry> = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                return None;
+            }
+            let path = entry.path().to_string_lossy().to_string();
+            let is_dir = entry.file_type().ok()?.is_dir();
+            Some(DirEntry { name, path, is_dir })
+        })
+        .collect();
+
+    result.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
+    Ok(result)
+}
+
+fn expand_tilde(path: &str) -> String {
+    if path.starts_with("~/") || path == "~" {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+        path.replacen('~', &home, 1)
+    } else {
+        path.to_string()
+    }
+}
+
+fn dirs_home() -> String {
+    std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
+}

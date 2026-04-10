@@ -1,0 +1,14 @@
+{
+  "name": "webmux",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.23.0",
+  "scripts": {
+    "dev": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app dev:web",
+    "build": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app build",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}
