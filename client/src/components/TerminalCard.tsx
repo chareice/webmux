@@ -441,7 +441,8 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
               <div style={{
                 position: 'absolute',
                 top: 8,
-                right: 8,
+                left: '50%',
+                transform: 'translateX(-50%)',
                 background: 'rgba(0,0,0,0.6)',
                 padding: '4px 10px',
                 borderRadius: 4,

@@ -102,6 +102,7 @@ export function App() {
       setTimeout(() => {
         listMachines().then(setMachines)
         listTerminals().then(setTerminals)
+        getMode().then(m => setControllerDeviceId(m.controller_device_id)).catch(() => {})
       }, 1000)
     }
 
@@ -109,9 +110,10 @@ export function App() {
   }, [])
 
   const handleCreateTerminal = useCallback(async (machineId: string, cwd: string) => {
+    if (!isController) return
     await createTerminal(machineId, cwd)
     if (isMobile) setSidebarOpen(false)
-  }, [isMobile])
+  }, [isMobile, isController])
 
   const handleDestroyTerminal = useCallback(async (terminal: TerminalInfo) => {
     await destroyTerminal(terminal.machine_id, terminal.id)
