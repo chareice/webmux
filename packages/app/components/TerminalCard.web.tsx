@@ -268,80 +268,32 @@ export function TerminalCard({
           </div>
         </div>
 
-        {/* Terminal content + side panel */}
-        {maximized ? (
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
-            <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
-              <div
-                style={{
-                  flex: 1,
-                  padding: "8px 10px",
-                  overflow: "hidden",
-                }}
-              >
-                <TerminalView
-                  ref={termViewRef}
-                  machineId={terminal.machine_id}
-                  terminalId={terminal.id}
-                  wsUrl={wsUrl}
-                  isController={isController}
-                />
-              </div>
-              {!isMobile && (
-                <div style={{ width: 200, minWidth: 200, borderLeft: '1px solid rgb(26, 58, 92)' }}>
-                  <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
-                </div>
-              )}
-            </div>
-
-            {/* Mobile ExtendedKeyBar */}
-            {isMobile && (
-              <ExtendedKeyBar
-                onKey={handleToolbarKey}
-                onToggleKeyboard={() => setKeyboardVisible(v => !v)}
-                onToggleCommandBar={() => setCommandBarVisible(v => !v)}
-                keyboardVisible={keyboardVisible}
-                commandBarVisible={commandBarVisible}
-                isController={isController}
-              />
-            )}
-
-            {/* Mobile CommandBar bottom sheet */}
-            {isMobile && commandBarVisible && (
-              <div style={{
-                borderTop: '1px solid rgb(26, 58, 92)',
-                maxHeight: '40vh',
-                overflow: 'auto',
-              }}>
-                <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
-              </div>
-            )}
-          </div>
-        ) : (
-          <div
-            style={{
-              aspectRatio: "5 / 3",
-              overflow: "hidden",
-              cursor: "pointer",
-              position: "relative",
-            }}
-            onClick={onMaximize}
-          >
-            <div
-              style={{
-                width: "100%",
-                height: "100%",
-                pointerEvents: "none",
-                overflow: "hidden",
-              }}
-            >
+        {/* Terminal content + side panel — TerminalView always stays mounted */}
+        <div
+          style={maximized ? {
+            flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0,
+          } : {
+            aspectRatio: "5 / 3", overflow: "hidden", cursor: "pointer", position: "relative",
+          }}
+          onClick={maximized ? undefined : onMaximize}
+        >
+          <div style={maximized ? {
+            flex: 1, display: "flex", overflow: "hidden", minHeight: 0,
+          } : {
+            width: "100%", height: "100%", pointerEvents: "none" as const, overflow: "hidden",
+          }}>
+            <div style={maximized ? {
+              flex: 1, padding: "8px 10px", overflow: "hidden",
+            } : {
+              width: "100%", height: "100%",
+            }}>
               <TerminalView
                 ref={termViewRef}
                 machineId={terminal.machine_id}
                 terminalId={terminal.id}
                 wsUrl={wsUrl}
                 isController={isController}
-                style={{
+                style={maximized ? undefined : {
                   transform: "scale(0.35)",
                   transformOrigin: "top left",
                   width: "286%",
@@ -349,8 +301,36 @@ export function TerminalCard({
                 }}
               />
             </div>
+            {maximized && !isMobile && (
+              <div style={{ width: 200, minWidth: 200, borderLeft: '1px solid rgb(26, 58, 92)' }}>
+                <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Mobile ExtendedKeyBar */}
+          {maximized && isMobile && (
+            <ExtendedKeyBar
+              onKey={handleToolbarKey}
+              onToggleKeyboard={() => setKeyboardVisible(v => !v)}
+              onToggleCommandBar={() => setCommandBarVisible(v => !v)}
+              keyboardVisible={keyboardVisible}
+              commandBarVisible={commandBarVisible}
+              isController={isController}
+            />
+          )}
+
+          {/* Mobile CommandBar bottom sheet */}
+          {maximized && isMobile && commandBarVisible && (
+            <div style={{
+              borderTop: '1px solid rgb(26, 58, 92)',
+              maxHeight: '40vh',
+              overflow: 'auto',
+            }}>
+              <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
+            </div>
+          )}
+        </div>
 
         {/* Footer */}
         <div
