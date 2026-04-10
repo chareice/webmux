@@ -210,7 +210,7 @@ impl PtyManager {
         let resolved_cwd = resolve_cwd(cwd);
         let shell = detect_login_shell();
 
-        let status = std::process::Command::new("tmux")
+        let status = tmux_cmd()
             .args([
                 "-L",
                 TMUX_SOCKET,
@@ -234,7 +234,7 @@ impl PtyManager {
         }
 
         // Disable status bar and prefix key so tmux is transparent
-        let _ = std::process::Command::new("tmux")
+        let _ = tmux_cmd()
             .args([
                 "-L",
                 TMUX_SOCKET,
@@ -245,7 +245,7 @@ impl PtyManager {
                 "off",
             ])
             .status();
-        let _ = std::process::Command::new("tmux")
+        let _ = tmux_cmd()
             .args([
                 "-L",
                 TMUX_SOCKET,
@@ -286,6 +286,9 @@ impl PtyManager {
 
         let mut cmd = CommandBuilder::new("tmux");
         cmd.args(["-L", TMUX_SOCKET, "attach-session", "-t", &tmux_name]);
+        // Ensure TERM is set for the attach process
+        let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
+        cmd.env("TERM", term);
 
         pair.slave
             .spawn_command(cmd)
@@ -462,8 +465,17 @@ fn spawn_reader_thread(
     });
 }
 
+/// Create a tmux Command with TERM always set (systemd services lack it).
+fn tmux_cmd() -> std::process::Command {
+    let mut cmd = std::process::Command::new("tmux");
+    if std::env::var("TERM").is_err() {
+        cmd.env("TERM", "xterm-256color");
+    }
+    cmd
+}
+
 fn check_tmux_available() -> bool {
-    std::process::Command::new("tmux")
+    tmux_cmd()
         .arg("-V")
         .output()
         .map(|o| o.status.success())
@@ -490,7 +502,7 @@ fn load_sessions_file() -> HashMap<String, PersistedSession> {
 }
 
 fn tmux_list_sessions() -> Vec<String> {
-    std::process::Command::new("tmux")
+    tmux_cmd()
         .args(["-L", TMUX_SOCKET, "list-sessions", "-F", "#{session_name}"])
         .output()
         .ok()
@@ -511,14 +523,14 @@ fn tmux_list_sessions() -> Vec<String> {
 
 fn tmux_kill_session(id: &str) {
     let name = tmux_session_name(id);
-    let _ = std::process::Command::new("tmux")
+    let _ = tmux_cmd()
         .args(["-L", TMUX_SOCKET, "kill-session", "-t", &name])
         .status();
 }
 
 fn tmux_resize(id: &str, cols: u16, rows: u16) {
     let name = tmux_session_name(id);
-    let _ = std::process::Command::new("tmux")
+    let _ = tmux_cmd()
         .args([
             "-L",
             TMUX_SOCKET,
