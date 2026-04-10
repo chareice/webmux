@@ -24,7 +24,7 @@ struct Args {
     static_dir: String,
 
     /// Path to SQLite database file
-    #[arg(long, default_value = "./tc.db")]
+    #[arg(long, default_value = "./webmux.db", env = "DATABASE_PATH")]
     database: String,
 }
 
