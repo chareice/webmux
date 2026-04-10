@@ -129,4 +129,8 @@ pub enum BrowserEvent {
         machine_id: String,
         terminal_id: String,
     },
+    #[serde(rename = "mode_changed")]
+    ModeChanged {
+        controller_device_id: Option<String>,
+    },
 }

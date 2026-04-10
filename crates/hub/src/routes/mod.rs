@@ -1,6 +1,7 @@
 mod api_tokens;
 mod auth;
 mod bookmarks;
+mod mode;
 mod registration;
 mod terminals;
 
@@ -15,4 +16,5 @@ pub fn router() -> Router<AppState> {
         .merge(registration::router())
         .merge(bookmarks::router())
         .merge(api_tokens::router())
+        .merge(mode::router())
 }

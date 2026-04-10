@@ -1,7 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Mutex, oneshot};
 use tc_protocol::{BrowserEvent, DirEntry, HubToMachine, MachineInfo, MachineToHub, TerminalInfo};
+
+struct ModeState {
+    controller_device_id: Option<String>,
+    connected_devices: HashSet<String>,
+}
 
 /// Pending request waiting for a Machine response
 type PendingResponse = oneshot::Sender<Result<PendingResult, String>>;
@@ -42,6 +47,7 @@ pub struct MachineManager {
     pending: Arc<Mutex<HashMap<String, PendingResponse>>>,
     /// Browser events broadcast
     event_tx: broadcast::Sender<BrowserEvent>,
+    mode: Arc<std::sync::Mutex<ModeState>>,
 }
 
 impl MachineManager {
@@ -51,6 +57,10 @@ impl MachineManager {
             machines: Arc::new(Mutex::new(HashMap::new())),
             pending: Arc::new(Mutex::new(HashMap::new())),
             event_tx,
+            mode: Arc::new(std::sync::Mutex::new(ModeState {
+                controller_device_id: None,
+                connected_devices: HashSet::new(),
+            })),
         }
     }
 
@@ -444,5 +454,47 @@ impl MachineManager {
             }
             MachineToHub::Pong => {}
         }
+    }
+
+    pub fn register_device(&self, device_id: &str) {
+        self.mode.lock().unwrap().connected_devices.insert(device_id.to_string());
+    }
+
+    pub fn unregister_device(&self, device_id: &str) {
+        let mut mode = self.mode.lock().unwrap();
+        mode.connected_devices.remove(device_id);
+        if mode.controller_device_id.as_deref() == Some(device_id) {
+            mode.controller_device_id = None;
+            drop(mode);
+            let _ = self.event_tx.send(BrowserEvent::ModeChanged {
+                controller_device_id: None,
+            });
+        }
+    }
+
+    pub fn request_control(&self, device_id: &str) {
+        self.mode.lock().unwrap().controller_device_id = Some(device_id.to_string());
+        let _ = self.event_tx.send(BrowserEvent::ModeChanged {
+            controller_device_id: Some(device_id.to_string()),
+        });
+    }
+
+    pub fn release_control(&self, device_id: &str) {
+        let mut mode = self.mode.lock().unwrap();
+        if mode.controller_device_id.as_deref() == Some(device_id) {
+            mode.controller_device_id = None;
+            drop(mode);
+            let _ = self.event_tx.send(BrowserEvent::ModeChanged {
+                controller_device_id: None,
+            });
+        }
+    }
+
+    pub fn is_controller(&self, device_id: &str) -> bool {
+        self.mode.lock().unwrap().controller_device_id.as_deref() == Some(device_id)
+    }
+
+    pub fn get_controller(&self) -> Option<String> {
+        self.mode.lock().unwrap().controller_device_id.clone()
     }
 }

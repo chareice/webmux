@@ -23,6 +23,8 @@ use crate::AppState;
 enum ClientMessage {
     #[serde(rename = "input")]
     Input { data: String },
+    #[serde(rename = "command_input")]
+    CommandInput { data: String },
     #[serde(rename = "resize")]
     Resize { cols: u16, rows: u16 },
     #[serde(rename = "image_paste")]
@@ -62,13 +64,15 @@ async fn terminal_ws_handler(
             .unwrap();
     }
 
-    ws.on_upgrade(move |socket| handle_terminal_ws(socket, machine_id, terminal_id, state))
+    let device_id = params.get("device_id").cloned().unwrap_or_default();
+    ws.on_upgrade(move |socket| handle_terminal_ws(socket, machine_id, terminal_id, device_id, state))
 }
 
 async fn handle_terminal_ws(
     socket: WebSocket,
     machine_id: String,
     terminal_id: String,
+    device_id: String,
     state: AppState,
 ) {
     let (mut sender, mut receiver) = socket.split();
@@ -118,16 +122,25 @@ async fn handle_terminal_ws(
     let manager = state.manager.clone();
     let mid = machine_id.clone();
     let tid = terminal_id.clone();
+    let did = device_id;
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(text) => match serde_json::from_str::<ClientMessage>(&text) {
                     Ok(client_msg) => match client_msg {
                         ClientMessage::Input { data } => {
+                            if did.is_empty() || manager.is_controller(&did) {
+                                let _ = manager.send_input(&mid, &tid, &data).await;
+                            }
+                        }
+                        ClientMessage::CommandInput { data } => {
+                            // CommandInput always bypasses mode check
                             let _ = manager.send_input(&mid, &tid, &data).await;
                         }
                         ClientMessage::Resize { cols, rows } => {
-                            let _ = manager.resize_terminal(&mid, &tid, cols, rows).await;
+                            if did.is_empty() || manager.is_controller(&did) {
+                                let _ = manager.resize_terminal(&mid, &tid, cols, rows).await;
+                            }
                         }
                         ClientMessage::ImagePaste {
                             data,
@@ -330,10 +343,15 @@ async fn events_handler(
             .unwrap();
     }
 
-    ws.on_upgrade(move |socket| handle_events(socket, state))
+    let device_id = params.get("device_id").cloned().unwrap_or_default();
+    ws.on_upgrade(move |socket| handle_events(socket, device_id, state))
 }
 
-async fn handle_events(socket: WebSocket, state: AppState) {
+async fn handle_events(socket: WebSocket, device_id: String, state: AppState) {
+    if !device_id.is_empty() {
+        state.manager.register_device(&device_id);
+    }
+
     let (mut sender, _receiver) = socket.split();
     let mut rx = state.manager.subscribe_events();
 
@@ -348,6 +366,10 @@ async fn handle_events(socket: WebSocket, state: AppState) {
             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
         }
+    }
+
+    if !device_id.is_empty() {
+        state.manager.unregister_device(&device_id);
     }
 }
 
