@@ -168,7 +168,7 @@ export function TerminalCanvas() {
     <div
       style={{
         display: "flex",
-        height: "100vh",
+        height: "100dvh",
         width: "100vw",
         position: "relative",
         overflow: "hidden",
@@ -219,7 +219,7 @@ export function TerminalCanvas() {
                   position: "fixed",
                   top: 0,
                   left: 0,
-                  height: "100vh",
+                  height: "100dvh",
                   zIndex: 85,
                 }
               : {}

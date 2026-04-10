@@ -75,7 +75,7 @@ export function TerminalCard({
                 top: isMobile ? 0 : "5vh",
                 left: isMobile ? 0 : "5vw",
                 width: isMobile ? "100vw" : "90vw",
-                height: isMobile ? "100vh" : "90vh",
+                height: isMobile ? "100dvh" : "90vh",
                 zIndex: 100,
                 background: "rgb(17, 42, 69)",
                 borderRadius: isMobile ? 0 : 8,
