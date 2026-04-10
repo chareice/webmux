@@ -105,6 +105,10 @@ pub enum MachineToHub {
     },
     #[serde(rename = "fs_list_error")]
     FsListError { request_id: String, error: String },
+    #[serde(rename = "existing_terminals")]
+    ExistingTerminals {
+        terminals: Vec<TerminalInfo>,
+    },
     #[serde(rename = "pong")]
     Pong,
 }

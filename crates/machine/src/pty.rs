@@ -1,11 +1,14 @@
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
 const OUTPUT_BUFFER_SIZE: usize = 64 * 1024;
 const BROADCAST_CAPACITY: usize = 256;
+const TMUX_SOCKET: &str = "webmux";
+const TMUX_PREFIX: &str = "wmx_";
 
 struct PtySession {
     #[allow(dead_code)]
@@ -14,6 +17,7 @@ struct PtySession {
     info: SessionInfo,
     output_tx: broadcast::Sender<Vec<u8>>,
     output_buffer: Arc<Mutex<Vec<u8>>>,
+    tmux_backed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -25,140 +29,72 @@ pub struct SessionInfo {
     pub rows: u16,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct PersistedSession {
+    title: String,
+    cwd: String,
+    cols: u16,
+    rows: u16,
+}
+
 pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>,
+    use_tmux: bool,
 }
 
 impl PtyManager {
     pub fn new() -> Self {
+        let use_tmux = check_tmux_available();
+        if use_tmux {
+            tracing::info!("tmux available — terminal sessions will persist across restarts");
+        } else {
+            tracing::warn!("tmux not found — terminal sessions will NOT persist across restarts");
+        }
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            use_tmux,
         }
     }
 
-    fn detect_login_shell() -> String {
-        let user = std::env::var("USER").unwrap_or_default();
-        if !user.is_empty() {
-            if let Ok(output) = std::process::Command::new("getent")
-                .args(["passwd", &user])
-                .output()
-            {
-                if let Ok(line) = String::from_utf8(output.stdout) {
-                    if let Some(shell) = line.trim().rsplit(':').next() {
-                        if !shell.is_empty() && std::path::Path::new(shell).exists() {
-                            return shell.to_string();
-                        }
-                    }
-                }
-            }
-        }
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
-    }
+    // ── Public API ──────────────────────────────────────────────────
 
-    pub fn create_terminal(&self, id: &str, cwd: &str, cols: u16, rows: u16) -> Result<SessionInfo, String> {
-        let pty_system = native_pty_system();
-
-        let pair = pty_system
-            .openpty(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| format!("Failed to open pty: {}", e))?;
-
-        // Expand ~ to home directory
-        let resolved_cwd = if cwd.starts_with("~/") || cwd == "~" {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
-            cwd.replacen('~', &home, 1)
+    pub fn create_terminal(
+        &self,
+        id: &str,
+        cwd: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<SessionInfo, String> {
+        if self.use_tmux {
+            self.create_terminal_tmux(id, cwd, cols, rows)
         } else {
-            cwd.to_string()
-        };
-
-        let shell_path = Self::detect_login_shell();
-        let mut cmd = CommandBuilder::new(&shell_path);
-        cmd.cwd(&resolved_cwd);
-
-        pair.slave
-            .spawn_command(cmd)
-            .map_err(|e| format!("Failed to spawn command: {}", e))?;
-
-        drop(pair.slave);
-
-        let info = SessionInfo {
-            id: id.to_string(),
-            title: format!("Terminal {}", &id[..8.min(id.len())]),
-            cwd: cwd.to_string(),
-            cols,
-            rows,
-        };
-
-        let (output_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
-        let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
-
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| format!("Failed to get writer: {}", e))?;
-
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get reader: {}", e))?;
-
-        let tx_clone = output_tx.clone();
-        let buf_clone = output_buffer.clone();
-        std::thread::spawn(move || {
-            let mut reader = reader;
-            let mut buf = [0u8; 4096];
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        let data = buf[..n].to_vec();
-                        {
-                            let mut buffer = buf_clone.lock().unwrap();
-                            buffer.extend_from_slice(&data);
-                            if buffer.len() > OUTPUT_BUFFER_SIZE {
-                                let drain_to = buffer.len() - OUTPUT_BUFFER_SIZE;
-                                buffer.drain(..drain_to);
-                            }
-                        }
-                        let _ = tx_clone.send(data);
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-
-        let session = PtySession {
-            master: pair.master,
-            writer,
-            info: info.clone(),
-            output_tx,
-            output_buffer,
-        };
-
-        self.sessions
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {}", e))?
-            .insert(id.to_string(), session);
-
-        Ok(info)
+            self.create_terminal_direct(id, cwd, cols, rows)
+        }
     }
 
     pub fn destroy_terminal(&self, id: &str) -> Result<(), String> {
-        self.sessions
+        let session = self
+            .sessions
             .lock()
             .map_err(|e| format!("Lock poisoned: {}", e))?
             .remove(id)
             .ok_or_else(|| format!("Terminal {} not found", id))?;
+
+        if session.tmux_backed {
+            tmux_kill_session(id);
+            self.persist();
+        }
         Ok(())
     }
 
     pub fn resize_terminal(&self, id: &str, cols: u16, rows: u16) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().map_err(|e| format!("Lock poisoned: {}", e))?;
-        let session = sessions.get_mut(id).ok_or_else(|| format!("Terminal {} not found", id))?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {}", e))?;
+        let session = sessions
+            .get_mut(id)
+            .ok_or_else(|| format!("Terminal {} not found", id))?;
 
         session
             .master
@@ -170,25 +106,45 @@ impl PtyManager {
             })
             .map_err(|e| format!("Failed to resize: {}", e))?;
 
+        if session.tmux_backed {
+            tmux_resize(id, cols, rows);
+        }
+
         session.info.cols = cols;
         session.info.rows = rows;
         Ok(())
     }
 
     pub fn write_to_terminal(&self, id: &str, data: &[u8]) -> Result<(), String> {
-        let mut sessions = self.sessions.lock().map_err(|e| format!("Lock poisoned: {}", e))?;
-        let session = sessions.get_mut(id).ok_or_else(|| format!("Terminal {} not found", id))?;
-
-        session.writer.write_all(data).map_err(|e| format!("Failed to write: {}", e))?;
-        session.writer.flush().map_err(|e| format!("Failed to flush: {}", e))?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {}", e))?;
+        let session = sessions
+            .get_mut(id)
+            .ok_or_else(|| format!("Terminal {} not found", id))?;
+        session
+            .writer
+            .write_all(data)
+            .map_err(|e| format!("Failed to write: {}", e))?;
+        session
+            .writer
+            .flush()
+            .map_err(|e| format!("Failed to flush: {}", e))?;
         Ok(())
     }
 
-    /// Subscribe to terminal output. Returns (buffered_output, receiver).
-    pub fn subscribe(&self, id: &str) -> Result<(Vec<u8>, broadcast::Receiver<Vec<u8>>), String> {
-        let sessions = self.sessions.lock().map_err(|e| format!("Lock poisoned: {}", e))?;
-        let session = sessions.get(id).ok_or_else(|| format!("Terminal {} not found", id))?;
-
+    pub fn subscribe(
+        &self,
+        id: &str,
+    ) -> Result<(Vec<u8>, broadcast::Receiver<Vec<u8>>), String> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {}", e))?;
+        let session = sessions
+            .get(id)
+            .ok_or_else(|| format!("Terminal {} not found", id))?;
         let buffer = session.output_buffer.lock().unwrap().clone();
         let rx = session.output_tx.subscribe();
         Ok((buffer, rx))
@@ -201,5 +157,406 @@ impl PtyManager {
             .values()
             .map(|s| s.info.clone())
             .collect()
+    }
+
+    /// Recover existing tmux sessions from a previous run.
+    /// Returns recovered SessionInfo list for reporting to the hub.
+    pub fn recover_sessions(&self) -> Vec<SessionInfo> {
+        if !self.use_tmux {
+            return vec![];
+        }
+
+        let persisted = load_sessions_file();
+        if persisted.is_empty() {
+            return vec![];
+        }
+
+        let alive = tmux_list_sessions();
+        let mut recovered = vec![];
+
+        for (id, meta) in &persisted {
+            let tmux_name = tmux_session_name(id);
+            if !alive.contains(&tmux_name) {
+                tracing::info!("tmux session {} gone (shell exited), cleaning up", tmux_name);
+                continue;
+            }
+
+            match self.attach_to_tmux(id, &meta.title, &meta.cwd, meta.cols, meta.rows) {
+                Ok(info) => {
+                    tracing::info!("Recovered terminal {} (tmux {})", id, tmux_name);
+                    recovered.push(info);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to recover terminal {}: {}", id, e);
+                }
+            }
+        }
+
+        // Rewrite file to drop dead sessions
+        self.persist();
+        recovered
+    }
+
+    // ── tmux-backed terminal ────────────────────────────────────────
+
+    fn create_terminal_tmux(
+        &self,
+        id: &str,
+        cwd: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<SessionInfo, String> {
+        let tmux_name = tmux_session_name(id);
+        let resolved_cwd = resolve_cwd(cwd);
+        let shell = detect_login_shell();
+
+        let status = std::process::Command::new("tmux")
+            .args([
+                "-L",
+                TMUX_SOCKET,
+                "new-session",
+                "-d",
+                "-s",
+                &tmux_name,
+                "-x",
+                &cols.to_string(),
+                "-y",
+                &rows.to_string(),
+                "-c",
+                &resolved_cwd,
+                &shell,
+            ])
+            .status()
+            .map_err(|e| format!("Failed to run tmux: {}", e))?;
+
+        if !status.success() {
+            return Err(format!("tmux new-session failed (exit {})", status));
+        }
+
+        // Disable status bar and prefix key so tmux is transparent
+        let _ = std::process::Command::new("tmux")
+            .args([
+                "-L",
+                TMUX_SOCKET,
+                "set-option",
+                "-t",
+                &tmux_name,
+                "status",
+                "off",
+            ])
+            .status();
+        let _ = std::process::Command::new("tmux")
+            .args([
+                "-L",
+                TMUX_SOCKET,
+                "set-option",
+                "-t",
+                &tmux_name,
+                "prefix",
+                "None",
+            ])
+            .status();
+
+        let title = format!("Terminal {}", &id[..8.min(id.len())]);
+        let info = self.attach_to_tmux(id, &title, cwd, cols, rows)?;
+        self.persist();
+        Ok(info)
+    }
+
+    /// Open a PTY running `tmux attach` and wire up I/O forwarding.
+    fn attach_to_tmux(
+        &self,
+        id: &str,
+        title: &str,
+        cwd: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<SessionInfo, String> {
+        let tmux_name = tmux_session_name(id);
+        let pty_system = native_pty_system();
+
+        let pair = pty_system
+            .openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| format!("Failed to open pty: {}", e))?;
+
+        let mut cmd = CommandBuilder::new("tmux");
+        cmd.args(["-L", TMUX_SOCKET, "attach-session", "-t", &tmux_name]);
+
+        pair.slave
+            .spawn_command(cmd)
+            .map_err(|e| format!("Failed to spawn tmux attach: {}", e))?;
+        drop(pair.slave);
+
+        let info = SessionInfo {
+            id: id.to_string(),
+            title: title.to_string(),
+            cwd: cwd.to_string(),
+            cols,
+            rows,
+        };
+
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| format!("Failed to get writer: {}", e))?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| format!("Failed to get reader: {}", e))?;
+
+        let (output_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
+
+        spawn_reader_thread(reader, output_tx.clone(), output_buffer.clone());
+
+        let session = PtySession {
+            master: pair.master,
+            writer,
+            info: info.clone(),
+            output_tx,
+            output_buffer,
+            tmux_backed: true,
+        };
+
+        self.sessions
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {}", e))?
+            .insert(id.to_string(), session);
+
+        Ok(info)
+    }
+
+    // ── Direct PTY (fallback when tmux unavailable) ─────────────────
+
+    fn create_terminal_direct(
+        &self,
+        id: &str,
+        cwd: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<SessionInfo, String> {
+        let pty_system = native_pty_system();
+
+        let pair = pty_system
+            .openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| format!("Failed to open pty: {}", e))?;
+
+        let resolved_cwd = resolve_cwd(cwd);
+        let shell = detect_login_shell();
+        let mut cmd = CommandBuilder::new(&shell);
+        cmd.cwd(&resolved_cwd);
+
+        pair.slave
+            .spawn_command(cmd)
+            .map_err(|e| format!("Failed to spawn command: {}", e))?;
+        drop(pair.slave);
+
+        let info = SessionInfo {
+            id: id.to_string(),
+            title: format!("Terminal {}", &id[..8.min(id.len())]),
+            cwd: cwd.to_string(),
+            cols,
+            rows,
+        };
+
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| format!("Failed to get writer: {}", e))?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| format!("Failed to get reader: {}", e))?;
+
+        let (output_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
+
+        spawn_reader_thread(reader, output_tx.clone(), output_buffer.clone());
+
+        let session = PtySession {
+            master: pair.master,
+            writer,
+            info: info.clone(),
+            output_tx,
+            output_buffer,
+            tmux_backed: false,
+        };
+
+        self.sessions
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {}", e))?
+            .insert(id.to_string(), session);
+
+        Ok(info)
+    }
+
+    // ── Persistence ─────────────────────────────────────────────────
+
+    fn persist(&self) {
+        let sessions = self.sessions.lock().unwrap();
+        let map: HashMap<String, PersistedSession> = sessions
+            .iter()
+            .filter(|(_, s)| s.tmux_backed)
+            .map(|(id, s)| {
+                (
+                    id.clone(),
+                    PersistedSession {
+                        title: s.info.title.clone(),
+                        cwd: s.info.cwd.clone(),
+                        cols: s.info.cols,
+                        rows: s.info.rows,
+                    },
+                )
+            })
+            .collect();
+        drop(sessions);
+
+        let path = sessions_file_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(json) = serde_json::to_string_pretty(&map) {
+            let _ = std::fs::write(&path, json);
+        }
+    }
+}
+
+// ── Free helpers ────────────────────────────────────────────────────
+
+fn spawn_reader_thread(
+    reader: Box<dyn Read + Send>,
+    output_tx: broadcast::Sender<Vec<u8>>,
+    output_buffer: Arc<Mutex<Vec<u8>>>,
+) {
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let data = buf[..n].to_vec();
+                    {
+                        let mut buffer = output_buffer.lock().unwrap();
+                        buffer.extend_from_slice(&data);
+                        if buffer.len() > OUTPUT_BUFFER_SIZE {
+                            let drain_to = buffer.len() - OUTPUT_BUFFER_SIZE;
+                            buffer.drain(..drain_to);
+                        }
+                    }
+                    let _ = output_tx.send(data);
+                }
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+fn check_tmux_available() -> bool {
+    std::process::Command::new("tmux")
+        .arg("-V")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn tmux_session_name(id: &str) -> String {
+    format!("{}{}", TMUX_PREFIX, id)
+}
+
+fn sessions_file_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("webmux")
+        .join("sessions.json")
+}
+
+fn load_sessions_file() -> HashMap<String, PersistedSession> {
+    let path = sessions_file_path();
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn tmux_list_sessions() -> Vec<String> {
+    std::process::Command::new("tmux")
+        .args(["-L", TMUX_SOCKET, "list-sessions", "-F", "#{session_name}"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(
+                    String::from_utf8_lossy(&o.stdout)
+                        .lines()
+                        .map(|s| s.to_string())
+                        .collect(),
+                )
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default()
+}
+
+fn tmux_kill_session(id: &str) {
+    let name = tmux_session_name(id);
+    let _ = std::process::Command::new("tmux")
+        .args(["-L", TMUX_SOCKET, "kill-session", "-t", &name])
+        .status();
+}
+
+fn tmux_resize(id: &str, cols: u16, rows: u16) {
+    let name = tmux_session_name(id);
+    let _ = std::process::Command::new("tmux")
+        .args([
+            "-L",
+            TMUX_SOCKET,
+            "resize-window",
+            "-t",
+            &name,
+            "-x",
+            &cols.to_string(),
+            "-y",
+            &rows.to_string(),
+        ])
+        .status();
+}
+
+fn detect_login_shell() -> String {
+    let user = std::env::var("USER").unwrap_or_default();
+    if !user.is_empty() {
+        if let Ok(output) = std::process::Command::new("getent")
+            .args(["passwd", &user])
+            .output()
+        {
+            if let Ok(line) = String::from_utf8(output.stdout) {
+                if let Some(shell) = line.trim().rsplit(':').next() {
+                    if !shell.is_empty() && std::path::Path::new(shell).exists() {
+                        return shell.to_string();
+                    }
+                }
+            }
+        }
+    }
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+}
+
+fn resolve_cwd(cwd: &str) -> String {
+    if cwd.starts_with("~/") || cwd == "~" {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+        cwd.replacen('~', &home, 1)
+    } else {
+        cwd.to_string()
     }
 }

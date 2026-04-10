@@ -422,6 +422,26 @@ impl MachineManager {
                     let _ = tx.send(Err(error));
                 }
             }
+            MachineToHub::ExistingTerminals { terminals } => {
+                tracing::info!(
+                    "Machine {} reported {} existing terminals",
+                    machine_id,
+                    terminals.len()
+                );
+                let mut machines = self.machines.lock().await;
+                if let Some(conn) = machines.get_mut(machine_id) {
+                    for terminal in terminals {
+                        let (output_tx, _) = broadcast::channel(256);
+                        conn.terminals
+                            .insert(terminal.id.clone(), terminal.clone());
+                        conn.output_channels
+                            .insert(terminal.id.clone(), output_tx);
+                        let _ = self
+                            .event_tx
+                            .send(BrowserEvent::TerminalCreated { terminal });
+                    }
+                }
+            }
             MachineToHub::Pong => {}
         }
     }

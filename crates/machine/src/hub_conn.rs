@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use futures::{SinkExt, StreamExt};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tc_protocol::{HubToMachine, MachineToHub, DirEntry};
 
@@ -87,8 +87,62 @@ impl HubConnection {
         // Channel for sending messages to Hub
         let (send_tx, mut send_rx) = mpsc::unbounded_channel::<MachineToHub>();
 
-        // Spawn output forwarders for existing terminals
         let pty = self.pty_manager.clone();
+
+        // Report existing terminals (recovered from tmux after restart)
+        let existing = pty.list_terminals();
+        if !existing.is_empty() {
+            let terminals: Vec<tc_protocol::TerminalInfo> = existing
+                .iter()
+                .map(|s| tc_protocol::TerminalInfo {
+                    id: s.id.clone(),
+                    machine_id: self.machine_id.clone(),
+                    title: s.title.clone(),
+                    cwd: s.cwd.clone(),
+                    cols: s.cols,
+                    rows: s.rows,
+                })
+                .collect();
+            tracing::info!("Reporting {} existing terminals to hub", terminals.len());
+            let _ = send_tx.send(MachineToHub::ExistingTerminals { terminals });
+
+            // Re-establish output forwarding for each existing terminal
+            for info in &existing {
+                if let Ok((buffer, mut rx)) = pty.subscribe(&info.id) {
+                    let tx = send_tx.clone();
+                    let tid = info.id.clone();
+
+                    if !buffer.is_empty() {
+                        let text = String::from_utf8_lossy(&buffer).to_string();
+                        let _ = tx.send(MachineToHub::TerminalOutput {
+                            terminal_id: tid.clone(),
+                            data: text,
+                        });
+                    }
+
+                    tokio::spawn(async move {
+                        loop {
+                            match rx.recv().await {
+                                Ok(data) => {
+                                    let text = String::from_utf8_lossy(&data).to_string();
+                                    if tx
+                                        .send(MachineToHub::TerminalOutput {
+                                            terminal_id: tid.clone(),
+                                            data: text,
+                                        })
+                                        .is_err()
+                                    {
+                                        break;
+                                    }
+                                }
+                                Err(broadcast::error::RecvError::Closed) => break,
+                                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                            }
+                        }
+                    });
+                }
+            }
+        }
 
         // Task: forward send_tx messages to WebSocket
         let send_task = tokio::spawn(async move {
