@@ -4,6 +4,7 @@ use rusqlite::Connection;
 
 pub mod bookmarks;
 pub mod machines;
+pub mod settings;
 pub mod tokens;
 pub mod types;
 pub mod users;
@@ -71,6 +72,12 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             created_at INTEGER NOT NULL,
             last_used_at INTEGER,
             expires_at INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
         );
 
         CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
