@@ -151,6 +151,14 @@ impl PtyManager {
         Ok((buffer, rx))
     }
 
+    fn clear_output_buffer(&self, id: &str) {
+        if let Ok(sessions) = self.sessions.lock() {
+            if let Some(session) = sessions.get(id) {
+                session.output_buffer.lock().unwrap().clear();
+            }
+        }
+    }
+
     pub fn list_terminals(&self) -> Vec<SessionInfo> {
         self.sessions
             .lock()
@@ -234,15 +242,16 @@ impl PtyManager {
             return Err(format!("tmux new-session failed (exit {})", status));
         }
 
-        // Wait for shell to init, then clear screen so prompt starts at top
-        std::thread::sleep(std::time::Duration::from_millis(150));
-        let _ = tmux_cmd()
-            .args(["-L", TMUX_SOCKET, "send-keys", "-t", &tmux_name, "C-l"])
-            .status();
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
         let title = format!("Terminal {}", &id[..8.min(id.len())]);
         let info = self.attach_to_tmux(id, &title, cwd, cols, rows)?;
+
+        // Discard initial tmux screen capture, then trigger a fresh prompt.
+        // The browser subscribes after create_terminal returns, so it will
+        // only see the clean Ctrl+L response via live forwarding.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        self.clear_output_buffer(&info.id);
+        let _ = self.write_to_terminal(&info.id, b"\x0c");
+
         self.persist();
         Ok(info)
     }
