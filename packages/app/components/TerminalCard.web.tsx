@@ -1,8 +1,8 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { TerminalView } from "./TerminalView.web";
 import type { TerminalViewRef } from "./TerminalView.types";
-import { TerminalToolbar } from "./TerminalToolbar";
+import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { CommandBar } from "./CommandBar";
 import { terminalWsUrl } from "@/lib/api";
 
@@ -10,6 +10,8 @@ interface TerminalCardProps {
   terminal: TerminalInfo;
   maximized: boolean;
   isMobile: boolean;
+  isController: boolean;
+  deviceId: string;
   onMaximize: () => void;
   onMinimize: () => void;
   onDestroy: () => void;
@@ -19,16 +21,20 @@ export function TerminalCard({
   terminal,
   maximized,
   isMobile,
+  isController,
+  deviceId,
   onMaximize,
   onMinimize,
   onDestroy,
 }: TerminalCardProps) {
   const termViewRef = useRef<TerminalViewRef>(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [commandBarVisible, setCommandBarVisible] = useState(false);
 
   const handleToolbarKey = useCallback((data: string) => {
-    termViewRef.current?.sendInput(data);
-    termViewRef.current?.focus();
-  }, []);
+    termViewRef.current?.sendCommandInput(data);
+    if (isController) termViewRef.current?.focus();
+  }, [isController]);
 
   const handleImagePaste = useCallback((base64: string, mime: string) => {
     termViewRef.current?.sendImagePaste(base64, mime);
@@ -38,7 +44,7 @@ export function TerminalCard({
     if (!maximized) onMaximize();
   }, [maximized, onMaximize]);
 
-  const wsUrl = terminalWsUrl(terminal.machine_id, terminal.id);
+  const wsUrl = terminalWsUrl(terminal.machine_id, terminal.id, deviceId);
 
   return (
     <>
@@ -136,6 +142,21 @@ export function TerminalCard({
             >
               {terminal.title}
             </span>
+            {/* Watch mode badge */}
+            {maximized && !isController && (
+              <span style={{
+                fontSize: 10,
+                color: 'rgb(122, 143, 166)',
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgb(26, 58, 92)',
+                borderRadius: 4,
+                padding: '1px 6px',
+                marginLeft: 4,
+                flexShrink: 0,
+              }}>
+                Watch Mode
+              </span>
+            )}
           </div>
           <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
             {!maximized && (
@@ -179,24 +200,25 @@ export function TerminalCard({
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                if (!isController) return;
                 onDestroy();
               }}
               style={{
                 background: "none",
                 border: "none",
-                color: "rgb(255, 107, 107)",
-                cursor: "pointer",
+                color: isController ? "rgb(255, 107, 107)" : "rgb(74, 97, 120)",
+                cursor: isController ? "pointer" : "not-allowed",
                 fontSize: 12,
                 padding: "0 4px",
-                opacity: 0.6,
+                opacity: isController ? 0.6 : 0.3,
               }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.opacity = "1")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.opacity = "0.6")
-              }
-              title="Close terminal"
+              onMouseEnter={(e) => {
+                if (isController) e.currentTarget.style.opacity = "1";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = isController ? "0.6" : "0.3";
+              }}
+              title={isController ? "Close terminal" : "Watch mode - cannot close"}
             >
               &#x2715;
             </button>
@@ -205,26 +227,51 @@ export function TerminalCard({
 
         {/* Terminal content + side panel */}
         {maximized ? (
-          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-            <div
-              style={{
-                flex: 1,
-                padding: "8px 10px",
-                overflow: "hidden",
-              }}
-            >
-              <TerminalView
-                ref={termViewRef}
-                machineId={terminal.machine_id}
-                terminalId={terminal.id}
-                wsUrl={wsUrl}
-              />
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+              <div
+                style={{
+                  flex: 1,
+                  padding: "8px 10px",
+                  overflow: "hidden",
+                }}
+              >
+                <TerminalView
+                  ref={termViewRef}
+                  machineId={terminal.machine_id}
+                  terminalId={terminal.id}
+                  wsUrl={wsUrl}
+                  isController={isController}
+                />
+              </div>
+              {!isMobile && (
+                <div style={{ width: 200, minWidth: 200, borderLeft: '1px solid rgb(26, 58, 92)' }}>
+                  <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
+                </div>
+              )}
             </div>
-            {!isMobile && (
-              <CommandBar
-                onSend={handleToolbarKey}
-                onImagePaste={handleImagePaste}
+
+            {/* Mobile ExtendedKeyBar */}
+            {isMobile && (
+              <ExtendedKeyBar
+                onKey={handleToolbarKey}
+                onToggleKeyboard={() => setKeyboardVisible(v => !v)}
+                onToggleCommandBar={() => setCommandBarVisible(v => !v)}
+                keyboardVisible={keyboardVisible}
+                commandBarVisible={commandBarVisible}
+                isController={isController}
               />
+            )}
+
+            {/* Mobile CommandBar bottom sheet */}
+            {isMobile && commandBarVisible && (
+              <div style={{
+                borderTop: '1px solid rgb(26, 58, 92)',
+                maxHeight: '40vh',
+                overflow: 'auto',
+              }}>
+                <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
+              </div>
             )}
           </div>
         ) : (
@@ -250,6 +297,7 @@ export function TerminalCard({
                 machineId={terminal.machine_id}
                 terminalId={terminal.id}
                 wsUrl={wsUrl}
+                isController={isController}
                 style={{
                   transform: "scale(0.35)",
                   transformOrigin: "top left",
@@ -259,11 +307,6 @@ export function TerminalCard({
               />
             </div>
           </div>
-        )}
-
-        {/* Mobile toolbar */}
-        {maximized && isMobile && (
-          <TerminalToolbar onKey={handleToolbarKey} />
         )}
 
         {/* Footer */}

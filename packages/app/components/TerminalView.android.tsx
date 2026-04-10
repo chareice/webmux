@@ -162,6 +162,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             ws.send(JSON.stringify({ type: "input", data }));
           }
         },
+        sendCommandInput(data: string) {
+          const ws = wsRef.current;
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "command_input", data }));
+          }
+        },
         sendImagePaste(base64: string, mime: string) {
           const ws = wsRef.current;
           if (ws?.readyState === WebSocket.OPEN) {

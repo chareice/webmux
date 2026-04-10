@@ -17,11 +17,13 @@ const TERM_ROWS = 36;
 export type { TerminalViewRef, TerminalViewProps };
 
 export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
-  function TerminalView({ machineId, terminalId, wsUrl, onTitleChange, style }, ref) {
+  function TerminalView({ machineId, terminalId, wsUrl, isController, onTitleChange, style }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
+    const isControllerRef = useRef(isController ?? true);
+    useEffect(() => { isControllerRef.current = isController ?? true; }, [isController]);
 
     // Expose imperative API
     useImperativeHandle(
@@ -31,6 +33,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           const ws = wsRef.current;
           if (ws?.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "input", data }));
+          }
+        },
+        sendCommandInput(data: string) {
+          const ws = wsRef.current;
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "command_input", data }));
           }
         },
         sendImagePaste(base64: string, mime: string) {
@@ -108,17 +116,19 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
 
       ws.onopen = () => {
-        ws.send(
-          JSON.stringify({
-            type: "resize",
-            cols: TERM_COLS,
-            rows: TERM_ROWS,
-          }),
-        );
+        if (isControllerRef.current) {
+          ws.send(
+            JSON.stringify({
+              type: "resize",
+              cols: TERM_COLS,
+              rows: TERM_ROWS,
+            }),
+          );
+        }
       };
 
       term.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws.readyState === WebSocket.OPEN && isControllerRef.current) {
           ws.send(JSON.stringify({ type: "input", data }));
         }
       });
@@ -172,7 +182,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           fit.fit();
           const dims = fit.proposeDimensions();
           const ws = wsRef.current;
-          if (dims && ws?.readyState === WebSocket.OPEN) {
+          if (dims && ws?.readyState === WebSocket.OPEN && isControllerRef.current) {
             ws.send(
               JSON.stringify({
                 type: "resize",

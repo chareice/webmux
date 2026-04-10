@@ -87,18 +87,44 @@ export const deleteBookmark = (bookmarkId: string) =>
 export const createRegistrationToken = (name: string) =>
   request<{ token: string; expires_at: number }>("POST", "/api/machines/register-token", { name });
 
+// Device ID
+export function getDeviceId(): string {
+  if (typeof window === 'undefined') return '';
+  let id = sessionStorage.getItem('tc-device-id');
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem('tc-device-id', id);
+  }
+  return id;
+}
+
+// Mode
+export const getMode = () =>
+  request<{ controller_device_id: string | null }>("GET", "/api/mode");
+export const requestControl = (deviceId: string) =>
+  request<{ controller_device_id: string | null }>("POST", "/api/mode/control", { device_id: deviceId });
+export const releaseControl = (deviceId: string) =>
+  request<{ controller_device_id: string | null }>("POST", "/api/mode/release", { device_id: deviceId });
+
 // WebSocket URLs
 export function terminalWsUrl(
   machineId: string,
   terminalId: string,
+  deviceId?: string,
 ): string {
   const base = _baseUrl.replace(/^http/, "ws");
-  const params = _token ? `?token=${encodeURIComponent(_token)}` : "";
-  return `${base}/ws/terminal/${machineId}/${terminalId}${params}`;
+  const params = new URLSearchParams();
+  if (_token) params.set("token", _token);
+  if (deviceId) params.set("device_id", deviceId);
+  const qs = params.toString();
+  return `${base}/ws/terminal/${machineId}/${terminalId}${qs ? '?' + qs : ''}`;
 }
 
-export function eventsWsUrl(): string {
+export function eventsWsUrl(deviceId?: string): string {
   const base = _baseUrl.replace(/^http/, "ws");
-  const params = _token ? `?token=${encodeURIComponent(_token)}` : "";
-  return `${base}/ws/events${params}`;
+  const params = new URLSearchParams();
+  if (_token) params.set("token", _token);
+  if (deviceId) params.set("device_id", deviceId);
+  const qs = params.toString();
+  return `${base}/ws/events${qs ? '?' + qs : ''}`;
 }

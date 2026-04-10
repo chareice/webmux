@@ -1,14 +1,19 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import type { TerminalInfo, MachineInfo } from "@webmux/shared";
 import { Sidebar } from "./Sidebar";
 import { Canvas } from "./Canvas.web";
 import { OnboardingView } from "./OnboardingView.web";
+import { ModeIndicator } from "./ModeIndicator";
 import {
   createTerminal,
   destroyTerminal,
   listMachines,
   listTerminals,
   eventsWsUrl,
+  getDeviceId,
+  getMode,
+  requestControl,
+  releaseControl,
 } from "@/lib/api";
 import { useIsMobile } from "@/lib/hooks";
 
@@ -19,6 +24,9 @@ export function TerminalCanvas() {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const maximizedRef = useRef<string | null>(null);
+  const deviceId = useMemo(() => getDeviceId(), []);
+  const [controllerDeviceId, setControllerDeviceId] = useState<string | null>(null);
+  const isController = controllerDeviceId === deviceId;
 
   useEffect(() => {
     setSidebarOpen(!isMobile);
@@ -55,11 +63,15 @@ export function TerminalCanvas() {
   useEffect(() => {
     listMachines().then(setMachines).catch(() => {});
     listTerminals().then(setTerminals).catch(() => {});
-  }, []);
+    getMode().then(m => {
+      setControllerDeviceId(m.controller_device_id);
+      if (!m.controller_device_id) requestControl(deviceId);
+    }).catch(() => {});
+  }, [deviceId]);
 
   // Events WebSocket for live updates
   useEffect(() => {
-    const ws = new WebSocket(eventsWsUrl());
+    const ws = new WebSocket(eventsWsUrl(deviceId));
 
     ws.onmessage = (event) => {
       try {
@@ -96,6 +108,9 @@ export function TerminalCanvas() {
               setMaximizedId(null);
             }
             break;
+          case "mode_changed":
+            setControllerDeviceId(msg.controller_device_id);
+            break;
         }
       } catch {
         /* ignore */
@@ -106,19 +121,31 @@ export function TerminalCanvas() {
       setTimeout(() => {
         listMachines().then(setMachines).catch(() => {});
         listTerminals().then(setTerminals).catch(() => {});
+        getMode().then(m => {
+          setControllerDeviceId(m.controller_device_id);
+        }).catch(() => {});
       }, 1000);
     };
 
     return () => ws.close();
-  }, []);
+  }, [deviceId]);
 
   const handleCreateTerminal = useCallback(
     async (machineId: string, cwd: string) => {
+      if (!isController) return;
       await createTerminal(machineId, cwd);
       if (isMobile) setSidebarOpen(false);
     },
-    [isMobile],
+    [isMobile, isController],
   );
+
+  const handleRequestControl = useCallback(() => {
+    requestControl(deviceId);
+  }, [deviceId]);
+
+  const handleReleaseControl = useCallback(() => {
+    releaseControl(deviceId);
+  }, [deviceId]);
 
   const handleDestroyTerminal = useCallback(
     async (terminal: TerminalInfo) => {
@@ -213,11 +240,27 @@ export function TerminalCanvas() {
           terminals={terminals}
           maximizedId={maximizedId}
           isMobile={isMobile}
+          isController={isController}
+          deviceId={deviceId}
           onMaximize={handleMaximize}
           onMinimize={handleMinimize}
           onDestroy={handleDestroyTerminal}
         />
       )}
+
+      {/* Mode indicator */}
+      <div style={{
+        position: 'fixed',
+        top: 12,
+        right: 12,
+        zIndex: 200,
+      }}>
+        <ModeIndicator
+          isController={isController}
+          onRequestControl={handleRequestControl}
+          onReleaseControl={handleReleaseControl}
+        />
+      </div>
     </div>
   );
 }

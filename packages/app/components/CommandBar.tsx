@@ -100,13 +100,10 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
   return (
     <View
       style={{
-        width: 200,
-        minWidth: 200,
-        borderLeftWidth: 1,
-        borderLeftColor: "rgb(26, 58, 92)",
         backgroundColor: "rgba(0,0,0,0.2)",
         flexDirection: "column",
         overflow: "hidden",
+        flex: 1,
       }}
     >
       {/* Header */}
