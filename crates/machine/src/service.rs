@@ -22,6 +22,7 @@ Type=simple
 ExecStart={exe_path} start
 Restart=always
 RestartSec=10
+KillMode=process
 Environment=HOME={home_dir}
 Environment=PATH={path_env}
 WorkingDirectory={home_dir}
