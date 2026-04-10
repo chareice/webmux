@@ -4,7 +4,6 @@ import { TerminalView } from "./TerminalView.web";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { CommandBar } from "./CommandBar";
-import { ModeIndicator } from "./ModeIndicator";
 import { terminalWsUrl } from "@/lib/api";
 
 interface TerminalCardProps {
@@ -163,14 +162,38 @@ export function TerminalCard({
               </span>
             )}
           </div>
-          <div style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}>
-            {/* Inline ModeIndicator for mobile maximized */}
+          <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
+            {/* Inline mode controls for mobile maximized — flat style, no container */}
             {maximized && isMobile && onRequestControl && onReleaseControl && (
-              <ModeIndicator
-                isController={isController}
-                onRequestControl={onRequestControl}
-                onReleaseControl={onReleaseControl}
-              />
+              <>
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: isController ? 'rgb(0, 212, 170)' : 'rgb(74, 97, 120)',
+                  flexShrink: 0,
+                }} />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isController) onReleaseControl();
+                    else onRequestControl();
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: isController ? 'rgb(122, 143, 166)' : 'rgb(0, 212, 170)',
+                    cursor: 'pointer',
+                    fontSize: 11,
+                    padding: '2px 4px',
+                  }}
+                >
+                  {isController ? 'Release' : 'Take Control'}
+                </button>
+                <span style={{
+                  width: 1, height: 14,
+                  background: 'rgb(26, 58, 92)',
+                  flexShrink: 0,
+                }} />
+              </>
             )}
             {!maximized && (
               <button
