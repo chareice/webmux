@@ -38,6 +38,8 @@ pub enum HubToMachine {
         cwd: String,
         cols: u16,
         rows: u16,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        startup_command: Option<String>,
     },
     #[serde(rename = "destroy_terminal")]
     DestroyTerminal { terminal_id: String },

@@ -3,6 +3,7 @@ mod auth;
 mod bookmarks;
 mod mode;
 mod registration;
+mod settings;
 mod terminals;
 
 use axum::Router;
@@ -17,4 +18,5 @@ pub fn router() -> Router<AppState> {
         .merge(bookmarks::router())
         .merge(api_tokens::router())
         .merge(mode::router())
+        .merge(settings::router())
 }

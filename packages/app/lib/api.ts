@@ -106,6 +106,12 @@ export const requestControl = (deviceId: string) =>
 export const releaseControl = (deviceId: string) =>
   request<{ controller_device_id: string | null }>("POST", "/api/mode/release", { device_id: deviceId });
 
+// Settings
+export const getSettings = () =>
+  request<{ settings: Record<string, string> }>("GET", "/api/settings");
+export const updateSettings = (settings: Record<string, string>) =>
+  request<{ settings: Record<string, string> }>("PUT", "/api/settings", { settings });
+
 // WebSocket URLs
 export function terminalWsUrl(
   machineId: string,

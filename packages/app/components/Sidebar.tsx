@@ -14,6 +14,8 @@ import {
   createBookmark,
   deleteBookmark,
   createRegistrationToken,
+  getSettings,
+  updateSettings,
 } from "@/lib/api";
 
 interface SidebarProps {
@@ -650,6 +652,105 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+function SettingsSection() {
+  const [expanded, setExpanded] = useState(false);
+  const [startupCommand, setStartupCommand] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (expanded && !loaded) {
+      getSettings()
+        .then((res) => {
+          setStartupCommand(res.settings.default_startup_command || "");
+          setLoaded(true);
+        })
+        .catch(() => setLoaded(true));
+    }
+  }, [expanded, loaded]);
+
+  const handleSave = useCallback(() => {
+    updateSettings({ default_startup_command: startupCommand });
+  }, [startupCommand]);
+
+  return (
+    <View
+      style={{
+        borderTopWidth: 1,
+        borderTopColor: "rgb(26, 58, 92)",
+      }}
+    >
+      {/* Settings header */}
+      <Pressable
+        onPress={() => setExpanded((prev) => !prev)}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 13,
+            fontWeight: "600",
+            color: "rgb(122, 143, 166)",
+            textTransform: "uppercase",
+            letterSpacing: 1,
+          }}
+        >
+          Settings
+        </Text>
+        <Text
+          style={{
+            fontSize: 10,
+            color: "rgb(122, 143, 166)",
+            transform: [{ rotate: expanded ? "90deg" : "0deg" }],
+          }}
+        >
+          {"\u25B6"}
+        </Text>
+      </Pressable>
+
+      {expanded && (
+        <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+          <Text
+            style={{
+              fontSize: 11,
+              color: "rgb(122, 143, 166)",
+              marginBottom: 6,
+            }}
+          >
+            Startup Command
+          </Text>
+          <TextInput
+            value={startupCommand}
+            onChangeText={setStartupCommand}
+            onBlur={handleSave}
+            onKeyPress={(e: any) => {
+              if (e.nativeEvent?.key === "Enter") {
+                handleSave();
+              }
+            }}
+            style={{
+              backgroundColor: "rgb(17, 42, 69)",
+              borderWidth: 1,
+              borderColor: "rgb(26, 58, 92)",
+              borderRadius: 4,
+              color: "rgb(224, 232, 240)",
+              paddingVertical: 4,
+              paddingHorizontal: 8,
+              fontSize: 12,
+            }}
+            placeholder="e.g. tmux new-session"
+            placeholderTextColor="rgb(74, 97, 120)"
+          />
+        </View>
+      )}
+    </View>
+  );
+}
+
 export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
   const [showAddMachine, setShowAddMachine] = useState(false);
 
@@ -731,6 +832,7 @@ export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
       {showAddMachine && (
         <AddMachinePanel onClose={() => setShowAddMachine(false)} />
       )}
+      <SettingsSection />
     </View>
   );
 }

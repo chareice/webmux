@@ -56,9 +56,18 @@ async fn create_terminal(
     Path(machine_id): Path<String>,
     Json(req): Json<CreateTerminalRequest>,
 ) -> Result<Json<TerminalInfo>, (StatusCode, String)> {
+    let startup_command = {
+        let conn = state
+            .db
+            .get()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?;
+        crate::db::settings::get_setting(&conn, "default_startup_command")
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?
+    };
+
     state
         .manager
-        .create_terminal(&machine_id, &req.cwd, req.cols, req.rows)
+        .create_terminal(&machine_id, &req.cwd, req.cols, req.rows, startup_command)
         .await
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
