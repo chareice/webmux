@@ -1,9 +1,9 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { TerminalInfo } from '../types'
 import { terminalWsUrl } from '../api'
-import { TerminalToolbar } from './TerminalToolbar'
+import { ExtendedKeyBar } from './ExtendedKeyBar'
 import { CommandBar } from './CommandBar'
 import '@xterm/xterm/css/xterm.css'
 
@@ -21,13 +21,24 @@ interface TerminalCardProps {
   onDestroy: () => void
 }
 
-export function TerminalCard({ terminal, maximized, isMobile, isController: _isController, deviceId, onMaximize, onMinimize, onDestroy }: TerminalCardProps) {
+export function TerminalCard({ terminal, maximized, isMobile, isController, deviceId, onMaximize, onMinimize, onDestroy }: TerminalCardProps) {
   const cardMountRef = useRef<HTMLDivElement>(null)
   const maxMountRef = useRef<HTMLDivElement>(null)
   const termElRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
+
+  const [keyboardVisible, setKeyboardVisible] = useState(false)
+  const [commandBarVisible, setCommandBarVisible] = useState(false)
+
+  const handleToggleKeyboard = useCallback(() => {
+    setKeyboardVisible(prev => !prev)
+  }, [])
+
+  const handleToggleCommandBar = useCallback(() => {
+    setCommandBarVisible(prev => !prev)
+  }, [])
 
   // Create terminal and WebSocket once on mount
   useEffect(() => {
@@ -391,7 +402,14 @@ export function TerminalCard({ terminal, maximized, isMobile, isController: _isC
 
         {/* Mobile toolbar */}
         {maximized && isMobile && (
-          <TerminalToolbar onKey={handleToolbarKey} />
+          <ExtendedKeyBar
+            onKey={handleToolbarKey}
+            onToggleKeyboard={handleToggleKeyboard}
+            onToggleCommandBar={handleToggleCommandBar}
+            keyboardVisible={keyboardVisible}
+            commandBarVisible={commandBarVisible}
+            isController={isController}
+          />
         )}
 
         {/* Footer */}
