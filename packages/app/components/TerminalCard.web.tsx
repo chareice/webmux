@@ -212,8 +212,9 @@ export function TerminalCard({
                   alignItems: "center",
                 }}
                 title="Maximize"
+                aria-label="Maximize"
               >
-                <Maximize2 size={14} />
+                <Maximize2 size={14} aria-hidden />
               </button>
             )}
             {maximized && (
@@ -232,8 +233,9 @@ export function TerminalCard({
                   alignItems: "center",
                 }}
                 title="Minimize"
+                aria-label="Minimize"
               >
-                <Minimize2 size={14} />
+                <Minimize2 size={14} aria-hidden />
               </button>
             )}
             <button
@@ -259,8 +261,9 @@ export function TerminalCard({
                 e.currentTarget.style.opacity = isController ? "0.6" : "0.3";
               }}
               title={isController ? "Close terminal" : "Watch mode - cannot close"}
+              aria-label={isController ? "Close terminal" : "Watch mode - cannot close"}
             >
-              <X size={14} />
+              <X size={14} aria-hidden />
             </button>
           </div>
         </div>
