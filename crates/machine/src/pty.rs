@@ -47,6 +47,7 @@ impl PtyManager {
         let use_tmux = check_tmux_available();
         if use_tmux {
             tracing::info!("tmux available — terminal sessions will persist across restarts");
+            ensure_tmux_config();
         } else {
             tracing::warn!("tmux not found — terminal sessions will NOT persist across restarts");
         }
@@ -233,29 +234,12 @@ impl PtyManager {
             return Err(format!("tmux new-session failed (exit {})", status));
         }
 
-        // Disable status bar and prefix key so tmux is transparent
+        // Wait for shell to init, then clear screen so prompt starts at top
+        std::thread::sleep(std::time::Duration::from_millis(150));
         let _ = tmux_cmd()
-            .args([
-                "-L",
-                TMUX_SOCKET,
-                "set-option",
-                "-t",
-                &tmux_name,
-                "status",
-                "off",
-            ])
+            .args(["-L", TMUX_SOCKET, "send-keys", "-t", &tmux_name, "C-l"])
             .status();
-        let _ = tmux_cmd()
-            .args([
-                "-L",
-                TMUX_SOCKET,
-                "set-option",
-                "-t",
-                &tmux_name,
-                "prefix",
-                "None",
-            ])
-            .status();
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
         let title = format!("Terminal {}", &id[..8.min(id.len())]);
         let info = self.attach_to_tmux(id, &title, cwd, cols, rows)?;
@@ -465,13 +449,39 @@ fn spawn_reader_thread(
     });
 }
 
-/// Create a tmux Command with TERM always set (systemd services lack it).
+/// Create a tmux Command with TERM set and our config file.
 fn tmux_cmd() -> std::process::Command {
     let mut cmd = std::process::Command::new("tmux");
     if std::env::var("TERM").is_err() {
         cmd.env("TERM", "xterm-256color");
     }
+    let config = tmux_config_path();
+    if config.exists() {
+        cmd.arg("-f").arg(&config);
+    }
     cmd
+}
+
+fn tmux_config_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("webmux")
+        .join("tmux.conf")
+}
+
+/// Write a minimal tmux config so shells inside get TERM=xterm-256color.
+fn ensure_tmux_config() {
+    let path = tmux_config_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let config = "\
+set -g default-terminal \"xterm-256color\"
+set -g status off
+set -g prefix None
+unbind C-b
+";
+    let _ = std::fs::write(&path, config);
 }
 
 fn check_tmux_available() -> bool {
