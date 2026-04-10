@@ -242,6 +242,15 @@ impl PtyManager {
             return Err(format!("tmux new-session failed (exit {})", status));
         }
 
+        // Forward selected environment variables into the tmux session
+        for var in &["CLAUDE_CODE_NO_FLICKER"] {
+            if let Ok(val) = std::env::var(var) {
+                let _ = tmux_cmd()
+                    .args(["-L", TMUX_SOCKET, "set-environment", "-t", &tmux_name, var, &val])
+                    .status();
+            }
+        }
+
         let title = format!("Terminal {}", &id[..8.min(id.len())]);
         let info = self.attach_to_tmux(id, &title, cwd, cols, rows)?;
 
@@ -490,12 +499,19 @@ fn ensure_tmux_config() {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let config = "\
+    // Build config, forwarding selected env vars from the host process
+    let mut config = String::from("\
 set -g default-terminal \"xterm-256color\"
 set -g status off
 set -g prefix None
 unbind C-b
-";
+");
+    for var in &["CLAUDE_CODE_NO_FLICKER"] {
+        if let Ok(val) = std::env::var(var) {
+            config.push_str(&format!("set-environment -g {} \"{}\"\n", var, val));
+        }
+    }
+    let config = config;
     let _ = std::fs::write(&path, config);
 }
 
