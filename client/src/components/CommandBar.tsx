@@ -92,9 +92,6 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
 
   return (
     <div style={{
-      width: 200,
-      minWidth: 200,
-      borderLeft: '1px solid var(--border)',
       background: 'rgba(0,0,0,0.2)',
       display: 'flex',
       flexDirection: 'column',

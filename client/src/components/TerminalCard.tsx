@@ -36,12 +36,59 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
   const [commandBarVisible, setCommandBarVisible] = useState(false)
 
   const handleToggleKeyboard = useCallback(() => {
-    setKeyboardVisible(prev => !prev)
+    setKeyboardVisible(prev => {
+      const next = !prev
+      const textarea = termElRef.current?.querySelector('textarea')
+      if (textarea) {
+        if (next) {
+          textarea.readOnly = false
+          textarea.focus()
+        } else {
+          textarea.blur()
+        }
+      }
+      return next
+    })
   }, [])
 
   const handleToggleCommandBar = useCallback(() => {
     setCommandBarVisible(prev => !prev)
   }, [])
+
+  // On mobile, textarea is only writable when keyboard is explicitly shown AND in control mode
+  useEffect(() => {
+    if (!isMobile) return
+    const textarea = termElRef.current?.querySelector('textarea')
+    if (!textarea) return
+    textarea.readOnly = !(keyboardVisible && isController)
+  }, [isMobile, keyboardVisible, isController])
+
+  // Hide keyboard when mode changes to Watch
+  useEffect(() => {
+    if (!isController && keyboardVisible) {
+      setKeyboardVisible(false)
+      const textarea = termElRef.current?.querySelector('textarea')
+      if (textarea) textarea.blur()
+    }
+  }, [isController]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // VisualViewport resize handling for keyboard appearance
+  useEffect(() => {
+    if (!isMobile || !maximized) return
+
+    const handleViewportResize = () => {
+      const fit = fitRef.current
+      if (!fit) return
+      setTimeout(() => {
+        try { fit.fit() } catch { /* ignore */ }
+      }, 100)
+    }
+
+    window.visualViewport?.addEventListener('resize', handleViewportResize)
+    return () => {
+      window.visualViewport?.removeEventListener('resize', handleViewportResize)
+    }
+  }, [isMobile, maximized])
 
   // Create terminal and WebSocket once on mount
   useEffect(() => {
@@ -407,7 +454,9 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
               </div>
             )}
             {!isMobile && (
-              <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
+              <div style={{ width: 200, minWidth: 200, borderLeft: '1px solid var(--border)' }}>
+                <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
+              </div>
             )}
           </div>
         ) : (
@@ -421,6 +470,20 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
             }}
             onClick={onMaximize}
           />
+        )}
+
+        {/* Mobile CommandBar bottom sheet */}
+        {maximized && isMobile && commandBarVisible && (
+          <div style={{
+            maxHeight: '40vh',
+            background: 'var(--bg-secondary)',
+            borderTop: '2px solid var(--border-active)',
+            overflow: 'auto',
+            flexShrink: 0,
+            animation: 'slideUp 0.2s ease-out',
+          }}>
+            <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
+          </div>
         )}
 
         {/* Mobile toolbar */}
