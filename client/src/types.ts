@@ -19,3 +19,7 @@ export interface DirEntry {
   path: string
   is_dir: boolean
 }
+
+export interface ModeState {
+  controller_device_id: string | null
+}

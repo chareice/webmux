@@ -1,8 +1,8 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import type { TerminalInfo, MachineInfo } from './types'
 import { Sidebar } from './components/Sidebar'
 import { Canvas } from './components/Canvas'
-import { createTerminal, destroyTerminal, listTerminals, listMachines, eventsWsUrl } from './api'
+import { createTerminal, destroyTerminal, listTerminals, listMachines, eventsWsUrl, getDeviceId, getMode, requestControl } from './api'
 import { useIsMobile } from './hooks'
 
 export function App() {
@@ -12,6 +12,9 @@ export function App() {
   const isMobile = useIsMobile()
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const maximizedRef = useRef<string | null>(null)
+  const deviceId = useMemo(() => getDeviceId(), [])
+  const [controllerDeviceId, setControllerDeviceId] = useState<string | null>(null)
+  const isController = controllerDeviceId === deviceId
 
   useEffect(() => {
     setSidebarOpen(!isMobile)
@@ -48,11 +51,17 @@ export function App() {
   useEffect(() => {
     listMachines().then(setMachines)
     listTerminals().then(setTerminals)
+    getMode().then(m => {
+      setControllerDeviceId(m.controller_device_id)
+      if (!m.controller_device_id) {
+        requestControl(deviceId)
+      }
+    }).catch(() => {})
   }, [])
 
   // Events WebSocket for live updates
   useEffect(() => {
-    const ws = new WebSocket(eventsWsUrl())
+    const ws = new WebSocket(eventsWsUrl(deviceId))
 
     ws.onmessage = (event) => {
       try {
@@ -80,6 +89,9 @@ export function App() {
             if (maximizedRef.current === msg.terminal_id) {
               setMaximizedId(null)
             }
+            break
+          case 'mode_changed':
+            setControllerDeviceId(msg.controller_device_id)
             break
         }
       } catch { /* ignore */ }
@@ -178,6 +190,8 @@ export function App() {
         terminals={terminals}
         maximizedId={maximizedId}
         isMobile={isMobile}
+        isController={isController}
+        deviceId={deviceId}
         onMaximize={handleMaximize}
         onMinimize={handleMinimize}
         onDestroy={handleDestroyTerminal}

@@ -5,12 +5,14 @@ interface CanvasProps {
   terminals: TerminalInfo[]
   maximizedId: string | null
   isMobile: boolean
+  isController: boolean
+  deviceId: string
   onMaximize: (id: string) => void
   onMinimize: () => void
   onDestroy: (terminal: TerminalInfo) => void
 }
 
-export function Canvas({ terminals, maximizedId, isMobile, onMaximize, onMinimize, onDestroy }: CanvasProps) {
+export function Canvas({ terminals, maximizedId, isMobile, isController, deviceId, onMaximize, onMinimize, onDestroy }: CanvasProps) {
   return (
     <main style={{
       flex: 1,
@@ -48,6 +50,8 @@ export function Canvas({ terminals, maximizedId, isMobile, onMaximize, onMinimiz
               terminal={terminal}
               maximized={maximizedId === terminal.id}
               isMobile={isMobile}
+              isController={isController}
+              deviceId={deviceId}
               onMaximize={() => onMaximize(terminal.id)}
               onMinimize={onMinimize}
               onDestroy={() => onDestroy(terminal)}

@@ -14,12 +14,14 @@ interface TerminalCardProps {
   terminal: TerminalInfo
   maximized: boolean
   isMobile: boolean
+  isController: boolean
+  deviceId: string
   onMaximize: () => void
   onMinimize: () => void
   onDestroy: () => void
 }
 
-export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMinimize, onDestroy }: TerminalCardProps) {
+export function TerminalCard({ terminal, maximized, isMobile, isController: _isController, deviceId, onMaximize, onMinimize, onDestroy }: TerminalCardProps) {
   const cardMountRef = useRef<HTMLDivElement>(null)
   const maxMountRef = useRef<HTMLDivElement>(null)
   const termElRef = useRef<HTMLDivElement | null>(null)
@@ -68,7 +70,7 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
     termRef.current = term
     fitRef.current = fit
 
-    const ws = new WebSocket(terminalWsUrl(terminal.machine_id, terminal.id))
+    const ws = new WebSocket(terminalWsUrl(terminal.machine_id, terminal.id, deviceId))
     wsRef.current = ws
 
     ws.onmessage = (event) => {
@@ -128,7 +130,7 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
       ws.close()
       term.dispose()
     }
-  }, [terminal.id, terminal.machine_id])
+  }, [terminal.id, terminal.machine_id, deviceId])
 
   // Move terminal element and handle sizing based on maximized state
   useEffect(() => {
