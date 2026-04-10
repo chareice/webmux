@@ -219,7 +219,7 @@ async fn handle_hub_message(
     send_tx: &mpsc::UnboundedSender<MachineToHub>,
 ) {
     match msg {
-        HubToMachine::CreateTerminal { request_id, cwd, cols, rows, .. } => {
+        HubToMachine::CreateTerminal { request_id, cwd, cols, rows, startup_command, .. } => {
             let terminal_id = uuid::Uuid::new_v4().to_string();
             match pty.create_terminal(&terminal_id, &cwd, cols, rows) {
                 Ok(info) => {
@@ -265,6 +265,19 @@ async fn handle_hub_message(
                                 }
                             }
                         });
+                    }
+
+                    // Execute startup command after shell is ready
+                    if let Some(cmd) = startup_command {
+                        if !cmd.is_empty() {
+                            let pty_clone = pty.clone();
+                            let tid = terminal_id.clone();
+                            tokio::spawn(async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                let cmd_with_cr = format!("{}\r", cmd);
+                                let _ = pty_clone.write_to_terminal(&tid, cmd_with_cr.as_bytes());
+                            });
+                        }
                     }
                 }
                 Err(e) => {
