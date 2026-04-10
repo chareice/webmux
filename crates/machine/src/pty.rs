@@ -266,6 +266,12 @@ impl PtyManager {
         rows: u16,
     ) -> Result<SessionInfo, String> {
         let tmux_name = tmux_session_name(id);
+
+        // Detach any stale clients from previous runs before attaching
+        let _ = tmux_cmd()
+            .args(["-L", TMUX_SOCKET, "detach-client", "-s", &tmux_name, "-a"])
+            .status();
+
         let pty_system = native_pty_system();
 
         let pair = pty_system
