@@ -28,6 +28,9 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
   const termRef = useRef<Terminal | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
+  const isControllerRef = useRef(isController)
+
+  useEffect(() => { isControllerRef.current = isController }, [isController])
 
   const [keyboardVisible, setKeyboardVisible] = useState(false)
   const [commandBarVisible, setCommandBarVisible] = useState(false)
@@ -94,15 +97,17 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
     }
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({
-        type: 'resize',
-        cols: TERM_COLS,
-        rows: TERM_ROWS,
-      }))
+      if (isControllerRef.current) {
+        ws.send(JSON.stringify({
+          type: 'resize',
+          cols: TERM_COLS,
+          rows: TERM_ROWS,
+        }))
+      }
     }
 
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN && isControllerRef.current) {
         ws.send(JSON.stringify({ type: 'input', data }))
       }
     })
@@ -166,7 +171,7 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
         try {
           fit.fit()
           const dims = fit.proposeDimensions()
-          if (dims && ws?.readyState === WebSocket.OPEN) {
+          if (dims && ws?.readyState === WebSocket.OPEN && isControllerRef.current) {
             ws.send(JSON.stringify({
               type: 'resize',
               cols: dims.cols,
@@ -174,7 +179,9 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
             }))
           }
         } catch { /* ignore */ }
-        termRef.current?.focus()
+        if (!isMobile && isControllerRef.current) {
+          termRef.current?.focus()
+        }
       }
 
       const timer = setTimeout(doFit, 50)
@@ -221,9 +228,9 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
   const handleToolbarKey = useCallback((data: string) => {
     const ws = wsRef.current
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'input', data }))
+      ws.send(JSON.stringify({ type: 'command_input', data }))
     }
-    termRef.current?.focus()
+    if (isControllerRef.current) termRef.current?.focus()
   }, [])
 
   const handleImagePaste = useCallback((base64: string, mime: string) => {
@@ -353,18 +360,18 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
               </button>
             )}
             <button
-              onClick={(e) => { e.stopPropagation(); onDestroy() }}
+              onClick={(e) => { e.stopPropagation(); if (isController) onDestroy() }}
               style={{
                 background: 'none',
                 border: 'none',
                 color: 'var(--danger)',
-                cursor: 'pointer',
+                cursor: isController ? 'pointer' : 'default',
                 fontSize: 12,
                 padding: '0 4px',
-                opacity: 0.6,
+                opacity: isController ? 0.6 : 0.2,
               }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '0.6')}
+              onMouseEnter={e => { if (isController) e.currentTarget.style.opacity = '1' }}
+              onMouseLeave={e => { if (isController) e.currentTarget.style.opacity = '0.6' }}
               title="Close terminal"
             >
               ✕
@@ -374,7 +381,7 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
 
         {/* Terminal content + side panel */}
         {maximized ? (
-          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
             <div
               ref={maxMountRef}
               style={{
@@ -383,6 +390,22 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
                 overflow: 'hidden',
               }}
             />
+            {!isController && (
+              <div style={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                background: 'rgba(0,0,0,0.6)',
+                padding: '4px 10px',
+                borderRadius: 4,
+                fontSize: 11,
+                color: 'var(--text-muted)',
+                zIndex: 10,
+                pointerEvents: 'none',
+              }}>
+                Watch Mode
+              </div>
+            )}
             {!isMobile && (
               <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
             )}

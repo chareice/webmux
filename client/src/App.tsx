@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import type { TerminalInfo, MachineInfo } from './types'
 import { Sidebar } from './components/Sidebar'
 import { Canvas } from './components/Canvas'
-import { createTerminal, destroyTerminal, listTerminals, listMachines, eventsWsUrl, getDeviceId, getMode, requestControl } from './api'
+import { createTerminal, destroyTerminal, listTerminals, listMachines, eventsWsUrl, getDeviceId, getMode, requestControl, releaseControl } from './api'
+import { ModeIndicator } from './components/ModeIndicator'
 import { useIsMobile } from './hooks'
 
 export function App() {
@@ -126,6 +127,14 @@ export function App() {
     window.history.pushState(null, '', window.location.pathname)
   }, [])
 
+  const handleRequestControl = useCallback(() => {
+    requestControl(deviceId)
+  }, [deviceId])
+
+  const handleReleaseControl = useCallback(() => {
+    releaseControl(deviceId)
+  }, [deviceId])
+
   return (
     <div style={{
       display: 'flex',
@@ -134,6 +143,20 @@ export function App() {
       position: 'relative',
       overflow: 'hidden',
     }}>
+      {/* Mode indicator — fixed top-right */}
+      <div style={{
+        position: 'fixed',
+        top: 8,
+        right: 12,
+        zIndex: 200,
+      }}>
+        <ModeIndicator
+          isController={isController}
+          onRequestControl={handleRequestControl}
+          onReleaseControl={handleReleaseControl}
+        />
+      </div>
+
       {/* Mobile hamburger button */}
       {isMobile && !maximizedId && (
         <button
