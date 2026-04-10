@@ -219,7 +219,7 @@ async fn handle_hub_message(
     send_tx: &mpsc::UnboundedSender<MachineToHub>,
 ) {
     match msg {
-        HubToMachine::CreateTerminal { request_id, cwd, cols, rows } => {
+        HubToMachine::CreateTerminal { request_id, cwd, cols, rows, .. } => {
             let terminal_id = uuid::Uuid::new_v4().to_string();
             match pty.create_terminal(&terminal_id, &cwd, cols, rows) {
                 Ok(info) => {

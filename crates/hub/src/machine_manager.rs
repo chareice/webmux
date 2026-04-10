@@ -150,6 +150,7 @@ impl MachineManager {
         cwd: &str,
         cols: u16,
         rows: u16,
+        startup_command: Option<String>,
     ) -> Result<TerminalInfo, String> {
         let request_id = uuid::Uuid::new_v4().to_string();
 
@@ -169,6 +170,7 @@ impl MachineManager {
                     cwd: cwd.to_string(),
                     cols,
                     rows,
+                    startup_command,
                 })
                 .map_err(|_| "Machine disconnected".to_string())?;
         }
