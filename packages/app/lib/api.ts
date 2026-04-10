@@ -83,6 +83,10 @@ export const createBookmark = (
 export const deleteBookmark = (bookmarkId: string) =>
   request<void>("DELETE", `/api/bookmarks/${bookmarkId}`);
 
+// Registration
+export const createRegistrationToken = (name: string) =>
+  request<{ token: string; expires_at: number }>("POST", "/api/machines/register-token", { name });
+
 // WebSocket URLs
 export function terminalWsUrl(
   machineId: string,

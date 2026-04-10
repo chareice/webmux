@@ -1,6 +1,7 @@
 mod config;
 mod hub_conn;
 mod pty;
+mod service;
 
 use std::sync::Arc;
 
@@ -44,6 +45,29 @@ enum Command {
         #[arg(long)]
         id: Option<String>,
     },
+
+    /// Manage systemd user service
+    Service {
+        #[command(subcommand)]
+        action: ServiceCommands,
+    },
+
+    /// Show node status
+    Status,
+}
+
+#[derive(Subcommand)]
+enum ServiceCommands {
+    /// Install and start as systemd user service
+    Install {
+        /// Disable automatic upgrades for the managed service
+        #[arg(long, default_value_t = false)]
+        no_auto_upgrade: bool,
+    },
+    /// Stop and remove the service
+    Uninstall,
+    /// Show service status
+    Status,
 }
 
 #[tokio::main]
@@ -62,6 +86,20 @@ async fn main() {
         }
         Some(Command::Start { hub_url, name, id }) => {
             run_start(hub_url, name, id).await;
+        }
+        Some(Command::Service { action }) => match action {
+            ServiceCommands::Install { no_auto_upgrade } => {
+                cmd_service_install(no_auto_upgrade);
+            }
+            ServiceCommands::Uninstall => {
+                cmd_service_uninstall();
+            }
+            ServiceCommands::Status => {
+                service::status();
+            }
+        },
+        Some(Command::Status) => {
+            cmd_status();
         }
         None => {
             // Default to start with no overrides
@@ -138,6 +176,7 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
     println!("  Config saved to: {}", config_path.display());
     println!();
     println!("Start the daemon with: webmux-node start");
+    println!("Install as service:    webmux-node service install");
 }
 
 /// Convert an HTTP hub URL to its WebSocket machine endpoint.
@@ -202,4 +241,79 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
     };
 
     conn.run().await;
+}
+
+fn cmd_status() {
+    let config_path = config::config_path();
+    let config_exists = config_path.exists();
+
+    println!("Config file: {} ({})", config_path.display(), if config_exists { "exists" } else { "not found" });
+
+    match config::load_config() {
+        Ok(cfg) => {
+            println!("Machine ID:  {}", cfg.machine_id);
+            println!("Hub URL:     {}", cfg.hub_url);
+        }
+        Err(_) => {
+            println!("Machine ID:  (not registered)");
+            println!("Hub URL:     (not registered)");
+        }
+    }
+
+    match service::is_active() {
+        Some(status) => println!("Service:     {}", status),
+        None => println!("Service:     not installed"),
+    }
+}
+
+fn cmd_service_install(no_auto_upgrade: bool) {
+    // Require registration before installing the service
+    let config = match config::load_config() {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("Not registered. Run \"webmux-node register\" first.");
+            std::process::exit(1);
+        }
+    };
+
+    let machine_name = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| config.machine_id.clone());
+
+    match service::install(&machine_name, no_auto_upgrade) {
+        Ok(()) => {
+            println!();
+            println!("Service installed and started!");
+            println!("It will auto-start on boot.");
+            println!();
+            println!("Useful commands:");
+            println!("  systemctl --user status {}", service::SERVICE_NAME);
+            println!("  journalctl --user -u {} -f", service::SERVICE_NAME);
+            println!("  webmux-node service uninstall");
+        }
+        Err(e) => {
+            let home = dirs::home_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            eprintln!("Failed to install service: {}", e);
+            eprintln!("Service file path: {}", service::service_unit_path(&home));
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_service_uninstall() {
+    match service::uninstall() {
+        Ok(()) => {
+            let home = dirs::home_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            println!("Service file removed: {}", service::service_unit_path(&home));
+            println!("Service uninstalled.");
+        }
+        Err(e) => {
+            eprintln!("Failed to uninstall service: {}", e);
+            std::process::exit(1);
+        }
+    }
 }

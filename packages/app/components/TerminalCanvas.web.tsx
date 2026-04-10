@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import type { TerminalInfo, MachineInfo } from "@webmux/shared";
 import { Sidebar } from "./Sidebar";
 import { Canvas } from "./Canvas.web";
+import { OnboardingView } from "./OnboardingView.web";
 import {
   createTerminal,
   destroyTerminal,
@@ -205,14 +206,18 @@ export function TerminalCanvas() {
       )}
 
       {/* Main content */}
-      <Canvas
-        terminals={terminals}
-        maximizedId={maximizedId}
-        isMobile={isMobile}
-        onMaximize={handleMaximize}
-        onMinimize={handleMinimize}
-        onDestroy={handleDestroyTerminal}
-      />
+      {machines.length === 0 ? (
+        <OnboardingView />
+      ) : (
+        <Canvas
+          terminals={terminals}
+          maximizedId={maximizedId}
+          isMobile={isMobile}
+          onMaximize={handleMaximize}
+          onMinimize={handleMinimize}
+          onDestroy={handleDestroyTerminal}
+        />
+      )}
     </div>
   );
 }
