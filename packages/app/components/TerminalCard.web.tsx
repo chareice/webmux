@@ -1,5 +1,6 @@
 import { useRef, useCallback, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
+import { Maximize2, Minimize2, X } from "lucide-react";
 import { TerminalView } from "./TerminalView.web";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
@@ -206,12 +207,13 @@ export function TerminalCard({
                   border: "none",
                   color: "rgb(122, 143, 166)",
                   cursor: "pointer",
-                  fontSize: 12,
-                  padding: "0 4px",
+                  padding: "2px 4px",
+                  display: "flex",
+                  alignItems: "center",
                 }}
                 title="Maximize"
               >
-                &#x2922;
+                <Maximize2 size={14} />
               </button>
             )}
             {maximized && (
@@ -225,12 +227,13 @@ export function TerminalCard({
                   border: "none",
                   color: "rgb(122, 143, 166)",
                   cursor: "pointer",
-                  fontSize: 14,
-                  padding: "0 4px",
+                  padding: "2px 4px",
+                  display: "flex",
+                  alignItems: "center",
                 }}
                 title="Minimize"
               >
-                &#x2921;
+                <Minimize2 size={14} />
               </button>
             )}
             <button
@@ -244,8 +247,9 @@ export function TerminalCard({
                 border: "none",
                 color: isController ? "rgb(255, 107, 107)" : "rgb(74, 97, 120)",
                 cursor: isController ? "pointer" : "not-allowed",
-                fontSize: 12,
-                padding: "0 4px",
+                padding: "2px 4px",
+                display: "flex",
+                alignItems: "center",
                 opacity: isController ? 0.6 : 0.3,
               }}
               onMouseEnter={(e) => {
@@ -256,7 +260,7 @@ export function TerminalCard({
               }}
               title={isController ? "Close terminal" : "Watch mode - cannot close"}
             >
-              &#x2715;
+              <X size={14} />
             </button>
           </div>
         </div>
