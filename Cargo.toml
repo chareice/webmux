@@ -14,7 +14,7 @@ axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["fs", "cors"] }
 portable-pty = "0.9"
 vt100 = "0.15"
-tokio-tungstenite = "0.26"
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 rusqlite = { version = "0.34", features = ["bundled"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.27"
