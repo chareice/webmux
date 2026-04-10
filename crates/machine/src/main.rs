@@ -115,7 +115,21 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
             .unwrap_or_else(|_| "unknown".to_string())
     });
 
-    let register_url = format!("{}/api/machines/register", hub_url.trim_end_matches('/'));
+    // Convert ws/wss URLs to http/https for API calls
+    let base = hub_url.trim_end_matches('/');
+    let base = if base.contains("/ws/machine") {
+        base.trim_end_matches("/ws/machine")
+    } else {
+        base
+    };
+    let http_base = if base.starts_with("wss://") {
+        base.replacen("wss://", "https://", 1)
+    } else if base.starts_with("ws://") {
+        base.replacen("ws://", "http://", 1)
+    } else {
+        base.to_string()
+    };
+    let register_url = format!("{}/api/machines/register", http_base);
 
     tracing::info!("Registering machine '{}' with hub at {}", machine_name, hub_url);
 
@@ -179,18 +193,24 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
     println!("Install as service:    webmux-node service install");
 }
 
-/// Convert an HTTP hub URL to its WebSocket machine endpoint.
-/// e.g. http://localhost:3000 -> ws://localhost:3000/ws/machine
-///      https://hub.example.com -> wss://hub.example.com/ws/machine
+/// Convert any hub URL to its WebSocket machine endpoint.
+/// Handles http/https/ws/wss and avoids duplicating /ws/machine.
 fn build_ws_url(hub_url: &str) -> String {
     let base = hub_url.trim_end_matches('/');
+    // If already a full ws machine URL, return as-is
+    if (base.starts_with("ws://") || base.starts_with("wss://")) && base.ends_with("/ws/machine") {
+        return base.to_string();
+    }
+    // Strip /ws/machine if present, then rebuild
+    let base = base.trim_end_matches("/ws/machine");
     let ws_base = if base.starts_with("https://") {
         base.replacen("https://", "wss://", 1)
     } else if base.starts_with("http://") {
         base.replacen("http://", "ws://", 1)
-    } else {
-        // Already a ws:// URL or something else, use as-is
+    } else if base.starts_with("ws://") || base.starts_with("wss://") {
         base.to_string()
+    } else {
+        format!("ws://{}", base)
     };
     format!("{}/ws/machine", ws_base)
 }
