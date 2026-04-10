@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -144,42 +145,69 @@ impl HubConnection {
             }
         }
 
-        // Task: forward send_tx messages to WebSocket
-        let send_task = tokio::spawn(async move {
-            while let Some(msg) = send_rx.recv().await {
-                let text = serde_json::to_string(&msg).unwrap();
-                if ws_tx.send(Message::Text(text.into())).await.is_err() {
-                    break;
+        // Task: forward send_tx messages to WebSocket, with periodic WS ping
+        let mut send_task = tokio::spawn(async move {
+            let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+            ping_interval.tick().await; // skip immediate first tick
+            loop {
+                tokio::select! {
+                    msg = send_rx.recv() => {
+                        match msg {
+                            Some(msg) => {
+                                let text = serde_json::to_string(&msg).unwrap();
+                                if ws_tx.send(Message::Text(text.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                    _ = ping_interval.tick() => {
+                        if ws_tx.send(Message::Ping(vec![].into())).await.is_err() {
+                            tracing::warn!("WS ping failed, connection likely dead");
+                            break;
+                        }
+                    }
                 }
             }
         });
 
-        // Task: receive Hub messages and handle them
+        // Task: receive Hub messages with read timeout
         let pty_recv = pty.clone();
         let send_tx_recv = send_tx.clone();
-        let recv_task = tokio::spawn(async move {
-            while let Some(Ok(msg)) = ws_rx.next().await {
-                match msg {
-                    Message::Text(text) => {
-                        if let Ok(hub_msg) = serde_json::from_str::<HubToMachine>(&text) {
-                            handle_hub_message(hub_msg, &pty_recv, &send_tx_recv).await;
+        let mut recv_task = tokio::spawn(async move {
+            loop {
+                match tokio::time::timeout(Duration::from_secs(90), ws_rx.next()).await {
+                    Ok(Some(Ok(msg))) => match msg {
+                        Message::Text(text) => {
+                            if let Ok(hub_msg) = serde_json::from_str::<HubToMachine>(&text) {
+                                handle_hub_message(hub_msg, &pty_recv, &send_tx_recv).await;
+                            }
                         }
+                        Message::Ping(_) => {
+                            // tungstenite auto-responds to WS pings
+                        }
+                        Message::Close(_) => break,
+                        _ => {}
+                    },
+                    Ok(Some(Err(_))) => break,
+                    Ok(None) => break,
+                    Err(_) => {
+                        tracing::warn!("No message from Hub for 90s, reconnecting");
+                        break;
                     }
-                    Message::Ping(data) => {
-                        let _ = send_tx_recv.send(MachineToHub::Pong);
-                        // Also need to reply with pong at WS level - handled by tungstenite
-                        let _ = data; // tungstenite auto-responds to WS pings
-                    }
-                    Message::Close(_) => break,
-                    _ => {}
                 }
             }
         });
 
         tokio::select! {
-            _ = send_task => {},
-            _ = recv_task => {},
+            _ = &mut send_task => {},
+            _ = &mut recv_task => {},
         }
+
+        // Abort both tasks to ensure full cleanup
+        send_task.abort();
+        recv_task.abort();
 
         Ok(())
     }
