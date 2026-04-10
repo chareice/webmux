@@ -10,6 +10,8 @@ interface CanvasProps {
   onMaximize: (id: string) => void;
   onMinimize: () => void;
   onDestroy: (terminal: TerminalInfo) => void;
+  onRequestControl?: () => void;
+  onReleaseControl?: () => void;
 }
 
 export function Canvas({
@@ -21,6 +23,8 @@ export function Canvas({
   onMaximize,
   onMinimize,
   onDestroy,
+  onRequestControl,
+  onReleaseControl,
 }: CanvasProps) {
   return (
     <main
@@ -82,6 +86,8 @@ export function Canvas({
               onMaximize={() => onMaximize(terminal.id)}
               onMinimize={onMinimize}
               onDestroy={() => onDestroy(terminal)}
+              onRequestControl={onRequestControl}
+              onReleaseControl={onReleaseControl}
             />
           ))}
         </div>

@@ -1,0 +1,6 @@
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y ca-certificates bash coreutils && rm -rf /var/lib/apt/lists/*
+
+COPY target/release/webmux-node /usr/local/bin/
+
+CMD ["webmux-node"]

@@ -245,22 +245,26 @@ export function TerminalCanvas() {
           onMaximize={handleMaximize}
           onMinimize={handleMinimize}
           onDestroy={handleDestroyTerminal}
-        />
-      )}
-
-      {/* Mode indicator */}
-      <div style={{
-        position: 'fixed',
-        top: 12,
-        right: 12,
-        zIndex: 200,
-      }}>
-        <ModeIndicator
-          isController={isController}
           onRequestControl={handleRequestControl}
           onReleaseControl={handleReleaseControl}
         />
-      </div>
+      )}
+
+      {/* Mode indicator — hidden on mobile when terminal is maximized (rendered inline in title bar instead) */}
+      {!(isMobile && maximizedId) && (
+        <div style={{
+          position: 'fixed',
+          top: 12,
+          right: 12,
+          zIndex: 200,
+        }}>
+          <ModeIndicator
+            isController={isController}
+            onRequestControl={handleRequestControl}
+            onReleaseControl={handleReleaseControl}
+          />
+        </div>
+      )}
     </div>
   );
 }

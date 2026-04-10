@@ -1,0 +1,41 @@
+# E2E test environment
+# Prerequisites: cargo build --release --bin webmux-server --bin webmux-node
+#                pnpm build
+# Usage: docker compose -f e2e/docker-compose.yml up -d --build
+
+services:
+  hub:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile.hub
+    ports:
+      - "127.0.0.1:4317:4317"
+    environment:
+      DATABASE_PATH: "/app/data/tc.db"
+      WEBMUX_STATIC_DIR: "/app/web"
+      WEBMUX_DEV_MODE: "true"
+      JWT_SECRET: "e2e-test-secret"
+      WEBMUX_BASE_URL: "http://localhost:4317"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4317/api/auth/dev || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  node:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile.node
+    command:
+      - webmux-node
+      - start
+      - --hub-url
+      - ws://hub:4317/ws/machine
+      - --id
+      - e2e-node
+      - --name
+      - e2e-machine
+    depends_on:
+      hub:
+        condition: service_healthy

@@ -4,6 +4,7 @@ import { TerminalView } from "./TerminalView.web";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { CommandBar } from "./CommandBar";
+import { ModeIndicator } from "./ModeIndicator";
 import { terminalWsUrl } from "@/lib/api";
 
 interface TerminalCardProps {
@@ -15,6 +16,8 @@ interface TerminalCardProps {
   onMaximize: () => void;
   onMinimize: () => void;
   onDestroy: () => void;
+  onRequestControl?: () => void;
+  onReleaseControl?: () => void;
 }
 
 export function TerminalCard({
@@ -26,6 +29,8 @@ export function TerminalCard({
   onMaximize,
   onMinimize,
   onDestroy,
+  onRequestControl,
+  onReleaseControl,
 }: TerminalCardProps) {
   const termViewRef = useRef<TerminalViewRef>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -158,7 +163,15 @@ export function TerminalCard({
               </span>
             )}
           </div>
-          <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}>
+            {/* Inline ModeIndicator for mobile maximized */}
+            {maximized && isMobile && onRequestControl && onReleaseControl && (
+              <ModeIndicator
+                isController={isController}
+                onRequestControl={onRequestControl}
+                onReleaseControl={onReleaseControl}
+              />
+            )}
             {!maximized && (
               <button
                 onClick={(e) => {

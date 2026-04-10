@@ -1,0 +1,12 @@
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
+
+COPY target/release/webmux-server /usr/local/bin/
+COPY packages/app/dist /app/web
+RUN mkdir -p /app/data
+
+ENV WEBMUX_STATIC_DIR=/app/web
+ENV DATABASE_PATH=/app/data/tc.db
+EXPOSE 4317
+
+CMD ["webmux-server"]

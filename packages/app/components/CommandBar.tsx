@@ -48,7 +48,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
 
   const handleSubmit = useCallback(() => {
     if (!value) return;
-    onSend(value);
+    onSend(value + "\n");
     setHistory((prev) => {
       const next = [...prev, value];
       return next.length > 50 ? next.slice(-50) : next;

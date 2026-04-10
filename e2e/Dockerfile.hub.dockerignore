@@ -1,0 +1,7 @@
+node_modules/
+packages/app/.expo/
+packages/app/android/
+packages/app/ios/
+packages/shared/dist/
+*.db
+.git/
