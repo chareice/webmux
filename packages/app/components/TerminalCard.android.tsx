@@ -52,30 +52,28 @@ export function TerminalCard({
         <SafeAreaView style={styles.modalContainer}>
           <StatusBar barStyle="light-content" backgroundColor="#0d2137" />
 
-          {/* Title bar */}
+          {/* Title bar — close on left, minimize on right */}
           <View style={styles.modalTitleBar}>
+            <Pressable
+              onPress={onDestroy}
+              hitSlop={12}
+              style={styles.closeButton}
+            >
+              <Text style={styles.closeText}>{"\u2715"}</Text>
+            </Pressable>
             <View style={styles.titleRow}>
               <View style={styles.statusDot} />
               <Text numberOfLines={1} style={styles.titleText}>
                 {terminal.title}
               </Text>
             </View>
-            <View style={styles.titleActions}>
-              <Pressable
-                onPress={onMinimize}
-                hitSlop={8}
-                style={styles.actionButton}
-              >
-                <Text style={styles.minimizeText}>{"\u2921"}</Text>
-              </Pressable>
-              <Pressable
-                onPress={onDestroy}
-                hitSlop={8}
-                style={styles.actionButton}
-              >
-                <Text style={styles.closeText}>{"\u2715"}</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={onMinimize}
+              hitSlop={12}
+              style={styles.minimizeButton}
+            >
+              <Text style={styles.minimizeText}>{"\u2921"}</Text>
+            </Pressable>
           </View>
 
           {/* Terminal view */}
@@ -106,21 +104,22 @@ export function TerminalCard({
   return (
     <Pressable onPress={onMaximize} style={styles.card}>
       <View style={styles.cardHeader}>
+        <Pressable
+          onPress={(e) => {
+            e.stopPropagation?.();
+            onDestroy();
+          }}
+          hitSlop={12}
+          style={styles.cardCloseButton}
+        >
+          <Text style={styles.cardCloseText}>{"\u2715"}</Text>
+        </Pressable>
         <View style={styles.titleRow}>
           <View style={styles.statusDot} />
           <Text numberOfLines={1} style={styles.cardTitle}>
             {terminal.title}
           </Text>
         </View>
-        <Pressable
-          onPress={(e) => {
-            e.stopPropagation?.();
-            onDestroy();
-          }}
-          hitSlop={8}
-        >
-          <Text style={styles.cardCloseText}>{"\u2715"}</Text>
-        </Pressable>
       </View>
 
       {/* Miniature terminal preview */}
@@ -174,12 +173,13 @@ const styles = StyleSheet.create({
     color: "rgb(224, 232, 240)",
     flex: 1,
   },
-  titleActions: {
-    flexDirection: "row",
-    gap: 8,
+  closeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  actionButton: {
-    paddingHorizontal: 6,
+  minimizeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   minimizeText: {
     fontSize: 16,
@@ -226,6 +226,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "rgb(224, 232, 240)",
     flex: 1,
+  },
+  cardCloseButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   cardCloseText: {
     fontSize: 12,

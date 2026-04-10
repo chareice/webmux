@@ -118,6 +118,38 @@ export function TerminalCard({
           }}
           onClick={handleTitleClick}
         >
+          {/* Left: close button — separated from other actions to prevent mis-taps */}
+          <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isController) return;
+                onDestroy();
+              }}
+              style={{
+                background: "none",
+                border: "none",
+                color: isController ? "rgb(255, 107, 107)" : "rgb(74, 97, 120)",
+                cursor: isController ? "pointer" : "not-allowed",
+                padding: isMobile ? "10px 12px" : "2px 4px",
+                display: "flex",
+                alignItems: "center",
+                opacity: isController ? 0.6 : 0.3,
+              }}
+              onMouseEnter={(e) => {
+                if (isController) e.currentTarget.style.opacity = "1";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = isController ? "0.6" : "0.3";
+              }}
+              title={isController ? "Close terminal" : "Watch mode - cannot close"}
+              aria-label={isController ? "Close terminal" : "Watch mode - cannot close"}
+            >
+              <X size={14} aria-hidden />
+            </button>
+          </div>
+
+          {/* Center: title + status */}
           <div
             style={{
               display: "flex",
@@ -125,6 +157,8 @@ export function TerminalCard({
               gap: 6,
               overflow: "hidden",
               minWidth: 0,
+              flex: 1,
+              marginLeft: 4,
             }}
           >
             <span
@@ -163,7 +197,9 @@ export function TerminalCard({
               </span>
             )}
           </div>
-          <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
+
+          {/* Right: maximize/minimize + mode controls */}
+          <div style={{ display: "flex", gap: isMobile ? 4 : 6, flexShrink: 0, alignItems: "center" }}>
             {/* Inline mode controls for mobile maximized — flat style, no container */}
             {maximized && isMobile && onRequestControl && onReleaseControl && (
               <>
@@ -184,7 +220,7 @@ export function TerminalCard({
                     color: isController ? 'rgb(122, 143, 166)' : 'rgb(0, 212, 170)',
                     cursor: 'pointer',
                     fontSize: 11,
-                    padding: '2px 4px',
+                    padding: isMobile ? '10px 8px' : '2px 4px',
                   }}
                 >
                   {isController ? 'Release' : 'Take Control'}
@@ -207,7 +243,7 @@ export function TerminalCard({
                   border: "none",
                   color: "rgb(122, 143, 166)",
                   cursor: "pointer",
-                  padding: "2px 4px",
+                  padding: isMobile ? "10px 12px" : "2px 4px",
                   display: "flex",
                   alignItems: "center",
                 }}
@@ -228,7 +264,7 @@ export function TerminalCard({
                   border: "none",
                   color: "rgb(122, 143, 166)",
                   cursor: "pointer",
-                  padding: "2px 4px",
+                  padding: isMobile ? "10px 12px" : "2px 4px",
                   display: "flex",
                   alignItems: "center",
                 }}
@@ -238,33 +274,6 @@ export function TerminalCard({
                 <Minimize2 size={14} aria-hidden />
               </button>
             )}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!isController) return;
-                onDestroy();
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                color: isController ? "rgb(255, 107, 107)" : "rgb(74, 97, 120)",
-                cursor: isController ? "pointer" : "not-allowed",
-                padding: "2px 4px",
-                display: "flex",
-                alignItems: "center",
-                opacity: isController ? 0.6 : 0.3,
-              }}
-              onMouseEnter={(e) => {
-                if (isController) e.currentTarget.style.opacity = "1";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = isController ? "0.6" : "0.3";
-              }}
-              title={isController ? "Close terminal" : "Watch mode - cannot close"}
-              aria-label={isController ? "Close terminal" : "Watch mode - cannot close"}
-            >
-              <X size={14} aria-hidden />
-            </button>
           </div>
         </div>
 
