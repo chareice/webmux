@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalInfo } from '../types'
 import { terminalWsUrl } from '../api'
 import { TerminalToolbar } from './TerminalToolbar'
@@ -65,13 +64,6 @@ export function TerminalCard({ terminal, maximized, isMobile, onMaximize, onMini
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(termEl)
-
-    // WebGL renderer for better block character rendering (no gaps)
-    try {
-      term.loadAddon(new WebglAddon())
-    } catch {
-      // WebGL not available, fall back to default canvas renderer
-    }
 
     termRef.current = term
     fitRef.current = fit

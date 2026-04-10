@@ -7,7 +7,6 @@ import {
 } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
@@ -90,13 +89,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.open(container);
-
-      // WebGL renderer for better block character rendering
-      try {
-        term.loadAddon(new WebglAddon());
-      } catch {
-        // WebGL not available, fall back to default canvas renderer
-      }
 
       termRef.current = term;
       fitRef.current = fit;
