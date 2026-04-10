@@ -192,6 +192,7 @@ export function TerminalCard({ terminal, maximized, isMobile, isController, devi
       termEl.removeEventListener('paste', handlePaste)
       ws.close()
       term.dispose()
+      termEl.remove()
     }
   }, [terminal.id, terminal.machine_id, deviceId])
 
