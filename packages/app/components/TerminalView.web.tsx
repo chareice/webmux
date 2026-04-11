@@ -164,8 +164,48 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
       container.addEventListener("paste", handlePaste);
 
+      // Fix: xterm.js v6 registers a document-level touchstart/touchmove handler
+      // with {passive:false} that calls preventDefault(), blocking native scroll.
+      // Its gesture system dispatches -xterm-gesturechange events but xterm never
+      // listens for them, so touch scrolling silently breaks on mobile.
+      //
+      // The xterm DOM has .xterm-viewport (overflow-y:scroll, behind) and
+      // .xterm-screen (on top). Touches hit the screen, not the viewport.
+      // We stop propagation on the container so the document handler never fires,
+      // then use term.scrollLines() to scroll by the appropriate number of lines.
+      const lineHeight = term.options.fontSize * (term.options.lineHeight ?? 1);
+      let lastTouchY = 0;
+      let accumulatedDelta = 0;
+
+      const onTouchStart = (e: TouchEvent) => {
+        e.stopPropagation();
+        if (e.touches[0]) {
+          lastTouchY = e.touches[0].clientY;
+          accumulatedDelta = 0;
+        }
+      };
+      const onTouchMove = (e: TouchEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.touches[0]) {
+          const currentY = e.touches[0].clientY;
+          accumulatedDelta += lastTouchY - currentY;
+          lastTouchY = currentY;
+          // Convert accumulated pixel delta to line count
+          const lines = Math.trunc(accumulatedDelta / lineHeight);
+          if (lines !== 0) {
+            term.scrollLines(lines);
+            accumulatedDelta -= lines * lineHeight;
+          }
+        }
+      };
+      container.addEventListener("touchstart", onTouchStart, { passive: true });
+      container.addEventListener("touchmove", onTouchMove, { passive: false });
+
       return () => {
         container.removeEventListener("paste", handlePaste);
+        container.removeEventListener("touchstart", onTouchStart);
+        container.removeEventListener("touchmove", onTouchMove);
         ws.close();
         term.dispose();
       };
