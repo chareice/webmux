@@ -17,6 +17,12 @@ import {
   getSettings,
   updateSettings,
 } from "@/lib/api";
+import {
+  buildOnboardingScript,
+  getInstallCommand,
+  getRegisterCommand,
+  getServiceInstallCommand,
+} from "@/lib/nodeInstaller";
 
 interface SidebarProps {
   machines: MachineInfo[];
@@ -547,14 +553,14 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
         })()
       : "ws://<HUB_HOST>:3000/ws/machine";
 
-  const installCmd = `mkdir -p ~/.local/bin && curl -sSL https://github.com/chareice/webmux/releases/latest/download/webmux-node-linux-x64 -o ~/.local/bin/webmux-node && chmod +x ~/.local/bin/webmux-node`;
+  const installCmd = getInstallCommand();
   const registerCmd = token
-    ? `webmux-node register --hub-url ${hubUrl} --token ${token}`
+    ? getRegisterCommand(hubUrl, token)
     : "";
-  const serviceCmd = `webmux-node service install`;
+  const serviceCmd = getServiceInstallCommand();
 
   const fullScript = token
-    ? `${installCmd}\n${registerCmd}\n${serviceCmd}`
+    ? buildOnboardingScript(hubUrl, token)
     : "";
 
   const handleCopy = useCallback(async () => {

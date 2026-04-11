@@ -90,13 +90,23 @@ download() {
     dest="$2"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -sSL --fail -o "$dest" "$url"
+        if ! curl -sSL --fail -o "$dest" "$url"; then
+            explain_missing_artifact
+        fi
     elif command -v wget >/dev/null 2>&1; then
-        wget -q -O "$dest" "$url"
+        if ! wget -q -O "$dest" "$url"; then
+            explain_missing_artifact
+        fi
     else
         echo "Error: curl or wget is required" >&2
         exit 1
     fi
+}
+
+explain_missing_artifact() {
+    echo "Error: latest release ${VERSION} does not include a binary for ${OS}/${ARCH} (${ARTIFACT})." >&2
+    echo "Publish a newer tagged release for this platform and try again." >&2
+    exit 1
 }
 
 ensure_install_dir() {
