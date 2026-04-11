@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
@@ -96,6 +97,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       const fit = new FitAddon();
       term.loadAddon(fit);
+      term.loadAddon(new ClipboardAddon());
       term.open(container);
 
       termRef.current = term;
@@ -131,6 +133,22 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         if (ws.readyState === WebSocket.OPEN && isControllerRef.current) {
           ws.send(JSON.stringify({ type: "input", data }));
         }
+      });
+
+      // Ctrl+C / Cmd+C copies selection to clipboard instead of sending SIGINT
+      term.attachCustomKeyEventHandler((event) => {
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.key === "c" &&
+          event.type === "keydown"
+        ) {
+          if (term.hasSelection()) {
+            navigator.clipboard.writeText(term.getSelection());
+            term.clearSelection();
+            return false;
+          }
+        }
+        return true;
       });
 
       // Intercept paste events for image detection
