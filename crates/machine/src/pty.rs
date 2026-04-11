@@ -546,8 +546,15 @@ fn ensure_tmux_config() {
         let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755));
     }
 
+    let config_path = tmux_config_path();
     let config = build_tmux_config(script_path.to_str().unwrap_or("osc52copy.sh"));
-    let _ = std::fs::write(tmux_config_path(), config);
+    let _ = std::fs::write(&config_path, config);
+
+    // Reload config into any already-running tmux server so that bindings
+    // (e.g. OSC 52 copy) take effect without killing existing sessions.
+    let _ = tmux_cmd()
+        .args(["-L", TMUX_SOCKET, "source-file", config_path.to_str().unwrap_or("")])
+        .status();
 }
 
 fn check_tmux_available() -> bool {
