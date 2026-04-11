@@ -547,7 +547,7 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
         })()
       : "ws://<HUB_HOST>:3000/ws/machine";
 
-  const installCmd = `curl -sSL https://github.com/chareice/webmux/releases/latest/download/webmux-node-linux-x64 -o ~/.local/bin/webmux-node && chmod +x ~/.local/bin/webmux-node`;
+  const installCmd = `mkdir -p ~/.local/bin && curl -sSL https://github.com/chareice/webmux/releases/latest/download/webmux-node-linux-x64 -o ~/.local/bin/webmux-node && chmod +x ~/.local/bin/webmux-node`;
   const registerCmd = token
     ? `webmux-node register --hub-url ${hubUrl} --token ${token}`
     : "";
