@@ -589,20 +589,42 @@ fn tmux_resize(id: &str, cols: u16, rows: u16) {
 fn detect_login_shell() -> String {
     let user = std::env::var("USER").unwrap_or_default();
     if !user.is_empty() {
-        if let Ok(output) = std::process::Command::new("getent")
-            .args(["passwd", &user])
-            .output()
-        {
-            if let Ok(line) = String::from_utf8(output.stdout) {
-                if let Some(shell) = line.trim().rsplit(':').next() {
-                    if !shell.is_empty() && std::path::Path::new(shell).exists() {
-                        return shell.to_string();
-                    }
-                }
-            }
+        if let Some(shell) = detect_shell_for_user(&user) {
+            return shell;
         }
     }
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+}
+
+/// Query the system user database for the login shell.
+/// Uses `dscl` on macOS, `getent` on Linux.
+fn detect_shell_for_user(user: &str) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("dscl")
+            .args([".", "-read", &format!("/Users/{user}"), "UserShell"])
+            .output()
+            .ok()?;
+        // Output format: "UserShell: /bin/zsh"
+        let line = String::from_utf8(output.stdout).ok()?;
+        let shell = line.trim().strip_prefix("UserShell:")?.trim();
+        if !shell.is_empty() && std::path::Path::new(shell).exists() {
+            return Some(shell.to_string());
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let output = std::process::Command::new("getent")
+            .args(["passwd", user])
+            .output()
+            .ok()?;
+        let line = String::from_utf8(output.stdout).ok()?;
+        let shell = line.trim().rsplit(':').next()?;
+        if !shell.is_empty() && std::path::Path::new(shell).exists() {
+            return Some(shell.to_string());
+        }
+    }
+    None
 }
 
 fn resolve_cwd(cwd: &str) -> String {
