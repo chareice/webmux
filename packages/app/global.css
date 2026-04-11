@@ -55,11 +55,3 @@ input:focus, textarea:focus {
   background: rgb(var(--color-border) / 1);
   border-radius: 3px;
 }
-
-/* tmux owns scrolling; hide the xterm.js viewport scrollbar */
-.xterm-viewport::-webkit-scrollbar {
-  display: none;
-}
-.xterm-viewport {
-  scrollbar-width: none;
-}
