@@ -1,5 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createRegistrationToken } from "@/lib/api";
+import {
+  buildOnboardingScript,
+  getInstallCommand,
+  getRegisterCommand,
+  getServiceInstallCommand,
+} from "@/lib/nodeInstaller";
 
 // Color constants matching the app's dark theme
 const colors = {
@@ -20,14 +26,9 @@ function getHubUrl(): string {
   return `${wsProtocol}//${host}/ws/machine`;
 }
 
-const INSTALL_SCRIPT_URL = "https://raw.githubusercontent.com/chareice/webmux/main/scripts/install.sh";
-
 function buildFullScript(token: string): string {
   const hubUrl = getHubUrl();
-  const installCmd = `curl -sSL ${INSTALL_SCRIPT_URL} | sh`;
-  const registerCmd = `webmux-node register --hub-url ${hubUrl} --token ${token}`;
-  const serviceCmd = `webmux-node service install`;
-  return `${installCmd}\n${registerCmd}\n${serviceCmd}`;
+  return buildOnboardingScript(hubUrl, token);
 }
 
 interface CachedToken {
@@ -135,7 +136,9 @@ export function OnboardingView() {
   };
 
   const hubUrl = getHubUrl();
-  const installCmd = `curl -sSL ${INSTALL_SCRIPT_URL} | sh`;
+  const installCmd = getInstallCommand();
+  const registerCmd = token ? getRegisterCommand(hubUrl, token) : "";
+  const serviceCmd = getServiceInstallCommand();
 
   return (
     <div
@@ -220,13 +223,13 @@ export function OnboardingView() {
             {/* Step 2: Register */}
             <CodeBlock
               label="2. Register with this hub"
-              code={`webmux-node register --hub-url ${hubUrl} --token ${token}`}
+              code={registerCmd}
             />
 
             {/* Step 3: Start service */}
             <CodeBlock
               label="3. Start the service"
-              code="webmux-node service install"
+              code={serviceCmd}
             />
 
             {/* Action buttons */}
