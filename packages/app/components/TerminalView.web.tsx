@@ -197,7 +197,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // The xterm DOM has .xterm-viewport (overflow-y:scroll, behind) and
       // .xterm-screen (on top). Touches hit the screen, not the viewport.
       // We stop propagation on the container so the document handler never fires,
-      // then use term.scrollLines() to scroll by the appropriate number of lines.
+      // then dispatch synthetic WheelEvents on the viewport so xterm.js handles
+      // them normally — when tmux mouse mode is on, xterm converts wheel to mouse
+      // escape sequences; otherwise it scrolls its own scrollback.
       const lineHeight = term.options.fontSize * (term.options.lineHeight ?? 1);
       let lastTouchY = 0;
       let accumulatedDelta = 0;
@@ -219,7 +221,18 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           // Convert accumulated pixel delta to line count
           const lines = Math.trunc(accumulatedDelta / lineHeight);
           if (lines !== 0) {
-            term.scrollLines(lines);
+            const viewport = container.querySelector(".xterm-viewport");
+            if (viewport) {
+              for (let i = 0; i < Math.abs(lines); i++) {
+                viewport.dispatchEvent(
+                  new WheelEvent("wheel", {
+                    deltaY: lines > 0 ? lineHeight : -lineHeight,
+                    bubbles: true,
+                    cancelable: true,
+                  }),
+                );
+              }
+            }
             accumulatedDelta -= lines * lineHeight;
           }
         }
