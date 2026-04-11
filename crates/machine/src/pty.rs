@@ -451,7 +451,7 @@ fn spawn_reader_thread(
 ) {
     std::thread::spawn(move || {
         let mut reader = reader;
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 16384];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
