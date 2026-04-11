@@ -509,6 +509,7 @@ set -g prefix None
 unbind C-b
 set -g mouse on
 set -s set-clipboard on
+set -g allow-passthrough on
 set -g history-limit 10000
 ");
     // Bind mouse drag-end to copy selection and emit OSC 52 via helper script.
