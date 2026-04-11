@@ -540,21 +540,38 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
 
   const hubUrl =
     Platform.OS === "web" && typeof window !== "undefined"
-      ? window.location.origin
-      : "http://<HUB_HOST>:3000";
+      ? (() => {
+          const { protocol, host } = window.location;
+          const wsProtocol = protocol === "https:" ? "wss:" : "ws:";
+          return `${wsProtocol}//${host}/ws/machine`;
+        })()
+      : "ws://<HUB_HOST>:3000/ws/machine";
 
-  const command = token
+  const installCmd = `mkdir -p ~/.local/bin && curl -sSL https://github.com/chareice/webmux/releases/latest/download/webmux-node-linux-x64 -o ~/.local/bin/webmux-node && chmod +x ~/.local/bin/webmux-node`;
+  const registerCmd = token
     ? `webmux-node register --hub-url ${hubUrl} --token ${token}`
     : "";
+  const serviceCmd = `webmux-node service install`;
 
-  const handleCopy = useCallback(() => {
-    if (Platform.OS === "web" && typeof navigator !== "undefined") {
-      navigator.clipboard.writeText(command).then(() => {
+  const fullScript = token
+    ? `${installCmd}\n${registerCmd}\n${serviceCmd}`
+    : "";
+
+  const handleCopy = useCallback(async () => {
+    if (
+      Platform.OS === "web" &&
+      typeof navigator !== "undefined" &&
+      navigator.clipboard?.writeText
+    ) {
+      try {
+        await navigator.clipboard.writeText(fullScript);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-      });
+      } catch {
+        // Ignore clipboard write failures to avoid unhandled promise rejections.
+      }
     }
-  }, [command]);
+  }, [fullScript]);
 
   return (
     <View
@@ -602,30 +619,116 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
       )}
 
       {token && (
-        <View style={{ gap: 8 }}>
+        <View style={{ gap: 10 }}>
           <Text style={{ fontSize: 11, color: "rgb(122, 143, 166)" }}>
-            Run this command on the target machine:
+            Run these commands on the target machine:
           </Text>
-          <View
-            style={{
-              backgroundColor: "rgb(13, 33, 55)",
-              borderWidth: 1,
-              borderColor: "rgb(26, 58, 92)",
-              borderRadius: 4,
-              padding: 8,
-            }}
-          >
+
+          {/* Step 1: Install */}
+          <View style={{ gap: 4 }}>
             <Text
-              selectable
               style={{
-                fontSize: 11,
-                color: "rgb(0, 212, 170)",
-                fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+                fontSize: 10,
+                fontWeight: "600",
+                color: "rgb(122, 143, 166)",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
               }}
             >
-              {command}
+              1. Install webmux-node
             </Text>
+            <View
+              style={{
+                backgroundColor: "rgb(13, 33, 55)",
+                borderWidth: 1,
+                borderColor: "rgb(26, 58, 92)",
+                borderRadius: 4,
+                padding: 8,
+              }}
+            >
+              <Text
+                selectable
+                style={{
+                  fontSize: 11,
+                  color: "rgb(0, 212, 170)",
+                  fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+                }}
+              >
+                {installCmd}
+              </Text>
+            </View>
           </View>
+
+          {/* Step 2: Register */}
+          <View style={{ gap: 4 }}>
+            <Text
+              style={{
+                fontSize: 10,
+                fontWeight: "600",
+                color: "rgb(122, 143, 166)",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+              }}
+            >
+              2. Register with this hub
+            </Text>
+            <View
+              style={{
+                backgroundColor: "rgb(13, 33, 55)",
+                borderWidth: 1,
+                borderColor: "rgb(26, 58, 92)",
+                borderRadius: 4,
+                padding: 8,
+              }}
+            >
+              <Text
+                selectable
+                style={{
+                  fontSize: 11,
+                  color: "rgb(0, 212, 170)",
+                  fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+                }}
+              >
+                {registerCmd}
+              </Text>
+            </View>
+          </View>
+
+          {/* Step 3: Start service */}
+          <View style={{ gap: 4 }}>
+            <Text
+              style={{
+                fontSize: 10,
+                fontWeight: "600",
+                color: "rgb(122, 143, 166)",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+              }}
+            >
+              3. Start the service
+            </Text>
+            <View
+              style={{
+                backgroundColor: "rgb(13, 33, 55)",
+                borderWidth: 1,
+                borderColor: "rgb(26, 58, 92)",
+                borderRadius: 4,
+                padding: 8,
+              }}
+            >
+              <Text
+                selectable
+                style={{
+                  fontSize: 11,
+                  color: "rgb(0, 212, 170)",
+                  fontFamily: Platform.OS === "web" ? "monospace" : undefined,
+                }}
+              >
+                {serviceCmd}
+              </Text>
+            </View>
+          </View>
+
           <Pressable
             onPress={handleCopy}
             style={{
@@ -640,7 +743,7 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
             }}
           >
             <Text style={{ fontSize: 12, color: "rgb(0, 212, 170)" }}>
-              {copied ? "Copied!" : "Copy command"}
+              {copied ? "Copied!" : "Copy all commands"}
             </Text>
           </Pressable>
           <Text style={{ fontSize: 10, color: "rgb(74, 97, 120)" }}>
