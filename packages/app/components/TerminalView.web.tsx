@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
@@ -96,6 +97,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       const fit = new FitAddon();
       term.loadAddon(fit);
+      term.loadAddon(new ClipboardAddon());
       term.open(container);
 
       termRef.current = term;
@@ -131,6 +133,29 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         if (ws.readyState === WebSocket.OPEN && isControllerRef.current) {
           ws.send(JSON.stringify({ type: "input", data }));
         }
+      });
+
+      // Ctrl+C / Cmd+C copies selection to clipboard instead of sending SIGINT
+      term.attachCustomKeyEventHandler((event) => {
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.key === "c" &&
+          event.type === "keydown"
+        ) {
+          const writeText = navigator.clipboard?.writeText?.bind(
+            navigator.clipboard,
+          );
+          if (writeText && term.hasSelection()) {
+            event.preventDefault();
+            void writeText(term.getSelection()).then(() => {
+              term.clearSelection();
+            }).catch(() => {
+              /* clipboard write failed — ignore */
+            });
+            return false;
+          }
+        }
+        return true;
       });
 
       // Intercept paste events for image detection
@@ -172,7 +197,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // The xterm DOM has .xterm-viewport (overflow-y:scroll, behind) and
       // .xterm-screen (on top). Touches hit the screen, not the viewport.
       // We stop propagation on the container so the document handler never fires,
-      // then use term.scrollLines() to scroll by the appropriate number of lines.
+      // then dispatch synthetic WheelEvents on the viewport so xterm.js handles
+      // them normally — when tmux mouse mode is on, xterm converts wheel to mouse
+      // escape sequences; otherwise it scrolls its own scrollback.
       const lineHeight = term.options.fontSize * (term.options.lineHeight ?? 1);
       let lastTouchY = 0;
       let accumulatedDelta = 0;
@@ -194,7 +221,18 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           // Convert accumulated pixel delta to line count
           const lines = Math.trunc(accumulatedDelta / lineHeight);
           if (lines !== 0) {
-            term.scrollLines(lines);
+            const viewport = container.querySelector(".xterm-viewport");
+            if (viewport) {
+              for (let i = 0; i < Math.abs(lines); i++) {
+                viewport.dispatchEvent(
+                  new WheelEvent("wheel", {
+                    deltaY: lines > 0 ? lineHeight : -lineHeight,
+                    bubbles: true,
+                    cancelable: true,
+                  }),
+                );
+              }
+            }
             accumulatedDelta -= lines * lineHeight;
           }
         }
