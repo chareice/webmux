@@ -557,12 +557,19 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
     ? `${installCmd}\n${registerCmd}\n${serviceCmd}`
     : "";
 
-  const handleCopy = useCallback(() => {
-    if (Platform.OS === "web" && typeof navigator !== "undefined") {
-      navigator.clipboard.writeText(fullScript).then(() => {
+  const handleCopy = useCallback(async () => {
+    if (
+      Platform.OS === "web" &&
+      typeof navigator !== "undefined" &&
+      navigator.clipboard?.writeText
+    ) {
+      try {
+        await navigator.clipboard.writeText(fullScript);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-      });
+      } catch {
+        // Ignore clipboard write failures to avoid unhandled promise rejections.
+      }
     }
   }, [fullScript]);
 
