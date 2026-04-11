@@ -8,6 +8,7 @@ import {
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
@@ -99,6 +100,20 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       term.loadAddon(fit);
       term.loadAddon(new ClipboardAddon());
       term.open(container);
+
+      // Load WebGL renderer after custom font is ready to avoid black-box glyphs.
+      // Falls back to canvas renderer on context loss or if WebGL is unavailable.
+      document.fonts.ready.then(() => {
+        try {
+          const webgl = new WebglAddon();
+          webgl.onContextLoss(() => {
+            webgl.dispose();
+          });
+          term.loadAddon(webgl);
+        } catch {
+          // WebGL not available — canvas renderer stays
+        }
+      });
 
       termRef.current = term;
       fitRef.current = fit;
