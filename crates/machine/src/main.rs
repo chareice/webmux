@@ -313,8 +313,13 @@ fn cmd_service_install(no_auto_upgrade: bool) {
             println!("It will auto-start on boot.");
             println!();
             println!("Useful commands:");
-            println!("  systemctl --user status {}", service::SERVICE_NAME);
-            println!("  journalctl --user -u {} -f", service::SERVICE_NAME);
+            if cfg!(target_os = "macos") {
+                println!("  launchctl list com.webmux.node");
+                println!("  tail -f ~/Library/Logs/webmux/stderr.log");
+            } else {
+                println!("  systemctl --user status {}", service::SERVICE_NAME);
+                println!("  journalctl --user -u {} -f", service::SERVICE_NAME);
+            }
             println!("  webmux-node service uninstall");
         }
         Err(e) => {
@@ -322,7 +327,7 @@ fn cmd_service_install(no_auto_upgrade: bool) {
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
             eprintln!("Failed to install service: {}", e);
-            eprintln!("Service file path: {}", service::service_unit_path(&home));
+            eprintln!("Service file path: {}", service::service_file_path(&home));
             std::process::exit(1);
         }
     }
@@ -334,7 +339,7 @@ fn cmd_service_uninstall() {
             let home = dirs::home_dir()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
-            println!("Service file removed: {}", service::service_unit_path(&home));
+            println!("Service file removed: {}", service::service_file_path(&home));
             println!("Service uninstalled.");
         }
         Err(e) => {

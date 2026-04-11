@@ -20,9 +20,11 @@ function getHubUrl(): string {
   return `${wsProtocol}//${host}/ws/machine`;
 }
 
+const INSTALL_SCRIPT_URL = "https://raw.githubusercontent.com/chareice/webmux/main/scripts/install.sh";
+
 function buildFullScript(token: string): string {
   const hubUrl = getHubUrl();
-  const installCmd = `curl -sSL https://github.com/chareice/webmux/releases/latest/download/webmux-node-linux-x64 -o ~/.local/bin/webmux-node && chmod +x ~/.local/bin/webmux-node`;
+  const installCmd = `curl -sSL ${INSTALL_SCRIPT_URL} | sh`;
   const registerCmd = `webmux-node register --hub-url ${hubUrl} --token ${token}`;
   const serviceCmd = `webmux-node service install`;
   return `${installCmd}\n${registerCmd}\n${serviceCmd}`;
@@ -133,7 +135,7 @@ export function OnboardingView() {
   };
 
   const hubUrl = getHubUrl();
-  const installCmd = `curl -sSL https://github.com/chareice/webmux/releases/latest/download/webmux-node-linux-x64 -o ~/.local/bin/webmux-node && chmod +x ~/.local/bin/webmux-node`;
+  const installCmd = `curl -sSL ${INSTALL_SCRIPT_URL} | sh`;
 
   return (
     <div

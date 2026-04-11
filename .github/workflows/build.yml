@@ -8,7 +8,28 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            artifact: webmux-node-linux-x64
+            use-cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            artifact: webmux-node-linux-arm64
+            use-cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: webmux-node-darwin-x64
+            use-cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: webmux-node-darwin-arm64
+            use-cross: false
+
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
 
@@ -16,23 +37,36 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.use-cross
+        uses: taiki-e/install-action@cross
 
       - name: Build webmux-node
-        run: cargo build --release --bin webmux-node
+        run: |
+          if [ "${{ matrix.use-cross }}" = "true" ]; then
+            cross build --release --bin webmux-node --target ${{ matrix.target }}
+          else
+            cargo build --release --bin webmux-node --target ${{ matrix.target }}
+          fi
 
       - name: Rename binary
-        run: cp target/release/webmux-node webmux-node-linux-x64
+        run: cp target/${{ matrix.target }}/release/webmux-node ${{ matrix.artifact }}
 
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')
-        run: gh release upload ${{ github.ref_name }} webmux-node-linux-x64 --clobber
+        run: gh release upload ${{ github.ref_name }} ${{ matrix.artifact }} --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: webmux-node-linux-x64
-          path: webmux-node-linux-x64
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
