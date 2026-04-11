@@ -505,6 +505,9 @@ set -g default-terminal \"xterm-256color\"
 set -g status off
 set -g prefix None
 unbind C-b
+set -g mouse on
+set -s set-clipboard on
+set -g history-limit 10000
 ");
     for var in &["CLAUDE_CODE_NO_FLICKER"] {
         if let Ok(val) = std::env::var(var) {
@@ -633,5 +636,26 @@ fn resolve_cwd(cwd: &str) -> String {
         cwd.replacen('~', &home, 1)
     } else {
         cwd.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tmux_config_contains_mouse_and_clipboard() {
+        ensure_tmux_config();
+        let path = tmux_config_path();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("set -g mouse on"), "missing mouse on");
+        assert!(
+            content.contains("set -s set-clipboard on"),
+            "missing set-clipboard"
+        );
+        assert!(
+            content.contains("set -g history-limit 10000"),
+            "missing history-limit"
+        );
     }
 }
