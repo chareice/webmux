@@ -486,15 +486,22 @@ fn tmux_cmd() -> std::process::Command {
     cmd
 }
 
-fn tmux_config_path() -> PathBuf {
+fn webmux_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("webmux")
-        .join("tmux.conf")
+}
+
+fn tmux_config_path() -> PathBuf {
+    webmux_dir().join("tmux.conf")
+}
+
+fn osc52_script_path() -> PathBuf {
+    webmux_dir().join("osc52copy.sh")
 }
 
 /// Build the tmux config string (extracted for testability).
-fn build_tmux_config() -> String {
+fn build_tmux_config(osc52_script: &str) -> String {
     let mut config = String::from("\
 set -g default-terminal \"xterm-256color\"
 set -g status off
@@ -504,6 +511,18 @@ set -g mouse on
 set -s set-clipboard on
 set -g history-limit 10000
 ");
+    // Bind mouse drag-end to copy selection and emit OSC 52 via helper script.
+    // tmux's built-in OSC 52 emission is unreliable, so we pipe the selection
+    // through a script that writes the OSC 52 sequence to the pane's TTY.
+    // tmux expands #{pane_tty} at execution time and passes it as an argument.
+    config.push_str(&format!(
+        "bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel '{} #{{pane_tty}}'\n",
+        osc52_script
+    ));
+    config.push_str(&format!(
+        "bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel '{} #{{pane_tty}}'\n",
+        osc52_script
+    ));
     for var in &["CLAUDE_CODE_NO_FLICKER"] {
         if let Ok(val) = std::env::var(var) {
             config.push_str(&format!("set-environment -g {} \"{}\"\n", var, val));
@@ -512,13 +531,23 @@ set -g history-limit 10000
     config
 }
 
-/// Write a minimal tmux config so shells inside get TERM=xterm-256color.
+const OSC52_SCRIPT: &str = "#!/bin/sh\nDATA=$(base64 -w0)\nprintf \"\\033]52;c;%s\\a\" \"$DATA\" > \"$1\"\n";
+
+/// Write a minimal tmux config and the OSC 52 helper script.
 fn ensure_tmux_config() {
-    let path = tmux_config_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    let dir = webmux_dir();
+    let _ = std::fs::create_dir_all(&dir);
+
+    let script_path = osc52_script_path();
+    let _ = std::fs::write(&script_path, OSC52_SCRIPT);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755));
     }
-    let _ = std::fs::write(&path, build_tmux_config());
+
+    let config = build_tmux_config(script_path.to_str().unwrap_or("osc52copy.sh"));
+    let _ = std::fs::write(tmux_config_path(), config);
 }
 
 fn check_tmux_available() -> bool {
@@ -648,7 +677,7 @@ mod tests {
 
     #[test]
     fn tmux_config_contains_mouse_and_clipboard() {
-        let content = build_tmux_config();
+        let content = build_tmux_config("/tmp/osc52copy.sh");
         assert!(content.contains("set -g mouse on"), "missing mouse on");
         assert!(
             content.contains("set -s set-clipboard on"),
@@ -657,6 +686,10 @@ mod tests {
         assert!(
             content.contains("set -g history-limit 10000"),
             "missing history-limit"
+        );
+        assert!(
+            content.contains("copy-pipe-and-cancel '/tmp/osc52copy.sh #{pane_tty}'"),
+            "missing osc52 copy binding"
         );
     }
 }

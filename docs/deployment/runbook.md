@@ -13,7 +13,6 @@ Operational reference for webmux (terminal-canvas).
 | Service | Image | Port | Notes |
 |---------|-------|------|-------|
 | webmux-server | `ghcr.io/chareice/webmux-server:main` | 4317 | Axum server + static frontend |
-| watchtower | — | — | Auto-pulls new GHCR images, updates containers |
 | caddy | — | 443/80 | Reverse proxy, TLS termination |
 
 ## Paths
@@ -45,18 +44,14 @@ ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; dock
 
 ## Deploy
 
-Fully automated pipeline:
-
 ```
 git push origin main
     → GitHub Actions (.github/workflows/container.yml)
     → Build Docker image (linux/amd64)
     → Push to ghcr.io/chareice/webmux-server:main
-    → Watchtower detects new image tag
-    → Pulls and restarts container automatically
+    → Manual pull & restart on NAS
 ```
 
-**Manual deploy** (if Watchtower is slow or down):
 ```bash
 ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && docker compose pull && docker compose up -d"
 ```
