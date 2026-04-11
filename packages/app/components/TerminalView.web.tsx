@@ -142,9 +142,16 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           event.key === "c" &&
           event.type === "keydown"
         ) {
-          if (term.hasSelection()) {
-            navigator.clipboard.writeText(term.getSelection());
-            term.clearSelection();
+          const writeText = navigator.clipboard?.writeText?.bind(
+            navigator.clipboard,
+          );
+          if (writeText && term.hasSelection()) {
+            event.preventDefault();
+            void writeText(term.getSelection()).then(() => {
+              term.clearSelection();
+            }).catch(() => {
+              /* clipboard write failed — ignore */
+            });
             return false;
           }
         }

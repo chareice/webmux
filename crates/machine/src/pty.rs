@@ -493,13 +493,8 @@ fn tmux_config_path() -> PathBuf {
         .join("tmux.conf")
 }
 
-/// Write a minimal tmux config so shells inside get TERM=xterm-256color.
-fn ensure_tmux_config() {
-    let path = tmux_config_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    // Build config, forwarding selected env vars from the host process
+/// Build the tmux config string (extracted for testability).
+fn build_tmux_config() -> String {
     let mut config = String::from("\
 set -g default-terminal \"xterm-256color\"
 set -g status off
@@ -514,8 +509,16 @@ set -g history-limit 10000
             config.push_str(&format!("set-environment -g {} \"{}\"\n", var, val));
         }
     }
-    let config = config;
-    let _ = std::fs::write(&path, config);
+    config
+}
+
+/// Write a minimal tmux config so shells inside get TERM=xterm-256color.
+fn ensure_tmux_config() {
+    let path = tmux_config_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&path, build_tmux_config());
 }
 
 fn check_tmux_available() -> bool {
@@ -645,9 +648,7 @@ mod tests {
 
     #[test]
     fn tmux_config_contains_mouse_and_clipboard() {
-        ensure_tmux_config();
-        let path = tmux_config_path();
-        let content = std::fs::read_to_string(&path).unwrap();
+        let content = build_tmux_config();
         assert!(content.contains("set -g mouse on"), "missing mouse on");
         assert!(
             content.contains("set -s set-clipboard on"),
