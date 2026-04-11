@@ -106,11 +106,21 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
+      let pendingData = "";
+      let rafId = 0;
+
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "output") {
-            term.write(msg.data);
+            pendingData += msg.data;
+            if (!rafId) {
+              rafId = requestAnimationFrame(() => {
+                term.write(pendingData);
+                pendingData = "";
+                rafId = 0;
+              });
+            }
           }
         } catch {
           /* ignore */
@@ -238,6 +248,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       container.addEventListener("touchmove", onTouchMove, { passive: false });
 
       return () => {
+        if (rafId) cancelAnimationFrame(rafId);
         container.removeEventListener("paste", handlePaste);
         container.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
         container.removeEventListener("touchstart", onTouchStart);
