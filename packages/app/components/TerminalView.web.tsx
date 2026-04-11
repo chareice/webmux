@@ -189,18 +189,26 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
       container.addEventListener("paste", handlePaste);
 
-      // Fix: xterm.js v6 registers a document-level touchstart/touchmove handler
-      // with {passive:false} that calls preventDefault(), blocking native scroll.
-      // Its gesture system dispatches -xterm-gesturechange events but xterm never
-      // listens for them, so touch scrolling silently breaks on mobile.
-      //
-      // The xterm DOM has .xterm-viewport (overflow-y:scroll, behind) and
-      // .xterm-screen (on top). Touches hit the screen, not the viewport.
-      // We stop propagation on the container so the document handler never fires,
-      // then dispatch synthetic WheelEvents on the viewport so xterm.js handles
-      // them normally — when tmux mouse mode is on, xterm converts wheel to mouse
-      // escape sequences; otherwise it scrolls its own scrollback.
-      const lineHeight = term.options.fontSize * (term.options.lineHeight ?? 1);
+      // Intercept wheel and touch events before xterm.js processes them so we
+      // scroll the local scrollback buffer directly. Without this, xterm.js
+      // detects tmux mouse mode and converts wheel events into mouse escape
+      // sequences that round-trip through the network, making scroll feel laggy.
+      const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
+
+      // Wheel handler — capture phase so we act before xterm.js
+      const onWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        let lines = Math.trunc(e.deltaY / lineHeight);
+        // Ensure at least 1 line of movement for small deltas
+        if (lines === 0) {
+          lines = e.deltaY > 0 ? 1 : -1;
+        }
+        term.scrollLines(lines);
+      };
+      container.addEventListener("wheel", onWheel, { passive: false, capture: true });
+
+      // Touch scroll handlers — same direct scrollLines approach
       let lastTouchY = 0;
       let accumulatedDelta = 0;
 
@@ -221,18 +229,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           // Convert accumulated pixel delta to line count
           const lines = Math.trunc(accumulatedDelta / lineHeight);
           if (lines !== 0) {
-            const viewport = container.querySelector(".xterm-viewport");
-            if (viewport) {
-              for (let i = 0; i < Math.abs(lines); i++) {
-                viewport.dispatchEvent(
-                  new WheelEvent("wheel", {
-                    deltaY: lines > 0 ? lineHeight : -lineHeight,
-                    bubbles: true,
-                    cancelable: true,
-                  }),
-                );
-              }
-            }
+            term.scrollLines(lines);
             accumulatedDelta -= lines * lineHeight;
           }
         }
@@ -242,6 +239,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       return () => {
         container.removeEventListener("paste", handlePaste);
+        container.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
         ws.close();
