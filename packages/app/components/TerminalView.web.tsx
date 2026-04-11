@@ -93,7 +93,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           white: "#e0e8f0",
         },
         cursorBlink: true,
-        scrollback: 0,
+        scrollback: 5000,
       });
 
       const fit = new FitAddon();
