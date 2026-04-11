@@ -100,20 +100,40 @@ async fn handle_terminal_ws(
         }
     }
 
-    // Task: forward terminal output to browser
+    // Task: forward terminal output to browser (coalesced in 8ms windows)
     let send_task = tokio::spawn(async move {
+        let mut batch = Vec::<u8>::new();
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(8));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
         loop {
-            match output_rx.recv().await {
-                Ok(data) => {
-                    let text = String::from_utf8_lossy(&data).to_string();
-                    let msg =
-                        serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
+            tokio::select! {
+                biased;
+
+                result = output_rx.recv() => {
+                    match result {
+                        Ok(data) => batch.extend_from_slice(&data),
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            // Flush remaining
+                            if !batch.is_empty() {
+                                let text = String::from_utf8_lossy(&batch).to_string();
+                                let msg = serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
+                                let _ = sender.send(Message::Text(msg.into())).await;
+                            }
+                            break;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    }
+                }
+
+                _ = tick.tick(), if !batch.is_empty() => {
+                    let text = String::from_utf8_lossy(&batch).to_string();
+                    let msg = serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
+                    batch.clear();
                     if sender.send(Message::Text(msg.into())).await.is_err() {
                         break;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
             }
         }
     });
