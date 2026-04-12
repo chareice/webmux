@@ -66,6 +66,12 @@ function TerminalCardComponent({
     termViewRef.current?.sendImagePaste(base64, mime);
   }, [isController]);
 
+  const handleFitHere = useCallback(() => {
+    if (!isController || !maximized) return;
+    termViewRef.current?.fitToContainer();
+    termViewRef.current?.focus();
+  }, [isController, maximized]);
+
   const handleTitleClick = useCallback(() => {
     if (!maximized) onMaximize(terminal.id);
   }, [maximized, onMaximize, terminal.id]);
@@ -221,6 +227,32 @@ function TerminalCardComponent({
             {/* Inline mode controls for mobile maximized — flat style, no container */}
             {maximized && isMobile && onRequestControl && onReleaseControl && (
               <>
+                {isController && (
+                  <>
+                    <button
+                      data-testid="terminal-fit-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFitHere();
+                      }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "rgb(0, 212, 170)",
+                        cursor: "pointer",
+                        fontSize: 11,
+                        padding: isMobile ? "10px 8px" : "2px 4px",
+                      }}
+                    >
+                      Fit Here
+                    </button>
+                    <span style={{
+                      width: 1, height: 14,
+                      background: 'rgb(26, 58, 92)',
+                      flexShrink: 0,
+                    }} />
+                  </>
+                )}
                 <span style={{
                   width: 6, height: 6, borderRadius: '50%',
                   background: isController ? 'rgb(0, 212, 170)' : 'rgb(74, 97, 120)',
@@ -250,6 +282,27 @@ function TerminalCardComponent({
                   flexShrink: 0,
                 }} />
               </>
+            )}
+            {maximized && !isMobile && isController && (
+              <button
+                data-testid="terminal-fit-button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleFitHere();
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "rgb(0, 212, 170)",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  padding: "2px 4px",
+                }}
+                title="Fit terminal here"
+                aria-label="Fit terminal here"
+              >
+                Fit Here
+              </button>
             )}
             {!maximized && (
               <button
@@ -358,7 +411,10 @@ function TerminalCardComponent({
                   machineId={terminal.machine_id}
                   terminalId={terminal.id}
                   wsUrl={wsUrl}
+                  cols={terminal.cols}
+                  rows={terminal.rows}
                   isController={isController}
+                  canResizeTerminal={maximized && isController}
                   style={
                     maximized
                       ? undefined

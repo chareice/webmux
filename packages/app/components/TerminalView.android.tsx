@@ -10,7 +10,7 @@ import { WebView } from "react-native-webview";
 import type { WebViewMessageEvent } from "react-native-webview";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
-import { buildResizeMessage, didGainControl } from "@/lib/terminalResize";
+import { buildResizeMessage } from "@/lib/terminalResize";
 
 export type { TerminalViewRef, TerminalViewProps };
 
@@ -64,15 +64,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#112a45;}
       }));
     } catch(e) {}
   }
-
-  // Initial fit after a short delay to ensure container is sized
-  setTimeout(doFit, 100);
-  setTimeout(doFit, 500);
-
-  // Re-fit on resize
-  new ResizeObserver(function() {
-    setTimeout(doFit, 50);
-  }).observe(document.getElementById('terminal'));
 
   // Forward user input to RN
   term.onData(function(data) {
@@ -141,12 +132,22 @@ html,body{width:100%;height:100%;overflow:hidden;background:#112a45;}
  *   postMessage bridges data between the two layers.
  */
 export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
-  function TerminalView({ machineId, terminalId, wsUrl, isController, onTitleChange, style }, ref) {
+  function TerminalView({
+    machineId,
+    terminalId,
+    wsUrl,
+    cols,
+    rows,
+    isController,
+    canResizeTerminal,
+    onTitleChange,
+    style,
+  }, ref) {
     const webViewRef = useRef<WebView>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const readyRef = useRef(false);
     const isControllerRef = useRef(isController ?? true);
-    const previousControllerRef = useRef(isController ?? true);
+    const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const decoderRef = useRef(new TextDecoder());
     // Queue output data that arrives before WebView is ready
     const pendingQueue = useRef<string[]>([]);
@@ -165,18 +166,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     }, []);
 
     useEffect(() => {
-      const nextIsController = isController ?? true;
-      const previousIsController = previousControllerRef.current;
-      isControllerRef.current = nextIsController;
+      isControllerRef.current = isController ?? true;
+    }, [isController]);
 
-      if (didGainControl(previousIsController, nextIsController) && readyRef.current) {
-        requestAnimationFrame(() => {
-          postToWebView({ type: "fit" });
-        });
-      }
-
-      previousControllerRef.current = nextIsController;
-    }, [isController, postToWebView]);
+    useEffect(() => {
+      canResizeTerminalRef.current = canResizeTerminal ?? false;
+    }, [canResizeTerminal]);
 
     const writeToTerminal = useCallback(
       (data: string) => {
@@ -219,6 +214,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
               }),
             );
           }
+        },
+        fitToContainer() {
+          if (!readyRef.current || !isControllerRef.current || !canResizeTerminalRef.current) {
+            return;
+          }
+          postToWebView({ type: "fit" });
         },
         focus() {
           postToWebView({ type: "focus" });
@@ -307,11 +308,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
                 postToWebView({ type: "write", data });
               }
               pendingQueue.current = [];
-
-              // Send initial resize to hub
-              if (typeof msg.cols === "number" && typeof msg.rows === "number") {
-                sendResizeToHub({ cols: msg.cols, rows: msg.rows });
-              }
+              postToWebView({ type: "resize", cols, rows });
               break;
             }
 
@@ -338,6 +335,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       },
       [postToWebView, sendResizeToHub],
     );
+
+    useEffect(() => {
+      if (!readyRef.current) return;
+      postToWebView({ type: "resize", cols, rows });
+    }, [cols, rows, postToWebView]);
 
     return (
       <View style={[styles.container, style as any]}>

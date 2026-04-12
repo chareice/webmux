@@ -31,6 +31,29 @@ export async function openApp(page: Page): Promise<void> {
   ]);
 }
 
+export async function getAuthHeaders(page: Page): Promise<Record<string, string>> {
+  const token = await page.evaluate(() => localStorage.getItem("webmux:token"));
+  expect(token).toBeTruthy();
+  return {
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+export async function listTerminals(page: Page): Promise<Array<{
+  id: string;
+  machine_id: string;
+  title: string;
+  cwd: string;
+  cols: number;
+  rows: number;
+}>> {
+  const response = await page.request.get("/api/terminals", {
+    headers: await getAuthHeaders(page),
+  });
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
 export async function expandMachineSection(page: Page): Promise<void> {
   const bookmark = page.getByTestId("machine-bookmark-local-home");
   if (await bookmark.count()) {

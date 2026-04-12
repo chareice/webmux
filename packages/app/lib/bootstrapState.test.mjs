@@ -101,3 +101,33 @@ test("sequence gaps trigger a bootstrap reset instead of applying partial state"
     false,
   );
 });
+
+test("terminal resize events update the authoritative terminal dimensions", () => {
+  const initial = applyBootstrapSnapshot({
+    snapshot_seq: 10,
+    machines: [{ id: "machine-a", name: "A", os: "linux", home_dir: "/root" }],
+    terminals: [{ id: "term-a", machine_id: "machine-a", title: "A", cwd: "/root", cols: 80, rows: 24 }],
+    machine_stats: [],
+    control_leases: [],
+  });
+
+  const next = applyBrowserEventEnvelope(initial, {
+    seq: 11,
+    event: {
+      type: "terminal_resized",
+      terminal: {
+        id: "term-a",
+        machine_id: "machine-a",
+        title: "A",
+        cwd: "/root",
+        cols: 132,
+        rows: 40,
+      },
+    },
+  });
+
+  assert.equal(next.terminals.length, 1);
+  assert.equal(next.terminals[0].cols, 132);
+  assert.equal(next.terminals[0].rows, 40);
+  assert.equal(next.lastSeq, 11);
+});

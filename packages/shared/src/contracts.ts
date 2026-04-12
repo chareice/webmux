@@ -190,6 +190,7 @@ export type BrowserEvent =
   | BrowserEvent.MachineOnline
   | BrowserEvent.MachineOffline
   | BrowserEvent.TerminalCreated
+  | BrowserEvent.TerminalResized
   | BrowserEvent.TerminalDestroyed
   | BrowserEvent.MachineStats
   | BrowserEvent.ModeChanged
@@ -207,6 +208,11 @@ export namespace BrowserEvent {
 
   export interface TerminalCreated {
     type: 'terminal_created'
+    terminal: TerminalInfo
+  }
+
+  export interface TerminalResized {
+    type: 'terminal_resized'
     terminal: TerminalInfo
   }
 
