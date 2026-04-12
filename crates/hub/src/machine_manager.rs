@@ -455,6 +455,12 @@ impl MachineManager {
                 }
             }
             MachineToHub::Pong => {}
+            MachineToHub::ResourceStats { stats } => {
+                let _ = self.event_tx.send(BrowserEvent::MachineStats {
+                    machine_id: machine_id.to_string(),
+                    stats,
+                });
+            }
         }
     }
 

@@ -145,6 +145,26 @@ impl HubConnection {
             }
         }
 
+        // Task: periodically send resource stats
+        let send_tx_stats = send_tx.clone();
+        let mut stats_task = tokio::spawn(async move {
+            let mut collector = crate::stats::StatsCollector::new();
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            // Initial CPU reading needs a warmup tick
+            interval.tick().await;
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            loop {
+                interval.tick().await;
+                let stats = collector.collect();
+                if send_tx_stats
+                    .send(MachineToHub::ResourceStats { stats })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+
         // Task: forward send_tx messages to WebSocket, with periodic WS ping
         let mut send_task = tokio::spawn(async move {
             let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
@@ -203,11 +223,13 @@ impl HubConnection {
         tokio::select! {
             _ = &mut send_task => {},
             _ = &mut recv_task => {},
+            _ = &mut stats_task => {},
         }
 
-        // Abort both tasks to ensure full cleanup
+        // Abort all tasks to ensure full cleanup
         send_task.abort();
         recv_task.abort();
+        stats_task.abort();
 
         Ok(())
     }
