@@ -61,6 +61,14 @@ export const destroyTerminal = (machineId: string, terminalId: string) =>
     "DELETE",
     `/api/machines/${machineId}/terminals/${terminalId}`,
   );
+export const checkForegroundProcess = (
+  machineId: string,
+  terminalId: string,
+) =>
+  request<{ has_foreground_process: boolean; process_name: string | null }>(
+    "GET",
+    `/api/machines/${machineId}/terminals/${terminalId}/foreground-process`,
+  );
 
 // Directory
 export const listDirectory = (machineId: string, path: string) =>

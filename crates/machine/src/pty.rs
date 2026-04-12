@@ -166,6 +166,54 @@ impl PtyManager {
         }
     }
 
+    /// Check if a terminal has a foreground process running (not just a shell).
+    /// Returns (has_foreground_process, process_name).
+    pub fn check_foreground_process(&self, id: &str) -> (bool, Option<String>) {
+        // Extract tmux_backed flag and drop the lock before running external command
+        let tmux_backed = {
+            let sessions = match self.sessions.lock() {
+                Ok(s) => s,
+                Err(_) => return (false, None),
+            };
+            match sessions.get(id) {
+                Some(s) => s.tmux_backed,
+                None => return (false, None),
+            }
+        };
+
+        if !tmux_backed {
+            return (false, None);
+        }
+
+        let tmux_name = tmux_session_name(id);
+        // Filter to active pane only to avoid multi-pane false positives
+        let output = tmux_cmd()
+            .args([
+                "-L",
+                TMUX_SOCKET,
+                "list-panes",
+                "-t",
+                &tmux_name,
+                "-f",
+                "#{pane_active}",
+                "-F",
+                "#{pane_current_command}",
+            ])
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let cmd = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if cmd.is_empty() || is_shell_command(&cmd) {
+                    (false, None)
+                } else {
+                    (true, Some(cmd))
+                }
+            }
+            _ => (false, None),
+        }
+    }
+
     pub fn list_terminals(&self) -> Vec<SessionInfo> {
         self.sessions
             .lock()
@@ -815,6 +863,13 @@ fn detect_shell_for_user(user: &str) -> Option<String> {
     None
 }
 
+fn is_shell_command(cmd: &str) -> bool {
+    matches!(
+        cmd,
+        "bash" | "zsh" | "fish" | "sh" | "dash" | "ksh" | "csh" | "tcsh" | "nu" | "nushell"
+    )
+}
+
 fn resolve_cwd(cwd: &str) -> String {
     if cwd.starts_with("~/") || cwd == "~" {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
@@ -844,5 +899,19 @@ mod tests {
             content.contains("copy-pipe-and-cancel '/tmp/osc52copy.sh #{pane_tty}'"),
             "missing osc52 copy binding"
         );
+    }
+
+    #[test]
+    fn is_shell_command_recognizes_shells() {
+        assert!(is_shell_command("bash"));
+        assert!(is_shell_command("zsh"));
+        assert!(is_shell_command("fish"));
+        assert!(is_shell_command("sh"));
+        assert!(is_shell_command("dash"));
+        assert!(is_shell_command("nu"));
+        assert!(!is_shell_command("vim"));
+        assert!(!is_shell_command("python"));
+        assert!(!is_shell_command("cargo"));
+        assert!(!is_shell_command("node"));
     }
 }

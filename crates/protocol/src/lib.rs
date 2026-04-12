@@ -87,6 +87,11 @@ pub enum HubToMachine {
         ok: bool,
         message: Option<String>,
     },
+    #[serde(rename = "check_foreground_process")]
+    CheckForegroundProcess {
+        request_id: String,
+        terminal_id: String,
+    },
     #[serde(rename = "ping")]
     Ping,
 }
@@ -132,6 +137,12 @@ pub enum MachineToHub {
     },
     #[serde(rename = "resource_stats")]
     ResourceStats { stats: ResourceStats },
+    #[serde(rename = "foreground_process_result")]
+    ForegroundProcessResult {
+        request_id: String,
+        has_foreground_process: bool,
+        process_name: Option<String>,
+    },
     #[serde(rename = "pong")]
     Pong,
 }
