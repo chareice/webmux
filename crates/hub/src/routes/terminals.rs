@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::Json,
+    response::{IntoResponse, Json},
     routing::{delete, get, post},
     Router,
 };
@@ -101,6 +101,17 @@ async fn list_directory(
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
 }
 
+async fn get_machine_stats(
+    Path(machine_id): Path<String>,
+    State(state): State<AppState>,
+    _auth_user: AuthUser,
+) -> impl IntoResponse {
+    match state.manager.get_machine_stats(&machine_id).await {
+        Some(stats) => Json(stats).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/machines", get(list_machines))
@@ -118,4 +129,5 @@ pub fn router() -> Router<AppState> {
             delete(destroy_terminal),
         )
         .route("/api/machines/{machine_id}/fs/list", get(list_directory))
+        .route("/api/machines/{machine_id}/stats", get(get_machine_stats))
 }
