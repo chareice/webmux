@@ -13,33 +13,33 @@ struct ModeRequest {
 }
 
 async fn get_mode(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
 ) -> Json<ModeResponse> {
     Json(ModeResponse {
-        controller_device_id: state.manager.get_controller(),
+        controller_device_id: state.manager.get_controller(&user.user_id),
     })
 }
 
 async fn request_control(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
     Json(body): Json<ModeRequest>,
 ) -> Json<ModeResponse> {
-    state.manager.request_control(&body.device_id);
+    state.manager.request_control(&user.user_id, &body.device_id);
     Json(ModeResponse {
         controller_device_id: Some(body.device_id),
     })
 }
 
 async fn release_control(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
     Json(body): Json<ModeRequest>,
 ) -> Json<ModeResponse> {
-    state.manager.release_control(&body.device_id);
+    state.manager.release_control(&user.user_id, &body.device_id);
     Json(ModeResponse {
-        controller_device_id: state.manager.get_controller(),
+        controller_device_id: state.manager.get_controller(&user.user_id),
     })
 }
 

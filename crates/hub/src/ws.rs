@@ -44,28 +44,58 @@ enum ServerMessage {
     Error { message: String },
 }
 
+fn client_message_allowed(
+    message: &ClientMessage,
+    device_id: &str,
+    is_controller: bool,
+) -> bool {
+    if device_id.is_empty() {
+        return true;
+    }
+
+    match message {
+        ClientMessage::Input { .. }
+        | ClientMessage::CommandInput { .. }
+        | ClientMessage::Resize { .. }
+        | ClientMessage::ImagePaste { .. } => is_controller,
+    }
+}
+
 async fn terminal_ws_handler(
     ws: WebSocketUpgrade,
     Path((machine_id, terminal_id)): Path<(String, String)>,
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
 ) -> Response {
-    // Auth check for browser WebSocket
     let token = params.get("token").map(|s| s.as_str());
-    let authed = match token {
-        Some(t) => auth::verify_bearer_token(t, &state.db, &state.jwt_secret).is_ok(),
-        None => false,
-    };
+    let user_id = token.and_then(|t| {
+        auth::verify_bearer_token(t, &state.db, &state.jwt_secret).ok()
+    });
 
-    if !authed && !state.dev_mode {
+    if user_id.is_none() && !state.dev_mode {
         return Response::builder()
             .status(401)
             .body(axum::body::Body::from("Unauthorized"))
             .unwrap();
     }
 
+    if let Some(user_id) = user_id.as_deref() {
+        if !state
+            .manager
+            .user_can_access_terminal(user_id, &machine_id, &terminal_id)
+            .await
+        {
+            return Response::builder()
+                .status(404)
+                .body(axum::body::Body::from("Terminal not found"))
+                .unwrap();
+        }
+    }
+
     let device_id = params.get("device_id").cloned().unwrap_or_default();
-    ws.on_upgrade(move |socket| handle_terminal_ws(socket, machine_id, terminal_id, device_id, state))
+    ws.on_upgrade(move |socket| {
+        handle_terminal_ws(socket, machine_id, terminal_id, device_id, user_id, state)
+    })
 }
 
 async fn handle_terminal_ws(
@@ -73,6 +103,7 @@ async fn handle_terminal_ws(
     machine_id: String,
     terminal_id: String,
     device_id: String,
+    user_id: Option<String>,
     state: AppState,
 ) {
     let (mut sender, mut receiver) = socket.split();
@@ -141,35 +172,40 @@ async fn handle_terminal_ws(
     let mid = machine_id.clone();
     let tid = terminal_id.clone();
     let did = device_id;
+    let uid = user_id;
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(text) => match serde_json::from_str::<ClientMessage>(&text) {
-                    Ok(client_msg) => match client_msg {
-                        ClientMessage::Input { data } => {
-                            if did.is_empty() || manager.is_controller(&did) {
+                    Ok(client_msg) => {
+                        let can_control = uid
+                            .as_deref()
+                            .map(|user_id| manager.is_controller(user_id, &did))
+                            .unwrap_or(true);
+
+                        if !client_message_allowed(&client_msg, &did, can_control) {
+                            continue;
+                        }
+
+                        match client_msg {
+                            ClientMessage::Input { data }
+                            | ClientMessage::CommandInput { data } => {
                                 let _ = manager.send_input(&mid, &tid, &data).await;
                             }
-                        }
-                        ClientMessage::CommandInput { data } => {
-                            // CommandInput always bypasses mode check
-                            let _ = manager.send_input(&mid, &tid, &data).await;
-                        }
-                        ClientMessage::Resize { cols, rows } => {
-                            if did.is_empty() || manager.is_controller(&did) {
+                            ClientMessage::Resize { cols, rows } => {
                                 let _ = manager.resize_terminal(&mid, &tid, cols, rows).await;
                             }
+                            ClientMessage::ImagePaste {
+                                data,
+                                mime,
+                                filename,
+                            } => {
+                                let _ = manager
+                                    .send_image_paste(&mid, &tid, &data, &mime, &filename)
+                                    .await;
+                            }
                         }
-                        ClientMessage::ImagePaste {
-                            data,
-                            mime,
-                            filename,
-                        } => {
-                            let _ = manager
-                                .send_image_paste(&mid, &tid, &data, &mime, &filename)
-                                .await;
-                        }
-                    },
+                    }
                     Err(e) => {
                         tracing::warn!("Failed to parse client message: {}", e);
                     }
@@ -209,20 +245,21 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                     os,
                     home_dir,
                 }) => {
-                    // Authenticate machine via DB
-                    let auth_ok = authenticate_machine(&state, &machine_id, &machine_secret).await;
-
-                    if !auth_ok {
-                        // Send auth failure and close
-                        let auth_result = HubToMachine::AuthResult {
-                            ok: false,
-                            message: Some("Invalid machine credentials".to_string()),
+                    let machine_owner =
+                        match authenticate_machine(&state, &machine_id, &machine_secret).await {
+                            Ok(user_id) => user_id,
+                            Err(()) => {
+                                // Send auth failure and close
+                                let auth_result = HubToMachine::AuthResult {
+                                    ok: false,
+                                    message: Some("Invalid machine credentials".to_string()),
+                                };
+                                let msg = serde_json::to_string(&auth_result).unwrap();
+                                let _ = sender.send(Message::Text(msg.into())).await;
+                                let _ = sender.send(Message::Close(None)).await;
+                                return;
+                            }
                         };
-                        let msg = serde_json::to_string(&auth_result).unwrap();
-                        let _ = sender.send(Message::Text(msg.into())).await;
-                        let _ = sender.send(Message::Close(None)).await;
-                        return;
-                    }
 
                     // Send auth success
                     let auth_result = HubToMachine::AuthResult {
@@ -249,7 +286,10 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                         os,
                         home_dir,
                     };
-                    let (conn_id, mut cmd_rx) = state.manager.register_machine(info).await;
+                    let (conn_id, mut cmd_rx) = state
+                        .manager
+                        .register_machine(info, machine_owner)
+                        .await;
                     tracing::info!(
                         "Machine {} registered (conn={})",
                         machine_id,
@@ -317,26 +357,45 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
 
 /// Authenticate a machine by checking its secret against the DB hash.
 /// In dev mode, allows empty secrets or machines not in DB.
-async fn authenticate_machine(state: &AppState, machine_id: &str, machine_secret: &str) -> bool {
+async fn authenticate_machine(
+    state: &AppState,
+    machine_id: &str,
+    machine_secret: &str,
+) -> Result<Option<String>, ()> {
     // In dev mode, allow unauthenticated machines
     if state.dev_mode && machine_secret.is_empty() {
-        return true;
+        return Ok(None);
     }
 
     let conn = match state.db.get() {
         Ok(c) => c,
-        Err(_) => return state.dev_mode,
+        Err(_) => return if state.dev_mode { Ok(None) } else { Err(()) },
     };
 
     match db::machines::find_machine_by_id(&conn, machine_id) {
         Ok(Some(machine)) => {
-            auth::verify_password(machine_secret, &machine.machine_secret_hash).unwrap_or(false)
+            if auth::verify_password(machine_secret, &machine.machine_secret_hash).unwrap_or(false)
+            {
+                Ok(Some(machine.user_id))
+            } else {
+                Err(())
+            }
         }
         Ok(None) => {
             // Machine not in DB — allow in dev mode
-            state.dev_mode
+            if state.dev_mode {
+                Ok(None)
+            } else {
+                Err(())
+            }
         }
-        Err(_) => state.dev_mode,
+        Err(_) => {
+            if state.dev_mode {
+                Ok(None)
+            } else {
+                Err(())
+            }
+        }
     }
 }
 
@@ -347,14 +406,12 @@ async fn events_handler(
     Query(params): Query<HashMap<String, String>>,
     State(state): State<AppState>,
 ) -> Response {
-    // Auth check for browser WebSocket
     let token = params.get("token").map(|s| s.as_str());
-    let authed = match token {
-        Some(t) => auth::verify_bearer_token(t, &state.db, &state.jwt_secret).is_ok(),
-        None => false,
-    };
+    let user_id = token.and_then(|t| {
+        auth::verify_bearer_token(t, &state.db, &state.jwt_secret).ok()
+    });
 
-    if !authed && !state.dev_mode {
+    if user_id.is_none() && !state.dev_mode {
         return Response::builder()
             .status(401)
             .body(axum::body::Body::from("Unauthorized"))
@@ -362,23 +419,36 @@ async fn events_handler(
     }
 
     let device_id = params.get("device_id").cloned().unwrap_or_default();
-    ws.on_upgrade(move |socket| handle_events(socket, device_id, state))
+    ws.on_upgrade(move |socket| handle_events(socket, user_id, device_id, state))
 }
 
-async fn handle_events(socket: WebSocket, device_id: String, state: AppState) {
-    if !device_id.is_empty() {
-        state.manager.register_device(&device_id);
+async fn handle_events(
+    socket: WebSocket,
+    user_id: Option<String>,
+    device_id: String,
+    state: AppState,
+) {
+    let session_user_id = user_id.clone();
+
+    if let (Some(user_id), false) = (session_user_id.as_deref(), device_id.is_empty()) {
+        state.manager.register_device(user_id, &device_id);
     }
 
     let (mut sender, mut receiver) = socket.split();
     let mut rx = state.manager.subscribe_events();
+    let event_user_id = session_user_id.clone();
 
     // Task: forward events to browser
     let send_task = tokio::spawn(async move {
         loop {
             match rx.recv().await {
-                Ok(event) => {
-                    let msg = serde_json::to_string(&event).unwrap();
+                Ok(envelope) => {
+                    if let Some(target_user_id) = envelope.target_user_id.as_deref() {
+                        if event_user_id.as_deref() != Some(target_user_id) {
+                            continue;
+                        }
+                    }
+                    let msg = serde_json::to_string(&envelope.event).unwrap();
                     if sender.send(Message::Text(msg.into())).await.is_err() {
                         break;
                     }
@@ -403,8 +473,8 @@ async fn handle_events(socket: WebSocket, device_id: String, state: AppState) {
         _ = recv_task => {},
     }
 
-    if !device_id.is_empty() {
-        state.manager.unregister_device(&device_id);
+    if let (Some(user_id), false) = (session_user_id.as_deref(), device_id.is_empty()) {
+        state.manager.unregister_device(user_id, &device_id);
     }
 }
 
@@ -416,4 +486,31 @@ pub fn router() -> Router<AppState> {
             get(terminal_ws_handler),
         )
         .route("/ws/events", get(events_handler))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watcher_cannot_send_command_input() {
+        assert!(!client_message_allowed(
+            &ClientMessage::CommandInput {
+                data: "echo nope\r".to_string(),
+            },
+            "watcher-device",
+            false,
+        ));
+    }
+
+    #[test]
+    fn controller_can_send_command_input() {
+        assert!(client_message_allowed(
+            &ClientMessage::CommandInput {
+                data: "echo ok\r".to_string(),
+            },
+            "controller-device",
+            true,
+        ));
+    }
 }

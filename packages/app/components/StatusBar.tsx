@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { MachineInfo, ResourceStats } from "@webmux/shared";
+import { getStatusBarLayout } from "./statusBarLayout";
 
 interface StatusBarProps {
   machines: MachineInfo[];
   activeMachineId: string | null;
   onSelectMachine: (id: string) => void;
   machineStats: Record<string, ResourceStats>;
+  isMobile: boolean;
   isController: boolean;
   onRequestControl: () => void;
   onReleaseControl: () => void;
@@ -43,6 +45,7 @@ export function StatusBar({
   activeMachineId,
   onSelectMachine,
   machineStats,
+  isMobile,
   isController,
   onRequestControl,
   onReleaseControl,
@@ -67,6 +70,7 @@ export function StatusBar({
 
   const activeMachine = machines.find((m) => m.id === activeMachineId);
   const stats = activeMachineId ? machineStats[activeMachineId] : undefined;
+  const layout = getStatusBarLayout(isMobile);
 
   const handleMachineClick = useCallback(() => {
     if (machines.length > 1) {
@@ -108,12 +112,13 @@ export function StatusBar({
         paddingRight: 8,
         position: "relative",
         flexShrink: 0,
+        overflow: "hidden",
       }}
     >
       {/* Left side */}
-      <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 0, minWidth: 0, flex: 1, overflow: "hidden" }}>
         {/* Machine selector */}
-        <div ref={dropdownRef} style={{ position: "relative" }}>
+        <div ref={dropdownRef} style={{ position: "relative", minWidth: 0, maxWidth: "100%" }}>
           <button
             onClick={handleMachineClick}
             style={{
@@ -124,10 +129,12 @@ export function StatusBar({
               display: "flex",
               alignItems: "center",
               gap: 4,
-              padding: "0 6px",
+              padding: layout.machineButtonPadding,
               height: 24,
               fontSize: 12,
               fontFamily: "inherit",
+              minWidth: 0,
+              maxWidth: "100%",
             }}
           >
             <span
@@ -139,8 +146,17 @@ export function StatusBar({
                 flexShrink: 0,
               }}
             />
-            <span>{activeMachine?.name ?? "No machine"}</span>
-            {machines.length > 1 && (
+            <span
+              style={{
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {activeMachine?.name ?? "No machine"}
+            </span>
+            {!isMobile && machines.length > 1 && (
               <span style={{ fontSize: 8, marginLeft: 2 }}>&#9650;</span>
             )}
           </button>
@@ -199,7 +215,7 @@ export function StatusBar({
         </div>
 
         {/* Separator + stats */}
-        {stats && (
+        {layout.showStats && stats && (
           <>
             <span
               style={{
@@ -236,7 +252,7 @@ export function StatusBar({
       </div>
 
       {/* Right side — mode toggle */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: layout.sectionGap, flexShrink: 0, marginLeft: 8 }}>
         <span
           style={{
             width: 7,
@@ -246,9 +262,11 @@ export function StatusBar({
             flexShrink: 0,
           }}
         />
-        <span style={{ opacity: 0.9 }}>
-          {isController ? "Control" : "Watch"}
-        </span>
+        {layout.showModeLabel && (
+          <span style={{ opacity: 0.9 }}>
+            {isController ? "Control" : "Watch"}
+          </span>
+        )}
         <button
           onClick={isController ? onReleaseControl : onRequestControl}
           style={{
@@ -257,7 +275,7 @@ export function StatusBar({
             borderRadius: 3,
             color: "#fff",
             cursor: "pointer",
-            padding: "1px 6px",
+            padding: layout.actionButtonPadding,
             fontSize: 11,
             fontFamily: "inherit",
             lineHeight: "18px",

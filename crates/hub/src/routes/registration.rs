@@ -14,6 +14,7 @@ use crate::AppState;
 #[derive(Serialize)]
 struct RegisterTokenResponse {
     token: String,
+    expires_at: i64,
 }
 
 #[derive(Deserialize)]
@@ -54,7 +55,10 @@ async fn create_register_token(
             )
         })?;
 
-    Ok(Json(RegisterTokenResponse { token: raw_token }))
+    Ok(Json(RegisterTokenResponse {
+        token: raw_token,
+        expires_at,
+    }))
 }
 
 // ── Register machine with token ──
@@ -143,4 +147,64 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/machines/register-token", post(create_register_token))
         .route("/api/machines/register", post(register_machine))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use r2d2::Pool;
+    use r2d2_sqlite::SqliteConnectionManager;
+
+    use super::*;
+
+    fn test_state() -> AppState {
+        let manager = Arc::new(crate::machine_manager::MachineManager::new());
+        let pool = Pool::builder()
+            .max_size(1)
+            .build(SqliteConnectionManager::memory())
+            .unwrap();
+        let conn = pool.get().unwrap();
+        crate::db::init_db(&conn).unwrap();
+        crate::db::users::create_user(
+            &conn,
+            "user-a",
+            "test",
+            "user-a",
+            "User A",
+            None,
+            "admin",
+        )
+        .unwrap();
+
+        AppState {
+            manager,
+            db: pool,
+            jwt_secret: "test-secret".to_string(),
+            base_url: "http://localhost:4317".to_string(),
+            dev_mode: false,
+            github_client_id: None,
+            github_client_secret: None,
+            google_client_id: None,
+            google_client_secret: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn create_register_token_returns_expiry_timestamp() {
+        let state = test_state();
+        let before = crate::db::now_ms();
+
+        let Json(response) = create_register_token(
+            State(state),
+            AuthUser {
+                user_id: "user-a".to_string(),
+            },
+        )
+        .await
+        .expect("token creation should succeed");
+
+        assert!(!response.token.is_empty());
+        assert!(response.expires_at >= before);
+    }
 }
