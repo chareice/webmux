@@ -42,9 +42,18 @@ enum ServerMessage {
     Error { message: String },
 }
 
-fn client_message_allowed(message: &ClientMessage, device_id: &str, is_controller: bool) -> bool {
-    if device_id.is_empty() {
+fn client_message_allowed(
+    message: &ClientMessage,
+    device_id: &str,
+    is_controller: bool,
+    is_authenticated: bool,
+) -> bool {
+    if !is_authenticated {
         return true;
+    }
+
+    if device_id.is_empty() {
+        return false;
     }
 
     match message {
@@ -171,7 +180,7 @@ async fn handle_terminal_ws(
                             .map(|user_id| manager.is_controller(user_id, &mid, &did))
                             .unwrap_or(true);
 
-                        if !client_message_allowed(&client_msg, &did, can_control) {
+                        if !client_message_allowed(&client_msg, &did, can_control, uid.is_some()) {
                             continue;
                         }
 
@@ -511,6 +520,7 @@ mod tests {
             },
             "watcher-device",
             false,
+            true,
         ));
     }
 
@@ -522,6 +532,31 @@ mod tests {
             },
             "controller-device",
             true,
+            true,
+        ));
+    }
+
+    #[test]
+    fn authenticated_sessions_without_device_id_cannot_send_terminal_input() {
+        assert!(!client_message_allowed(
+            &ClientMessage::Input {
+                data: "ls\r".to_string(),
+            },
+            "",
+            false,
+            true,
+        ));
+    }
+
+    #[test]
+    fn unauthenticated_dev_sessions_can_still_send_terminal_input() {
+        assert!(client_message_allowed(
+            &ClientMessage::Input {
+                data: "ls\r".to_string(),
+            },
+            "",
+            false,
+            false,
         ));
     }
 }

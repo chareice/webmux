@@ -18,6 +18,8 @@ interface TerminalCardProps {
   terminal: TerminalInfo;
   maximized: boolean;
   isMobile: boolean;
+  isController: boolean;
+  deviceId: string | null;
   onMaximize: () => void;
   onMinimize: () => void;
   onDestroy: () => void;
@@ -27,6 +29,8 @@ export function TerminalCard({
   terminal,
   maximized,
   isMobile,
+  isController,
+  deviceId,
   onMaximize,
   onMinimize,
   onDestroy,
@@ -34,11 +38,12 @@ export function TerminalCard({
   const termViewRef = useRef<TerminalViewRef>(null);
 
   const handleToolbarKey = useCallback((data: string) => {
+    if (!isController) return;
     termViewRef.current?.sendInput(data);
     termViewRef.current?.focus();
-  }, []);
+  }, [isController]);
 
-  const wsUrl = terminalWsUrl(terminal.machine_id, terminal.id);
+  const wsUrl = terminalWsUrl(terminal.machine_id, terminal.id, deviceId ?? undefined);
 
   // Maximized terminal shown as a full-screen Modal
   if (maximized) {
@@ -55,11 +60,18 @@ export function TerminalCard({
           {/* Title bar — close on left, minimize on right */}
           <View style={styles.modalTitleBar}>
             <Pressable
-              onPress={onDestroy}
+              onPress={isController ? onDestroy : undefined}
               hitSlop={12}
               style={styles.closeButton}
             >
-              <Text style={styles.closeText}>{"\u2715"}</Text>
+              <Text
+                style={[
+                  styles.closeText,
+                  !isController && styles.disabledCloseText,
+                ]}
+              >
+                {"\u2715"}
+              </Text>
             </Pressable>
             <View style={styles.titleRow}>
               <View style={styles.statusDot} />
@@ -83,11 +95,12 @@ export function TerminalCard({
               machineId={terminal.machine_id}
               terminalId={terminal.id}
               wsUrl={wsUrl}
+              isController={isController}
             />
           </View>
 
           {/* Mobile toolbar with special keys */}
-          <TerminalToolbar onKey={handleToolbarKey} />
+          {isController && <TerminalToolbar onKey={handleToolbarKey} />}
 
           {/* Footer */}
           <View style={styles.modalFooter}>
@@ -107,12 +120,21 @@ export function TerminalCard({
         <Pressable
           onPress={(e) => {
             e.stopPropagation?.();
-            onDestroy();
+            if (isController) {
+              onDestroy();
+            }
           }}
           hitSlop={12}
           style={styles.cardCloseButton}
         >
-          <Text style={styles.cardCloseText}>{"\u2715"}</Text>
+          <Text
+            style={[
+              styles.cardCloseText,
+              !isController && styles.disabledCloseText,
+            ]}
+          >
+            {"\u2715"}
+          </Text>
         </Pressable>
         <View style={styles.titleRow}>
           <View style={styles.statusDot} />
@@ -129,6 +151,7 @@ export function TerminalCard({
           machineId={terminal.machine_id}
           terminalId={terminal.id}
           wsUrl={wsUrl}
+          isController={isController}
         />
       </View>
 
@@ -188,6 +211,10 @@ const styles = StyleSheet.create({
   closeText: {
     fontSize: 14,
     color: "rgb(255, 107, 107)",
+  },
+  disabledCloseText: {
+    color: "rgb(74, 97, 120)",
+    opacity: 0.5,
   },
   terminalContainer: {
     flex: 1,

@@ -30,6 +30,16 @@ fn default_rows() -> u16 {
     24
 }
 
+fn control_action_allowed(controller_device_id: Option<&str>, device_id: Option<&str>) -> bool {
+    matches!(
+        (
+            controller_device_id,
+            device_id.and_then(|value| (!value.is_empty()).then_some(value)),
+        ),
+        (Some(controller_device_id), Some(device_id)) if controller_device_id == device_id
+    )
+}
+
 async fn list_machines(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -89,13 +99,11 @@ async fn create_terminal(
         return Err((StatusCode::NOT_FOUND, "Machine not found".to_string()));
     }
 
-    if let Some(device_id) = req.device_id.as_deref() {
-        if !state
-            .manager
-            .is_controller(&auth_user.user_id, &machine_id, device_id)
-        {
-            return Err((StatusCode::FORBIDDEN, "Control required".to_string()));
-        }
+    let controller_device_id = state
+        .manager
+        .get_controller(&auth_user.user_id, &machine_id);
+    if !control_action_allowed(controller_device_id.as_deref(), req.device_id.as_deref()) {
+        return Err((StatusCode::FORBIDDEN, "Control required".to_string()));
     }
 
     let startup_command = {
@@ -140,13 +148,14 @@ async fn destroy_terminal(
         return Err((StatusCode::NOT_FOUND, "Terminal not found".to_string()));
     }
 
-    if let Some(device_id) = params.get("device_id").map(|value| value.as_str()) {
-        if !state
-            .manager
-            .is_controller(&auth_user.user_id, &machine_id, device_id)
-        {
-            return Err((StatusCode::FORBIDDEN, "Control required".to_string()));
-        }
+    let controller_device_id = state
+        .manager
+        .get_controller(&auth_user.user_id, &machine_id);
+    if !control_action_allowed(
+        controller_device_id.as_deref(),
+        params.get("device_id").map(|value| value.as_str()),
+    ) {
+        return Err((StatusCode::FORBIDDEN, "Control required".to_string()));
     }
 
     state
@@ -251,4 +260,18 @@ pub fn router() -> Router<AppState> {
         )
         .route("/api/machines/{machine_id}/fs/list", get(list_directory))
         .route("/api/machines/{machine_id}/stats", get(get_machine_stats))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::control_action_allowed;
+
+    #[test]
+    fn control_action_requires_matching_device_id() {
+        assert!(control_action_allowed(Some("device-a"), Some("device-a")));
+        assert!(!control_action_allowed(Some("device-a"), Some("device-b")));
+        assert!(!control_action_allowed(Some("device-a"), None));
+        assert!(!control_action_allowed(Some("device-a"), Some("")));
+        assert!(!control_action_allowed(None, Some("device-a")));
+    }
 }

@@ -140,17 +140,36 @@ html,body{width:100%;height:100%;overflow:hidden;background:#112a45;}
  *   postMessage bridges data between the two layers.
  */
 export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
-  function TerminalView({ machineId, terminalId, wsUrl, onTitleChange, style }, ref) {
+  function TerminalView({ machineId, terminalId, wsUrl, isController, onTitleChange, style }, ref) {
     const webViewRef = useRef<WebView>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const readyRef = useRef(false);
+    const isControllerRef = useRef(isController ?? true);
+    const decoderRef = useRef(new TextDecoder());
     // Queue output data that arrives before WebView is ready
     const pendingQueue = useRef<string[]>([]);
+
+    useEffect(() => {
+      isControllerRef.current = isController ?? true;
+    }, [isController]);
 
     // Send a message to the WebView
     const postToWebView = useCallback((msg: object) => {
       webViewRef.current?.postMessage(JSON.stringify(msg));
     }, []);
+
+    const writeToTerminal = useCallback(
+      (data: string) => {
+        if (!data) return;
+
+        if (readyRef.current) {
+          postToWebView({ type: "write", data });
+        } else {
+          pendingQueue.current.push(data);
+        }
+      },
+      [postToWebView],
+    );
 
     // Expose imperative API
     useImperativeHandle(
@@ -158,19 +177,19 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       () => ({
         sendInput(data: string) {
           const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) {
+          if (isControllerRef.current && ws?.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "input", data }));
           }
         },
         sendCommandInput(data: string) {
           const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) {
+          if (isControllerRef.current && ws?.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "command_input", data }));
           }
         },
         sendImagePaste(base64: string, mime: string) {
           const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) {
+          if (isControllerRef.current && ws?.readyState === WebSocket.OPEN) {
             ws.send(
               JSON.stringify({
                 type: "image_paste",
@@ -193,6 +212,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       if (!wsUrl) return;
 
       const ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -200,19 +220,41 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
 
       ws.onmessage = (event: any) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === "output") {
-            if (readyRef.current) {
-              postToWebView({ type: "write", data: msg.data });
-            } else {
-              // Queue data until WebView is ready
-              pendingQueue.current.push(msg.data);
+        void Promise.resolve(event.data)
+          .then(async (payload) => {
+            if (typeof payload === "string") {
+              try {
+                const msg = JSON.parse(payload);
+                if (msg.type === "error") {
+                  return;
+                }
+              } catch {
+                /* ignore */
+              }
+              return;
             }
-          }
-        } catch {
-          /* ignore */
-        }
+
+            if (payload instanceof ArrayBuffer) {
+              writeToTerminal(
+                decoderRef.current.decode(new Uint8Array(payload), {
+                  stream: true,
+                }),
+              );
+              return;
+            }
+
+            if (payload && typeof payload.arrayBuffer === "function") {
+              const buffer = await payload.arrayBuffer();
+              writeToTerminal(
+                decoderRef.current.decode(new Uint8Array(buffer), {
+                  stream: true,
+                }),
+              );
+            }
+          })
+          .catch(() => {
+            /* ignore */
+          });
       };
 
       ws.onerror = () => {
@@ -224,10 +266,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
 
       return () => {
+        decoderRef.current = new TextDecoder();
         ws.close();
         wsRef.current = null;
       };
-    }, [wsUrl, postToWebView]);
+    }, [wsUrl, writeToTerminal]);
 
     // Handle messages from WebView
     const handleMessage = useCallback(
@@ -247,7 +290,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
               // Send initial resize to hub
               const ws = wsRef.current;
-              if (ws?.readyState === WebSocket.OPEN && msg.cols && msg.rows) {
+              if (
+                isControllerRef.current &&
+                ws?.readyState === WebSocket.OPEN &&
+                msg.cols &&
+                msg.rows
+              ) {
                 ws.send(
                   JSON.stringify({
                     type: "resize",
@@ -262,7 +310,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             case "input": {
               // User typed something in xterm — forward to WebSocket
               const ws = wsRef.current;
-              if (ws?.readyState === WebSocket.OPEN) {
+              if (isControllerRef.current && ws?.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: "input", data: msg.data }));
               }
               break;
@@ -271,7 +319,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             case "resize": {
               // Terminal dimensions changed — inform the hub
               const ws = wsRef.current;
-              if (ws?.readyState === WebSocket.OPEN && msg.cols && msg.rows) {
+              if (
+                isControllerRef.current &&
+                ws?.readyState === WebSocket.OPEN &&
+                msg.cols &&
+                msg.rows
+              ) {
                 ws.send(
                   JSON.stringify({
                     type: "resize",

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { Sidebar } from "./Sidebar";
 import { Canvas } from "./Canvas.web";
@@ -9,7 +9,6 @@ import {
   destroyTerminal,
   checkForegroundProcess,
   eventsWsUrl,
-  getDeviceId,
   getBootstrap,
   requestControl,
   releaseControl,
@@ -19,6 +18,7 @@ import {
   applyBrowserEventEnvelope,
   EMPTY_BROWSER_SESSION_STATE,
 } from "@/lib/bootstrapState";
+import { getPersistentDeviceId } from "@/lib/deviceId";
 import { useIsMobile } from "@/lib/hooks";
 
 export function TerminalCanvas() {
@@ -29,9 +29,9 @@ export function TerminalCanvas() {
   const maximizedRef = useRef<string | null>(null);
   const autoClaimedRef = useRef(false);
   const lastSeqRef = useRef(0);
-  const deviceId = useMemo(() => getDeviceId(), []);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
-  const [eventsGeneration, setEventsGeneration] = useState(0);
+  const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const machines = browserState.machines;
   const terminals = browserState.terminals;
@@ -48,6 +48,20 @@ export function TerminalCanvas() {
   useEffect(() => {
     setSidebarOpen(!isMobile);
   }, [isMobile]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getPersistentDeviceId().then((id) => {
+      if (!cancelled) {
+        setDeviceId(id);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     lastSeqRef.current = browserState.lastSeq;
@@ -94,23 +108,35 @@ export function TerminalCanvas() {
 
   // Load initial data
   useEffect(() => {
+    if (!deviceId) return;
+
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    autoClaimedRef.current = false;
+    setBootstrapReady(false);
 
     getBootstrap()
       .then((snapshot) => {
         if (cancelled) return;
+        lastSeqRef.current = snapshot.snapshot_seq;
         setBrowserState(applyBootstrapSnapshot(snapshot));
         setBootstrapReady(true);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (cancelled) return;
+        retryTimer = setTimeout(() => {
+          setReconnectGeneration((value) => value + 1);
+        }, 1000);
+      });
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [deviceId]);
+  }, [deviceId, reconnectGeneration]);
 
   useEffect(() => {
-    if (!bootstrapReady || autoClaimedRef.current || machines.length === 0) {
+    if (!deviceId || !bootstrapReady || autoClaimedRef.current || machines.length === 0) {
       return;
     }
     if (Object.keys(controlLeases).length > 0) {
@@ -140,7 +166,7 @@ export function TerminalCanvas() {
 
   // Events WebSocket for live updates
   useEffect(() => {
-    if (!bootstrapReady) return;
+    if (!bootstrapReady || !deviceId) return;
 
     const ws = new WebSocket(eventsWsUrl(deviceId, lastSeqRef.current));
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -166,7 +192,8 @@ export function TerminalCanvas() {
 
     ws.onclose = () => {
       reconnectTimer = setTimeout(() => {
-        setEventsGeneration((value) => value + 1);
+        setBootstrapReady(false);
+        setReconnectGeneration((value) => value + 1);
       }, 1000);
     };
 
@@ -174,10 +201,11 @@ export function TerminalCanvas() {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       ws.close();
     };
-  }, [bootstrapReady, deviceId, eventsGeneration]);
+  }, [bootstrapReady, deviceId]);
 
   const handleCreateTerminal = useCallback(
     async (machineId: string, cwd: string) => {
+      if (!deviceId) return;
       if (!isMachineController(machineId)) return;
       await createTerminal(machineId, cwd, deviceId);
       if (isMobile) setSidebarOpen(false);
@@ -186,6 +214,7 @@ export function TerminalCanvas() {
   );
 
   const handleRequestControl = useCallback(async (machineId: string) => {
+    if (!deviceId) return;
     const next = await requestControl(machineId, deviceId);
     setBrowserState((prev) => ({
       ...prev,
@@ -199,6 +228,7 @@ export function TerminalCanvas() {
   }, [deviceId]);
 
   const handleReleaseControl = useCallback(async (machineId: string) => {
+    if (!deviceId) return;
     const next = await releaseControl(machineId, deviceId);
     setBrowserState((prev) => ({
       ...prev,
@@ -217,6 +247,7 @@ export function TerminalCanvas() {
 
   const handleDestroyTerminal = useCallback(
     async (terminal: TerminalInfo) => {
+      if (!deviceId) return;
       if (!isMachineController(terminal.machine_id)) return;
 
       try {
@@ -338,7 +369,7 @@ export function TerminalCanvas() {
             maximizedId={maximizedId}
             isMobile={isMobile}
             isMachineController={isMachineController}
-            deviceId={deviceId}
+            deviceId={deviceId ?? ""}
             onMaximize={handleMaximize}
             onMinimize={handleMinimize}
             onDestroy={handleDestroyTerminal}

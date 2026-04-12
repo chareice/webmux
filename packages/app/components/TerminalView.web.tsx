@@ -13,6 +13,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
+import { createOrderedBinaryOutputQueue } from "@/lib/orderedBinaryOutput.mjs";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
@@ -212,6 +213,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
       };
 
+      const orderedOutput = createOrderedBinaryOutputQueue(enqueueOutput);
+
       ws.onmessage = (event) => {
         if (typeof event.data === "string") {
           try {
@@ -226,16 +229,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
 
         if (event.data instanceof ArrayBuffer) {
-          enqueueOutput(new Uint8Array(event.data));
+          orderedOutput.push(event.data);
           return;
         }
 
         if (event.data instanceof Blob) {
-          void event.data.arrayBuffer().then((buffer) => {
-            enqueueOutput(new Uint8Array(buffer));
-          }).catch(() => {
-            /* ignore */
-          });
+          orderedOutput.push(event.data);
         }
       };
 
