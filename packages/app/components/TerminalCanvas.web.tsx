@@ -38,9 +38,14 @@ export function TerminalCanvas() {
     maximizedRef.current = maximizedId;
   }, [maximizedId]);
 
-  // Auto-select first machine as active
+  // Auto-select first machine as active, reset if selected machine goes offline
   useEffect(() => {
-    if (!activeMachineId && machines.length > 0) {
+    if (machines.length === 0) {
+      if (activeMachineId !== null) setActiveMachineId(null);
+      return;
+    }
+    const stillExists = activeMachineId && machines.some((m) => m.id === activeMachineId);
+    if (!stillExists) {
       setActiveMachineId(machines[0].id);
     }
   }, [machines, activeMachineId]);
