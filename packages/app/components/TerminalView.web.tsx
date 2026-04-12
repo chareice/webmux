@@ -101,40 +101,51 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       term.loadAddon(new ClipboardAddon());
       term.open(container);
 
+      termRef.current = term;
+      fitRef.current = fit;
+
       // Load WebGL renderer after custom font is ready to avoid black-box glyphs.
-      // Falls back to canvas renderer on context loss or if WebGL is unavailable.
+      // Guard against component unmount before fonts resolve.
       document.fonts.ready.then(() => {
+        if (!container.isConnected || termRef.current !== term) return;
+
+        let webgl: WebglAddon | null = null;
         try {
-          const webgl = new WebglAddon();
+          webgl = new WebglAddon();
           webgl.onContextLoss(() => {
-            webgl.dispose();
+            webgl?.dispose();
           });
           term.loadAddon(webgl);
         } catch {
-          // WebGL not available — canvas renderer stays
+          webgl?.dispose();
         }
       });
-
-      termRef.current = term;
-      fitRef.current = fit;
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       let pendingData = "";
       let rafId = 0;
+      const MAX_PENDING = 128 * 1024; // flush immediately if buffer exceeds 128KB (e.g. background tab)
+
+      const flushPending = () => {
+        if (pendingData) {
+          term.write(pendingData);
+          pendingData = "";
+        }
+        rafId = 0;
+      };
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "output") {
             pendingData += msg.data;
-            if (!rafId) {
-              rafId = requestAnimationFrame(() => {
-                term.write(pendingData);
-                pendingData = "";
-                rafId = 0;
-              });
+            if (pendingData.length >= MAX_PENDING) {
+              if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+              flushPending();
+            } else if (!rafId) {
+              rafId = requestAnimationFrame(flushPending);
             }
           }
         } catch {
@@ -220,13 +231,24 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // sequences that round-trip through the network, making scroll feel laggy.
       const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
 
+      // Convert deltaY to line count respecting deltaMode (pixel/line/page)
+      const wheelDeltaToLines = (e: WheelEvent): number => {
+        switch (e.deltaMode) {
+          case WheelEvent.DOM_DELTA_LINE:
+            return e.deltaY;
+          case WheelEvent.DOM_DELTA_PAGE:
+            return e.deltaY * term.rows;
+          default: // DOM_DELTA_PIXEL
+            return e.deltaY / lineHeight;
+        }
+      };
+
       // Wheel handler — capture phase so we act before xterm.js
       const onWheel = (e: WheelEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        let lines = Math.trunc(e.deltaY / lineHeight);
-        // Ensure at least 1 line of movement for small deltas
-        if (lines === 0) {
+        let lines = Math.trunc(wheelDeltaToLines(e));
+        if (lines === 0 && e.deltaY !== 0) {
           lines = e.deltaY > 0 ? 1 : -1;
         }
         term.scrollLines(lines);

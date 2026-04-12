@@ -108,8 +108,6 @@ async fn handle_terminal_ws(
 
         loop {
             tokio::select! {
-                biased;
-
                 result = output_rx.recv() => {
                     match result {
                         Ok(data) => batch.extend_from_slice(&data),
