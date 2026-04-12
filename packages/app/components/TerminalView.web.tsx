@@ -8,6 +8,7 @@ import {
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
@@ -92,7 +93,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           white: "#e0e8f0",
         },
         cursorBlink: true,
-        scrollback: 0,
+        scrollback: 5000,
       });
 
       const fit = new FitAddon();
@@ -103,14 +104,49 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       termRef.current = term;
       fitRef.current = fit;
 
+      // Load WebGL renderer after custom font is ready to avoid black-box glyphs.
+      // Guard against component unmount before fonts resolve.
+      document.fonts.ready.then(() => {
+        if (!container.isConnected || termRef.current !== term) return;
+
+        let webgl: WebglAddon | null = null;
+        try {
+          webgl = new WebglAddon();
+          webgl.onContextLoss(() => {
+            webgl?.dispose();
+          });
+          term.loadAddon(webgl);
+        } catch {
+          webgl?.dispose();
+        }
+      });
+
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
+
+      let pendingData = "";
+      let rafId = 0;
+      const MAX_PENDING = 128 * 1024; // flush immediately if buffer exceeds 128KB (e.g. background tab)
+
+      const flushPending = () => {
+        if (pendingData) {
+          term.write(pendingData);
+          pendingData = "";
+        }
+        rafId = 0;
+      };
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "output") {
-            term.write(msg.data);
+            pendingData += msg.data;
+            if (pendingData.length >= MAX_PENDING) {
+              if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+              flushPending();
+            } else if (!rafId) {
+              rafId = requestAnimationFrame(flushPending);
+            }
           }
         } catch {
           /* ignore */
@@ -189,18 +225,37 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
       container.addEventListener("paste", handlePaste);
 
-      // Fix: xterm.js v6 registers a document-level touchstart/touchmove handler
-      // with {passive:false} that calls preventDefault(), blocking native scroll.
-      // Its gesture system dispatches -xterm-gesturechange events but xterm never
-      // listens for them, so touch scrolling silently breaks on mobile.
-      //
-      // The xterm DOM has .xterm-viewport (overflow-y:scroll, behind) and
-      // .xterm-screen (on top). Touches hit the screen, not the viewport.
-      // We stop propagation on the container so the document handler never fires,
-      // then dispatch synthetic WheelEvents on the viewport so xterm.js handles
-      // them normally — when tmux mouse mode is on, xterm converts wheel to mouse
-      // escape sequences; otherwise it scrolls its own scrollback.
-      const lineHeight = term.options.fontSize * (term.options.lineHeight ?? 1);
+      // Intercept wheel and touch events before xterm.js processes them so we
+      // scroll the local scrollback buffer directly. Without this, xterm.js
+      // detects tmux mouse mode and converts wheel events into mouse escape
+      // sequences that round-trip through the network, making scroll feel laggy.
+      const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
+
+      // Convert deltaY to line count respecting deltaMode (pixel/line/page)
+      const wheelDeltaToLines = (e: WheelEvent): number => {
+        switch (e.deltaMode) {
+          case WheelEvent.DOM_DELTA_LINE:
+            return e.deltaY;
+          case WheelEvent.DOM_DELTA_PAGE:
+            return e.deltaY * term.rows;
+          default: // DOM_DELTA_PIXEL
+            return e.deltaY / lineHeight;
+        }
+      };
+
+      // Wheel handler — capture phase so we act before xterm.js
+      const onWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        let lines = Math.trunc(wheelDeltaToLines(e));
+        if (lines === 0 && e.deltaY !== 0) {
+          lines = e.deltaY > 0 ? 1 : -1;
+        }
+        term.scrollLines(lines);
+      };
+      container.addEventListener("wheel", onWheel, { passive: false, capture: true });
+
+      // Touch scroll handlers — same direct scrollLines approach
       let lastTouchY = 0;
       let accumulatedDelta = 0;
 
@@ -221,18 +276,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           // Convert accumulated pixel delta to line count
           const lines = Math.trunc(accumulatedDelta / lineHeight);
           if (lines !== 0) {
-            const viewport = container.querySelector(".xterm-viewport");
-            if (viewport) {
-              for (let i = 0; i < Math.abs(lines); i++) {
-                viewport.dispatchEvent(
-                  new WheelEvent("wheel", {
-                    deltaY: lines > 0 ? lineHeight : -lineHeight,
-                    bubbles: true,
-                    cancelable: true,
-                  }),
-                );
-              }
-            }
+            term.scrollLines(lines);
             accumulatedDelta -= lines * lineHeight;
           }
         }
@@ -241,7 +285,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       container.addEventListener("touchmove", onTouchMove, { passive: false });
 
       return () => {
+        if (rafId) cancelAnimationFrame(rafId);
         container.removeEventListener("paste", handlePaste);
+        container.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
         ws.close();
