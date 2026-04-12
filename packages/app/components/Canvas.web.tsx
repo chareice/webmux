@@ -3,28 +3,22 @@ import { TerminalCard } from "./TerminalCard.web";
 
 interface CanvasProps {
   terminals: TerminalInfo[];
-  maximizedId: string | null;
+  openTabs: string[];
   isMobile: boolean;
   isController: boolean;
   deviceId: string;
-  onMaximize: (id: string) => void;
-  onMinimize: () => void;
+  onOpen: (id: string) => void;
   onDestroy: (terminal: TerminalInfo) => void;
-  onRequestControl?: () => void;
-  onReleaseControl?: () => void;
 }
 
 export function Canvas({
   terminals,
-  maximizedId,
+  openTabs,
   isMobile,
   isController,
   deviceId,
-  onMaximize,
-  onMinimize,
+  onOpen,
   onDestroy,
-  onRequestControl,
-  onReleaseControl,
 }: CanvasProps) {
   return (
     <main
@@ -79,15 +73,12 @@ export function Canvas({
             <TerminalCard
               key={terminal.id}
               terminal={terminal}
-              maximized={maximizedId === terminal.id}
+              isInTab={openTabs.includes(terminal.id)}
               isMobile={isMobile}
               isController={isController}
               deviceId={deviceId}
-              onMaximize={() => onMaximize(terminal.id)}
-              onMinimize={onMinimize}
+              onOpen={() => onOpen(terminal.id)}
               onDestroy={() => onDestroy(terminal)}
-              onRequestControl={onRequestControl}
-              onReleaseControl={onReleaseControl}
             />
           ))}
         </div>

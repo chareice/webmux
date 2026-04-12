@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import type { TerminalInfo, MachineInfo, ResourceStats } from "@webmux/shared";
 import { Sidebar } from "./Sidebar";
 import { Canvas } from "./Canvas.web";
+import { TabContainer } from "./TabContainer.web";
 import { OnboardingView } from "./OnboardingView.web";
 import { StatusBar } from "./StatusBar";
 import {
@@ -20,14 +21,20 @@ import { useIsMobile } from "@/lib/hooks";
 export function TerminalCanvas() {
   const [machines, setMachines] = useState<MachineInfo[]>([]);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
-  const [maximizedId, setMaximizedId] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
-  const maximizedRef = useRef<string | null>(null);
+  const openTabsRef = useRef<string[]>([]);
+  const activeTabRef = useRef<string | null>(null);
   const deviceId = useMemo(() => getDeviceId(), []);
-  const [controllerDeviceId, setControllerDeviceId] = useState<string | null>(null);
+  const [controllerDeviceId, setControllerDeviceId] = useState<string | null>(
+    null,
+  );
   const isController = controllerDeviceId === deviceId;
-  const [machineStats, setMachineStats] = useState<Record<string, ResourceStats>>({});
+  const [machineStats, setMachineStats] = useState<
+    Record<string, ResourceStats>
+  >({});
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,8 +42,12 @@ export function TerminalCanvas() {
   }, [isMobile]);
 
   useEffect(() => {
-    maximizedRef.current = maximizedId;
-  }, [maximizedId]);
+    openTabsRef.current = openTabs;
+  }, [openTabs]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTabId;
+  }, [activeTabId]);
 
   // Auto-select first machine as active, reset if selected machine goes offline
   useEffect(() => {
@@ -44,18 +55,22 @@ export function TerminalCanvas() {
       if (activeMachineId !== null) setActiveMachineId(null);
       return;
     }
-    const stillExists = activeMachineId && machines.some((m) => m.id === activeMachineId);
+    const stillExists =
+      activeMachineId && machines.some((m) => m.id === activeMachineId);
     if (!stillExists) {
       setActiveMachineId(machines[0].id);
     }
   }, [machines, activeMachineId]);
 
-  // Restore maximized state from URL hash
+  // Restore tab state from URL hash
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.startsWith("#/t/")) {
       const id = hash.slice(4);
-      if (id) setMaximizedId(id);
+      if (id) {
+        setOpenTabs([id]);
+        setActiveTabId(id);
+      }
     }
   }, []);
 
@@ -64,9 +79,12 @@ export function TerminalCanvas() {
     const onPopState = () => {
       const hash = window.location.hash;
       if (hash.startsWith("#/t/")) {
-        setMaximizedId(hash.slice(4));
+        const id = hash.slice(4);
+        setOpenTabs((prev) => (prev.includes(id) ? prev : [...prev, id]));
+        setActiveTabId(id);
       } else {
-        setMaximizedId(null);
+        setOpenTabs([]);
+        setActiveTabId(null);
       }
     };
     window.addEventListener("popstate", onPopState);
@@ -77,10 +95,12 @@ export function TerminalCanvas() {
   useEffect(() => {
     listMachines().then(setMachines).catch(() => {});
     listTerminals().then(setTerminals).catch(() => {});
-    getMode().then(m => {
-      setControllerDeviceId(m.controller_device_id);
-      if (!m.controller_device_id) requestControl(deviceId);
-    }).catch(() => {});
+    getMode()
+      .then((m) => {
+        setControllerDeviceId(m.controller_device_id);
+        if (!m.controller_device_id) requestControl(deviceId);
+      })
+      .catch(() => {});
   }, [deviceId]);
 
   // Events WebSocket for live updates
@@ -93,41 +113,95 @@ export function TerminalCanvas() {
         switch (msg.type) {
           case "machine_online":
             setMachines((prev) => {
-              if (prev.some((m) => m.id === msg.machine.id))
-                return prev;
+              if (prev.some((m) => m.id === msg.machine.id)) return prev;
               return [...prev, msg.machine];
             });
             break;
-          case "machine_offline":
+          case "machine_offline": {
+            const offlineMachineId = msg.machine_id;
             setMachines((prev) =>
-              prev.filter((m) => m.id !== msg.machine_id),
+              prev.filter((m) => m.id !== offlineMachineId),
             );
-            // Also remove terminals from this machine
-            setTerminals((prev) =>
-              prev.filter((t) => t.machine_id !== msg.machine_id),
-            );
-            // Clean up stats for the offline machine
+            // Remove terminals and clean up tabs for this machine
+            setTerminals((prev) => {
+              const removedIds = new Set(
+                prev
+                  .filter((t) => t.machine_id === offlineMachineId)
+                  .map((t) => t.id),
+              );
+              if (removedIds.size > 0) {
+                setOpenTabs((tabs) => {
+                  const next = tabs.filter((id) => !removedIds.has(id));
+                  if (
+                    next.length !== tabs.length &&
+                    activeTabRef.current &&
+                    removedIds.has(activeTabRef.current)
+                  ) {
+                    const idx = tabs.indexOf(activeTabRef.current);
+                    const newActive =
+                      next[Math.min(idx, next.length - 1)] || null;
+                    setActiveTabId(newActive);
+                    if (newActive) {
+                      window.history.replaceState(
+                        null,
+                        "",
+                        `#/t/${newActive}`,
+                      );
+                    } else {
+                      window.history.replaceState(
+                        null,
+                        "",
+                        window.location.pathname,
+                      );
+                    }
+                  }
+                  return next;
+                });
+              }
+              return prev.filter((t) => t.machine_id !== offlineMachineId);
+            });
+            // Clean up stats
             setMachineStats((prev) => {
               const next = { ...prev };
-              delete next[msg.machine_id];
+              delete next[offlineMachineId];
               return next;
             });
             break;
+          }
           case "terminal_created":
             setTerminals((prev) => {
-              if (prev.some((t) => t.id === msg.terminal.id))
-                return prev;
+              if (prev.some((t) => t.id === msg.terminal.id)) return prev;
               return [...prev, msg.terminal];
             });
             break;
-          case "terminal_destroyed":
-            setTerminals((prev) =>
-              prev.filter((t) => t.id !== msg.terminal_id),
-            );
-            if (maximizedRef.current === msg.terminal_id) {
-              setMaximizedId(null);
-            }
+          case "terminal_destroyed": {
+            const destroyedId = msg.terminal_id;
+            setTerminals((prev) => prev.filter((t) => t.id !== destroyedId));
+            // Remove from tabs if open
+            setOpenTabs((prev) => {
+              const next = prev.filter((id) => id !== destroyedId);
+              if (
+                next.length !== prev.length &&
+                activeTabRef.current === destroyedId
+              ) {
+                const idx = prev.indexOf(destroyedId);
+                const newActive =
+                  next[Math.min(idx, next.length - 1)] || null;
+                setActiveTabId(newActive);
+                if (newActive) {
+                  window.history.replaceState(null, "", `#/t/${newActive}`);
+                } else {
+                  window.history.replaceState(
+                    null,
+                    "",
+                    window.location.pathname,
+                  );
+                }
+              }
+              return next;
+            });
             break;
+          }
           case "machine_stats":
             setMachineStats((prev) => ({
               ...prev,
@@ -147,9 +221,11 @@ export function TerminalCanvas() {
       setTimeout(() => {
         listMachines().then(setMachines).catch(() => {});
         listTerminals().then(setTerminals).catch(() => {});
-        getMode().then(m => {
-          setControllerDeviceId(m.controller_device_id);
-        }).catch(() => {});
+        getMode()
+          .then((m) => {
+            setControllerDeviceId(m.controller_device_id);
+          })
+          .catch(() => {});
       }, 1000);
     };
 
@@ -180,15 +256,45 @@ export function TerminalCanvas() {
     [],
   );
 
-  const handleMaximize = useCallback((id: string) => {
-    setMaximizedId(id);
+  // Tab management
+  const handleOpenTab = useCallback((id: string) => {
+    setOpenTabs((prev) => {
+      if (prev.includes(id)) return prev;
+      return [...prev, id];
+    });
+    setActiveTabId(id);
     window.history.pushState(null, "", `#/t/${id}`);
   }, []);
 
-  const handleMinimize = useCallback(() => {
-    setMaximizedId(null);
+  const handleActivateTab = useCallback((id: string) => {
+    setActiveTabId(id);
+    window.history.replaceState(null, "", `#/t/${id}`);
+  }, []);
+
+  const handleCloseTab = useCallback((id: string) => {
+    setOpenTabs((prev) => {
+      const next = prev.filter((tabId) => tabId !== id);
+      if (activeTabRef.current === id) {
+        const idx = prev.indexOf(id);
+        const newActive = next[Math.min(idx, next.length - 1)] || null;
+        setActiveTabId(newActive);
+        if (newActive) {
+          window.history.replaceState(null, "", `#/t/${newActive}`);
+        } else {
+          window.history.pushState(null, "", window.location.pathname);
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  const handleCloseAllTabs = useCallback(() => {
+    setOpenTabs([]);
+    setActiveTabId(null);
     window.history.pushState(null, "", window.location.pathname);
   }, []);
+
+  const hasOpenTabs = openTabs.length > 0 && activeTabId !== null;
 
   return (
     <div
@@ -209,7 +315,7 @@ export function TerminalCanvas() {
         }}
       >
         {/* Mobile hamburger button */}
-        {isMobile && !maximizedId && (
+        {isMobile && !hasOpenTabs && (
           <button
             onClick={() => setSidebarOpen((prev) => !prev)}
             style={{
@@ -272,18 +378,33 @@ export function TerminalCanvas() {
         ) : (
           <Canvas
             terminals={terminals}
-            maximizedId={maximizedId}
+            openTabs={openTabs}
             isMobile={isMobile}
             isController={isController}
             deviceId={deviceId}
-            onMaximize={handleMaximize}
-            onMinimize={handleMinimize}
+            onOpen={handleOpenTab}
             onDestroy={handleDestroyTerminal}
-            onRequestControl={handleRequestControl}
-            onReleaseControl={handleReleaseControl}
           />
         )}
       </div>
+
+      {/* Tab container overlay */}
+      {hasOpenTabs && (
+        <TabContainer
+          terminals={terminals}
+          openTabs={openTabs}
+          activeTabId={activeTabId}
+          isMobile={isMobile}
+          isController={isController}
+          deviceId={deviceId}
+          onActivateTab={handleActivateTab}
+          onCloseTab={handleCloseTab}
+          onCloseAllTabs={handleCloseAllTabs}
+          onDestroyTerminal={handleDestroyTerminal}
+          onRequestControl={handleRequestControl}
+          onReleaseControl={handleReleaseControl}
+        />
+      )}
 
       <StatusBar
         machines={machines}
