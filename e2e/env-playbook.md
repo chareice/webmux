@@ -2,8 +2,9 @@
 
 ## Architecture
 
-- **Hub** (`webmux-server`): Axum web server on port 4317. Serves REST API, WebSocket endpoints, and static frontend. SQLite database. Runs in `WEBMUX_DEV_MODE=true` for E2E (skip OAuth, allow unauthenticated nodes).
-- **Node** (`webmux-node`): Machine daemon connecting to hub via `ws://hub:4317/ws/machine`. Manages real PTY sessions with bash. Runs with `--id e2e-node` (dev mode, no registration needed).
+- **Hub** (`webmux-server`): Axum web server on port 4317. Built inside Docker for E2E. Serves REST API, WebSocket endpoints, and static frontend. SQLite database. Runs in `WEBMUX_DEV_MODE=true` for E2E (skip OAuth, allow unauthenticated nodes).
+- **Node** (`webmux-node`): Machine daemon connecting to hub via `ws://hub:4317/ws/machine`. Built inside Docker for E2E. Manages real PTY sessions with bash. Runs with `--id e2e-node` (dev mode, no registration needed).
+- **Runner** (`playwright`): Playwright test runner with Chromium installed inside Docker. Executes browser tests against `http://hub:4317` on the compose network, so E2E no longer depends on a host browser.
 - **Database:** SQLite at `/app/data/tc.db` (ephemeral per test run, no volume mount)
 
 ## Data Access
@@ -27,12 +28,12 @@ How to access service logs for debugging:
 
 ## Startup Checklist
 
-1. Build binaries: `cargo build --release --bin webmux-server --bin webmux-node && pnpm build`
-2. Build and start services: `docker compose -f e2e/docker-compose.yml up -d --build`
+1. Build and start app services: `docker compose -f e2e/docker-compose.yml up -d --build hub node`
 3. Wait for hub health: hub has built-in healthcheck (3s interval, 10 retries on `GET /api/auth/dev`)
 4. Verify node connected: `docker compose -f e2e/docker-compose.yml logs hub` — look for "Machine e2e-node registered"
 5. Test dev login: `curl -sf http://localhost:4317/api/auth/dev`
-6. Teardown: `docker compose -f e2e/docker-compose.yml down`
+6. Run automated browser tests: `docker compose -f e2e/docker-compose.yml up --build --abort-on-container-exit --exit-code-from runner runner`
+7. Teardown: `docker compose -f e2e/docker-compose.yml down`
 
 ## Known Issues
 

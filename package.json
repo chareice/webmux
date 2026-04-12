@@ -6,9 +6,15 @@
   "scripts": {
     "dev": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app dev:web",
     "build": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app build",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "e2e:up": "docker compose -f e2e/docker-compose.yml up -d --build hub node",
+    "e2e:down": "docker compose -f e2e/docker-compose.yml down --remove-orphans",
+    "e2e:test:host": "playwright test",
+    "e2e:test": "./e2e/run-in-docker.sh",
+    "e2e:ci": "./e2e/run-in-docker.sh"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "typescript": "~5.9.3"
   }
 }

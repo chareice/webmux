@@ -1,19 +1,21 @@
 import { Platform } from "react-native";
 
+import { generateDeviceId } from "./deviceIdShared";
+
 const DEVICE_ID_KEY = "tc-device-id";
 let cachedDeviceIdPromise: Promise<string> | null = null;
 
 function getWebDeviceId(): string {
   let id = sessionStorage.getItem(DEVICE_ID_KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = generateDeviceId();
     sessionStorage.setItem(DEVICE_ID_KEY, id);
   }
   return id;
 }
 
 function generateNativeDeviceId(): string {
-  return `tc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return generateDeviceId();
 }
 
 async function getNativeDeviceId(): Promise<string> {

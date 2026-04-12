@@ -21,6 +21,7 @@ import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,
   EMPTY_BROWSER_SESSION_STATE,
+  shouldResyncForEnvelope,
 } from "@/lib/bootstrapState";
 import { getPersistentDeviceId } from "@/lib/deviceId";
 
@@ -119,7 +120,12 @@ export function TerminalCanvas() {
     ws.onmessage = (event: any) => {
       try {
         const envelope = JSON.parse(event.data);
+        let needsResync = false;
         setBrowserState((prev) => {
+          if (shouldResyncForEnvelope(prev, envelope)) {
+            needsResync = true;
+            return prev;
+          }
           const next = applyBrowserEventEnvelope(prev, envelope);
           if (
             next !== prev &&
@@ -130,6 +136,9 @@ export function TerminalCanvas() {
           }
           return next;
         });
+        if (needsResync) {
+          ws.close();
+        }
       } catch {
         /* ignore */
       }

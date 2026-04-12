@@ -139,6 +139,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
       >
         <TextInput
           ref={inputRef}
+          testID="command-bar-input"
           value={value}
           onChangeText={(text) => {
             setValue(text);
@@ -178,6 +179,8 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
           <View style={{ flexDirection: "row", gap: 4 }}>
             {Platform.OS === "web" && onImagePaste && (
               <Pressable
+                accessibilityRole="button"
+                testID="command-bar-image"
                 onPress={() => {
                   // Create file input on demand for web
                   if (!fileInputRef.current) {
@@ -211,6 +214,8 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
               </Pressable>
             )}
             <Pressable
+              accessibilityRole="button"
+              testID="command-bar-send"
               onPress={handleSubmit}
               style={{
                 backgroundColor: "rgba(0, 212, 170, 0.1)",

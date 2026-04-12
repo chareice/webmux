@@ -1,7 +1,7 @@
 # E2E test environment
-# Prerequisites: cargo build --release --bin webmux-server --bin webmux-node
-#                pnpm build
-# Usage: docker compose -f e2e/docker-compose.yml up -d --build
+# Usage:
+#   docker compose -f e2e/docker-compose.yml up -d --build hub node
+#   docker compose -f e2e/docker-compose.yml up --build --abort-on-container-exit --exit-code-from runner runner
 
 services:
   hub:
@@ -39,3 +39,19 @@ services:
     depends_on:
       hub:
         condition: service_healthy
+
+  runner:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile.runner
+    ipc: host
+    environment:
+      CI: "true"
+      PLAYWRIGHT_BASE_URL: "http://hub:4317"
+    depends_on:
+      hub:
+        condition: service_healthy
+      node:
+        condition: service_started
+    volumes:
+      - ./artifacts:/work/e2e/artifacts

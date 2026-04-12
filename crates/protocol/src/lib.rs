@@ -1,8 +1,9 @@
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 // ── Shared data types ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MachineInfo {
     pub id: String,
     pub name: String,
@@ -10,7 +11,7 @@ pub struct MachineInfo {
     pub home_dir: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TerminalInfo {
     pub id: String,
     pub machine_id: String,
@@ -20,14 +21,14 @@ pub struct TerminalInfo {
     pub rows: u16,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DirEntry {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceStats {
     /// CPU usage percentage (0.0 - 100.0), averaged across all cores
     pub cpu_percent: f32,
@@ -39,26 +40,26 @@ pub struct ResourceStats {
     pub disks: Vec<DiskInfo>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DiskInfo {
     pub mount_point: String,
     pub total_bytes: u64,
     pub used_bytes: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MachineStatsSnapshot {
     pub machine_id: String,
     pub stats: ResourceStats,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ControlLeaseSnapshot {
     pub machine_id: String,
     pub controller_device_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BrowserStateSnapshot {
     pub snapshot_seq: u64,
     pub machines: Vec<MachineInfo>,
@@ -211,7 +212,7 @@ pub fn encode_terminal_output_frame(terminal_id: &str, data: &[u8]) -> Vec<u8> {
     frame
 }
 
-pub fn decode_terminal_output_frame(frame: &[u8]) -> Result<(String, Vec<u8>), String> {
+pub fn decode_terminal_output_frame(frame: &[u8]) -> Result<(String, Bytes), String> {
     if frame.len() < 2 {
         return Err("frame is missing terminal id length".to_string());
     }
@@ -224,7 +225,7 @@ pub fn decode_terminal_output_frame(frame: &[u8]) -> Result<(String, Vec<u8>), S
     let terminal_id = std::str::from_utf8(&frame[2..2 + terminal_id_len])
         .map_err(|error| format!("terminal id is not valid utf-8: {error}"))?
         .to_string();
-    Ok((terminal_id, frame[2 + terminal_id_len..].to_vec()))
+    Ok((terminal_id, Bytes::copy_from_slice(&frame[2 + terminal_id_len..])))
 }
 
 #[cfg(test)]
@@ -237,7 +238,7 @@ mod tests {
         let (terminal_id, payload) = decode_terminal_output_frame(&frame).unwrap();
 
         assert_eq!(terminal_id, "term-a");
-        assert_eq!(payload, b"\x1b[31mhello\x00world");
+        assert_eq!(payload.as_ref(), b"\x1b[31mhello\x00world");
     }
 
     #[test]

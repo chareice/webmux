@@ -95,6 +95,7 @@ function TerminalCardComponent({
       )}
 
       <div
+        data-testid={`terminal-card-${terminal.id}`}
         style={
           maximized
             ? {
@@ -233,6 +234,7 @@ function TerminalCardComponent({
                   flexShrink: 0,
                 }} />
                 <button
+                  data-testid="terminal-mode-toggle"
                   onClick={(e) => {
                     e.stopPropagation();
                     if (isController) onReleaseControl?.(terminal.machine_id);

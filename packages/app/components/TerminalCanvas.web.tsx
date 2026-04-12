@@ -14,6 +14,7 @@ import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,
   EMPTY_BROWSER_SESSION_STATE,
+  shouldResyncForEnvelope,
 } from "@/lib/bootstrapState";
 import { getPersistentDeviceId } from "@/lib/deviceId";
 import { useIsMobile } from "@/lib/hooks";
@@ -152,7 +153,12 @@ export function TerminalCanvas() {
     ws.onmessage = (event) => {
       try {
         const envelope = JSON.parse(event.data);
+        let needsResync = false;
         setBrowserState((prev) => {
+          if (shouldResyncForEnvelope(prev, envelope)) {
+            needsResync = true;
+            return prev;
+          }
           const next = applyBrowserEventEnvelope(prev, envelope);
           if (
             next !== prev &&
@@ -163,6 +169,9 @@ export function TerminalCanvas() {
           }
           return next;
         });
+        if (needsResync) {
+          ws.close();
+        }
       } catch {
         /* ignore */
       }
@@ -288,6 +297,8 @@ export function TerminalCanvas() {
         {isMobile && !maximizedId && (
           <button
             onClick={() => setSidebarOpen((prev) => !prev)}
+            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+            data-testid="mobile-sidebar-toggle"
             style={{
               position: "fixed",
               top: 12,

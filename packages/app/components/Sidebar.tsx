@@ -402,6 +402,7 @@ function MachineSection({
     >
       {/* Machine header */}
       <Pressable
+        testID={`machine-section-${machine.id}`}
         onPress={() => setExpanded((prev) => !prev)}
         style={{
           flexDirection: "row",
@@ -471,6 +472,7 @@ function MachineSection({
               </Text>
               {onRequestControl && (
                 <Pressable
+                  testID={`machine-request-control-${machine.id}`}
                   onPress={() => onRequestControl(machine.id)}
                   style={{
                     alignSelf: "flex-start",
@@ -497,6 +499,7 @@ function MachineSection({
           {bookmarks.map((bm) => (
             <Pressable
               key={bm.id}
+              testID={`machine-bookmark-${bm.id}`}
               onPress={() => {
                 if (!canCreateTerminal) return;
                 onCreateTerminal(machine.id, bm.path);

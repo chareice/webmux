@@ -1,0 +1,16 @@
+FROM node:22-bookworm
+
+RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
+
+WORKDIR /work
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml playwright.config.ts ./
+COPY packages/app/package.json packages/app/package.json
+COPY packages/shared/package.json packages/shared/package.json
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm exec playwright install --with-deps chromium
+
+COPY e2e e2e
+
+CMD ["pnpm", "exec", "playwright", "test"]

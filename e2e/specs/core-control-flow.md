@@ -10,10 +10,10 @@
 ## Steps
 
 1. **action:** In browser session A, open http://localhost:4317
-   **eval:** Desktop layout loads with the sidebar already open. The page shows "Machines", the online machine "e2e-machine", the root directory entry "▸~/root✕", and the top-right button "Release". The empty state says "Select a directory to open a terminal".
+   **eval:** Desktop layout loads with the sidebar already open. The page shows "Machines", the online machine "e2e-machine", the root directory entry "▸~/root✕", and the top-right button "Take Control". The empty state says "Select a directory to open a terminal".
 
-2. **action:** In browser session A, click the root directory entry "▸~/root✕"
-   **eval:** A terminal card appears in the canvas. The card title starts with "Terminal", and the card shows "Close terminal" and "Maximize" buttons. The top-right machine control button still says "Release".
+2. **action:** In browser session A, click "Take Control", then click the root directory entry "▸~/root✕"
+   **eval:** A terminal card appears in the canvas. The card title starts with "Terminal", and the card shows "Close terminal" and "Maximize" buttons. The top-right machine control button now says "Release Control".
 
 3. **action:** In browser session B, open http://localhost:4317
    **eval:** The same terminal is already visible in session B, but it is in watch mode. The terminal card shows the button "Watch mode - cannot close", and the top-right machine control button says "Take Control".
@@ -34,4 +34,4 @@
    **eval:** After reload, session A still shows the empty state "Select a directory to open a terminal" and the top-right button "Take Control".
 
 9. **action:** In browser session B, reload the page
-   **eval:** After reload, session B still shows the empty state "Select a directory to open a terminal" and the top-right button "Release".
+   **eval:** After reload, session B also shows the empty state "Select a directory to open a terminal" and the top-right button "Take Control", because control is released when the page disconnects.

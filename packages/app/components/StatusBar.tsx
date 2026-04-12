@@ -269,6 +269,7 @@ function StatusBarComponent({
           </span>
         )}
         <button
+          data-testid="statusbar-mode-toggle"
           onClick={() => {
             if (!activeMachineId) return;
             if (isController) onReleaseControl(activeMachineId);

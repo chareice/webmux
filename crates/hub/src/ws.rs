@@ -440,12 +440,18 @@ async fn handle_events(
     }
 
     let (mut sender, mut receiver) = socket.split();
-    let (replay, mut rx) = if let Some(user_id) = session_user_id.as_deref() {
+    let subscription = if let Some(user_id) = session_user_id.as_deref() {
         state.manager.subscribe_events_after(user_id, after_seq)
     } else {
         state.manager.subscribe_public_events_after(after_seq)
     };
+    if subscription.requires_resync {
+        return;
+    }
+    let replay = subscription.replay;
+    let mut rx = subscription.receiver;
     let event_user_id = session_user_id.clone();
+    let lag_device_id = device_id.clone();
 
     // Task: forward events to browser
     let send_task = tokio::spawn(async move {
@@ -474,7 +480,14 @@ async fn handle_events(
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::warn!(
+                        "Events stream lagged by {} messages for device {}, forcing resync",
+                        skipped,
+                        if lag_device_id.is_empty() { "<unknown>" } else { &lag_device_id }
+                    );
+                    break;
+                }
             }
         }
     });

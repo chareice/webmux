@@ -1,0 +1,52 @@
+import { test, expect } from "@playwright/test";
+
+import { expectSingleTerminalCard, expandMachineSection, openApp } from "./helpers";
+
+test("desktop control handoff stays in sync across browser sessions", async ({ browser }) => {
+  const contextA = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const contextB = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await openApp(pageA);
+  await expandMachineSection(pageA);
+
+  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Take Control");
+  await pageA.getByTestId("machine-request-control-e2e-node").click();
+  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Release Control");
+
+  await pageA.getByTestId("machine-bookmark-local-home").click();
+  const cardA = await expectSingleTerminalCard(pageA);
+  await expect(cardA.getByLabel("Close terminal")).toBeVisible();
+
+  await openApp(pageB);
+  const cardB = await expectSingleTerminalCard(pageB);
+  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Take Control");
+  await expect(cardB.getByLabel("Watch mode - cannot close")).toBeVisible();
+
+  await pageB.getByTestId("canvas-mode-toggle").click();
+  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Release Control");
+  await expect(cardB.getByLabel("Close terminal")).toBeVisible();
+
+  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Take Control");
+  await expect(cardA.getByLabel("Watch mode - cannot close")).toBeVisible();
+
+  await cardB.getByLabel("Close terminal").click();
+  await expect(pageA.locator("[data-testid^='terminal-card-']")).toHaveCount(0);
+  await expect(pageB.locator("[data-testid^='terminal-card-']")).toHaveCount(0);
+  await expect(pageA.getByText("Select a directory to open a terminal")).toBeVisible();
+  await expect(pageB.getByText("Select a directory to open a terminal")).toBeVisible();
+
+  await pageA.reload();
+  await pageB.reload();
+
+  await openApp(pageA);
+  await openApp(pageB);
+  await expect(pageA.getByText("Select a directory to open a terminal")).toBeVisible();
+  await expect(pageB.getByText("Select a directory to open a terminal")).toBeVisible();
+  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Take Control");
+  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Take Control");
+
+  await contextA.close();
+  await contextB.close();
+});

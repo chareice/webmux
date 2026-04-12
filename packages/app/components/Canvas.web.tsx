@@ -159,6 +159,7 @@ function CanvasComponent({
             )}
             {onRequestControl && onReleaseControl && (
               <button
+                data-testid="canvas-mode-toggle"
                 onClick={() => {
                   if (isActiveController) {
                     onReleaseControl(activeMachine.id);

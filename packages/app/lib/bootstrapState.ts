@@ -45,6 +45,10 @@ export function applyBrowserEventEnvelope(
   state: BrowserSessionState,
   envelope: BrowserEventEnvelope,
 ): BrowserSessionState {
+  if (shouldResyncForEnvelope(state, envelope)) {
+    return state;
+  }
+
   if (envelope.seq <= state.lastSeq) {
     return state;
   }
@@ -53,6 +57,13 @@ export function applyBrowserEventEnvelope(
     ...applyBrowserEvent(state, envelope.event),
     lastSeq: envelope.seq,
   };
+}
+
+export function shouldResyncForEnvelope(
+  state: BrowserSessionState,
+  envelope: BrowserEventEnvelope,
+): boolean {
+  return state.lastSeq > 0 && envelope.seq > state.lastSeq + 1;
 }
 
 function applyBrowserEvent(

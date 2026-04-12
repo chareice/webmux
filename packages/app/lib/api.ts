@@ -8,6 +8,8 @@ import type {
   ResourceStats,
 } from "@webmux/shared";
 
+import { generateDeviceId } from "./deviceIdShared";
+
 let _baseUrl = "";
 let _token: string | null = null;
 
@@ -113,7 +115,7 @@ export function getDeviceId(): string {
   if (typeof window === 'undefined') return '';
   let id = sessionStorage.getItem('tc-device-id');
   if (!id) {
-    id = crypto.randomUUID();
+    id = generateDeviceId();
     sessionStorage.setItem('tc-device-id', id);
   }
   return id;

@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use std::sync::Arc;
 use std::time::Duration;
@@ -6,12 +7,13 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::pty::PtyManager;
+use crate::stats::should_emit_stats;
 
 const HUB_OUTBOUND_CAPACITY: usize = 256;
 
 enum OutboundHubMessage {
     Json(MachineToHub),
-    TerminalOutput { terminal_id: String, data: Vec<u8> },
+    TerminalOutput { terminal_id: String, data: Bytes },
 }
 
 pub struct HubConnection {
@@ -130,7 +132,7 @@ impl HubConnection {
                         let _ = tx
                             .send(OutboundHubMessage::TerminalOutput {
                                 terminal_id: tid.clone(),
-                                data: buffer,
+                                data: buffer.into(),
                             })
                             .await;
                     }
@@ -151,7 +153,14 @@ impl HubConnection {
                                     }
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,
-                                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                                    tracing::warn!(
+                                        "Dropped {} buffered terminal output chunks for {} while reconnecting to hub",
+                                        skipped,
+                                        tid
+                                    );
+                                    continue;
+                                }
                             }
                         }
                     });
@@ -164,21 +173,29 @@ impl HubConnection {
         let mut stats_task = tokio::spawn(async move {
             let mut collector = crate::stats::StatsCollector::new();
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            let mut last_sent = None;
+            let mut silent_intervals = 0;
             // Initial CPU reading needs a warmup tick
             interval.tick().await;
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             loop {
                 interval.tick().await;
                 let stats = collector.collect();
+                if !should_emit_stats(last_sent.as_ref(), &stats, silent_intervals) {
+                    silent_intervals = silent_intervals.saturating_add(1);
+                    continue;
+                }
                 if send_tx_stats
                     .send(OutboundHubMessage::Json(MachineToHub::ResourceStats {
-                        stats,
+                        stats: stats.clone(),
                     }))
                     .await
                     .is_err()
                 {
                     break;
                 }
+                last_sent = Some(stats);
+                silent_intervals = 0;
             }
         });
 
@@ -297,7 +314,7 @@ async fn handle_hub_message(
                             let _ = tx
                                 .send(OutboundHubMessage::TerminalOutput {
                                     terminal_id: tid.clone(),
-                                    data: buffer,
+                                    data: buffer.into(),
                                 })
                                 .await;
                         }
@@ -319,7 +336,12 @@ async fn handle_hub_message(
                                         }
                                     }
                                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                                        tracing::warn!(
+                                            "Dropped {} live terminal output chunks for {} before forwarding to hub",
+                                            skipped,
+                                            tid
+                                        );
                                         continue
                                     }
                                 }

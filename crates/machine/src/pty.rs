@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -17,7 +18,7 @@ struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     info: SessionInfo,
-    output_tx: broadcast::Sender<Vec<u8>>,
+    output_tx: broadcast::Sender<Bytes>,
     output_buffer: Arc<Mutex<Vec<u8>>>,
     tmux_backed: bool,
     attach_generation: u64,
@@ -162,7 +163,7 @@ impl PtyManager {
         Ok(())
     }
 
-    pub fn subscribe(&self, id: &str) -> Result<(Vec<u8>, broadcast::Receiver<Vec<u8>>), String> {
+    pub fn subscribe(&self, id: &str) -> Result<(Vec<u8>, broadcast::Receiver<Bytes>), String> {
         self.ensure_attached(id)?;
         let sessions = self
             .sessions
@@ -760,7 +761,7 @@ fn should_auto_reattach(attached_for: Duration) -> bool {
 
 fn spawn_reader_thread(
     reader: Box<dyn Read + Send>,
-    output_tx: broadcast::Sender<Vec<u8>>,
+    output_tx: broadcast::Sender<Bytes>,
     output_buffer: Arc<Mutex<Vec<u8>>>,
     detach: Option<DetachNotifier>,
     child: Option<Box<dyn Child + Send + Sync>>,
@@ -772,7 +773,7 @@ fn spawn_reader_thread(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let data = buf[..n].to_vec();
+                    let data = Bytes::copy_from_slice(&buf[..n]);
                     {
                         let mut buffer = output_buffer.lock().unwrap();
                         buffer.extend_from_slice(&data);

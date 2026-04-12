@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,
+  shouldResyncForEnvelope,
 } from "./bootstrapState.ts";
 
 test("bootstrap snapshot becomes the authoritative initial state", () => {
@@ -73,4 +74,30 @@ test("mode changes are applied per machine instead of globally", () => {
 
   assert.equal(next.controlLeases["machine-a"], "device-a");
   assert.equal(next.controlLeases["machine-b"], "device-b");
+});
+
+test("sequence gaps trigger a bootstrap reset instead of applying partial state", () => {
+  const initial = applyBootstrapSnapshot({
+    snapshot_seq: 4,
+    machines: [{ id: "machine-a", name: "A", os: "linux", home_dir: "/root" }],
+    terminals: [],
+    machine_stats: [],
+    control_leases: [],
+  });
+
+  assert.equal(
+    shouldResyncForEnvelope(initial, {
+      seq: 6,
+      event: { type: "machine_offline", machine_id: "machine-a" },
+    }),
+    true,
+  );
+
+  assert.equal(
+    shouldResyncForEnvelope(initial, {
+      seq: 5,
+      event: { type: "machine_offline", machine_id: "machine-a" },
+    }),
+    false,
+  );
 });
