@@ -4,6 +4,7 @@ import type {
   TerminalInfo,
   DirEntry,
   Bookmark,
+  ResourceStats,
 } from "@webmux/shared";
 
 let _baseUrl = "";
@@ -105,6 +106,10 @@ export const requestControl = (deviceId: string) =>
   request<{ controller_device_id: string | null }>("POST", "/api/mode/control", { device_id: deviceId });
 export const releaseControl = (deviceId: string) =>
   request<{ controller_device_id: string | null }>("POST", "/api/mode/release", { device_id: deviceId });
+
+// Machine Stats
+export const getMachineStats = (machineId: string) =>
+  request<ResourceStats>("GET", `/api/machines/${machineId}/stats`);
 
 // Settings
 export const getSettings = () =>
