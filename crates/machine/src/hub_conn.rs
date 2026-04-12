@@ -347,6 +347,14 @@ async fn handle_hub_message(
                 );
             }
         }
+        HubToMachine::CheckForegroundProcess { request_id, terminal_id } => {
+            let (has_fg, process_name) = pty.check_foreground_process(&terminal_id);
+            let _ = send_tx.send(MachineToHub::ForegroundProcessResult {
+                request_id,
+                has_foreground_process: has_fg,
+                process_name,
+            });
+        }
         HubToMachine::Ping => {
             let _ = send_tx.send(MachineToHub::Pong);
         }

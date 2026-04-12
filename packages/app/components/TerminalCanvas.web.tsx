@@ -7,6 +7,7 @@ import { StatusBar } from "./StatusBar";
 import {
   createTerminal,
   destroyTerminal,
+  checkForegroundProcess,
   listMachines,
   listTerminals,
   eventsWsUrl,
@@ -175,6 +176,24 @@ export function TerminalCanvas() {
 
   const handleDestroyTerminal = useCallback(
     async (terminal: TerminalInfo) => {
+      try {
+        const result = await checkForegroundProcess(
+          terminal.machine_id,
+          terminal.id,
+        );
+        if (result.has_foreground_process) {
+          const name = result.process_name ?? "unknown";
+          if (
+            !window.confirm(
+              `"${name}" is still running. Close this terminal?`,
+            )
+          ) {
+            return;
+          }
+        }
+      } catch {
+        // If check fails, allow closing without confirmation
+      }
       await destroyTerminal(terminal.machine_id, terminal.id);
     },
     [],
