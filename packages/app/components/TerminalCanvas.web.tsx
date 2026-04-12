@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import type { TerminalInfo, MachineInfo } from "@webmux/shared";
+import type { TerminalInfo, MachineInfo, ResourceStats } from "@webmux/shared";
 import { Sidebar } from "./Sidebar";
 import { Canvas } from "./Canvas.web";
 import { OnboardingView } from "./OnboardingView.web";
-import { ModeIndicator } from "./ModeIndicator";
+import { StatusBar } from "./StatusBar";
 import {
   createTerminal,
   destroyTerminal,
@@ -27,6 +27,8 @@ export function TerminalCanvas() {
   const deviceId = useMemo(() => getDeviceId(), []);
   const [controllerDeviceId, setControllerDeviceId] = useState<string | null>(null);
   const isController = controllerDeviceId === deviceId;
+  const [machineStats, setMachineStats] = useState<Record<string, ResourceStats>>({});
+  const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
 
   useEffect(() => {
     setSidebarOpen(!isMobile);
@@ -35,6 +37,13 @@ export function TerminalCanvas() {
   useEffect(() => {
     maximizedRef.current = maximizedId;
   }, [maximizedId]);
+
+  // Auto-select first machine as active
+  useEffect(() => {
+    if (!activeMachineId && machines.length > 0) {
+      setActiveMachineId(machines[0].id);
+    }
+  }, [machines, activeMachineId]);
 
   // Restore maximized state from URL hash
   useEffect(() => {
@@ -92,6 +101,12 @@ export function TerminalCanvas() {
             setTerminals((prev) =>
               prev.filter((t) => t.machine_id !== msg.machine_id),
             );
+            // Clean up stats for the offline machine
+            setMachineStats((prev) => {
+              const next = { ...prev };
+              delete next[msg.machine_id];
+              return next;
+            });
             break;
           case "terminal_created":
             setTerminals((prev) => {
@@ -107,6 +122,12 @@ export function TerminalCanvas() {
             if (maximizedRef.current === msg.terminal_id) {
               setMaximizedId(null);
             }
+            break;
+          case "machine_stats":
+            setMachineStats((prev) => ({
+              ...prev,
+              [msg.machine_id]: msg.stats,
+            }));
             break;
           case "mode_changed":
             setControllerDeviceId(msg.controller_device_id);
@@ -168,103 +189,106 @@ export function TerminalCanvas() {
     <div
       style={{
         display: "flex",
+        flexDirection: "column",
         height: "100dvh",
         width: "100vw",
-        position: "relative",
         overflow: "hidden",
       }}
     >
-      {/* Mobile hamburger button */}
-      {isMobile && !maximizedId && (
-        <button
-          onClick={() => setSidebarOpen((prev) => !prev)}
-          style={{
-            position: "fixed",
-            top: 12,
-            left: 12,
-            zIndex: 90,
-            background: "rgb(17, 42, 69)",
-            border: "1px solid rgb(26, 58, 92)",
-            borderRadius: 6,
-            color: "rgb(224, 232, 240)",
-            cursor: "pointer",
-            fontSize: 18,
-            padding: "6px 10px",
-            lineHeight: 1,
-          }}
-        >
-          &#x2630;
-        </button>
-      )}
+      <div
+        style={{
+          display: "flex",
+          flex: 1,
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        {/* Mobile hamburger button */}
+        {isMobile && !maximizedId && (
+          <button
+            onClick={() => setSidebarOpen((prev) => !prev)}
+            style={{
+              position: "fixed",
+              top: 12,
+              left: 12,
+              zIndex: 90,
+              background: "rgb(17, 42, 69)",
+              border: "1px solid rgb(26, 58, 92)",
+              borderRadius: 6,
+              color: "rgb(224, 232, 240)",
+              cursor: "pointer",
+              fontSize: 18,
+              padding: "6px 10px",
+              lineHeight: 1,
+            }}
+          >
+            &#x2630;
+          </button>
+        )}
 
-      {/* Sidebar backdrop on mobile */}
-      {isMobile && sidebarOpen && (
-        <div
-          onClick={() => setSidebarOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 80,
-            background: "rgba(0, 0, 0, 0.5)",
-          }}
-        />
-      )}
-
-      {/* Sidebar */}
-      {(sidebarOpen || !isMobile) && (
-        <div
-          style={
-            isMobile
-              ? {
-                  position: "fixed",
-                  top: 0,
-                  left: 0,
-                  height: "100dvh",
-                  zIndex: 85,
-                }
-              : {}
-          }
-        >
-          <Sidebar
-            machines={machines}
-            onCreateTerminal={handleCreateTerminal}
+        {/* Sidebar backdrop on mobile */}
+        {isMobile && sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 80,
+              background: "rgba(0, 0, 0, 0.5)",
+            }}
           />
-        </div>
-      )}
+        )}
 
-      {/* Main content */}
-      {machines.length === 0 ? (
-        <OnboardingView />
-      ) : (
-        <Canvas
-          terminals={terminals}
-          maximizedId={maximizedId}
-          isMobile={isMobile}
-          isController={isController}
-          deviceId={deviceId}
-          onMaximize={handleMaximize}
-          onMinimize={handleMinimize}
-          onDestroy={handleDestroyTerminal}
-          onRequestControl={handleRequestControl}
-          onReleaseControl={handleReleaseControl}
-        />
-      )}
+        {/* Sidebar */}
+        {(sidebarOpen || !isMobile) && (
+          <div
+            style={
+              isMobile
+                ? {
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    height: "100dvh",
+                    zIndex: 85,
+                  }
+                : {}
+            }
+          >
+            <Sidebar
+              machines={machines}
+              onCreateTerminal={handleCreateTerminal}
+            />
+          </div>
+        )}
 
-      {/* Mode indicator — hidden on mobile when terminal is maximized (rendered inline in title bar instead) */}
-      {!(isMobile && maximizedId) && (
-        <div style={{
-          position: 'fixed',
-          top: 12,
-          right: 12,
-          zIndex: 200,
-        }}>
-          <ModeIndicator
+        {/* Main content */}
+        {machines.length === 0 ? (
+          <OnboardingView />
+        ) : (
+          <Canvas
+            terminals={terminals}
+            maximizedId={maximizedId}
+            isMobile={isMobile}
             isController={isController}
+            deviceId={deviceId}
+            onMaximize={handleMaximize}
+            onMinimize={handleMinimize}
+            onDestroy={handleDestroyTerminal}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
           />
-        </div>
-      )}
+        )}
+      </div>
+
+      <StatusBar
+        machines={machines}
+        activeMachineId={activeMachineId}
+        onSelectMachine={setActiveMachineId}
+        machineStats={machineStats}
+        isController={isController}
+        onRequestControl={handleRequestControl}
+        onReleaseControl={handleReleaseControl}
+      />
     </div>
   );
 }
