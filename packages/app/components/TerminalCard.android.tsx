@@ -43,6 +43,12 @@ export function TerminalCard({
     termViewRef.current?.focus();
   }, [isController]);
 
+  const handleFitHere = useCallback(() => {
+    if (!isController || !maximized) return;
+    termViewRef.current?.fitToContainer();
+    termViewRef.current?.focus();
+  }, [isController, maximized]);
+
   const wsUrl = terminalWsUrl(terminal.machine_id, terminal.id, deviceId ?? undefined);
 
   // Maximized terminal shown as a full-screen Modal
@@ -79,13 +85,24 @@ export function TerminalCard({
                 {terminal.title}
               </Text>
             </View>
-            <Pressable
-              onPress={onMinimize}
-              hitSlop={12}
-              style={styles.minimizeButton}
-            >
-              <Text style={styles.minimizeText}>{"\u2921"}</Text>
-            </Pressable>
+            <View style={styles.headerActions}>
+              {isController && (
+                <Pressable
+                  onPress={handleFitHere}
+                  hitSlop={12}
+                  style={styles.fitButton}
+                >
+                  <Text style={styles.fitText}>Fit</Text>
+                </Pressable>
+              )}
+              <Pressable
+                onPress={onMinimize}
+                hitSlop={12}
+                style={styles.minimizeButton}
+              >
+                <Text style={styles.minimizeText}>{"\u2921"}</Text>
+              </Pressable>
+            </View>
           </View>
 
           {/* Terminal view */}
@@ -95,7 +112,10 @@ export function TerminalCard({
               machineId={terminal.machine_id}
               terminalId={terminal.id}
               wsUrl={wsUrl}
+              cols={terminal.cols}
+              rows={terminal.rows}
               isController={isController}
+              canResizeTerminal={isController}
             />
           </View>
 
@@ -151,7 +171,10 @@ export function TerminalCard({
           machineId={terminal.machine_id}
           terminalId={terminal.id}
           wsUrl={wsUrl}
+          cols={terminal.cols}
+          rows={terminal.rows}
           isController={isController}
+          canResizeTerminal={false}
         />
       </View>
 
@@ -204,9 +227,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  fitButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
   minimizeText: {
     fontSize: 16,
     color: "rgb(122, 143, 166)",
+  },
+  fitText: {
+    fontSize: 12,
+    color: "rgb(0, 212, 170)",
+    fontWeight: "600",
   },
   closeText: {
     fontSize: 14,

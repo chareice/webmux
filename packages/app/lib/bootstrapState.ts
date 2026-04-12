@@ -91,6 +91,7 @@ function applyBrowserEvent(
       };
     }
     case "terminal_created":
+    case "terminal_resized":
       return {
         ...state,
         terminals: upsertTerminal(state.terminals, event.terminal),

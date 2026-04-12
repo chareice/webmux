@@ -175,6 +175,8 @@ pub enum BrowserEvent {
     MachineOffline { machine_id: String },
     #[serde(rename = "terminal_created")]
     TerminalCreated { terminal: TerminalInfo },
+    #[serde(rename = "terminal_resized")]
+    TerminalResized { terminal: TerminalInfo },
     #[serde(rename = "terminal_destroyed")]
     TerminalDestroyed {
         machine_id: String,

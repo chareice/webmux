@@ -435,12 +435,15 @@ impl MachineManager {
         cols: u16,
         rows: u16,
     ) -> Result<(), String> {
-        let cmd_tx = {
+        let (cmd_tx, target_user_id) = {
             let machines = self.machines.lock().await;
             let Some(conn) = machines.get(machine_id) else {
                 return Err(format!("Machine {} not found", machine_id));
             };
-            conn.cmd_tx.clone()
+            if !conn.terminals.contains_key(terminal_id) {
+                return Err(format!("Terminal {} not found", terminal_id));
+            }
+            (conn.cmd_tx.clone(), conn.user_id.clone())
         };
         cmd_tx
             .send(HubToMachine::TerminalResize {
@@ -450,6 +453,26 @@ impl MachineManager {
             })
             .await
             .map_err(|_| "Machine disconnected".to_string())?;
+
+        let updated_terminal = {
+            let mut machines = self.machines.lock().await;
+            let Some(conn) = machines.get_mut(machine_id) else {
+                return Ok(());
+            };
+            let Some(terminal) = conn.terminals.get_mut(terminal_id) else {
+                return Ok(());
+            };
+            terminal.cols = cols;
+            terminal.rows = rows;
+            terminal.clone()
+        };
+
+        self.send_event(
+            target_user_id,
+            BrowserEvent::TerminalResized {
+                terminal: updated_terminal,
+            },
+        );
         Ok(())
     }
 
@@ -1142,6 +1165,53 @@ mod tests {
             Some("device-a")
         );
         assert!(snapshot.snapshot_seq > 0);
+    }
+
+    #[tokio::test]
+    async fn resize_terminal_updates_snapshot_state_and_emits_terminal_resized_event() {
+        let manager = MachineManager::new();
+
+        let (_conn_id, mut cmd_rx) = manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        let mut subscription = manager.subscribe_events_after("user-a", snapshot.snapshot_seq);
+
+        manager
+            .resize_terminal("machine-a", "term-a", 132, 40)
+            .await
+            .unwrap();
+
+        let sent_command = cmd_rx.recv().await.unwrap();
+        assert!(matches!(
+            sent_command,
+            HubToMachine::TerminalResize {
+                terminal_id,
+                cols: 132,
+                rows: 40,
+            } if terminal_id == "term-a"
+        ));
+
+        let updated_snapshot = manager.snapshot_for_user("user-a").await;
+        assert_eq!(updated_snapshot.terminals.len(), 1);
+        assert_eq!(updated_snapshot.terminals[0].cols, 132);
+        assert_eq!(updated_snapshot.terminals[0].rows, 40);
+
+        let envelope = subscription.receiver.recv().await.unwrap();
+        assert!(matches!(
+            envelope.event,
+            BrowserEvent::TerminalResized { terminal }
+                if terminal.id == "term-a" && terminal.cols == 132 && terminal.rows == 40
+        ));
     }
 
     #[tokio::test]
