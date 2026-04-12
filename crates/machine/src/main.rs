@@ -1,8 +1,8 @@
 mod config;
 mod hub_conn;
 mod pty;
-mod stats;
 mod service;
+mod stats;
 
 use std::sync::Arc;
 
@@ -132,7 +132,11 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
     };
     let register_url = format!("{}/api/machines/register", http_base);
 
-    tracing::info!("Registering machine '{}' with hub at {}", machine_name, hub_url);
+    tracing::info!(
+        "Registering machine '{}' with hub at {}",
+        machine_name,
+        hub_url
+    );
 
     let body = serde_json::json!({
         "token": token,
@@ -257,32 +261,79 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
     // Recover tmux-backed terminals from previous run
     let recovered = pty_manager.recover_sessions();
     if !recovered.is_empty() {
-        tracing::info!("Recovered {} terminals from previous session", recovered.len());
+        tracing::info!(
+            "Recovered {} terminals from previous session",
+            recovered.len()
+        );
     }
 
     // Spawn background task to auto-reattach tmux sessions when attach process dies
     let pty_for_reattach = pty_manager.clone();
     tokio::spawn(async move {
-        while let Some(terminal_id) = detach_rx.recv().await {
-            tracing::warn!("tmux attach died for terminal {}, attempting re-attach", terminal_id);
-            // Brief delay to let the old process fully exit
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        while let Some(event) = detach_rx.recv().await {
+            match pty_for_reattach.handle_detach_event(&event) {
+                pty::DetachEventAction::Ignore => {
+                    tracing::debug!(
+                        "Ignoring stale tmux detach notification for terminal {} (generation {})",
+                        event.session_id,
+                        event.attach_generation
+                    );
+                }
+                pty::DetachEventAction::KeepDetached => {
+                    tracing::warn!(
+                        "tmux attach died for terminal {} shortly after connect; keeping it detached until terminal activity resumes",
+                        event.session_id
+                    );
+                }
+                pty::DetachEventAction::AutoReattach => {
+                    tracing::warn!(
+                        "tmux attach died for terminal {}, attempting re-attach",
+                        event.session_id
+                    );
+                    // Brief delay to let the old process fully exit
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-            const MAX_RETRIES: u32 = 3;
-            for attempt in 1..=MAX_RETRIES {
-                match pty_for_reattach.reattach_tmux(&terminal_id) {
-                    Ok(()) => {
-                        tracing::info!("Re-attached terminal {} (attempt {})", terminal_id, attempt);
-                        break;
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Re-attach failed for terminal {} (attempt {}/{}): {}",
-                            terminal_id, attempt, MAX_RETRIES, e
-                        );
-                        if attempt < MAX_RETRIES {
-                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    const MAX_RETRIES: u32 = 3;
+                    let mut reattached = false;
+                    for attempt in 1..=MAX_RETRIES {
+                        if !pty_for_reattach.should_reattach_detach(&event) {
+                            tracing::debug!(
+                                "Skipping stale tmux re-attach for terminal {} after generation advanced",
+                                event.session_id
+                            );
+                            break;
                         }
+
+                        match pty_for_reattach.reattach_tmux(&event.session_id) {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "Re-attached terminal {} (attempt {})",
+                                    event.session_id,
+                                    attempt
+                                );
+                                reattached = true;
+                                break;
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Re-attach failed for terminal {} (attempt {}/{}): {}",
+                                    event.session_id,
+                                    attempt,
+                                    MAX_RETRIES,
+                                    e
+                                );
+                                if attempt < MAX_RETRIES {
+                                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                }
+                            }
+                        }
+                    }
+
+                    if !reattached {
+                        tracing::warn!(
+                            "Leaving terminal {} detached after failed re-attach attempts; it will reconnect on the next terminal activity",
+                            event.session_id
+                        );
                     }
                 }
             }
@@ -304,7 +355,11 @@ fn cmd_status() {
     let config_path = config::config_path();
     let config_exists = config_path.exists();
 
-    println!("Config file: {} ({})", config_path.display(), if config_exists { "exists" } else { "not found" });
+    println!(
+        "Config file: {} ({})",
+        config_path.display(),
+        if config_exists { "exists" } else { "not found" }
+    );
 
     match config::load_config() {
         Ok(cfg) => {
@@ -370,7 +425,10 @@ fn cmd_service_uninstall() {
             let home = dirs::home_dir()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
-            println!("Service file removed: {}", service::service_file_path(&home));
+            println!(
+                "Service file removed: {}",
+                service::service_file_path(&home)
+            );
             println!("Service uninstalled.");
         }
         Err(e) => {

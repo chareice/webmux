@@ -27,6 +27,7 @@ html, body {
   background-color: rgb(var(--color-background) / 1);
   color: rgb(var(--color-foreground) / 1);
   min-height: 100%;
+  color-scheme: dark;
 }
 
 body {
@@ -36,11 +37,12 @@ body {
 /* Prevent mobile zoom on double tap */
 * {
   touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Remove default focus outlines, use border changes instead */
-input:focus, textarea:focus {
-  outline: none;
+:focus-visible {
+  outline: 2px solid rgb(var(--color-accent) / 0.9);
+  outline-offset: 2px;
 }
 
 ::-webkit-scrollbar {

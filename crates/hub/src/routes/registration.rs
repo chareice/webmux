@@ -1,10 +1,4 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    routing::post,
-    Router,
-};
+use axum::{extract::State, http::StatusCode, response::Json, routing::post, Router};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::{self, AuthUser};
@@ -47,13 +41,20 @@ async fn create_register_token(
         )
     })?;
 
-    db::tokens::create_registration_token(&conn, &id, &auth_user.user_id, "", &token_hash, expires_at)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("DB error: {e}")})),
-            )
-        })?;
+    db::tokens::create_registration_token(
+        &conn,
+        &id,
+        &auth_user.user_id,
+        "",
+        &token_hash,
+        expires_at,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("DB error: {e}")})),
+        )
+    })?;
 
     Ok(Json(RegisterTokenResponse {
         token: raw_token,
@@ -121,13 +122,19 @@ async fn register_machine(
         .unwrap_or_else(|| format!("machine-{}", &machine_id[..8]));
 
     // Create machine record
-    db::machines::create_machine(&conn, &machine_id, &reg_token.user_id, &machine_name, &secret_hash)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("DB error: {e}")})),
-            )
-        })?;
+    db::machines::create_machine(
+        &conn,
+        &machine_id,
+        &reg_token.user_id,
+        &machine_name,
+        &secret_hash,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("DB error: {e}")})),
+        )
+    })?;
 
     // Mark token as used
     db::tokens::consume_registration_token(&conn, &reg_token.id).map_err(|e| {
@@ -166,16 +173,8 @@ mod tests {
             .unwrap();
         let conn = pool.get().unwrap();
         crate::db::init_db(&conn).unwrap();
-        crate::db::users::create_user(
-            &conn,
-            "user-a",
-            "test",
-            "user-a",
-            "User A",
-            None,
-            "admin",
-        )
-        .unwrap();
+        crate::db::users::create_user(&conn, "user-a", "test", "user-a", "User A", None, "admin")
+            .unwrap();
 
         AppState {
             manager,

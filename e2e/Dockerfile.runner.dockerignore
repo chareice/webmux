@@ -1,0 +1,9 @@
+target/
+node_modules/
+packages/app/.expo/
+packages/app/android/
+packages/app/ios/
+packages/app/dist/
+packages/shared/dist/
+.git/
+e2e/artifacts/

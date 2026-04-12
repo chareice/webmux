@@ -13,6 +13,8 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
+import { createOrderedBinaryOutputQueue } from "@/lib/orderedBinaryOutput.mjs";
+import { buildResizeMessage, didGainControl } from "@/lib/terminalResize";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
@@ -73,7 +75,22 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const wsRef = useRef<WebSocket | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const isControllerRef = useRef(isController ?? true);
-    useEffect(() => { isControllerRef.current = isController ?? true; }, [isController]);
+    const syncResizeRef = useRef<() => void>(() => {});
+    const previousControllerRef = useRef(isController ?? true);
+
+    useEffect(() => {
+      const nextIsController = isController ?? true;
+      const previousIsController = previousControllerRef.current;
+      isControllerRef.current = nextIsController;
+
+      if (didGainControl(previousIsController, nextIsController)) {
+        requestAnimationFrame(() => {
+          syncResizeRef.current();
+        });
+      }
+
+      previousControllerRef.current = nextIsController;
+    }, [isController]);
 
     // Expose imperative API
     useImperativeHandle(
@@ -174,47 +191,97 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       });
 
       const ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
-      let pendingData = "";
-      let rafId = 0;
-      const MAX_PENDING = 128 * 1024; // flush immediately if buffer exceeds 128KB (e.g. background tab)
-
-      const flushPending = () => {
-        if (pendingData) {
-          term.write(pendingData);
-          pendingData = "";
+      const syncTerminalResize = () => {
+        const fit = fitRef.current;
+        const liveWs = wsRef.current;
+        if (!fit || liveWs?.readyState !== WebSocket.OPEN || !isControllerRef.current) {
+          return;
         }
-        rafId = 0;
-      };
 
-      ws.onmessage = (event) => {
         try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === "output") {
-            pendingData += msg.data;
-            if (pendingData.length >= MAX_PENDING) {
-              if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
-              flushPending();
-            } else if (!rafId) {
-              rafId = requestAnimationFrame(flushPending);
-            }
-          }
+          fit.fit();
+          const resizeMessage = buildResizeMessage(fit.proposeDimensions());
+          if (!resizeMessage) return;
+          liveWs.send(JSON.stringify(resizeMessage));
         } catch {
           /* ignore */
         }
       };
 
-      ws.onopen = () => {
-        if (isControllerRef.current) {
-          ws.send(
-            JSON.stringify({
-              type: "resize",
-              cols: TERM_COLS,
-              rows: TERM_ROWS,
-            }),
-          );
+      syncResizeRef.current = syncTerminalResize;
+
+      let pendingChunks: Uint8Array[] = [];
+      let pendingBytes = 0;
+      let rafId = 0;
+      const MAX_PENDING = 128 * 1024; // flush immediately if buffer exceeds 128KB (e.g. background tab)
+
+      const flushPending = () => {
+        if (pendingBytes > 0) {
+          const merged = new Uint8Array(pendingBytes);
+          let offset = 0;
+          for (const chunk of pendingChunks) {
+            merged.set(chunk, offset);
+            offset += chunk.length;
+          }
+          term.write(merged);
+          pendingChunks = [];
+          pendingBytes = 0;
         }
+        rafId = 0;
+      };
+
+      const enqueueOutput = (chunk: Uint8Array) => {
+        pendingChunks.push(chunk);
+        pendingBytes += chunk.length;
+
+        if (pendingBytes >= MAX_PENDING) {
+          if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = 0;
+          }
+          flushPending();
+        } else if (!rafId) {
+          rafId = requestAnimationFrame(flushPending);
+        }
+      };
+
+      const orderedOutput = createOrderedBinaryOutputQueue(enqueueOutput);
+
+      ws.onmessage = (event) => {
+        if (typeof event.data === "string") {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === "error") {
+              return;
+            }
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+
+        if (event.data instanceof ArrayBuffer) {
+          orderedOutput.push(event.data);
+          return;
+        }
+
+        if (event.data instanceof Blob) {
+          orderedOutput.push(event.data);
+        }
+      };
+
+      ws.onopen = () => {
+        const initialResize = buildResizeMessage({
+          cols: TERM_COLS,
+          rows: TERM_ROWS,
+        });
+        if (isControllerRef.current && initialResize) {
+          ws.send(JSON.stringify(initialResize));
+        }
+        syncTerminalResize();
       };
 
       term.onData((data) => {
@@ -375,6 +442,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       return () => {
         if (rafId) cancelAnimationFrame(rafId);
+        syncResizeRef.current = () => {};
         container.removeEventListener("paste", handlePaste);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
@@ -390,22 +458,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       if (!container || !fit) return;
 
       const doFit = () => {
-        try {
-          fit.fit();
-          const dims = fit.proposeDimensions();
-          const ws = wsRef.current;
-          if (dims && ws?.readyState === WebSocket.OPEN && isControllerRef.current) {
-            ws.send(
-              JSON.stringify({
-                type: "resize",
-                cols: dims.cols,
-                rows: dims.rows,
-              }),
-            );
-          }
-        } catch {
-          /* ignore */
-        }
+        syncResizeRef.current();
       };
 
       const timer = setTimeout(doFit, 50);

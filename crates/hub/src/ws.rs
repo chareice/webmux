@@ -10,7 +10,7 @@ use axum::{
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tc_protocol::{HubToMachine, MachineToHub};
+use tc_protocol::{decode_terminal_output_frame, BrowserEventEnvelope, HubToMachine, MachineToHub};
 
 use crate::auth;
 use crate::db;
@@ -38,8 +38,6 @@ enum ClientMessage {
 #[derive(Serialize)]
 #[serde(tag = "type")]
 enum ServerMessage {
-    #[serde(rename = "output")]
-    Output { data: String },
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -48,9 +46,14 @@ fn client_message_allowed(
     message: &ClientMessage,
     device_id: &str,
     is_controller: bool,
+    is_authenticated: bool,
 ) -> bool {
-    if device_id.is_empty() {
+    if !is_authenticated {
         return true;
+    }
+
+    if device_id.is_empty() {
+        return false;
     }
 
     match message {
@@ -68,9 +71,8 @@ async fn terminal_ws_handler(
     State(state): State<AppState>,
 ) -> Response {
     let token = params.get("token").map(|s| s.as_str());
-    let user_id = token.and_then(|t| {
-        auth::verify_bearer_token(t, &state.db, &state.jwt_secret).ok()
-    });
+    let user_id =
+        token.and_then(|t| auth::verify_bearer_token(t, &state.db, &state.jwt_secret).ok());
 
     if user_id.is_none() && !state.dev_mode {
         return Response::builder()
@@ -124,9 +126,7 @@ async fn handle_terminal_ws(
 
     // Send buffered output for replay
     if !buffer.is_empty() {
-        let text = String::from_utf8_lossy(&buffer).to_string();
-        let msg = serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
-        if sender.send(Message::Text(msg.into())).await.is_err() {
+        if sender.send(Message::Binary(buffer.into())).await.is_err() {
             return;
         }
     }
@@ -145,9 +145,8 @@ async fn handle_terminal_ws(
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                             // Flush remaining
                             if !batch.is_empty() {
-                                let text = String::from_utf8_lossy(&batch).to_string();
-                                let msg = serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
-                                let _ = sender.send(Message::Text(msg.into())).await;
+                                let frame = std::mem::take(&mut batch);
+                                let _ = sender.send(Message::Binary(frame.into())).await;
                             }
                             break;
                         }
@@ -156,10 +155,8 @@ async fn handle_terminal_ws(
                 }
 
                 _ = tick.tick(), if !batch.is_empty() => {
-                    let text = String::from_utf8_lossy(&batch).to_string();
-                    let msg = serde_json::to_string(&ServerMessage::Output { data: text }).unwrap();
-                    batch.clear();
-                    if sender.send(Message::Text(msg.into())).await.is_err() {
+                    let frame = std::mem::take(&mut batch);
+                    if sender.send(Message::Binary(frame.into())).await.is_err() {
                         break;
                     }
                 }
@@ -180,10 +177,10 @@ async fn handle_terminal_ws(
                     Ok(client_msg) => {
                         let can_control = uid
                             .as_deref()
-                            .map(|user_id| manager.is_controller(user_id, &did))
+                            .map(|user_id| manager.is_controller(user_id, &mid, &did))
                             .unwrap_or(true);
 
-                        if !client_message_allowed(&client_msg, &did, can_control) {
+                        if !client_message_allowed(&client_msg, &did, can_control, uid.is_some()) {
                             continue;
                         }
 
@@ -224,10 +221,7 @@ async fn handle_terminal_ws(
 
 // ── Machine → Hub registration WebSocket ──
 
-async fn machine_ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> Response {
+async fn machine_ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     ws.on_upgrade(move |socket| handle_machine_ws(socket, state))
 }
 
@@ -286,15 +280,9 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                         os,
                         home_dir,
                     };
-                    let (conn_id, mut cmd_rx) = state
-                        .manager
-                        .register_machine(info, machine_owner)
-                        .await;
-                    tracing::info!(
-                        "Machine {} registered (conn={})",
-                        machine_id,
-                        &conn_id[..8]
-                    );
+                    let (conn_id, mut cmd_rx) =
+                        state.manager.register_machine(info, machine_owner).await;
+                    tracing::info!("Machine {} registered (conn={})", machine_id, &conn_id[..8]);
 
                     // Spawn task to forward commands from Hub to Machine
                     let send_task = tokio::spawn(async move {
@@ -316,9 +304,22 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                                     if let Ok(machine_msg) =
                                         serde_json::from_str::<MachineToHub>(&text)
                                     {
-                                        manager
-                                            .handle_machine_message(&mid, machine_msg)
-                                            .await;
+                                        manager.handle_machine_message(&mid, machine_msg).await;
+                                    }
+                                }
+                                Message::Binary(data) => {
+                                    match decode_terminal_output_frame(&data) {
+                                        Ok((terminal_id, payload)) => {
+                                            manager
+                                                .handle_terminal_output(&mid, &terminal_id, payload)
+                                                .await;
+                                        }
+                                        Err(error) => {
+                                            tracing::warn!(
+                                                "Failed to decode terminal output frame: {}",
+                                                error
+                                            );
+                                        }
                                     }
                                 }
                                 Message::Close(_) => break,
@@ -407,9 +408,8 @@ async fn events_handler(
     State(state): State<AppState>,
 ) -> Response {
     let token = params.get("token").map(|s| s.as_str());
-    let user_id = token.and_then(|t| {
-        auth::verify_bearer_token(t, &state.db, &state.jwt_secret).ok()
-    });
+    let user_id =
+        token.and_then(|t| auth::verify_bearer_token(t, &state.db, &state.jwt_secret).ok());
 
     if user_id.is_none() && !state.dev_mode {
         return Response::builder()
@@ -419,13 +419,18 @@ async fn events_handler(
     }
 
     let device_id = params.get("device_id").cloned().unwrap_or_default();
-    ws.on_upgrade(move |socket| handle_events(socket, user_id, device_id, state))
+    let after_seq = params
+        .get("after_seq")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    ws.on_upgrade(move |socket| handle_events(socket, user_id, device_id, after_seq, state))
 }
 
 async fn handle_events(
     socket: WebSocket,
     user_id: Option<String>,
     device_id: String,
+    after_seq: u64,
     state: AppState,
 ) {
     let session_user_id = user_id.clone();
@@ -435,11 +440,28 @@ async fn handle_events(
     }
 
     let (mut sender, mut receiver) = socket.split();
-    let mut rx = state.manager.subscribe_events();
+    let subscription = if let Some(user_id) = session_user_id.as_deref() {
+        state.manager.subscribe_events_after(user_id, after_seq)
+    } else {
+        state.manager.subscribe_public_events_after(after_seq)
+    };
+    if subscription.requires_resync {
+        return;
+    }
+    let replay = subscription.replay;
+    let mut rx = subscription.receiver;
     let event_user_id = session_user_id.clone();
+    let lag_device_id = device_id.clone();
 
     // Task: forward events to browser
     let send_task = tokio::spawn(async move {
+        for envelope in replay {
+            let msg = serde_json::to_string(&envelope).unwrap();
+            if sender.send(Message::Text(msg.into())).await.is_err() {
+                return;
+            }
+        }
+
         loop {
             match rx.recv().await {
                 Ok(envelope) => {
@@ -448,13 +470,24 @@ async fn handle_events(
                             continue;
                         }
                     }
-                    let msg = serde_json::to_string(&envelope.event).unwrap();
+                    let msg = serde_json::to_string(&BrowserEventEnvelope {
+                        seq: envelope.seq,
+                        event: envelope.event,
+                    })
+                    .unwrap();
                     if sender.send(Message::Text(msg.into())).await.is_err() {
                         break;
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::warn!(
+                        "Events stream lagged by {} messages for device {}, forcing resync",
+                        skipped,
+                        if lag_device_id.is_empty() { "<unknown>" } else { &lag_device_id }
+                    );
+                    break;
+                }
             }
         }
     });
@@ -500,6 +533,7 @@ mod tests {
             },
             "watcher-device",
             false,
+            true,
         ));
     }
 
@@ -511,6 +545,31 @@ mod tests {
             },
             "controller-device",
             true,
+            true,
+        ));
+    }
+
+    #[test]
+    fn authenticated_sessions_without_device_id_cannot_send_terminal_input() {
+        assert!(!client_message_allowed(
+            &ClientMessage::Input {
+                data: "ls\r".to_string(),
+            },
+            "",
+            false,
+            true,
+        ));
+    }
+
+    #[test]
+    fn unauthenticated_dev_sessions_can_still_send_terminal_input() {
+        assert!(client_message_allowed(
+            &ClientMessage::Input {
+                data: "ls\r".to_string(),
+            },
+            "",
+            false,
+            false,
         ));
     }
 }

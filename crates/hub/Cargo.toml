@@ -32,3 +32,4 @@ reqwest.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
 http.workspace = true
+bytes.workspace = true

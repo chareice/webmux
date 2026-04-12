@@ -1,31 +1,42 @@
-import { useRef, useCallback, useEffect, useState } from "react";
-import type { TerminalInfo } from "@webmux/shared";
+import { lazy, memo, Suspense, useRef, useCallback, useEffect, useState } from "react";
+import type { MachineInfo, ResourceStats, TerminalInfo } from "@webmux/shared";
 import { Maximize2, Minimize2, X, PanelRight } from "lucide-react";
-import { TerminalView } from "./TerminalView.web";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { CommandBar } from "./CommandBar";
+import { TerminalPreview } from "./TerminalPreview.web";
 import {
   getMaximizedBackdropStyle,
   getMaximizedTerminalFrame,
 } from "./terminalLayout";
 import { terminalWsUrl } from "@/lib/api";
+import { getTerminalSurfaceMode } from "@/lib/terminalSessionPolicy";
+
+const LiveTerminalView = lazy(() =>
+  import("./TerminalView.web").then((module) => ({
+    default: module.TerminalView,
+  })),
+);
 
 interface TerminalCardProps {
   terminal: TerminalInfo;
+  machine?: MachineInfo;
+  stats?: ResourceStats;
   maximized: boolean;
   isMobile: boolean;
   isController: boolean;
   deviceId: string;
-  onMaximize: () => void;
+  onMaximize: (terminalId: string) => void;
   onMinimize: () => void;
-  onDestroy: () => void;
-  onRequestControl?: () => void;
-  onReleaseControl?: () => void;
+  onDestroy: (terminal: TerminalInfo) => void;
+  onRequestControl?: (machineId: string) => void;
+  onReleaseControl?: (machineId: string) => void;
 }
 
-export function TerminalCard({
+function TerminalCardComponent({
   terminal,
+  machine,
+  stats,
   maximized,
   isMobile,
   isController,
@@ -40,6 +51,7 @@ export function TerminalCard({
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [commandBarVisible, setCommandBarVisible] = useState(false);
   const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
+  const surfaceMode = getTerminalSurfaceMode(terminal.id, maximized ? terminal.id : null);
 
   useEffect(() => {
     if (isController) {
@@ -62,8 +74,8 @@ export function TerminalCard({
   }, [isController]);
 
   const handleTitleClick = useCallback(() => {
-    if (!maximized) onMaximize();
-  }, [maximized, onMaximize]);
+    if (!maximized) onMaximize(terminal.id);
+  }, [maximized, onMaximize, terminal.id]);
 
   const wsUrl = terminalWsUrl(terminal.machine_id, terminal.id, deviceId);
 
@@ -78,12 +90,12 @@ export function TerminalCard({
             ...getMaximizedBackdropStyle(isMobile),
             zIndex: 99,
             background: "rgba(0, 0, 0, 0.7)",
-            backdropFilter: "blur(4px)",
           }}
         />
       )}
 
       <div
+        data-testid={`terminal-card-${terminal.id}`}
         style={
           maximized
             ? {
@@ -137,7 +149,7 @@ export function TerminalCard({
               onClick={(e) => {
                 e.stopPropagation();
                 if (!isController) return;
-                onDestroy();
+                onDestroy(terminal);
               }}
               style={{
                 background: "none",
@@ -222,10 +234,11 @@ export function TerminalCard({
                   flexShrink: 0,
                 }} />
                 <button
+                  data-testid="terminal-mode-toggle"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (isController) onReleaseControl();
-                    else onRequestControl();
+                    if (isController) onReleaseControl?.(terminal.machine_id);
+                    else onRequestControl?.(terminal.machine_id);
                   }}
                   style={{
                     background: 'none',
@@ -249,7 +262,7 @@ export function TerminalCard({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onMaximize();
+                  onMaximize(terminal.id);
                 }}
                 style={{
                   background: "none",
@@ -311,14 +324,16 @@ export function TerminalCard({
           </div>
         </div>
 
-        {/* Terminal content + side panel — TerminalView always stays mounted */}
+        {/* Terminal content + side panel */}
         <div
           style={maximized ? {
             flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0,
           } : {
             aspectRatio: "5 / 3", overflow: "hidden", cursor: "pointer", position: "relative",
+            contentVisibility: "auto",
+            containIntrinsicSize: "320px 200px",
           }}
-          onClick={maximized ? undefined : onMaximize}
+          onClick={maximized ? undefined : () => onMaximize(terminal.id)}
         >
           <div style={maximized ? {
             flex: 1, display: "flex", overflow: "hidden", minHeight: 0,
@@ -330,19 +345,40 @@ export function TerminalCard({
             } : {
               width: "100%", height: "100%",
             }}>
-              <TerminalView
-                ref={termViewRef}
-                machineId={terminal.machine_id}
-                terminalId={terminal.id}
-                wsUrl={wsUrl}
-                isController={isController}
-                style={maximized ? undefined : {
-                  transform: "scale(0.35)",
-                  transformOrigin: "top left",
-                  width: "286%",
-                  height: "286%",
-                }}
-              />
+              {surfaceMode === "live" ? (
+                <Suspense
+                  fallback={
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "rgb(122, 143, 166)",
+                        fontSize: 12,
+                      }}
+                    >
+                      Loading terminal…
+                    </div>
+                  }
+                >
+                  <LiveTerminalView
+                    ref={termViewRef}
+                    machineId={terminal.machine_id}
+                    terminalId={terminal.id}
+                    wsUrl={wsUrl}
+                    isController={isController}
+                  />
+                </Suspense>
+              ) : (
+                <TerminalPreview
+                  terminal={terminal}
+                  isController={isController}
+                  activeMachineName={machine?.name}
+                  stats={stats}
+                />
+              )}
             </div>
             {maximized && !isMobile && desktopPanelOpen && (
               <div style={{ width: 200, minWidth: 200, borderLeft: '1px solid rgb(26, 58, 92)' }}>
@@ -396,3 +432,25 @@ export function TerminalCard({
     </>
   );
 }
+
+function areTerminalCardPropsEqual(
+  previous: TerminalCardProps,
+  next: TerminalCardProps,
+): boolean {
+  return (
+    previous.terminal === next.terminal &&
+    previous.machine === next.machine &&
+    previous.stats === next.stats &&
+    previous.maximized === next.maximized &&
+    previous.isMobile === next.isMobile &&
+    previous.isController === next.isController &&
+    previous.deviceId === next.deviceId &&
+    previous.onMaximize === next.onMaximize &&
+    previous.onMinimize === next.onMinimize &&
+    previous.onDestroy === next.onDestroy &&
+    previous.onRequestControl === next.onRequestControl &&
+    previous.onReleaseControl === next.onReleaseControl
+  );
+}
+
+export const TerminalCard = memo(TerminalCardComponent, areTerminalCardPropsEqual);

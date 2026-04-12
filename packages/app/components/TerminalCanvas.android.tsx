@@ -7,27 +7,63 @@ import {
   BackHandler,
   StatusBar,
 } from "react-native";
-import type { TerminalInfo, MachineInfo } from "@webmux/shared";
+import type { TerminalInfo } from "@webmux/shared";
 import { Sidebar } from "./Sidebar";
 import { Canvas } from "./Canvas.android";
 import {
   createTerminal,
   destroyTerminal,
-  listMachines,
-  listTerminals,
   eventsWsUrl,
+  getBootstrap,
+  requestControl,
 } from "@/lib/api";
+import {
+  applyBootstrapSnapshot,
+  applyBrowserEventEnvelope,
+  EMPTY_BROWSER_SESSION_STATE,
+  shouldResyncForEnvelope,
+} from "@/lib/bootstrapState";
+import { getPersistentDeviceId } from "@/lib/deviceId";
 
 export function TerminalCanvas() {
-  const [machines, setMachines] = useState<MachineInfo[]>([]);
-  const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
+  const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const maximizedRef = useRef<string | null>(null);
+  const lastSeqRef = useRef(0);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [bootstrapReady, setBootstrapReady] = useState(false);
+  const [reconnectGeneration, setReconnectGeneration] = useState(0);
+  const machines = browserState.machines;
+  const terminals = browserState.terminals;
+  const controlLeases = browserState.controlLeases;
+  const isMachineController = useCallback(
+    (machineId: string) =>
+      deviceId !== null && controlLeases[machineId] === deviceId,
+    [controlLeases, deviceId],
+  );
 
   useEffect(() => {
     maximizedRef.current = maximizedId;
   }, [maximizedId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getPersistentDeviceId().then((id) => {
+      if (!cancelled) {
+        setDeviceId(id);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    lastSeqRef.current = browserState.lastSeq;
+  }, [browserState.lastSeq]);
 
   // Handle Android back button
   useEffect(() => {
@@ -47,47 +83,61 @@ export function TerminalCanvas() {
 
   // Load initial data
   useEffect(() => {
-    listMachines().then(setMachines).catch(() => {});
-    listTerminals().then(setTerminals).catch(() => {});
-  }, []);
+    if (!deviceId) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    setBootstrapReady(false);
+
+    getBootstrap()
+      .then((snapshot) => {
+        if (cancelled) return;
+        lastSeqRef.current = snapshot.snapshot_seq;
+        setBrowserState(applyBootstrapSnapshot(snapshot));
+        setBootstrapReady(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        retryTimer = setTimeout(() => {
+          setReconnectGeneration((value) => value + 1);
+        }, 1000);
+      });
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [deviceId, reconnectGeneration]);
 
   // Events WebSocket for live updates
   useEffect(() => {
-    const url = eventsWsUrl();
+    if (!bootstrapReady || !deviceId) return;
+
+    const url = eventsWsUrl(deviceId, lastSeqRef.current);
     const ws = new WebSocket(url);
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     ws.onmessage = (event: any) => {
       try {
-        const msg = JSON.parse(event.data);
-        switch (msg.type) {
-          case "machine_online":
-            setMachines((prev) => {
-              if (prev.some((m) => m.id === msg.machine.id)) return prev;
-              return [...prev, msg.machine];
-            });
-            break;
-          case "machine_offline":
-            setMachines((prev) =>
-              prev.filter((m) => m.id !== msg.machine_id),
-            );
-            setTerminals((prev) =>
-              prev.filter((t) => t.machine_id !== msg.machine_id),
-            );
-            break;
-          case "terminal_created":
-            setTerminals((prev) => {
-              if (prev.some((t) => t.id === msg.terminal.id)) return prev;
-              return [...prev, msg.terminal];
-            });
-            break;
-          case "terminal_destroyed":
-            setTerminals((prev) =>
-              prev.filter((t) => t.id !== msg.terminal_id),
-            );
-            if (maximizedRef.current === msg.terminal_id) {
-              setMaximizedId(null);
-            }
-            break;
+        const envelope = JSON.parse(event.data);
+        let needsResync = false;
+        setBrowserState((prev) => {
+          if (shouldResyncForEnvelope(prev, envelope)) {
+            needsResync = true;
+            return prev;
+          }
+          const next = applyBrowserEventEnvelope(prev, envelope);
+          if (
+            next !== prev &&
+            envelope.event?.type === "terminal_destroyed" &&
+            maximizedRef.current === envelope.event.terminal_id
+          ) {
+            setMaximizedId(null);
+          }
+          return next;
+        });
+        if (needsResync) {
+          ws.close();
         }
       } catch {
         /* ignore */
@@ -95,29 +145,33 @@ export function TerminalCanvas() {
     };
 
     ws.onclose = () => {
-      // Reconnect by re-fetching state
-      setTimeout(() => {
-        listMachines().then(setMachines).catch(() => {});
-        listTerminals().then(setTerminals).catch(() => {});
+      reconnectTimer = setTimeout(() => {
+        setBootstrapReady(false);
+        setReconnectGeneration((value) => value + 1);
       }, 1000);
     };
 
-    return () => ws.close();
-  }, []);
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      ws.close();
+    };
+  }, [bootstrapReady, deviceId]);
 
   const handleCreateTerminal = useCallback(
     async (machineId: string, cwd: string) => {
-      await createTerminal(machineId, cwd);
+      if (!deviceId || !isMachineController(machineId)) return;
+      await createTerminal(machineId, cwd, deviceId);
       setSidebarOpen(false);
     },
-    [],
+    [deviceId, isMachineController],
   );
 
   const handleDestroyTerminal = useCallback(
     async (terminal: TerminalInfo) => {
-      await destroyTerminal(terminal.machine_id, terminal.id);
+      if (!deviceId || !isMachineController(terminal.machine_id)) return;
+      await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
     },
-    [],
+    [deviceId, isMachineController],
   );
 
   const handleMaximize = useCallback((id: string) => {
@@ -153,6 +207,21 @@ export function TerminalCanvas() {
             <Sidebar
               machines={machines}
               onCreateTerminal={handleCreateTerminal}
+              canCreateTerminal={isMachineController}
+              onRequestControl={(machineId) => {
+                if (!deviceId) return;
+                void requestControl(machineId, deviceId).then((next) => {
+                  setBrowserState((prev) => ({
+                    ...prev,
+                    controlLeases: next.controller_device_id
+                      ? {
+                          ...prev.controlLeases,
+                          [machineId]: next.controller_device_id,
+                        }
+                      : prev.controlLeases,
+                  }));
+                });
+              }}
             />
           </View>
         </>
@@ -163,6 +232,8 @@ export function TerminalCanvas() {
         terminals={terminals}
         maximizedId={maximizedId}
         isMobile
+        isMachineController={isMachineController}
+        deviceId={deviceId}
         onMaximize={handleMaximize}
         onMinimize={handleMinimize}
         onDestroy={handleDestroyTerminal}

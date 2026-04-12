@@ -15,6 +15,8 @@ use crate::AppState;
 #[derive(Deserialize)]
 pub struct CreateTerminalRequest {
     pub cwd: String,
+    #[serde(default)]
+    pub device_id: Option<String>,
     #[serde(default = "default_cols")]
     pub cols: u16,
     #[serde(default = "default_rows")]
@@ -28,11 +30,26 @@ fn default_rows() -> u16 {
     24
 }
 
+fn control_action_allowed(controller_device_id: Option<&str>, device_id: Option<&str>) -> bool {
+    matches!(
+        (
+            controller_device_id,
+            device_id.and_then(|value| (!value.is_empty()).then_some(value)),
+        ),
+        (Some(controller_device_id), Some(device_id)) if controller_device_id == device_id
+    )
+}
+
 async fn list_machines(
     State(state): State<AppState>,
     auth_user: AuthUser,
 ) -> Json<Vec<MachineInfo>> {
-    Json(state.manager.list_machines_for_user(&auth_user.user_id).await)
+    Json(
+        state
+            .manager
+            .list_machines_for_user(&auth_user.user_id)
+            .await,
+    )
 }
 
 async fn list_all_terminals(
@@ -82,17 +99,31 @@ async fn create_terminal(
         return Err((StatusCode::NOT_FOUND, "Machine not found".to_string()));
     }
 
+    let controller_device_id = state
+        .manager
+        .get_controller(&auth_user.user_id, &machine_id);
+    if !control_action_allowed(controller_device_id.as_deref(), req.device_id.as_deref()) {
+        return Err((StatusCode::FORBIDDEN, "Control required".to_string()));
+    }
+
     let startup_command = {
-        let conn = state
-            .db
-            .get()
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?;
+        let conn = state.db.get().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
         crate::db::settings::get_effective_setting(
             &conn,
             &auth_user.user_id,
             "default_startup_command",
         )
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?
     };
 
     state
@@ -107,6 +138,7 @@ async fn destroy_terminal(
     State(state): State<AppState>,
     auth_user: AuthUser,
     Path((machine_id, terminal_id)): Path<(String, String)>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     if !state
         .manager
@@ -114,6 +146,16 @@ async fn destroy_terminal(
         .await
     {
         return Err((StatusCode::NOT_FOUND, "Terminal not found".to_string()));
+    }
+
+    let controller_device_id = state
+        .manager
+        .get_controller(&auth_user.user_id, &machine_id);
+    if !control_action_allowed(
+        controller_device_id.as_deref(),
+        params.get("device_id").map(|value| value.as_str()),
+    ) {
+        return Err((StatusCode::FORBIDDEN, "Control required".to_string()));
     }
 
     state
@@ -132,9 +174,17 @@ struct ForegroundProcessResponse {
 
 async fn check_foreground_process(
     State(state): State<AppState>,
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
     Path((machine_id, terminal_id)): Path<(String, String)>,
 ) -> Result<Json<ForegroundProcessResponse>, (StatusCode, String)> {
+    if !state
+        .manager
+        .user_can_access_terminal(&auth_user.user_id, &machine_id, &terminal_id)
+        .await
+    {
+        return Err((StatusCode::NOT_FOUND, "Terminal not found".to_string()));
+    }
+
     let (has_fg, process_name) = state
         .manager
         .check_foreground_process(&machine_id, &terminal_id)
@@ -210,4 +260,18 @@ pub fn router() -> Router<AppState> {
         )
         .route("/api/machines/{machine_id}/fs/list", get(list_directory))
         .route("/api/machines/{machine_id}/stats", get(get_machine_stats))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::control_action_allowed;
+
+    #[test]
+    fn control_action_requires_matching_device_id() {
+        assert!(control_action_allowed(Some("device-a"), Some("device-a")));
+        assert!(!control_action_allowed(Some("device-a"), Some("device-b")));
+        assert!(!control_action_allowed(Some("device-a"), None));
+        assert!(!control_action_allowed(Some("device-a"), Some("")));
+        assert!(!control_action_allowed(None, Some("device-a")));
+    }
 }

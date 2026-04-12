@@ -1,15 +1,21 @@
-use std::collections::{HashMap, HashSet};
+use bytes::Bytes;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, Mutex, oneshot};
-use tc_protocol::{BrowserEvent, DirEntry, HubToMachine, MachineInfo, MachineToHub, TerminalInfo};
+use tc_protocol::{
+    BrowserEvent, BrowserEventEnvelope, BrowserStateSnapshot, ControlLeaseSnapshot, DirEntry,
+    HubToMachine, MachineInfo, MachineStatsSnapshot, MachineToHub, TerminalInfo,
+};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 
 struct ModeState {
-    controller_device_id: Option<String>,
+    control_leases: HashMap<String, String>,
     connected_devices: HashSet<String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct EventEnvelope {
+    pub seq: u64,
     pub target_user_id: Option<String>,
     pub event: BrowserEvent,
 }
@@ -34,7 +40,14 @@ pub enum PendingResult {
     },
 }
 
+pub struct EventSubscription {
+    pub replay: Vec<BrowserEventEnvelope>,
+    pub receiver: broadcast::Receiver<EventEnvelope>,
+    pub requires_resync: bool,
+}
+
 const OUTPUT_BUFFER_SIZE: usize = 64 * 1024;
+const EVENT_HISTORY_LIMIT: usize = 1024;
 
 /// A connected machine
 struct MachineConnection {
@@ -43,11 +56,11 @@ struct MachineConnection {
     pub info: MachineInfo,
     pub user_id: Option<String>,
     /// Send commands to this machine
-    pub cmd_tx: mpsc::UnboundedSender<HubToMachine>,
+    pub cmd_tx: mpsc::Sender<HubToMachine>,
     /// Terminal IDs hosted on this machine
     pub terminals: HashMap<String, TerminalInfo>,
     /// Terminal output subscribers: terminal_id -> broadcast sender
-    pub output_channels: HashMap<String, broadcast::Sender<Vec<u8>>>,
+    pub output_channels: HashMap<String, broadcast::Sender<Bytes>>,
     /// Terminal output buffers for replay on new subscriber
     pub output_buffers: HashMap<String, Vec<u8>>,
     /// Latest resource stats from this machine
@@ -60,6 +73,8 @@ pub struct MachineManager {
     pending: Arc<Mutex<HashMap<String, PendingResponse>>>,
     /// Browser events broadcast
     event_tx: broadcast::Sender<EventEnvelope>,
+    event_history: Arc<std::sync::Mutex<VecDeque<EventEnvelope>>>,
+    next_event_seq: AtomicU64,
     mode: Arc<std::sync::Mutex<HashMap<String, ModeState>>>,
 }
 
@@ -70,6 +85,10 @@ impl MachineManager {
             machines: Arc::new(Mutex::new(HashMap::new())),
             pending: Arc::new(Mutex::new(HashMap::new())),
             event_tx,
+            event_history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(
+                EVENT_HISTORY_LIMIT,
+            ))),
+            next_event_seq: AtomicU64::new(0),
             mode: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
@@ -78,13 +97,28 @@ impl MachineManager {
         self.event_tx.subscribe()
     }
 
+    pub fn subscribe_events_after(
+        &self,
+        user_id: &str,
+        after_seq: u64,
+    ) -> EventSubscription {
+        self.build_event_subscription(Some(user_id), after_seq)
+    }
+
+    pub fn subscribe_public_events_after(
+        &self,
+        after_seq: u64,
+    ) -> EventSubscription {
+        self.build_event_subscription(None, after_seq)
+    }
+
     /// Register a machine connection. Returns (conn_id, cmd_receiver).
     pub async fn register_machine(
         &self,
         info: MachineInfo,
         user_id: Option<String>,
-    ) -> (String, mpsc::UnboundedReceiver<HubToMachine>) {
-        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+    ) -> (String, mpsc::Receiver<HubToMachine>) {
+        let (cmd_tx, cmd_rx) = mpsc::channel(256);
         let machine_id = info.id.clone();
         let conn_id = uuid::Uuid::new_v4().to_string();
 
@@ -213,8 +247,7 @@ impl MachineManager {
             .await
             .get(machine_id)
             .map(|conn| {
-                connection_visible_to(conn, user_id)
-                    && conn.terminals.contains_key(terminal_id)
+                connection_visible_to(conn, user_id) && conn.terminals.contains_key(terminal_id)
             })
             .unwrap_or(false)
     }
@@ -231,31 +264,44 @@ impl MachineManager {
         let request_id = uuid::Uuid::new_v4().to_string();
 
         // Register pending request
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.insert(request_id.clone(), tx);
+        let rx = self.register_pending(&request_id).await;
 
         // Send command to machine
-        {
+        let cmd_tx = {
             let machines = self.machines.lock().await;
-            let conn = machines
-                .get(machine_id)
-                .ok_or_else(|| format!("Machine {} not found", machine_id))?;
-            conn.cmd_tx
-                .send(HubToMachine::CreateTerminal {
-                    request_id: request_id.clone(),
-                    cwd: cwd.to_string(),
-                    cols,
-                    rows,
-                    startup_command,
-                })
-                .map_err(|_| "Machine disconnected".to_string())?;
+            let Some(conn) = machines.get(machine_id) else {
+                drop(machines);
+                self.remove_pending(&request_id).await;
+                return Err(format!("Machine {} not found", machine_id));
+            };
+            conn.cmd_tx.clone()
+        };
+        if let Err(_error) = cmd_tx
+            .send(HubToMachine::CreateTerminal {
+                request_id: request_id.clone(),
+                cwd: cwd.to_string(),
+                cols,
+                rows,
+                startup_command,
+            })
+            .await
+        {
+            self.remove_pending(&request_id).await;
+            return Err("Machine disconnected".to_string());
         }
 
         // Wait for response with timeout
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), rx)
-            .await
-            .map_err(|_| "Timeout waiting for terminal creation".to_string())?
-            .map_err(|_| "Machine disconnected".to_string())?;
+        let result = match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => {
+                self.remove_pending(&request_id).await;
+                return Err("Machine disconnected".to_string());
+            }
+            Err(_) => {
+                self.remove_pending(&request_id).await;
+                return Err("Timeout waiting for terminal creation".to_string());
+            }
+        };
 
         match result? {
             PendingResult::TerminalCreated {
@@ -280,15 +326,23 @@ impl MachineManager {
     }
 
     /// Destroy a terminal on a machine
-    pub async fn destroy_terminal(&self, machine_id: &str, terminal_id: &str) -> Result<(), String> {
-        let machines = self.machines.lock().await;
-        let conn = machines
-            .get(machine_id)
-            .ok_or_else(|| format!("Machine {} not found", machine_id))?;
-        conn.cmd_tx
+    pub async fn destroy_terminal(
+        &self,
+        machine_id: &str,
+        terminal_id: &str,
+    ) -> Result<(), String> {
+        let cmd_tx = {
+            let machines = self.machines.lock().await;
+            let Some(conn) = machines.get(machine_id) else {
+                return Err(format!("Machine {} not found", machine_id));
+            };
+            conn.cmd_tx.clone()
+        };
+        cmd_tx
             .send(HubToMachine::DestroyTerminal {
                 terminal_id: terminal_id.to_string(),
             })
+            .await
             .map_err(|_| "Machine disconnected".to_string())?;
         Ok(())
     }
@@ -301,8 +355,7 @@ impl MachineManager {
     ) -> Result<(bool, Option<String>), String> {
         let request_id = uuid::Uuid::new_v4().to_string();
 
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.insert(request_id.clone(), tx);
+        let rx = self.register_pending(&request_id).await;
 
         // Send command; clean up pending entry on failure
         {
@@ -320,6 +373,7 @@ impl MachineManager {
                     request_id: request_id.clone(),
                     terminal_id: terminal_id.to_string(),
                 })
+                .await
                 .is_err()
             {
                 self.pending.lock().await.remove(&request_id);
@@ -356,15 +410,19 @@ impl MachineManager {
         terminal_id: &str,
         data: &str,
     ) -> Result<(), String> {
-        let machines = self.machines.lock().await;
-        let conn = machines
-            .get(machine_id)
-            .ok_or_else(|| format!("Machine {} not found", machine_id))?;
-        conn.cmd_tx
+        let cmd_tx = {
+            let machines = self.machines.lock().await;
+            let Some(conn) = machines.get(machine_id) else {
+                return Err(format!("Machine {} not found", machine_id));
+            };
+            conn.cmd_tx.clone()
+        };
+        cmd_tx
             .send(HubToMachine::TerminalInput {
                 terminal_id: terminal_id.to_string(),
                 data: data.to_string(),
             })
+            .await
             .map_err(|_| "Machine disconnected".to_string())?;
         Ok(())
     }
@@ -377,16 +435,20 @@ impl MachineManager {
         cols: u16,
         rows: u16,
     ) -> Result<(), String> {
-        let machines = self.machines.lock().await;
-        let conn = machines
-            .get(machine_id)
-            .ok_or_else(|| format!("Machine {} not found", machine_id))?;
-        conn.cmd_tx
+        let cmd_tx = {
+            let machines = self.machines.lock().await;
+            let Some(conn) = machines.get(machine_id) else {
+                return Err(format!("Machine {} not found", machine_id));
+            };
+            conn.cmd_tx.clone()
+        };
+        cmd_tx
             .send(HubToMachine::TerminalResize {
                 terminal_id: terminal_id.to_string(),
                 cols,
                 rows,
             })
+            .await
             .map_err(|_| "Machine disconnected".to_string())?;
         Ok(())
     }
@@ -400,17 +462,21 @@ impl MachineManager {
         mime: &str,
         filename: &str,
     ) -> Result<(), String> {
-        let machines = self.machines.lock().await;
-        let conn = machines
-            .get(machine_id)
-            .ok_or_else(|| format!("Machine {} not found", machine_id))?;
-        conn.cmd_tx
+        let cmd_tx = {
+            let machines = self.machines.lock().await;
+            let Some(conn) = machines.get(machine_id) else {
+                return Err(format!("Machine {} not found", machine_id));
+            };
+            conn.cmd_tx.clone()
+        };
+        cmd_tx
             .send(HubToMachine::ImagePaste {
                 terminal_id: terminal_id.to_string(),
                 data: data.to_string(),
                 mime: mime.to_string(),
                 filename: filename.to_string(),
             })
+            .await
             .map_err(|_| "Machine disconnected".to_string())?;
         Ok(())
     }
@@ -423,26 +489,39 @@ impl MachineManager {
     ) -> Result<Vec<DirEntry>, String> {
         let request_id = uuid::Uuid::new_v4().to_string();
 
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.insert(request_id.clone(), tx);
+        let rx = self.register_pending(&request_id).await;
 
-        {
+        let cmd_tx = {
             let machines = self.machines.lock().await;
-            let conn = machines
-                .get(machine_id)
-                .ok_or_else(|| format!("Machine {} not found", machine_id))?;
-            conn.cmd_tx
-                .send(HubToMachine::FsListDir {
-                    request_id: request_id.clone(),
-                    path: path.to_string(),
-                })
-                .map_err(|_| "Machine disconnected".to_string())?;
+            let Some(conn) = machines.get(machine_id) else {
+                drop(machines);
+                self.remove_pending(&request_id).await;
+                return Err(format!("Machine {} not found", machine_id));
+            };
+            conn.cmd_tx.clone()
+        };
+        if let Err(_error) = cmd_tx
+            .send(HubToMachine::FsListDir {
+                request_id: request_id.clone(),
+                path: path.to_string(),
+            })
+            .await
+        {
+            self.remove_pending(&request_id).await;
+            return Err("Machine disconnected".to_string());
         }
 
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), rx)
-            .await
-            .map_err(|_| "Timeout".to_string())?
-            .map_err(|_| "Machine disconnected".to_string())?;
+        let result = match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => {
+                self.remove_pending(&request_id).await;
+                return Err("Machine disconnected".to_string());
+            }
+            Err(_) => {
+                self.remove_pending(&request_id).await;
+                return Err("Timeout".to_string());
+            }
+        };
 
         match result? {
             PendingResult::FsListResult { entries } => Ok(entries),
@@ -455,7 +534,7 @@ impl MachineManager {
         &self,
         machine_id: &str,
         terminal_id: &str,
-    ) -> Result<(Vec<u8>, broadcast::Receiver<Vec<u8>>), String> {
+    ) -> Result<(Vec<u8>, broadcast::Receiver<Bytes>), String> {
         let machines = self.machines.lock().await;
         let conn = machines
             .get(machine_id)
@@ -503,10 +582,7 @@ impl MachineManager {
                         conn.terminals.insert(terminal_id.clone(), terminal.clone());
                         conn.output_channels.insert(terminal_id.clone(), output_tx);
 
-                        self.send_event(
-                            target_user_id,
-                            BrowserEvent::TerminalCreated { terminal },
-                        );
+                        self.send_event(target_user_id, BrowserEvent::TerminalCreated { terminal });
                     }
                 }
 
@@ -527,45 +603,30 @@ impl MachineManager {
                 }
             }
             MachineToHub::TerminalDestroyed { terminal_id } => {
-                {
-                    let mut machines = self.machines.lock().await;
-                    if let Some(conn) = machines.get_mut(machine_id) {
-                        let target_user_id = conn.user_id.clone();
-                        conn.terminals.remove(&terminal_id);
-                        conn.output_channels.remove(&terminal_id);
-                        conn.output_buffers.remove(&terminal_id);
-                        self.send_event(
-                            target_user_id,
-                            BrowserEvent::TerminalDestroyed {
-                                machine_id: machine_id.to_string(),
-                                terminal_id,
-                            },
-                        );
-                        return;
-                    }
+                let mut machines = self.machines.lock().await;
+                if let Some(conn) = machines.get_mut(machine_id) {
+                    let target_user_id = conn.user_id.clone();
+                    conn.terminals.remove(&terminal_id);
+                    conn.output_channels.remove(&terminal_id);
+                    conn.output_buffers.remove(&terminal_id);
+                    self.send_event(
+                        target_user_id,
+                        BrowserEvent::TerminalDestroyed {
+                            machine_id: machine_id.to_string(),
+                            terminal_id,
+                        },
+                    );
+                    return;
                 }
             }
             MachineToHub::TerminalOutput { terminal_id, data } => {
-                let mut machines = self.machines.lock().await;
-                if let Some(conn) = machines.get_mut(machine_id) {
-                    let bytes = data.into_bytes();
-                    // Buffer output for replay
-                    let buf = conn
-                        .output_buffers
-                        .entry(terminal_id.clone())
-                        .or_insert_with(Vec::new);
-                    buf.extend_from_slice(&bytes);
-                    if buf.len() > OUTPUT_BUFFER_SIZE {
-                        let drain_to = buf.len() - OUTPUT_BUFFER_SIZE;
-                        buf.drain(..drain_to);
-                    }
-                    // Broadcast to subscribers
-                    if let Some(tx) = conn.output_channels.get(&terminal_id) {
-                        let _ = tx.send(bytes);
-                    }
-                }
+                self.handle_terminal_output(machine_id, &terminal_id, data.into_bytes().into())
+                    .await;
             }
-            MachineToHub::FsListResult { request_id, entries } => {
+            MachineToHub::FsListResult {
+                request_id,
+                entries,
+            } => {
                 if let Some(tx) = self.pending.lock().await.remove(&request_id) {
                     let _ = tx.send(Ok(PendingResult::FsListResult { entries }));
                 }
@@ -586,10 +647,8 @@ impl MachineManager {
                     let target_user_id = conn.user_id.clone();
                     for terminal in terminals {
                         let (output_tx, _) = broadcast::channel(256);
-                        conn.terminals
-                            .insert(terminal.id.clone(), terminal.clone());
-                        conn.output_channels
-                            .insert(terminal.id.clone(), output_tx);
+                        conn.terminals.insert(terminal.id.clone(), terminal.clone());
+                        conn.output_channels.insert(terminal.id.clone(), output_tx);
                         self.send_event(
                             target_user_id.clone(),
                             BrowserEvent::TerminalCreated { terminal },
@@ -611,21 +670,42 @@ impl MachineManager {
             }
             MachineToHub::Pong => {}
             MachineToHub::ResourceStats { stats } => {
-                {
-                    let mut machines = self.machines.lock().await;
-                    if let Some(conn) = machines.get_mut(machine_id) {
-                        let target_user_id = conn.user_id.clone();
-                        conn.latest_stats = Some(stats.clone());
-                        self.send_event(
-                            target_user_id,
-                            BrowserEvent::MachineStats {
-                                machine_id: machine_id.to_string(),
-                                stats,
-                            },
-                        );
-                        return;
-                    }
+                let mut machines = self.machines.lock().await;
+                if let Some(conn) = machines.get_mut(machine_id) {
+                    let target_user_id = conn.user_id.clone();
+                    conn.latest_stats = Some(stats.clone());
+                    self.send_event(
+                        target_user_id,
+                        BrowserEvent::MachineStats {
+                            machine_id: machine_id.to_string(),
+                            stats,
+                        },
+                    );
+                    return;
                 }
+            }
+        }
+    }
+
+    pub async fn handle_terminal_output(
+        &self,
+        machine_id: &str,
+        terminal_id: &str,
+        bytes: Bytes,
+    ) {
+        let mut machines = self.machines.lock().await;
+        if let Some(conn) = machines.get_mut(machine_id) {
+            let buf = conn
+                .output_buffers
+                .entry(terminal_id.to_string())
+                .or_insert_with(Vec::new);
+            buf.extend_from_slice(&bytes);
+            if buf.len() > OUTPUT_BUFFER_SIZE {
+                let drain_to = buf.len() - OUTPUT_BUFFER_SIZE;
+                buf.drain(..drain_to);
+            }
+            if let Some(tx) = conn.output_channels.get(terminal_id) {
+                let _ = tx.send(bytes);
             }
         }
     }
@@ -644,69 +724,105 @@ impl MachineManager {
         let mut mode_by_user = self.mode.lock().unwrap();
         if let Some(mode) = mode_by_user.get_mut(user_id) {
             mode.connected_devices.remove(device_id);
-            if mode.controller_device_id.as_deref() == Some(device_id) {
-                mode.controller_device_id = None;
+            let released_machines: Vec<_> = mode
+                .control_leases
+                .iter()
+                .filter_map(|(machine_id, controller_device_id)| {
+                    if controller_device_id == device_id {
+                        Some(machine_id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for machine_id in released_machines {
+                mode.control_leases.remove(&machine_id);
                 self.send_event(
                     Some(user_id.to_string()),
                     BrowserEvent::ModeChanged {
+                        machine_id,
                         controller_device_id: None,
                     },
                 );
             }
-            if mode.connected_devices.is_empty() && mode.controller_device_id.is_none() {
+            if mode.connected_devices.is_empty() && mode.control_leases.is_empty() {
                 mode_by_user.remove(user_id);
             }
         }
     }
 
-    pub fn request_control(&self, user_id: &str, device_id: &str) {
+    pub fn request_control(&self, user_id: &str, machine_id: &str, device_id: &str) {
         self.mode
             .lock()
             .unwrap()
             .entry(user_id.to_string())
             .or_insert_with(new_mode_state)
-            .controller_device_id = Some(device_id.to_string());
+            .control_leases
+            .insert(machine_id.to_string(), device_id.to_string());
         self.send_event(
             Some(user_id.to_string()),
             BrowserEvent::ModeChanged {
+                machine_id: machine_id.to_string(),
                 controller_device_id: Some(device_id.to_string()),
             },
         );
     }
 
-    pub fn release_control(&self, user_id: &str, device_id: &str) {
+    pub fn release_control(&self, user_id: &str, machine_id: &str, device_id: &str) {
         let mut mode_by_user = self.mode.lock().unwrap();
         if let Some(mode) = mode_by_user.get_mut(user_id) {
-            if mode.controller_device_id.as_deref() == Some(device_id) {
-                mode.controller_device_id = None;
+            if mode
+                .control_leases
+                .get(machine_id)
+                .map(|value| value.as_str())
+                == Some(device_id)
+            {
+                mode.control_leases.remove(machine_id);
                 self.send_event(
                     Some(user_id.to_string()),
                     BrowserEvent::ModeChanged {
+                        machine_id: machine_id.to_string(),
                         controller_device_id: None,
                     },
                 );
             }
-            if mode.connected_devices.is_empty() && mode.controller_device_id.is_none() {
+            if mode.connected_devices.is_empty() && mode.control_leases.is_empty() {
                 mode_by_user.remove(user_id);
             }
         }
     }
 
-    pub fn is_controller(&self, user_id: &str, device_id: &str) -> bool {
-        self.mode
-            .lock()
-            .unwrap()
-            .get(user_id)
-            .and_then(|mode| mode.controller_device_id.as_deref())
-            == Some(device_id)
+    pub fn is_controller(&self, user_id: &str, machine_id: &str, device_id: &str) -> bool {
+        self.mode.lock().unwrap().get(user_id).and_then(|mode| {
+            mode.control_leases
+                .get(machine_id)
+                .map(|value| value.as_str())
+        }) == Some(device_id)
     }
 
-    pub fn get_controller(&self, user_id: &str) -> Option<String> {
+    pub fn get_controller(&self, user_id: &str, machine_id: &str) -> Option<String> {
         self.mode
             .lock()
             .unwrap()
             .get(user_id)
-            .and_then(|mode| mode.controller_device_id.clone())
+            .and_then(|mode| mode.control_leases.get(machine_id).cloned())
+    }
+
+    pub fn get_control_leases(&self, user_id: &str) -> Vec<ControlLeaseSnapshot> {
+        self.mode
+            .lock()
+            .unwrap()
+            .get(user_id)
+            .map(|mode| {
+                mode.control_leases
+                    .iter()
+                    .map(|(machine_id, controller_device_id)| ControlLeaseSnapshot {
+                        machine_id: machine_id.clone(),
+                        controller_device_id: Some(controller_device_id.clone()),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub async fn get_machine_stats(&self, machine_id: &str) -> Option<tc_protocol::ResourceStats> {
@@ -717,17 +833,111 @@ impl MachineManager {
             .and_then(|c| c.latest_stats.clone())
     }
 
+    pub async fn snapshot_for_user(&self, user_id: &str) -> BrowserStateSnapshot {
+        let snapshot_seq = self.next_event_seq.load(Ordering::Acquire);
+        let machines = self.machines.lock().await;
+        let visible: Vec<_> = machines
+            .values()
+            .filter(|conn| connection_visible_to(conn, user_id))
+            .collect();
+        let visible_machine_ids: HashSet<_> =
+            visible.iter().map(|conn| conn.info.id.as_str()).collect();
+
+        let machine_stats = visible
+            .iter()
+            .filter_map(|conn| {
+                conn.latest_stats.clone().map(|stats| MachineStatsSnapshot {
+                    machine_id: conn.info.id.clone(),
+                    stats,
+                })
+            })
+            .collect();
+
+        BrowserStateSnapshot {
+            snapshot_seq,
+            machines: visible.iter().map(|conn| conn.info.clone()).collect(),
+            terminals: visible
+                .iter()
+                .flat_map(|conn| conn.terminals.values().cloned())
+                .collect(),
+            machine_stats,
+            control_leases: self
+                .get_control_leases(user_id)
+                .into_iter()
+                .filter(|lease| visible_machine_ids.contains(lease.machine_id.as_str()))
+                .collect(),
+        }
+    }
+
     fn send_event(&self, target_user_id: Option<String>, event: BrowserEvent) {
-        let _ = self.event_tx.send(EventEnvelope {
+        let envelope = EventEnvelope {
+            seq: self.next_event_seq.fetch_add(1, Ordering::AcqRel) + 1,
             target_user_id,
             event,
-        });
+        };
+        {
+            let mut history = self.event_history.lock().unwrap();
+            history.push_back(envelope.clone());
+            if history.len() > EVENT_HISTORY_LIMIT {
+                history.pop_front();
+            }
+        }
+        let _ = self.event_tx.send(envelope);
+    }
+
+    async fn register_pending(
+        &self,
+        request_id: &str,
+    ) -> oneshot::Receiver<Result<PendingResult, String>> {
+        let (tx, rx) = oneshot::channel();
+        self.pending
+            .lock()
+            .await
+            .insert(request_id.to_string(), tx);
+        rx
+    }
+
+    async fn remove_pending(&self, request_id: &str) {
+        self.pending.lock().await.remove(request_id);
+    }
+
+    fn build_event_subscription(
+        &self,
+        user_id: Option<&str>,
+        after_seq: u64,
+    ) -> EventSubscription {
+        let rx = self.event_tx.subscribe();
+        let history = self.event_history.lock().unwrap();
+        let requires_resync = history_has_gap_after_seq(&history, after_seq);
+        let replay = if requires_resync {
+            Vec::new()
+        } else {
+            history
+                .iter()
+                .filter(|envelope| envelope.seq > after_seq && event_visible_to(envelope, user_id))
+                .map(|envelope| BrowserEventEnvelope {
+                    seq: envelope.seq,
+                    event: envelope.event.clone(),
+                })
+                .collect()
+        };
+
+        EventSubscription {
+            replay,
+            receiver: rx,
+            requires_resync,
+        }
+    }
+
+    #[cfg(test)]
+    async fn pending_count_for_tests(&self) -> usize {
+        self.pending.lock().await.len()
     }
 }
 
 fn new_mode_state() -> ModeState {
     ModeState {
-        controller_device_id: None,
+        control_leases: HashMap::new(),
         connected_devices: HashSet::new(),
     }
 }
@@ -737,6 +947,25 @@ fn connection_visible_to(conn: &MachineConnection, user_id: &str) -> bool {
         .as_deref()
         .map(|owner| owner == user_id)
         .unwrap_or(true)
+}
+
+fn event_visible_to(envelope: &EventEnvelope, user_id: Option<&str>) -> bool {
+    match envelope.target_user_id.as_deref() {
+        Some(target_user_id) => user_id == Some(target_user_id),
+        None => true,
+    }
+}
+
+fn history_has_gap_after_seq(history: &VecDeque<EventEnvelope>, after_seq: u64) -> bool {
+    if after_seq == 0 || history.is_empty() {
+        return false;
+    }
+
+    let Some(oldest_seq) = history.front().map(|envelope| envelope.seq) else {
+        return false;
+    };
+
+    after_seq.saturating_add(1) < oldest_seq
 }
 
 #[cfg(test)]
@@ -760,6 +989,19 @@ mod tests {
             cwd: "/tmp".to_string(),
             cols: 80,
             rows: 24,
+        }
+    }
+
+    fn stats() -> tc_protocol::ResourceStats {
+        tc_protocol::ResourceStats {
+            cpu_percent: 12.5,
+            memory_total: 1024,
+            memory_used: 512,
+            disks: vec![tc_protocol::DiskInfo {
+                mount_point: "/".to_string(),
+                total_bytes: 2048,
+                used_bytes: 1024,
+            }],
         }
     }
 
@@ -799,38 +1041,200 @@ mod tests {
         assert_eq!(visible_terminals.len(), 1);
         assert_eq!(visible_terminals[0].id, "term-a");
 
-        assert!(manager
-            .user_can_access_terminal("user-a", "machine-a", "term-a")
-            .await);
-        assert!(!manager
-            .user_can_access_terminal("user-a", "machine-b", "term-b")
-            .await);
+        assert!(
+            manager
+                .user_can_access_terminal("user-a", "machine-a", "term-a")
+                .await
+        );
+        assert!(
+            !manager
+                .user_can_access_terminal("user-a", "machine-b", "term-b")
+                .await
+        );
     }
 
     #[test]
-    fn mode_state_is_scoped_per_user() {
+    fn mode_state_is_scoped_per_user_and_machine() {
         let manager = MachineManager::new();
 
-        manager.request_control("user-a", "device-a");
-        manager.request_control("user-b", "device-b");
+        manager.request_control("user-a", "machine-a", "device-a");
+        manager.request_control("user-a", "machine-b", "device-b");
+        manager.request_control("user-b", "machine-c", "device-c");
 
         assert_eq!(
-            manager.get_controller("user-a"),
+            manager.get_controller("user-a", "machine-a"),
             Some("device-a".to_string())
         );
         assert_eq!(
-            manager.get_controller("user-b"),
+            manager.get_controller("user-a", "machine-b"),
             Some("device-b".to_string())
         );
-        assert!(manager.is_controller("user-a", "device-a"));
-        assert!(!manager.is_controller("user-a", "device-b"));
-
-        manager.release_control("user-a", "device-a");
-
-        assert_eq!(manager.get_controller("user-a"), None);
         assert_eq!(
-            manager.get_controller("user-b"),
+            manager.get_controller("user-b", "machine-c"),
+            Some("device-c".to_string())
+        );
+        assert!(manager.is_controller("user-a", "machine-a", "device-a"));
+        assert!(!manager.is_controller("user-a", "machine-a", "device-b"));
+        assert!(manager.is_controller("user-a", "machine-b", "device-b"));
+
+        manager.release_control("user-a", "machine-a", "device-a");
+
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+        assert_eq!(
+            manager.get_controller("user-a", "machine-b"),
             Some("device-b".to_string())
         );
+        assert_eq!(
+            manager.get_controller("user-b", "machine-c"),
+            Some("device-c".to_string())
+        );
+    }
+
+    #[test]
+    fn unregistering_a_device_releases_its_machine_control() {
+        let manager = MachineManager::new();
+
+        manager.register_device("user-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-a");
+
+        manager.unregister_device("user-a", "device-a");
+
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+    }
+
+    #[tokio::test]
+    async fn snapshot_for_user_includes_visible_state_and_sequence_watermark() {
+        let manager = MachineManager::new();
+
+        manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .register_machine(machine("machine-b"), Some("user-b".to_string()))
+            .await;
+
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+        manager
+            .handle_machine_message("machine-a", MachineToHub::ResourceStats { stats: stats() })
+            .await;
+        manager.register_device("user-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-a");
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+
+        assert_eq!(snapshot.machines.len(), 1);
+        assert_eq!(snapshot.machines[0].id, "machine-a");
+        assert_eq!(snapshot.terminals.len(), 1);
+        assert_eq!(snapshot.terminals[0].id, "term-a");
+        assert_eq!(snapshot.machine_stats.len(), 1);
+        assert_eq!(snapshot.machine_stats[0].machine_id, "machine-a");
+        assert_eq!(snapshot.control_leases.len(), 1);
+        assert_eq!(snapshot.control_leases[0].machine_id, "machine-a");
+        assert_eq!(
+            snapshot.control_leases[0].controller_device_id.as_deref(),
+            Some("device-a")
+        );
+        assert!(snapshot.snapshot_seq > 0);
+    }
+
+    #[tokio::test]
+    async fn subscribe_events_after_replays_only_newer_events_for_the_user() {
+        let manager = MachineManager::new();
+
+        manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        manager.request_control("user-a", "machine-a", "device-a");
+
+        let subscription = manager.subscribe_events_after("user-a", snapshot.snapshot_seq);
+
+        assert_eq!(subscription.replay.len(), 1);
+        assert!(subscription.replay[0].seq > snapshot.snapshot_seq);
+        assert!(matches!(
+            subscription.replay[0].event,
+            BrowserEvent::ModeChanged {
+                machine_id: _,
+                controller_device_id: Some(_),
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn create_terminal_cleans_pending_request_when_machine_is_missing() {
+        let manager = MachineManager::new();
+
+        let error = manager
+            .create_terminal("missing-machine", "/tmp", 80, 24, None)
+            .await
+            .unwrap_err();
+
+        assert!(error.contains("not found"));
+        assert_eq!(manager.pending_count_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn create_terminal_cleans_pending_request_when_machine_receiver_is_gone() {
+        let manager = MachineManager::new();
+
+        let (_conn_id, cmd_rx) = manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        drop(cmd_rx);
+
+        let error = manager
+            .create_terminal("machine-a", "/tmp", 80, 24, None)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error, "Machine disconnected");
+        assert_eq!(manager.pending_count_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn list_directory_cleans_pending_request_when_machine_is_missing() {
+        let manager = MachineManager::new();
+
+        let error = manager
+            .list_directory("missing-machine", "/tmp")
+            .await
+            .unwrap_err();
+
+        assert!(error.contains("not found"));
+        assert_eq!(manager.pending_count_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn subscribe_events_after_requests_resync_when_history_has_a_gap() {
+        let manager = MachineManager::new();
+
+        manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+
+        for index in 0..1050 {
+            manager.request_control("user-a", "machine-a", &format!("device-{index}"));
+        }
+
+        let subscription = manager.subscribe_events_after("user-a", 1);
+
+        assert!(subscription.requires_resync);
+        assert!(subscription.replay.is_empty());
     }
 }

@@ -20,8 +20,7 @@ pub fn load_config() -> Result<MachineConfig, String> {
     let path = config_path();
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read config at {}: {}", path.display(), e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config: {}", e))
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))
 }
 
 pub fn save_config(config: &MachineConfig) -> Result<(), String> {
@@ -32,8 +31,7 @@ pub fn save_config(config: &MachineConfig) -> Result<(), String> {
     }
     let content = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Failed to write config: {}", e))?;
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write config: {}", e))?;
     tracing::info!("Config saved to {}", path.display());
     Ok(())
 }

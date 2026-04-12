@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { memo, useState, useEffect, useRef, useCallback } from "react";
 import type { MachineInfo, ResourceStats } from "@webmux/shared";
 import { getStatusBarLayout } from "./statusBarLayout";
 
@@ -9,8 +9,8 @@ interface StatusBarProps {
   machineStats: Record<string, ResourceStats>;
   isMobile: boolean;
   isController: boolean;
-  onRequestControl: () => void;
-  onReleaseControl: () => void;
+  onRequestControl: (machineId: string) => void;
+  onReleaseControl: (machineId: string) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -40,7 +40,7 @@ function totalDiskPercent(disks: ResourceStats["disks"]): number {
   return (totalUsed / totalSize) * 100;
 }
 
-export function StatusBar({
+function StatusBarComponent({
   machines,
   activeMachineId,
   onSelectMachine,
@@ -92,6 +92,7 @@ export function StatusBar({
       ? (stats.memory_used / stats.memory_total) * 100
       : null;
   const diskPct = stats ? totalDiskPercent(stats.disks) : null;
+  const canToggleMode = Boolean(activeMachineId);
 
   return (
     <div
@@ -229,21 +230,21 @@ export function StatusBar({
             {/* CPU */}
             <span style={{ padding: "0 4px", whiteSpace: "nowrap" }}>
               <span style={{ opacity: 0.8 }}>CPU </span>
-              <span style={{ color: percentColor(cpuPct ?? 0) }}>
+              <span style={{ color: percentColor(cpuPct ?? 0), fontVariantNumeric: "tabular-nums" }}>
                 {cpuPct ?? 0}%
               </span>
             </span>
             {/* MEM */}
             <span style={{ padding: "0 4px", whiteSpace: "nowrap" }}>
               <span style={{ opacity: 0.8 }}>MEM </span>
-              <span style={{ color: percentColor(memPct ?? 0) }}>
+              <span style={{ color: percentColor(memPct ?? 0), fontVariantNumeric: "tabular-nums" }}>
                 {formatBytes(stats.memory_used)}/{formatBytes(stats.memory_total)}
               </span>
             </span>
             {/* DISK */}
             <span style={{ padding: "0 4px", whiteSpace: "nowrap" }}>
               <span style={{ opacity: 0.8 }}>DISK </span>
-              <span style={{ color: percentColor(diskPct ?? 0) }}>
+              <span style={{ color: percentColor(diskPct ?? 0), fontVariantNumeric: "tabular-nums" }}>
                 {Math.round(diskPct ?? 0)}%
               </span>
             </span>
@@ -268,18 +269,25 @@ export function StatusBar({
           </span>
         )}
         <button
-          onClick={isController ? onReleaseControl : onRequestControl}
+          data-testid="statusbar-mode-toggle"
+          onClick={() => {
+            if (!activeMachineId) return;
+            if (isController) onReleaseControl(activeMachineId);
+            else onRequestControl(activeMachineId);
+          }}
           style={{
             background: "rgba(255,255,255,0.15)",
             border: "none",
             borderRadius: 3,
             color: "#fff",
-            cursor: "pointer",
+            cursor: canToggleMode ? "pointer" : "not-allowed",
+            opacity: canToggleMode ? 1 : 0.5,
             padding: layout.actionButtonPadding,
             fontSize: 11,
             fontFamily: "inherit",
             lineHeight: "18px",
           }}
+          disabled={!canToggleMode}
         >
           {isController ? "Release" : "Take Control"}
         </button>
@@ -287,3 +295,5 @@ export function StatusBar({
     </div>
   );
 }
+
+export const StatusBar = memo(StatusBarComponent);

@@ -125,11 +125,7 @@ pub fn list_api_tokens_by_user(
     rows.collect()
 }
 
-pub fn delete_api_token(
-    conn: &Connection,
-    token_id: &str,
-    user_id: &str,
-) -> rusqlite::Result<()> {
+pub fn delete_api_token(conn: &Connection, token_id: &str, user_id: &str) -> rusqlite::Result<()> {
     conn.execute(
         "DELETE FROM api_tokens WHERE id = ?1 AND user_id = ?2",
         params![token_id, user_id],

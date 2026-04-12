@@ -143,10 +143,7 @@ async fn google_callback(
             )
         })?;
 
-    let display_name = g_user
-        .name
-        .as_deref()
-        .unwrap_or(&g_user.email);
+    let display_name = g_user.name.as_deref().unwrap_or(&g_user.email);
 
     let jwt = upsert_oauth_user_and_sign(
         &state,
@@ -180,9 +177,7 @@ async fn dev_login(
     })?;
 
     // Find or create dev user
-    let user = match db::users::find_user_by_provider(&conn, "dev", "dev-user")
-        .map_err(db_err)?
-    {
+    let user = match db::users::find_user_by_provider(&conn, "dev", "dev-user").map_err(db_err)? {
         Some(u) => u,
         None => {
             let role = if db::users::count_users(&conn).map_err(db_err)? == 0 {
@@ -247,22 +242,29 @@ fn upsert_oauth_user_and_sign(
         )
     })?;
 
-    let user = match db::users::find_user_by_provider(&conn, provider, provider_id)
-        .map_err(db_err)?
-    {
-        Some(u) => u,
-        None => {
-            // First user gets admin role
-            let role = if db::users::count_users(&conn).map_err(db_err)? == 0 {
-                "admin"
-            } else {
-                "user"
-            };
-            let id = uuid::Uuid::new_v4().to_string();
-            db::users::create_user(&conn, &id, provider, provider_id, display_name, avatar_url, role)
+    let user =
+        match db::users::find_user_by_provider(&conn, provider, provider_id).map_err(db_err)? {
+            Some(u) => u,
+            None => {
+                // First user gets admin role
+                let role = if db::users::count_users(&conn).map_err(db_err)? == 0 {
+                    "admin"
+                } else {
+                    "user"
+                };
+                let id = uuid::Uuid::new_v4().to_string();
+                db::users::create_user(
+                    &conn,
+                    &id,
+                    provider,
+                    provider_id,
+                    display_name,
+                    avatar_url,
+                    role,
+                )
                 .map_err(db_err)?
-        }
-    };
+            }
+        };
 
     let jwt = auth::sign_jwt(&user.id, &state.jwt_secret);
     Ok(jwt)

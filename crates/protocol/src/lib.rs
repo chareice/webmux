@@ -1,8 +1,9 @@
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 // ── Shared data types ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MachineInfo {
     pub id: String,
     pub name: String,
@@ -10,7 +11,7 @@ pub struct MachineInfo {
     pub home_dir: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TerminalInfo {
     pub id: String,
     pub machine_id: String,
@@ -20,14 +21,14 @@ pub struct TerminalInfo {
     pub rows: u16,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DirEntry {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceStats {
     /// CPU usage percentage (0.0 - 100.0), averaged across all cores
     pub cpu_percent: f32,
@@ -39,11 +40,32 @@ pub struct ResourceStats {
     pub disks: Vec<DiskInfo>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DiskInfo {
     pub mount_point: String,
     pub total_bytes: u64,
     pub used_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MachineStatsSnapshot {
+    pub machine_id: String,
+    pub stats: ResourceStats,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ControlLeaseSnapshot {
+    pub machine_id: String,
+    pub controller_device_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BrowserStateSnapshot {
+    pub snapshot_seq: u64,
+    pub machines: Vec<MachineInfo>,
+    pub terminals: Vec<TerminalInfo>,
+    pub machine_stats: Vec<MachineStatsSnapshot>,
+    pub control_leases: Vec<ControlLeaseSnapshot>,
 }
 
 // ── Hub → Machine messages ──
@@ -83,10 +105,7 @@ pub enum HubToMachine {
         filename: String,
     },
     #[serde(rename = "auth_result")]
-    AuthResult {
-        ok: bool,
-        message: Option<String>,
-    },
+    AuthResult { ok: bool, message: Option<String> },
     #[serde(rename = "check_foreground_process")]
     CheckForegroundProcess {
         request_id: String,
@@ -132,9 +151,7 @@ pub enum MachineToHub {
     #[serde(rename = "fs_list_error")]
     FsListError { request_id: String, error: String },
     #[serde(rename = "existing_terminals")]
-    ExistingTerminals {
-        terminals: Vec<TerminalInfo>,
-    },
+    ExistingTerminals { terminals: Vec<TerminalInfo> },
     #[serde(rename = "resource_stats")]
     ResourceStats { stats: ResourceStats },
     #[serde(rename = "foreground_process_result")]
@@ -170,6 +187,63 @@ pub enum BrowserEvent {
     },
     #[serde(rename = "mode_changed")]
     ModeChanged {
+        machine_id: String,
         controller_device_id: Option<String>,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserEventEnvelope {
+    pub seq: u64,
+    pub event: BrowserEvent,
+}
+
+pub fn encode_terminal_output_frame(terminal_id: &str, data: &[u8]) -> Vec<u8> {
+    let terminal_id_bytes = terminal_id.as_bytes();
+    let terminal_id_len: u16 = terminal_id_bytes
+        .len()
+        .try_into()
+        .expect("terminal_id is too long to encode");
+
+    let mut frame = Vec::with_capacity(2 + terminal_id_bytes.len() + data.len());
+    frame.extend_from_slice(&terminal_id_len.to_be_bytes());
+    frame.extend_from_slice(terminal_id_bytes);
+    frame.extend_from_slice(data);
+    frame
+}
+
+pub fn decode_terminal_output_frame(frame: &[u8]) -> Result<(String, Bytes), String> {
+    if frame.len() < 2 {
+        return Err("frame is missing terminal id length".to_string());
+    }
+
+    let terminal_id_len = u16::from_be_bytes([frame[0], frame[1]]) as usize;
+    if frame.len() < 2 + terminal_id_len {
+        return Err("frame is truncated".to_string());
+    }
+
+    let terminal_id = std::str::from_utf8(&frame[2..2 + terminal_id_len])
+        .map_err(|error| format!("terminal id is not valid utf-8: {error}"))?
+        .to_string();
+    Ok((terminal_id, Bytes::copy_from_slice(&frame[2 + terminal_id_len..])))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_terminal_output_frame, encode_terminal_output_frame};
+
+    #[test]
+    fn terminal_output_frame_round_trips_without_loss() {
+        let frame = encode_terminal_output_frame("term-a", b"\x1b[31mhello\x00world");
+        let (terminal_id, payload) = decode_terminal_output_frame(&frame).unwrap();
+
+        assert_eq!(terminal_id, "term-a");
+        assert_eq!(payload.as_ref(), b"\x1b[31mhello\x00world");
+    }
+
+    #[test]
+    fn terminal_output_frame_rejects_truncated_payloads() {
+        let error = decode_terminal_output_frame(&[0, 10, b't']).unwrap_err();
+        assert!(error.contains("truncated"));
+    }
 }

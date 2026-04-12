@@ -33,12 +33,7 @@ fn whoami() -> Option<String> {
 mod platform {
     use super::*;
 
-    fn render_service_unit(
-        name: &str,
-        home_dir: &str,
-        exe_path: &str,
-        path_env: &str,
-    ) -> String {
+    fn render_service_unit(name: &str, home_dir: &str, exe_path: &str, path_env: &str) -> String {
         format!(
             r#"[Unit]
 Description=Webmux Node ({name})
@@ -75,8 +70,8 @@ WantedBy=default.target
     }
 
     pub fn install(name: &str, _no_auto_upgrade: bool) -> Result<(), String> {
-        let home_dir = dirs::home_dir()
-            .ok_or_else(|| "cannot determine home directory".to_string())?;
+        let home_dir =
+            dirs::home_dir().ok_or_else(|| "cannot determine home directory".to_string())?;
         let home_str = home_dir.to_string_lossy().to_string();
 
         let exe_path = std::env::current_exe()
@@ -103,8 +98,7 @@ WantedBy=default.target
                 .map_err(|e| format!("failed to set directory permissions: {e}"))?;
         }
 
-        fs::write(&unit_path, &unit)
-            .map_err(|e| format!("failed to write service unit: {e}"))?;
+        fs::write(&unit_path, &unit).map_err(|e| format!("failed to write service unit: {e}"))?;
 
         run_systemctl(&["--user", "daemon-reload"])?;
         run_systemctl(&["--user", "enable", SERVICE_NAME])?;
@@ -118,8 +112,8 @@ WantedBy=default.target
     }
 
     pub fn uninstall() -> Result<(), String> {
-        let home_dir = dirs::home_dir()
-            .ok_or_else(|| "cannot determine home directory".to_string())?;
+        let home_dir =
+            dirs::home_dir().ok_or_else(|| "cannot determine home directory".to_string())?;
         let home_str = home_dir.to_string_lossy().to_string();
         let unit_path = service_file_path(&home_str);
 
@@ -216,8 +210,8 @@ mod platform {
     }
 
     pub fn install(_name: &str, _no_auto_upgrade: bool) -> Result<(), String> {
-        let home_dir = dirs::home_dir()
-            .ok_or_else(|| "cannot determine home directory".to_string())?;
+        let home_dir =
+            dirs::home_dir().ok_or_else(|| "cannot determine home directory".to_string())?;
         let home_str = home_dir.to_string_lossy().to_string();
 
         let exe_path = std::env::current_exe()
@@ -229,9 +223,11 @@ mod platform {
         let plist = render_plist(&home_str, &exe_path, &path_env);
 
         // Create log directory
-        let log_dir = PathBuf::from(&home_str).join("Library").join("Logs").join("webmux");
-        fs::create_dir_all(&log_dir)
-            .map_err(|e| format!("failed to create log directory: {e}"))?;
+        let log_dir = PathBuf::from(&home_str)
+            .join("Library")
+            .join("Logs")
+            .join("webmux");
+        fs::create_dir_all(&log_dir).map_err(|e| format!("failed to create log directory: {e}"))?;
 
         let plist_file = plist_path(&home_str);
         let plist_dir = plist_file
@@ -246,8 +242,7 @@ mod platform {
             let _ = run_command("launchctl", &["unload", &plist_file.to_string_lossy()]);
         }
 
-        fs::write(&plist_file, &plist)
-            .map_err(|e| format!("failed to write plist: {e}"))?;
+        fs::write(&plist_file, &plist).map_err(|e| format!("failed to write plist: {e}"))?;
 
         run_command("launchctl", &["load", "-w", &plist_file.to_string_lossy()])?;
 
@@ -255,24 +250,21 @@ mod platform {
     }
 
     pub fn uninstall() -> Result<(), String> {
-        let home_dir = dirs::home_dir()
-            .ok_or_else(|| "cannot determine home directory".to_string())?;
+        let home_dir =
+            dirs::home_dir().ok_or_else(|| "cannot determine home directory".to_string())?;
         let home_str = home_dir.to_string_lossy().to_string();
         let plist_file = plist_path(&home_str);
 
         if plist_file.exists() {
             let _ = run_command("launchctl", &["unload", &plist_file.to_string_lossy()]);
-            fs::remove_file(&plist_file)
-                .map_err(|e| format!("failed to remove plist: {e}"))?;
+            fs::remove_file(&plist_file).map_err(|e| format!("failed to remove plist: {e}"))?;
         }
 
         Ok(())
     }
 
     pub fn status() {
-        let _ = Command::new("launchctl")
-            .args(["list", LABEL])
-            .status();
+        let _ = Command::new("launchctl").args(["list", LABEL]).status();
     }
 
     pub fn is_active() -> Option<String> {

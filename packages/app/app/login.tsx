@@ -27,7 +27,7 @@ export default function LoginScreen() {
         <Text className="text-foreground text-3xl font-bold text-center mb-2">
           Terminal Canvas
         </Text>
-        <Text className="text-foreground-secondary text-center mb-8">
+        <Text className="text-foreground text-center mb-8 opacity-80">
           Sign in to continue
         </Text>
 

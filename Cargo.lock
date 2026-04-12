@@ -1879,6 +1879,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "bcrypt",
+ "bytes",
  "chrono",
  "clap",
  "futures",
@@ -1907,6 +1908,7 @@ dependencies = [
 name = "tc-machine"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "clap",
  "dirs",
  "futures",
@@ -1930,6 +1932,7 @@ dependencies = [
 name = "tc-protocol"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "serde",
  "serde_json",
 ]

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { memo, useState, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -18,16 +18,31 @@ import {
   updateSettings,
 } from "@/lib/api";
 import {
+  buildDirectorySuggestions,
+  createDirectoryCache,
+  readCachedDirectoryEntries,
+  writeCachedDirectoryEntries,
+} from "@/lib/directoryAutocomplete";
+import {
   buildOnboardingScript,
   getInstallCommand,
   getRegisterCommand,
   getServiceInstallCommand,
 } from "@/lib/nodeInstaller";
+import {
+  getTokenActionLabel,
+  shouldGenerateRegistrationToken,
+} from "@/lib/onboardingFlow";
+import { shouldLoadMachineBookmarks } from "@/lib/sidebarSections";
 
 interface SidebarProps {
   machines: MachineInfo[];
   onCreateTerminal: (machineId: string, cwd: string) => void;
+  canCreateTerminal?: (machineId: string) => boolean;
+  onRequestControl?: (machineId: string) => void;
 }
+
+const directoryCache = createDirectoryCache();
 
 function pathLabel(path: string): string {
   const parts = path.replace(/\/+$/, "").split("/");
@@ -50,6 +65,7 @@ function PathInput({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const fetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestIdRef = useRef(0);
 
   // Fetch directory suggestions when input changes
   useEffect(() => {
@@ -67,17 +83,33 @@ function PathInput({
       const parentDir = lastSlash > 0 ? trimmed.substring(0, lastSlash) : "/";
       const prefix =
         lastSlash >= 0 ? trimmed.substring(lastSlash + 1).toLowerCase() : "";
+      const requestId = ++requestIdRef.current;
+
+      const cachedEntries = readCachedDirectoryEntries(
+        directoryCache,
+        machineId,
+        parentDir,
+      );
+      if (cachedEntries) {
+        const dirs = buildDirectorySuggestions(cachedEntries, prefix);
+        setSuggestions(dirs);
+        setShowSuggestions(dirs.length > 0);
+        setSelectedIndex(-1);
+        return;
+      }
 
       try {
         const entries = await listDirectory(machineId, parentDir);
-        const dirs = entries
-          .filter(
-            (e) =>
-              e.is_dir &&
-              (prefix === "" || e.name.toLowerCase().startsWith(prefix)),
-          )
-          .map((e) => e.path)
-          .slice(0, 8);
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+        writeCachedDirectoryEntries(
+          directoryCache,
+          machineId,
+          parentDir,
+          entries,
+        );
+        const dirs = buildDirectorySuggestions(entries, prefix);
         setSuggestions(dirs);
         setShowSuggestions(dirs.length > 0);
         setSelectedIndex(-1);
@@ -157,7 +189,10 @@ function PathInput({
       <View style={{ flexDirection: "row", gap: 4 }}>
         <TextInput
           ref={inputRef}
-          autoFocus
+          autoFocus={Platform.OS === "web"}
+          autoCorrect={false}
+          autoCapitalize="none"
+          spellCheck={false}
           value={value}
           onChangeText={setValue}
           onKeyPress={handleKeyPress}
@@ -175,7 +210,7 @@ function PathInput({
             paddingHorizontal: 8,
             fontSize: 12,
           }}
-          placeholder="/path/to/directory"
+          placeholder="/path/to/directory…"
           placeholderTextColor="rgb(74, 97, 120)"
         />
         <Pressable
@@ -257,39 +292,44 @@ function PathInput({
 function MachineSection({
   machine,
   onCreateTerminal,
+  canCreateTerminal,
+  onRequestControl,
 }: {
   machine: MachineInfo;
   onCreateTerminal: (machineId: string, cwd: string) => void;
+  canCreateTerminal: boolean;
+  onRequestControl?: (machineId: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(Platform.OS !== "web");
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const loadedRef = useRef(false);
 
   // Load bookmarks from API
   useEffect(() => {
-    if (loadedRef.current) return;
+    if (
+      !shouldLoadMachineBookmarks({
+        expanded,
+        loaded: loadedRef.current,
+      })
+    ) {
+      return;
+    }
     loadedRef.current = true;
 
     listBookmarks(machine.id)
       .then((bms) => {
         if (bms.length === 0) {
-          // Create default bookmark for home dir
           const homeDir = machine.home_dir || "/home";
-          createBookmark(machine.id, homeDir, "~").then((bm) => {
-            setBookmarks([bm]);
-          }).catch(() => {
-            // API might not support bookmarks yet; use a local fallback
-            setBookmarks([
-              {
-                id: "local-home",
-                machineId: machine.id,
-                path: homeDir,
-                label: "~",
-                sortOrder: 0,
-              },
-            ]);
-          });
+          setBookmarks([
+            {
+              id: "local-home",
+              machineId: machine.id,
+              path: homeDir,
+              label: "~",
+              sortOrder: 0,
+            },
+          ]);
         } else {
           setBookmarks(bms);
         }
@@ -307,7 +347,7 @@ function MachineSection({
           },
         ]);
       });
-  }, [machine.id, machine.home_dir]);
+  }, [expanded, machine.id, machine.home_dir]);
 
   const handleAddBookmark = useCallback(
     async (path: string) => {
@@ -362,6 +402,7 @@ function MachineSection({
     >
       {/* Machine header */}
       <Pressable
+        testID={`machine-section-${machine.id}`}
         onPress={() => setExpanded((prev) => !prev)}
         style={{
           flexDirection: "row",
@@ -413,12 +454,56 @@ function MachineSection({
       {expanded && (
         <View style={{ paddingVertical: 6 }}>
           {/* Bookmark list */}
+          {!canCreateTerminal && (
+            <View
+              style={{
+                marginHorizontal: 12,
+                marginBottom: 8,
+                padding: 10,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: "rgba(255, 193, 7, 0.2)",
+                backgroundColor: "rgba(255, 193, 7, 0.08)",
+                gap: 8,
+              }}
+            >
+              <Text style={{ fontSize: 11, color: "rgb(255, 193, 7)" }}>
+                You are watching this machine. Take control before opening a new terminal.
+              </Text>
+              {onRequestControl && (
+                <Pressable
+                  testID={`machine-request-control-${machine.id}`}
+                  onPress={() => onRequestControl(machine.id)}
+                  style={{
+                    alignSelf: "flex-start",
+                    backgroundColor: "rgb(0, 212, 170)",
+                    borderRadius: 999,
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: "700",
+                      color: "rgb(10, 25, 41)",
+                    }}
+                  >
+                    Take Control
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+
           {bookmarks.map((bm) => (
             <Pressable
               key={bm.id}
-              onPress={() =>
-                onCreateTerminal(machine.id, bm.path)
-              }
+              testID={`machine-bookmark-${bm.id}`}
+              onPress={() => {
+                if (!canCreateTerminal) return;
+                onCreateTerminal(machine.id, bm.path);
+              }}
               style={({ pressed }) => ({
                 flexDirection: "row",
                 alignItems: "center",
@@ -428,6 +513,7 @@ function MachineSection({
                 backgroundColor: pressed
                   ? "rgb(17, 42, 69)"
                   : "transparent",
+                opacity: canCreateTerminal ? 1 : 0.45,
               })}
             >
               <Text
@@ -523,9 +609,11 @@ function MachineSection({
 
 function AddMachinePanel({ onClose }: { onClose: () => void }) {
   const [token, setToken] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [requested, setRequested] = useState(false);
 
   const handleGenerate = useCallback(async () => {
     setLoading(true);
@@ -533,6 +621,7 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
     try {
       const resp = await createRegistrationToken("");
       setToken(resp.token);
+      setExpiresAt(resp.expires_at);
     } catch (e: any) {
       setError(e.message || "Failed to generate token");
     } finally {
@@ -541,8 +630,20 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
   }, []);
 
   useEffect(() => {
-    handleGenerate();
-  }, [handleGenerate]);
+    if (loading || error) {
+      return;
+    }
+    if (
+      !shouldGenerateRegistrationToken({
+        requested,
+        token,
+        expiresAt,
+      })
+    ) {
+      return;
+    }
+    void handleGenerate();
+  }, [error, expiresAt, handleGenerate, loading, requested, token]);
 
   const hubUrl =
     Platform.OS === "web" && typeof window !== "undefined"
@@ -579,6 +680,14 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
     }
   }, [fullScript]);
 
+  const handleGenerateClick = useCallback(() => {
+    setRequested(true);
+    setCopied(false);
+    setError(null);
+    setToken(null);
+    setExpiresAt(null);
+  }, []);
+
   return (
     <View
       style={{
@@ -612,16 +721,54 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
         </Pressable>
       </View>
 
+      {!requested && !loading && !token && !error && (
+        <View style={{ gap: 10 }}>
+          <Text style={{ fontSize: 11, color: "rgb(122, 143, 166)" }}>
+            Generate a registration token only when you are ready to copy the commands to a machine.
+          </Text>
+          <Pressable
+            onPress={handleGenerateClick}
+            style={{
+              backgroundColor: "rgba(0, 212, 170, 0.1)",
+              borderWidth: 1,
+              borderColor: "rgb(0, 212, 170)",
+              borderRadius: 6,
+              paddingVertical: 8,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontSize: 12, color: "rgb(0, 212, 170)", fontWeight: "700" }}>
+              {getTokenActionLabel({ loading, token })}
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
       {loading && (
         <Text style={{ fontSize: 11, color: "rgb(74, 97, 120)" }}>
-          Generating token...
+          Generating token…
         </Text>
       )}
 
       {error && (
-        <Text style={{ fontSize: 11, color: "rgb(255, 100, 100)" }}>
-          {error}
-        </Text>
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontSize: 11, color: "rgb(255, 100, 100)" }}>
+            {error}
+          </Text>
+          <Pressable
+            onPress={handleGenerateClick}
+            style={{
+              alignSelf: "flex-start",
+              borderWidth: 1,
+              borderColor: "rgb(26, 58, 92)",
+              borderRadius: 6,
+              paddingVertical: 6,
+              paddingHorizontal: 10,
+            }}
+          >
+            <Text style={{ fontSize: 11, color: "rgb(224, 232, 240)" }}>Try Again</Text>
+          </Pressable>
+        </View>
       )}
 
       {token && (
@@ -752,6 +899,20 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
               {copied ? "Copied!" : "Copy all commands"}
             </Text>
           </Pressable>
+          <Pressable
+            onPress={handleGenerateClick}
+            style={{
+              borderWidth: 1,
+              borderColor: "rgb(26, 58, 92)",
+              borderRadius: 4,
+              paddingVertical: 6,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontSize: 11, color: "rgb(122, 143, 166)" }}>
+              {getTokenActionLabel({ loading, token })}
+            </Text>
+          </Pressable>
           <Text style={{ fontSize: 10, color: "rgb(74, 97, 120)" }}>
             Token expires in 24 hours
           </Text>
@@ -860,7 +1021,12 @@ function SettingsSection() {
   );
 }
 
-export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
+function SidebarComponent({
+  machines,
+  onCreateTerminal,
+  canCreateTerminal,
+  onRequestControl,
+}: SidebarProps) {
   const [showAddMachine, setShowAddMachine] = useState(false);
 
   return (
@@ -934,6 +1100,8 @@ export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
               key={machine.id}
               machine={machine}
               onCreateTerminal={onCreateTerminal}
+              canCreateTerminal={canCreateTerminal?.(machine.id) ?? true}
+              onRequestControl={onRequestControl}
             />
           ))
         )}
@@ -945,3 +1113,5 @@ export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
     </View>
   );
 }
+
+export const Sidebar = memo(SidebarComponent);

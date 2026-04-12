@@ -1,39 +1,80 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import type { TerminalInfo, MachineInfo, ResourceStats } from "@webmux/shared";
-import { Sidebar } from "./Sidebar";
+import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
+import type { TerminalInfo } from "@webmux/shared";
 import { Canvas } from "./Canvas.web";
-import { OnboardingView } from "./OnboardingView.web";
-import { StatusBar } from "./StatusBar";
 import {
   createTerminal,
   destroyTerminal,
   checkForegroundProcess,
-  listMachines,
-  listTerminals,
   eventsWsUrl,
-  getDeviceId,
-  getMode,
+  getBootstrap,
   requestControl,
   releaseControl,
 } from "@/lib/api";
+import {
+  applyBootstrapSnapshot,
+  applyBrowserEventEnvelope,
+  EMPTY_BROWSER_SESSION_STATE,
+  shouldResyncForEnvelope,
+} from "@/lib/bootstrapState";
+import { getPersistentDeviceId } from "@/lib/deviceId";
 import { useIsMobile } from "@/lib/hooks";
 
+const Sidebar = lazy(() =>
+  import("./Sidebar").then((module) => ({ default: module.Sidebar })),
+);
+const OnboardingView = lazy(() =>
+  import("./OnboardingView.web").then((module) => ({
+    default: module.OnboardingView,
+  })),
+);
+const StatusBar = lazy(() =>
+  import("./StatusBar").then((module) => ({ default: module.StatusBar })),
+);
+
 export function TerminalCanvas() {
-  const [machines, setMachines] = useState<MachineInfo[]>([]);
-  const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
+  const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const maximizedRef = useRef<string | null>(null);
-  const deviceId = useMemo(() => getDeviceId(), []);
-  const [controllerDeviceId, setControllerDeviceId] = useState<string | null>(null);
-  const isController = controllerDeviceId === deviceId;
-  const [machineStats, setMachineStats] = useState<Record<string, ResourceStats>>({});
+  const lastSeqRef = useRef(0);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [bootstrapReady, setBootstrapReady] = useState(false);
+  const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
+  const machines = browserState.machines;
+  const terminals = browserState.terminals;
+  const machineStats = browserState.machineStats;
+  const controlLeases = browserState.controlLeases;
+  const isMachineController = useCallback(
+    (machineId: string) => controlLeases[machineId] === deviceId,
+    [controlLeases, deviceId],
+  );
+  const isActiveController = activeMachineId
+    ? isMachineController(activeMachineId)
+    : false;
 
   useEffect(() => {
     setSidebarOpen(!isMobile);
   }, [isMobile]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getPersistentDeviceId().then((id) => {
+      if (!cancelled) {
+        setDeviceId(id);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    lastSeqRef.current = browserState.lastSeq;
+  }, [browserState.lastSeq]);
 
   useEffect(() => {
     maximizedRef.current = maximizedId;
@@ -76,74 +117,60 @@ export function TerminalCanvas() {
 
   // Load initial data
   useEffect(() => {
-    listMachines().then(setMachines).catch(() => {});
-    listTerminals().then(setTerminals).catch(() => {});
-    getMode()
-      .then(async (m) => {
-        if (m.controller_device_id) {
-          setControllerDeviceId(m.controller_device_id);
-          return;
-        }
-        const next = await requestControl(deviceId);
-        setControllerDeviceId(next.controller_device_id);
+    if (!deviceId) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    setBootstrapReady(false);
+
+    getBootstrap()
+      .then((snapshot) => {
+        if (cancelled) return;
+        lastSeqRef.current = snapshot.snapshot_seq;
+        setBrowserState(applyBootstrapSnapshot(snapshot));
+        setBootstrapReady(true);
       })
-      .catch(() => {});
-  }, [deviceId]);
+      .catch(() => {
+        if (cancelled) return;
+        retryTimer = setTimeout(() => {
+          setReconnectGeneration((value) => value + 1);
+        }, 1000);
+      });
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [deviceId, reconnectGeneration]);
 
   // Events WebSocket for live updates
   useEffect(() => {
-    const ws = new WebSocket(eventsWsUrl(deviceId));
+    if (!bootstrapReady || !deviceId) return;
+
+    const ws = new WebSocket(eventsWsUrl(deviceId, lastSeqRef.current));
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     ws.onmessage = (event) => {
       try {
-        const msg = JSON.parse(event.data);
-        switch (msg.type) {
-          case "machine_online":
-            setMachines((prev) => {
-              if (prev.some((m) => m.id === msg.machine.id))
-                return prev;
-              return [...prev, msg.machine];
-            });
-            break;
-          case "machine_offline":
-            setMachines((prev) =>
-              prev.filter((m) => m.id !== msg.machine_id),
-            );
-            // Also remove terminals from this machine
-            setTerminals((prev) =>
-              prev.filter((t) => t.machine_id !== msg.machine_id),
-            );
-            // Clean up stats for the offline machine
-            setMachineStats((prev) => {
-              const next = { ...prev };
-              delete next[msg.machine_id];
-              return next;
-            });
-            break;
-          case "terminal_created":
-            setTerminals((prev) => {
-              if (prev.some((t) => t.id === msg.terminal.id))
-                return prev;
-              return [...prev, msg.terminal];
-            });
-            break;
-          case "terminal_destroyed":
-            setTerminals((prev) =>
-              prev.filter((t) => t.id !== msg.terminal_id),
-            );
-            if (maximizedRef.current === msg.terminal_id) {
-              setMaximizedId(null);
-            }
-            break;
-          case "machine_stats":
-            setMachineStats((prev) => ({
-              ...prev,
-              [msg.machine_id]: msg.stats,
-            }));
-            break;
-          case "mode_changed":
-            setControllerDeviceId(msg.controller_device_id);
-            break;
+        const envelope = JSON.parse(event.data);
+        let needsResync = false;
+        setBrowserState((prev) => {
+          if (shouldResyncForEnvelope(prev, envelope)) {
+            needsResync = true;
+            return prev;
+          }
+          const next = applyBrowserEventEnvelope(prev, envelope);
+          if (
+            next !== prev &&
+            envelope.event?.type === "terminal_destroyed" &&
+            maximizedRef.current === envelope.event.terminal_id
+          ) {
+            setMaximizedId(null);
+          }
+          return next;
+        });
+        if (needsResync) {
+          ws.close();
         }
       } catch {
         /* ignore */
@@ -151,39 +178,65 @@ export function TerminalCanvas() {
     };
 
     ws.onclose = () => {
-      setTimeout(() => {
-        listMachines().then(setMachines).catch(() => {});
-        listTerminals().then(setTerminals).catch(() => {});
-        getMode().then(m => {
-          setControllerDeviceId(m.controller_device_id);
-        }).catch(() => {});
+      reconnectTimer = setTimeout(() => {
+        setBootstrapReady(false);
+        setReconnectGeneration((value) => value + 1);
       }, 1000);
     };
 
-    return () => ws.close();
-  }, [deviceId]);
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      ws.close();
+    };
+  }, [bootstrapReady, deviceId]);
 
   const handleCreateTerminal = useCallback(
     async (machineId: string, cwd: string) => {
-      if (!isController) return;
-      await createTerminal(machineId, cwd);
+      if (!deviceId) return;
+      if (!isMachineController(machineId)) return;
+      await createTerminal(machineId, cwd, deviceId);
       if (isMobile) setSidebarOpen(false);
     },
-    [isMobile, isController],
+    [deviceId, isMachineController, isMobile],
   );
 
-  const handleRequestControl = useCallback(async () => {
-    const next = await requestControl(deviceId);
-    setControllerDeviceId(next.controller_device_id);
+  const handleRequestControl = useCallback(async (machineId: string) => {
+    if (!deviceId) return;
+    const next = await requestControl(machineId, deviceId);
+    setBrowserState((prev) => ({
+      ...prev,
+      controlLeases: next.controller_device_id
+        ? {
+            ...prev.controlLeases,
+            [machineId]: next.controller_device_id,
+          }
+        : prev.controlLeases,
+    }));
   }, [deviceId]);
 
-  const handleReleaseControl = useCallback(async () => {
-    const next = await releaseControl(deviceId);
-    setControllerDeviceId(next.controller_device_id);
+  const handleReleaseControl = useCallback(async (machineId: string) => {
+    if (!deviceId) return;
+    const next = await releaseControl(machineId, deviceId);
+    setBrowserState((prev) => ({
+      ...prev,
+      controlLeases: next.controller_device_id
+        ? {
+            ...prev.controlLeases,
+            [machineId]: next.controller_device_id,
+          }
+        : Object.fromEntries(
+            Object.entries(prev.controlLeases).filter(
+              ([key]) => key !== machineId,
+            ),
+          ),
+    }));
   }, [deviceId]);
 
   const handleDestroyTerminal = useCallback(
     async (terminal: TerminalInfo) => {
+      if (!deviceId) return;
+      if (!isMachineController(terminal.machine_id)) return;
+
       try {
         const result = await checkForegroundProcess(
           terminal.machine_id,
@@ -202,9 +255,9 @@ export function TerminalCanvas() {
       } catch {
         // If check fails, allow closing without confirmation
       }
-      await destroyTerminal(terminal.machine_id, terminal.id);
+      await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
     },
-    [],
+    [deviceId, isMachineController],
   );
 
   const handleMaximize = useCallback((id: string) => {
@@ -216,6 +269,11 @@ export function TerminalCanvas() {
     setMaximizedId(null);
     window.history.pushState(null, "", window.location.pathname);
   }, []);
+
+  const activeMachine = activeMachineId
+    ? machines.find((machine) => machine.id === activeMachineId) ?? null
+    : machines[0] ?? null;
+  const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
 
   return (
     <div
@@ -239,6 +297,8 @@ export function TerminalCanvas() {
         {isMobile && !maximizedId && (
           <button
             onClick={() => setSidebarOpen((prev) => !prev)}
+            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+            data-testid="mobile-sidebar-toggle"
             style={{
               position: "fixed",
               top: 12,
@@ -286,23 +346,33 @@ export function TerminalCanvas() {
                 : {}
             }
           >
-            <Sidebar
-              machines={machines}
-              onCreateTerminal={handleCreateTerminal}
-            />
+            <Suspense fallback={null}>
+              <Sidebar
+                machines={machines}
+                onCreateTerminal={handleCreateTerminal}
+                canCreateTerminal={isMachineController}
+                onRequestControl={handleRequestControl}
+              />
+            </Suspense>
           </div>
         )}
 
         {/* Main content */}
         {machines.length === 0 ? (
-          <OnboardingView />
+          <Suspense fallback={null}>
+            <OnboardingView />
+          </Suspense>
         ) : (
           <Canvas
+            machines={machines}
             terminals={terminals}
             maximizedId={maximizedId}
+            activeMachineId={activeMachine?.id ?? null}
+            machineStats={machineStats}
             isMobile={isMobile}
-            isController={isController}
-            deviceId={deviceId}
+            isActiveController={isActiveController}
+            isMachineController={isMachineController}
+            deviceId={deviceId ?? ""}
             onMaximize={handleMaximize}
             onMinimize={handleMinimize}
             onDestroy={handleDestroyTerminal}
@@ -312,16 +382,18 @@ export function TerminalCanvas() {
         )}
       </div>
 
-      <StatusBar
-        machines={machines}
-        activeMachineId={activeMachineId}
-        onSelectMachine={setActiveMachineId}
-        machineStats={machineStats}
-        isMobile={isMobile}
-        isController={isController}
-        onRequestControl={handleRequestControl}
-        onReleaseControl={handleReleaseControl}
-      />
+      <Suspense fallback={null}>
+        <StatusBar
+          machines={machines}
+          activeMachineId={activeMachineId}
+          onSelectMachine={setActiveMachineId}
+          machineStats={machineStats}
+          isMobile={isMobile}
+          isController={isActiveController}
+          onRequestControl={handleRequestControl}
+          onReleaseControl={handleReleaseControl}
+        />
+      </Suspense>
     </div>
   );
 }

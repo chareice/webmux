@@ -25,3 +25,4 @@ hostname = "0.4"
 dirs = { workspace = true }
 reqwest = { workspace = true }
 sysinfo = { workspace = true }
+bytes.workspace = true

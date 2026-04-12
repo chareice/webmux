@@ -28,6 +28,24 @@ export interface DiskInfo {
   used_bytes: number
 }
 
+export interface MachineStatsSnapshot {
+  machine_id: string
+  stats: ResourceStats
+}
+
+export interface ControlLeaseSnapshot {
+  machine_id: string
+  controller_device_id: string | null
+}
+
+export interface BrowserStateSnapshot {
+  snapshot_seq: number
+  machines: MachineInfo[]
+  terminals: TerminalInfo[]
+  machine_stats: MachineStatsSnapshot[]
+  control_leases: ControlLeaseSnapshot[]
+}
+
 export interface ResourceStats {
   cpu_percent: number
   memory_total: number
@@ -174,6 +192,7 @@ export type BrowserEvent =
   | BrowserEvent.TerminalCreated
   | BrowserEvent.TerminalDestroyed
   | BrowserEvent.MachineStats
+  | BrowserEvent.ModeChanged
 
 export namespace BrowserEvent {
   export interface MachineOnline {
@@ -202,6 +221,17 @@ export namespace BrowserEvent {
     machine_id: string
     stats: ResourceStats
   }
+
+  export interface ModeChanged {
+    type: 'mode_changed'
+    machine_id: string
+    controller_device_id: string | null
+  }
+}
+
+export interface BrowserEventEnvelope {
+  seq: number
+  event: BrowserEvent
 }
 
 // ── Auth / persistence types (not in Rust yet) ──

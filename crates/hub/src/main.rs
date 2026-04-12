@@ -4,8 +4,8 @@ mod machine_manager;
 mod routes;
 mod ws;
 
-use std::sync::Arc;
 use clap::Parser;
+use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -80,13 +80,11 @@ async fn main() {
         .layer(CorsLayer::permissive())
         .fallback_service(
             ServeDir::new(&args.static_dir)
-                .not_found_service(ServeFile::new(format!("{}/index.html", args.static_dir)))
+                .not_found_service(ServeFile::new(format!("{}/index.html", args.static_dir))),
         )
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(&args.listen)
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind(&args.listen).await.unwrap();
 
     tracing::info!("Hub running on http://{}", args.listen);
     axum::serve(listener, app).await.unwrap();
