@@ -223,7 +223,22 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
       });
 
+      // Helper: send image data over WebSocket
+      const sendImageToWs = (base64: string, mime: string) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "image_paste",
+              data: base64,
+              mime,
+              filename: `tc-paste-${Date.now()}.png`,
+            }),
+          );
+        }
+      };
+
       // Ctrl+C / Cmd+C copies selection to clipboard instead of sending SIGINT
+      // Ctrl+V / Cmd+V checks clipboard for images before letting xterm paste text
       term.attachCustomKeyEventHandler((event) => {
         if (
           (event.ctrlKey || event.metaKey) &&
@@ -243,10 +258,55 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             return false;
           }
         }
+
+        // Intercept paste (Cmd+V / Ctrl+V) to check for images.
+        // ClipboardAddon only reads text via navigator.clipboard.readText(),
+        // so the native paste event with image data never reaches our container
+        // listener on macOS. We handle it here with the full Clipboard API.
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.key === "v" &&
+          event.type === "keydown"
+        ) {
+          event.preventDefault();
+          void (async () => {
+            try {
+              const items = await navigator.clipboard.read();
+              for (const item of items) {
+                const imageType = item.types.find((t) =>
+                  t.startsWith("image/"),
+                );
+                if (imageType) {
+                  const blob = await item.getType(imageType);
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const base64 = (reader.result as string).split(",")[1];
+                    sendImageToWs(base64, imageType);
+                  };
+                  reader.readAsDataURL(blob);
+                  return;
+                }
+              }
+              // No image — paste text normally
+              const text = await navigator.clipboard.readText();
+              if (text) term.paste(text);
+            } catch {
+              // Clipboard API denied or unavailable — fall back to text paste
+              try {
+                const text = await navigator.clipboard.readText();
+                if (text) term.paste(text);
+              } catch {
+                /* clipboard read failed — ignore */
+              }
+            }
+          })();
+          return false;
+        }
+
         return true;
       });
 
-      // Intercept paste events for image detection
+      // Intercept paste events for image detection (fallback for right-click paste, etc.)
       const handlePaste = (e: ClipboardEvent) => {
         const items = e.clipboardData?.items;
         if (!items) return;
@@ -259,16 +319,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             const reader = new FileReader();
             reader.onload = () => {
               const base64 = (reader.result as string).split(",")[1];
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(
-                  JSON.stringify({
-                    type: "image_paste",
-                    data: base64,
-                    mime: item.type,
-                    filename: `tc-paste-${Date.now()}.png`,
-                  }),
-                );
-              }
+              sendImageToWs(base64, item.type);
             };
             reader.readAsDataURL(blob);
             return;
