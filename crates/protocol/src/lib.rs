@@ -27,6 +27,25 @@ pub struct DirEntry {
     pub is_dir: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceStats {
+    /// CPU usage percentage (0.0 - 100.0), averaged across all cores
+    pub cpu_percent: f32,
+    /// Total physical memory in bytes
+    pub memory_total: u64,
+    /// Used physical memory in bytes
+    pub memory_used: u64,
+    /// Disk info
+    pub disks: Vec<DiskInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiskInfo {
+    pub mount_point: String,
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+}
+
 // ── Hub → Machine messages ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +130,8 @@ pub enum MachineToHub {
     ExistingTerminals {
         terminals: Vec<TerminalInfo>,
     },
+    #[serde(rename = "resource_stats")]
+    ResourceStats { stats: ResourceStats },
     #[serde(rename = "pong")]
     Pong,
 }
@@ -130,6 +151,11 @@ pub enum BrowserEvent {
     TerminalDestroyed {
         machine_id: String,
         terminal_id: String,
+    },
+    #[serde(rename = "machine_stats")]
+    MachineStats {
+        machine_id: String,
+        stats: ResourceStats,
     },
     #[serde(rename = "mode_changed")]
     ModeChanged {
