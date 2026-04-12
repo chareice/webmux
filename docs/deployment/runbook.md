@@ -53,8 +53,11 @@ git push origin main
 ```
 
 ```bash
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && docker compose pull && docker compose up -d"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && sudo DOCKER_CONFIG=/var/services/homes/chareice/.docker docker compose pull && sudo DOCKER_CONFIG=/var/services/homes/chareice/.docker docker compose up -d"
 ```
+
+> **Note:** `sudo docker` alone cannot access GHCR because root has no docker auth config.
+> Must pass `DOCKER_CONFIG=/var/services/homes/chareice/.docker` so it uses the user's credentials.
 
 **CI check:**
 ```bash
