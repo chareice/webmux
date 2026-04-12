@@ -169,20 +169,24 @@ impl PtyManager {
     /// Check if a terminal has a foreground process running (not just a shell).
     /// Returns (has_foreground_process, process_name).
     pub fn check_foreground_process(&self, id: &str) -> (bool, Option<String>) {
-        let sessions = match self.sessions.lock() {
-            Ok(s) => s,
-            Err(_) => return (false, None),
-        };
-        let session = match sessions.get(id) {
-            Some(s) => s,
-            None => return (false, None),
+        // Extract tmux_backed flag and drop the lock before running external command
+        let tmux_backed = {
+            let sessions = match self.sessions.lock() {
+                Ok(s) => s,
+                Err(_) => return (false, None),
+            };
+            match sessions.get(id) {
+                Some(s) => s.tmux_backed,
+                None => return (false, None),
+            }
         };
 
-        if !session.tmux_backed {
+        if !tmux_backed {
             return (false, None);
         }
 
         let tmux_name = tmux_session_name(id);
+        // Filter to active pane only to avoid multi-pane false positives
         let output = tmux_cmd()
             .args([
                 "-L",
@@ -190,6 +194,8 @@ impl PtyManager {
                 "list-panes",
                 "-t",
                 &tmux_name,
+                "-f",
+                "#{pane_active}",
                 "-F",
                 "#{pane_current_command}",
             ])
