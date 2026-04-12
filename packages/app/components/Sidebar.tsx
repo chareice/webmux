@@ -34,6 +34,7 @@ import {
   shouldGenerateRegistrationToken,
 } from "@/lib/onboardingFlow";
 import { shouldLoadMachineBookmarks } from "@/lib/sidebarSections";
+import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 interface SidebarProps {
   machines: MachineInfo[];
@@ -300,6 +301,7 @@ function MachineSection({
   canCreateTerminal: boolean;
   onRequestControl?: (machineId: string) => void;
 }) {
+  const controlCopy = getTerminalControlCopy(false);
   const [expanded, setExpanded] = useState(Platform.OS !== "web");
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -468,7 +470,7 @@ function MachineSection({
               }}
             >
               <Text style={{ fontSize: 11, color: "rgb(255, 193, 7)" }}>
-                You are watching this machine. Take control before opening a new terminal.
+                You are viewing this machine. Control it here before opening a new terminal.
               </Text>
               {onRequestControl && (
                 <Pressable
@@ -489,7 +491,7 @@ function MachineSection({
                       color: "rgb(10, 25, 41)",
                     }}
                   >
-                    Take Control
+                    {controlCopy.toggleLabel}
                   </Text>
                 </Pressable>
               )}

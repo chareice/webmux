@@ -16,10 +16,10 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await expect(page.getByText("Tap ☰ to open a terminal")).toBeVisible();
   await expect(page.getByTestId("statusbar-stat-cpu")).toContainText("CPU");
   await expect(page.getByTestId("statusbar-stat-memory")).toContainText("MEM");
-  await expect(page.getByTestId("statusbar-mode-toggle")).toHaveText("Take Control");
+  await expect(page.getByTestId("statusbar-mode-toggle")).toHaveText("Control Here");
 
   await page.getByTestId("statusbar-mode-toggle").click();
-  await expect(page.getByTestId("statusbar-mode-toggle")).toHaveText("Release");
+  await expect(page.getByTestId("statusbar-mode-toggle")).toHaveText("Stop Control");
 
   await page.getByTestId("mobile-sidebar-toggle").click();
   await expandMachineSection(page);
@@ -31,7 +31,8 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await card.getByLabel("Maximize").click();
 
   await expect(page.getByLabel("Minimize")).toBeVisible();
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Release");
+  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Stop Control");
+  await expect(page.getByTestId("terminal-fit-button")).toHaveText("Use This Size");
   await expect(page.getByTitle("Show command bar")).toBeVisible();
 
   await page.getByTitle("Show command bar").click();
@@ -65,9 +66,9 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await expect(commandInput).toBeHidden();
 
   await page.getByTestId("terminal-mode-toggle").click();
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Take Control");
+  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Control Here");
   await page.getByTestId("terminal-mode-toggle").click();
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Release");
+  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Stop Control");
 
   await page.getByLabel("Minimize").click();
   await expect(card.getByLabel("Maximize")).toBeVisible();

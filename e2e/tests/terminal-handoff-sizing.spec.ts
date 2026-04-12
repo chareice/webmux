@@ -44,6 +44,15 @@ test("terminal size stays stable across maximize and cross-device handoff until 
   await mobilePage.getByTestId("statusbar-mode-toggle").click();
   await mobileCard.getByLabel("Maximize").click();
   await expect(mobilePage.getByLabel("Minimize")).toBeVisible();
+  await expect
+    .poll(async () =>
+      Number(
+        await mobilePage
+          .locator("[data-terminal-display-mode='immersive']")
+          .getAttribute("data-terminal-view-scale"),
+      ),
+    )
+    .toBeLessThan(1);
 
   await expect
     .poll(async () => listTerminals(mobilePage))
@@ -57,6 +66,22 @@ test("terminal size stays stable across maximize and cross-device handoff until 
       return terminal;
     })
     .not.toEqual(initialTerminal);
+  await expect
+    .poll(async () =>
+      await desktopPage
+        .locator("[data-terminal-display-mode='immersive']")
+        .getAttribute("data-terminal-view-justify"),
+    )
+    .toBe("center");
+  await expect
+    .poll(async () =>
+      Number(
+        await desktopPage
+          .locator("[data-terminal-display-mode='immersive']")
+          .getAttribute("data-terminal-view-scale"),
+      ),
+    )
+    .toBe(1);
 
   await mobilePage.getByLabel("Close terminal").click();
   await expect

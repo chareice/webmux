@@ -4,6 +4,7 @@ import {
   useCallback,
   useImperativeHandle,
   forwardRef,
+  useState,
 } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -15,6 +16,10 @@ import "@xterm/xterm/css/xterm.css";
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
 import { createOrderedBinaryOutputQueue } from "@/lib/orderedBinaryOutput.mjs";
 import { buildResizeMessage } from "@/lib/terminalResize";
+import {
+  getTerminalFitDimensions,
+  getTerminalViewportLayout,
+} from "@/lib/terminalViewModel";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
@@ -66,6 +71,30 @@ function detectAvailableFont(): string {
   return "monospace";
 }
 
+function measureTerminalSurface(
+  container: HTMLDivElement | null,
+): { width: number; height: number } {
+  if (!container) {
+    return { width: 0, height: 0 };
+  }
+
+  const screen = container.querySelector(".xterm-screen") as HTMLElement | null;
+  const width = Math.max(
+    screen?.scrollWidth ?? 0,
+    screen?.clientWidth ?? 0,
+    container.scrollWidth,
+    container.clientWidth,
+  );
+  const height = Math.max(
+    screen?.scrollHeight ?? 0,
+    screen?.clientHeight ?? 0,
+    container.scrollHeight,
+    container.clientHeight,
+  );
+
+  return { width, height };
+}
+
 export type { TerminalViewRef, TerminalViewProps };
 
 export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
@@ -75,17 +104,24 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     wsUrl,
     cols,
     rows,
+    displayMode = "immersive",
     isController,
     canResizeTerminal,
     onTitleChange,
     style,
   }, ref) {
+    const viewportRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const isControllerRef = useRef(isController ?? true);
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
+    const measureRafRef = useRef<number | null>(null);
+    const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+    const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
+    const viewportSizeRef = useRef(viewportSize);
+    const surfaceSizeRef = useRef(surfaceSize);
 
     useEffect(() => {
       isControllerRef.current = isController ?? true;
@@ -94,6 +130,43 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     useEffect(() => {
       canResizeTerminalRef.current = canResizeTerminal ?? false;
     }, [canResizeTerminal]);
+
+    const measureLayout = useCallback(() => {
+      const viewport = viewportRef.current;
+      const container = containerRef.current;
+      if (!viewport || !container) return;
+
+      const nextViewportSize = {
+        width: viewport.clientWidth,
+        height: viewport.clientHeight,
+      };
+      const nextSurfaceSize = measureTerminalSurface(container);
+
+      setViewportSize((current) =>
+        current.width === nextViewportSize.width &&
+        current.height === nextViewportSize.height
+          ? current
+          : nextViewportSize,
+      );
+      setSurfaceSize((current) =>
+        current.width === nextSurfaceSize.width &&
+        current.height === nextSurfaceSize.height
+          ? current
+          : nextSurfaceSize,
+      );
+      viewportSizeRef.current = nextViewportSize;
+      surfaceSizeRef.current = nextSurfaceSize;
+    }, []);
+
+    const scheduleMeasure = useCallback(() => {
+      if (measureRafRef.current) {
+        cancelAnimationFrame(measureRafRef.current);
+      }
+      measureRafRef.current = requestAnimationFrame(() => {
+        measureRafRef.current = null;
+        measureLayout();
+      });
+    }, [measureLayout]);
 
     // Expose imperative API
     useImperativeHandle(
@@ -128,7 +201,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           const fit = fitRef.current;
           const liveWs = wsRef.current;
           if (
-            !fit ||
             liveWs?.readyState !== WebSocket.OPEN ||
             !isControllerRef.current ||
             !canResizeTerminalRef.current
@@ -137,8 +209,23 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
 
           try {
-            fit.fit();
-            const resizeMessage = buildResizeMessage(fit.proposeDimensions());
+            const nextDims =
+              displayMode === "immersive"
+                ? getTerminalFitDimensions({
+                    viewportWidth: viewportSizeRef.current.width,
+                    viewportHeight: viewportSizeRef.current.height,
+                    contentWidth: surfaceSizeRef.current.width,
+                    contentHeight: surfaceSizeRef.current.height,
+                    cols,
+                    rows,
+                  })
+                : (() => {
+                    if (!fit) return null;
+                    fit.fit();
+                    return fit.proposeDimensions();
+                  })();
+
+            const resizeMessage = buildResizeMessage(nextDims);
             if (!resizeMessage) return;
             liveWs.send(JSON.stringify(resizeMessage));
           } catch {
@@ -149,7 +236,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           termRef.current?.focus();
         },
       }),
-      [],
+      [cols, displayMode, rows],
     );
 
     // Create terminal and WebSocket once on mount
@@ -191,6 +278,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       term.loadAddon(new ClipboardAddon());
       term.loadAddon(new WebLinksAddon());
       term.open(container);
+      scheduleMeasure();
 
       termRef.current = term;
       fitRef.current = fit;
@@ -208,6 +296,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
               webgl?.dispose();
             });
             term.loadAddon(webgl);
+            scheduleMeasure();
           } catch {
             webgl?.dispose();
           }
@@ -436,7 +525,20 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       container.addEventListener("touchstart", onTouchStart, { passive: true });
       container.addEventListener("touchmove", onTouchMove, { passive: false });
 
+      const viewport = viewportRef.current;
+      const resizeObserver = new ResizeObserver(() => {
+        scheduleMeasure();
+      });
+      if (viewport) {
+        resizeObserver.observe(viewport);
+      }
+
       return () => {
+        resizeObserver.disconnect();
+        if (measureRafRef.current) {
+          cancelAnimationFrame(measureRafRef.current);
+          measureRafRef.current = null;
+        }
         if (rafId) cancelAnimationFrame(rafId);
         container.removeEventListener("paste", handlePaste);
         container.removeEventListener("touchstart", onTouchStart);
@@ -444,7 +546,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         ws.close();
         term.dispose();
       };
-    }, [wsUrl]);
+    }, [scheduleMeasure, wsUrl]);
 
     useEffect(() => {
       const term = termRef.current;
@@ -452,20 +554,84 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       if (term.cols === cols && term.rows === rows) return;
       try {
         term.resize(cols, rows);
+        scheduleMeasure();
       } catch {
         /* ignore */
       }
-    }, [cols, rows]);
+    }, [cols, rows, scheduleMeasure]);
+
+    useEffect(() => {
+      scheduleMeasure();
+    }, [displayMode, scheduleMeasure]);
+
+    const viewportLayout = getTerminalViewportLayout({
+      displayMode,
+      viewportWidth: viewportSize.width,
+      viewportHeight: viewportSize.height,
+      contentWidth: surfaceSize.width,
+      contentHeight: surfaceSize.height,
+    });
 
     return (
       <div
-        ref={containerRef}
+        ref={viewportRef}
+        data-terminal-display-mode={displayMode}
+        data-terminal-view-scale={viewportLayout.scale.toFixed(4)}
+        data-terminal-view-justify={viewportLayout.justifyContent}
         style={{
           width: "100%",
           height: "100%",
+          display: "flex",
+          justifyContent:
+            displayMode === "immersive"
+              ? viewportLayout.justifyContent
+              : "flex-start",
+          alignItems: "flex-start",
+          overflow: "hidden",
           ...style,
         }}
-      />
+      >
+        <div
+          style={{
+            width:
+              displayMode === "immersive" && viewportLayout.frameWidth > 0
+                ? `${viewportLayout.frameWidth}px`
+                : "100%",
+            height:
+              displayMode === "immersive" && viewportLayout.frameHeight > 0
+                ? `${viewportLayout.frameHeight}px`
+                : "100%",
+            flex: "0 0 auto",
+          }}
+        >
+          <div
+            style={{
+              width:
+                displayMode === "immersive" && surfaceSize.width > 0
+                  ? `${surfaceSize.width}px`
+                  : "100%",
+              height:
+                displayMode === "immersive" && surfaceSize.height > 0
+                  ? `${surfaceSize.height}px`
+                  : "100%",
+              transform:
+                displayMode === "immersive"
+                  ? `scale(${viewportLayout.scale})`
+                  : "none",
+              transformOrigin: "top left",
+            }}
+          >
+            <div
+              ref={containerRef}
+              style={{
+                width: displayMode === "immersive" ? undefined : "100%",
+                height: displayMode === "immersive" ? undefined : "100%",
+                display: displayMode === "immersive" ? "inline-block" : "block",
+              }}
+            />
+          </div>
+        </div>
+      </div>
     );
   },
 );

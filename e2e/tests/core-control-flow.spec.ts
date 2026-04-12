@@ -11,9 +11,9 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await openApp(pageA);
   await expandMachineSection(pageA);
 
-  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Take Control");
+  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
   await pageA.getByTestId("machine-request-control-e2e-node").click();
-  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Release Control");
+  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Stop Control");
 
   await pageA.getByTestId("machine-bookmark-local-home").click();
   const cardA = await expectSingleTerminalCard(pageA);
@@ -21,15 +21,15 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
 
   await openApp(pageB);
   const cardB = await expectSingleTerminalCard(pageB);
-  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Take Control");
-  await expect(cardB.getByLabel("Watch mode - cannot close")).toBeVisible();
+  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
+  await expect(cardB.getByLabel("View only - cannot close")).toBeVisible();
 
   await pageB.getByTestId("canvas-mode-toggle").click();
-  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Release Control");
+  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Stop Control");
   await expect(cardB.getByLabel("Close terminal")).toBeVisible();
 
-  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Take Control");
-  await expect(cardA.getByLabel("Watch mode - cannot close")).toBeVisible();
+  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
+  await expect(cardA.getByLabel("View only - cannot close")).toBeVisible();
 
   await cardB.getByLabel("Close terminal").click();
   await expect(pageA.locator("[data-testid^='terminal-card-']")).toHaveCount(0);
@@ -44,8 +44,8 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await openApp(pageB);
   await expect(pageA.getByText("Select a directory to open a terminal")).toBeVisible();
   await expect(pageB.getByText("Select a directory to open a terminal")).toBeVisible();
-  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Take Control");
-  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Take Control");
+  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
+  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
 
   await contextA.close();
   await contextB.close();
