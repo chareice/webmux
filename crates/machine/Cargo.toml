@@ -24,3 +24,4 @@ clap = { version = "4", features = ["derive"] }
 hostname = "0.4"
 dirs = { workspace = true }
 reqwest = { workspace = true }
+sysinfo = { workspace = true }
