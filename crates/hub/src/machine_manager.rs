@@ -33,6 +33,10 @@ pub enum PendingResult {
     FsListResult {
         entries: Vec<DirEntry>,
     },
+    ForegroundProcessResult {
+        has_foreground_process: bool,
+        process_name: Option<String>,
+    },
 }
 
 const OUTPUT_BUFFER_SIZE: usize = 64 * 1024;
@@ -359,6 +363,63 @@ impl MachineManager {
         Ok(())
     }
 
+    /// Check if a terminal has a foreground process running
+    pub async fn check_foreground_process(
+        &self,
+        machine_id: &str,
+        terminal_id: &str,
+    ) -> Result<(bool, Option<String>), String> {
+        let request_id = uuid::Uuid::new_v4().to_string();
+
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().await.insert(request_id.clone(), tx);
+
+        // Send command; clean up pending entry on failure
+        {
+            let machines = self.machines.lock().await;
+            let conn = match machines.get(machine_id) {
+                Some(c) => c,
+                None => {
+                    self.pending.lock().await.remove(&request_id);
+                    return Err(format!("Machine {} not found", machine_id));
+                }
+            };
+            if conn
+                .cmd_tx
+                .send(HubToMachine::CheckForegroundProcess {
+                    request_id: request_id.clone(),
+                    terminal_id: terminal_id.to_string(),
+                })
+                .await
+                .is_err()
+            {
+                self.pending.lock().await.remove(&request_id);
+                return Err("Machine disconnected".to_string());
+            }
+        }
+
+        // Wait for response; clean up pending entry on timeout/disconnect
+        let result = match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => {
+                self.pending.lock().await.remove(&request_id);
+                return Err("Machine disconnected".to_string());
+            }
+            Err(_) => {
+                self.pending.lock().await.remove(&request_id);
+                return Err("Timeout".to_string());
+            }
+        };
+
+        match result? {
+            PendingResult::ForegroundProcessResult {
+                has_foreground_process,
+                process_name,
+            } => Ok((has_foreground_process, process_name)),
+            _ => Err("Unexpected response".to_string()),
+        }
+    }
+
     /// Send input to a terminal
     pub async fn send_input(
         &self,
@@ -599,6 +660,18 @@ impl MachineManager {
                             BrowserEvent::TerminalCreated { terminal },
                         );
                     }
+                }
+            }
+            MachineToHub::ForegroundProcessResult {
+                request_id,
+                has_foreground_process,
+                process_name,
+            } => {
+                if let Some(tx) = self.pending.lock().await.remove(&request_id) {
+                    let _ = tx.send(Ok(PendingResult::ForegroundProcessResult {
+                        has_foreground_process,
+                        process_name,
+                    }));
                 }
             }
             MachineToHub::Pong => {}

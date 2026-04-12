@@ -73,6 +73,14 @@ export const destroyTerminal = (
     "DELETE",
     `/api/machines/${machineId}/terminals/${terminalId}${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ""}`,
   );
+export const checkForegroundProcess = (
+  machineId: string,
+  terminalId: string,
+) =>
+  request<{ has_foreground_process: boolean; process_name: string | null }>(
+    "GET",
+    `/api/machines/${machineId}/terminals/${terminalId}/foreground-process`,
+  );
 
 // Directory
 export const listDirectory = (machineId: string, path: string) =>

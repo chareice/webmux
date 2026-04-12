@@ -5,7 +5,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tc_protocol::{DirEntry, MachineInfo, TerminalInfo};
 
@@ -157,6 +157,36 @@ async fn destroy_terminal(
         .map_err(|e| (StatusCode::NOT_FOUND, e))
 }
 
+#[derive(Serialize)]
+struct ForegroundProcessResponse {
+    has_foreground_process: bool,
+    process_name: Option<String>,
+}
+
+async fn check_foreground_process(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path((machine_id, terminal_id)): Path<(String, String)>,
+) -> Result<Json<ForegroundProcessResponse>, (StatusCode, String)> {
+    if !state
+        .manager
+        .user_can_access_terminal(&auth_user.user_id, &machine_id, &terminal_id)
+        .await
+    {
+        return Err((StatusCode::NOT_FOUND, "Terminal not found".to_string()));
+    }
+
+    let (has_fg, process_name) = state
+        .manager
+        .check_foreground_process(&machine_id, &terminal_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(ForegroundProcessResponse {
+        has_foreground_process: has_fg,
+        process_name,
+    }))
+}
+
 async fn list_directory(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -214,6 +244,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/machines/{machine_id}/terminals/{terminal_id}",
             delete(destroy_terminal),
+        )
+        .route(
+            "/api/machines/{machine_id}/terminals/{terminal_id}/foreground-process",
+            get(check_foreground_process),
         )
         .route("/api/machines/{machine_id}/fs/list", get(list_directory))
         .route("/api/machines/{machine_id}/stats", get(get_machine_stats))
