@@ -1,6 +1,7 @@
 mod config;
 mod hub_conn;
 mod pty;
+mod stats;
 mod service;
 
 use std::sync::Arc;
