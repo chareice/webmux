@@ -39,6 +39,8 @@ struct MachineConnection {
     pub output_channels: HashMap<String, broadcast::Sender<Vec<u8>>>,
     /// Terminal output buffers for replay on new subscriber
     pub output_buffers: HashMap<String, Vec<u8>>,
+    /// Latest resource stats from this machine
+    pub latest_stats: Option<tc_protocol::ResourceStats>,
 }
 
 pub struct MachineManager {
@@ -84,6 +86,7 @@ impl MachineManager {
             terminals: HashMap::new(),
             output_channels: HashMap::new(),
             output_buffers: HashMap::new(),
+            latest_stats: None,
         };
 
         self.machines.lock().await.insert(machine_id, conn);
@@ -456,6 +459,12 @@ impl MachineManager {
             }
             MachineToHub::Pong => {}
             MachineToHub::ResourceStats { stats } => {
+                {
+                    let mut machines = self.machines.lock().await;
+                    if let Some(conn) = machines.get_mut(machine_id) {
+                        conn.latest_stats = Some(stats.clone());
+                    }
+                }
                 let _ = self.event_tx.send(BrowserEvent::MachineStats {
                     machine_id: machine_id.to_string(),
                     stats,
@@ -504,5 +513,13 @@ impl MachineManager {
 
     pub fn get_controller(&self) -> Option<String> {
         self.mode.lock().unwrap().controller_device_id.clone()
+    }
+
+    pub async fn get_machine_stats(&self, machine_id: &str) -> Option<tc_protocol::ResourceStats> {
+        self.machines
+            .lock()
+            .await
+            .get(machine_id)
+            .and_then(|c| c.latest_stats.clone())
     }
 }
