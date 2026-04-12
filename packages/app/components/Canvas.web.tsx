@@ -234,8 +234,6 @@ function CanvasComponent({
             <TerminalCard
               key={terminal.id}
               terminal={terminal}
-              machine={machines.find((machine) => machine.id === terminal.machine_id)}
-              stats={machineStats[terminal.machine_id]}
               maximized={maximizedId === terminal.id}
               isMobile={isMobile}
               isController={isMachineController(terminal.machine_id)}

@@ -26,6 +26,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await page.getByTestId("machine-bookmark-local-home").click();
 
   const card = await expectSingleTerminalCard(page);
+  await expect(card.locator(".xterm")).toHaveCount(1);
   await expect(card.getByLabel("Maximize")).toBeVisible();
   await card.getByLabel("Maximize").click();
 

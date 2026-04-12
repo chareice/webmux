@@ -1,16 +1,14 @@
 import { lazy, memo, Suspense, useRef, useCallback, useEffect, useState } from "react";
-import type { MachineInfo, ResourceStats, TerminalInfo } from "@webmux/shared";
+import type { TerminalInfo } from "@webmux/shared";
 import { Maximize2, Minimize2, X, PanelRight } from "lucide-react";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { CommandBar } from "./CommandBar";
-import { TerminalPreview } from "./TerminalPreview.web";
 import {
   getMaximizedBackdropStyle,
   getMaximizedTerminalFrame,
 } from "./terminalLayout";
 import { terminalWsUrl } from "@/lib/api";
-import { getTerminalSurfaceMode } from "@/lib/terminalSessionPolicy";
 
 const LiveTerminalView = lazy(() =>
   import("./TerminalView.web").then((module) => ({
@@ -20,8 +18,6 @@ const LiveTerminalView = lazy(() =>
 
 interface TerminalCardProps {
   terminal: TerminalInfo;
-  machine?: MachineInfo;
-  stats?: ResourceStats;
   maximized: boolean;
   isMobile: boolean;
   isController: boolean;
@@ -35,8 +31,6 @@ interface TerminalCardProps {
 
 function TerminalCardComponent({
   terminal,
-  machine,
-  stats,
   maximized,
   isMobile,
   isController,
@@ -51,7 +45,6 @@ function TerminalCardComponent({
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [commandBarVisible, setCommandBarVisible] = useState(false);
   const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
-  const surfaceMode = getTerminalSurfaceMode(terminal.id, maximized ? terminal.id : null);
 
   useEffect(() => {
     if (isController) {
@@ -330,8 +323,6 @@ function TerminalCardComponent({
             flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0,
           } : {
             aspectRatio: "5 / 3", overflow: "hidden", cursor: "pointer", position: "relative",
-            contentVisibility: "auto",
-            containIntrinsicSize: "320px 200px",
           }}
           onClick={maximized ? undefined : () => onMaximize(terminal.id)}
         >
@@ -345,40 +336,41 @@ function TerminalCardComponent({
             } : {
               width: "100%", height: "100%",
             }}>
-              {surfaceMode === "live" ? (
-                <Suspense
-                  fallback={
-                    <div
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "rgb(122, 143, 166)",
-                        fontSize: 12,
-                      }}
-                    >
-                      Loading terminal…
-                    </div>
-                  }
-                >
-                  <LiveTerminalView
-                    ref={termViewRef}
-                    machineId={terminal.machine_id}
-                    terminalId={terminal.id}
-                    wsUrl={wsUrl}
-                    isController={isController}
-                  />
-                </Suspense>
-              ) : (
-                <TerminalPreview
-                  terminal={terminal}
+              <Suspense
+                fallback={
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "rgb(122, 143, 166)",
+                      fontSize: 12,
+                    }}
+                  >
+                    Loading terminal…
+                  </div>
+                }
+              >
+                <LiveTerminalView
+                  ref={termViewRef}
+                  machineId={terminal.machine_id}
+                  terminalId={terminal.id}
+                  wsUrl={wsUrl}
                   isController={isController}
-                  activeMachineName={machine?.name}
-                  stats={stats}
+                  style={
+                    maximized
+                      ? undefined
+                      : {
+                          transform: "scale(0.35)",
+                          transformOrigin: "top left",
+                          width: "286%",
+                          height: "286%",
+                        }
+                  }
                 />
-              )}
+              </Suspense>
             </div>
             {maximized && !isMobile && desktopPanelOpen && (
               <div style={{ width: 200, minWidth: 200, borderLeft: '1px solid rgb(26, 58, 92)' }}>
@@ -439,8 +431,6 @@ function areTerminalCardPropsEqual(
 ): boolean {
   return (
     previous.terminal === next.terminal &&
-    previous.machine === next.machine &&
-    previous.stats === next.stats &&
     previous.maximized === next.maximized &&
     previous.isMobile === next.isMobile &&
     previous.isController === next.isController &&

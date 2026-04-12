@@ -6,20 +6,14 @@ interface TerminalLike {
 
 export function getLiveTerminalIds(
   terminals: TerminalLike[],
-  maximizedId: string | null,
+  _maximizedId: string | null,
 ): string[] {
-  if (!maximizedId) {
-    return [];
-  }
-
-  return terminals.some((terminal) => terminal.id === maximizedId)
-    ? [maximizedId]
-    : [];
+  return terminals.map((terminal) => terminal.id);
 }
 
 export function getTerminalSurfaceMode(
-  terminalId: string,
-  maximizedId: string | null,
+  _terminalId: string,
+  _maximizedId: string | null,
 ): TerminalSurfaceMode {
-  return maximizedId === terminalId ? "live" : "preview";
+  return "live";
 }
