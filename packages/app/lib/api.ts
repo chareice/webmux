@@ -1,5 +1,6 @@
 import type {
   User,
+  BrowserStateSnapshot,
   MachineInfo,
   TerminalInfo,
   DirEntry,
@@ -48,18 +49,29 @@ export const devLogin = () =>
 // Machines
 export const listMachines = () =>
   request<MachineInfo[]>("GET", "/api/machines");
+export const getBootstrap = () =>
+  request<BrowserStateSnapshot>("GET", "/api/bootstrap");
 
 // Terminals
 export const listTerminals = () =>
   request<TerminalInfo[]>("GET", "/api/terminals");
-export const createTerminal = (machineId: string, cwd: string) =>
+export const createTerminal = (
+  machineId: string,
+  cwd: string,
+  deviceId?: string,
+) =>
   request<TerminalInfo>("POST", `/api/machines/${machineId}/terminals`, {
     cwd,
+    device_id: deviceId,
   });
-export const destroyTerminal = (machineId: string, terminalId: string) =>
+export const destroyTerminal = (
+  machineId: string,
+  terminalId: string,
+  deviceId?: string,
+) =>
   request<void>(
     "DELETE",
-    `/api/machines/${machineId}/terminals/${terminalId}`,
+    `/api/machines/${machineId}/terminals/${terminalId}${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ""}`,
   );
 
 // Directory
@@ -100,12 +112,21 @@ export function getDeviceId(): string {
 }
 
 // Mode
-export const getMode = () =>
-  request<{ controller_device_id: string | null }>("GET", "/api/mode");
-export const requestControl = (deviceId: string) =>
-  request<{ controller_device_id: string | null }>("POST", "/api/mode/control", { device_id: deviceId });
-export const releaseControl = (deviceId: string) =>
-  request<{ controller_device_id: string | null }>("POST", "/api/mode/release", { device_id: deviceId });
+export const getMode = (machineId: string) =>
+  request<{ controller_device_id: string | null }>(
+    "GET",
+    `/api/mode?machine_id=${encodeURIComponent(machineId)}`,
+  );
+export const requestControl = (machineId: string, deviceId: string) =>
+  request<{ controller_device_id: string | null }>("POST", "/api/mode/control", {
+    machine_id: machineId,
+    device_id: deviceId,
+  });
+export const releaseControl = (machineId: string, deviceId: string) =>
+  request<{ controller_device_id: string | null }>("POST", "/api/mode/release", {
+    machine_id: machineId,
+    device_id: deviceId,
+  });
 
 // Machine Stats
 export const getMachineStats = (machineId: string) =>
@@ -131,11 +152,12 @@ export function terminalWsUrl(
   return `${base}/ws/terminal/${machineId}/${terminalId}${qs ? '?' + qs : ''}`;
 }
 
-export function eventsWsUrl(deviceId?: string): string {
+export function eventsWsUrl(deviceId?: string, afterSeq?: number): string {
   const base = _baseUrl.replace(/^http/, "ws");
   const params = new URLSearchParams();
   if (_token) params.set("token", _token);
   if (deviceId) params.set("device_id", deviceId);
+  if (afterSeq && afterSeq > 0) params.set("after_seq", String(afterSeq));
   const qs = params.toString();
   return `${base}/ws/events${qs ? '?' + qs : ''}`;
 }

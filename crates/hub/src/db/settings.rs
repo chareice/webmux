@@ -89,9 +89,8 @@ pub fn get_all_effective_settings(
 ) -> rusqlite::Result<Vec<(String, String)>> {
     let mut merged: std::collections::HashMap<String, String> =
         get_all_settings(conn)?.into_iter().collect();
-    let mut stmt = conn.prepare(
-        "SELECT key, value FROM user_settings WHERE user_id = ?1 ORDER BY key",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT key, value FROM user_settings WHERE user_id = ?1 ORDER BY key")?;
     let rows = stmt.query_map(params![user_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
     for row in rows {
         let (key, value): (String, String) = row?;
@@ -112,25 +111,11 @@ mod tests {
     fn user_specific_settings_override_global_defaults() {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::init_db(&conn).unwrap();
-        crate::db::users::create_user(
-            &conn,
-            "user-a",
-            "test",
-            "user-a",
-            "User A",
-            None,
-            "user",
-        )
-        .unwrap();
+        crate::db::users::create_user(&conn, "user-a", "test", "user-a", "User A", None, "user")
+            .unwrap();
 
         set_setting(&conn, "default_startup_command", "global").unwrap();
-        set_user_setting(
-            &conn,
-            "user-a",
-            "default_startup_command",
-            "user-a-only",
-        )
-        .unwrap();
+        set_user_setting(&conn, "user-a", "default_startup_command", "user-a-only").unwrap();
 
         assert_eq!(
             get_effective_setting(&conn, "user-a", "default_startup_command").unwrap(),

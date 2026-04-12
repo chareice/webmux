@@ -15,6 +15,8 @@ use crate::AppState;
 #[derive(Deserialize)]
 pub struct CreateTerminalRequest {
     pub cwd: String,
+    #[serde(default)]
+    pub device_id: Option<String>,
     #[serde(default = "default_cols")]
     pub cols: u16,
     #[serde(default = "default_rows")]
@@ -32,7 +34,12 @@ async fn list_machines(
     State(state): State<AppState>,
     auth_user: AuthUser,
 ) -> Json<Vec<MachineInfo>> {
-    Json(state.manager.list_machines_for_user(&auth_user.user_id).await)
+    Json(
+        state
+            .manager
+            .list_machines_for_user(&auth_user.user_id)
+            .await,
+    )
 }
 
 async fn list_all_terminals(
@@ -82,17 +89,33 @@ async fn create_terminal(
         return Err((StatusCode::NOT_FOUND, "Machine not found".to_string()));
     }
 
+    if let Some(device_id) = req.device_id.as_deref() {
+        if !state
+            .manager
+            .is_controller(&auth_user.user_id, &machine_id, device_id)
+        {
+            return Err((StatusCode::FORBIDDEN, "Control required".to_string()));
+        }
+    }
+
     let startup_command = {
-        let conn = state
-            .db
-            .get()
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?;
+        let conn = state.db.get().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
         crate::db::settings::get_effective_setting(
             &conn,
             &auth_user.user_id,
             "default_startup_command",
         )
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?
     };
 
     state
@@ -107,6 +130,7 @@ async fn destroy_terminal(
     State(state): State<AppState>,
     auth_user: AuthUser,
     Path((machine_id, terminal_id)): Path<(String, String)>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     if !state
         .manager
@@ -114,6 +138,15 @@ async fn destroy_terminal(
         .await
     {
         return Err((StatusCode::NOT_FOUND, "Terminal not found".to_string()));
+    }
+
+    if let Some(device_id) = params.get("device_id").map(|value| value.as_str()) {
+        if !state
+            .manager
+            .is_controller(&auth_user.user_id, &machine_id, device_id)
+        {
+            return Err((StatusCode::FORBIDDEN, "Control required".to_string()));
+        }
     }
 
     state

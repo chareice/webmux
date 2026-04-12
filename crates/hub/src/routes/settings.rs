@@ -1,12 +1,6 @@
 use std::collections::HashMap;
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    routing::get,
-    Router,
-};
+use axum::{extract::State, http::StatusCode, response::Json, routing::get, Router};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::AuthUser;
@@ -34,12 +28,13 @@ async fn get_settings(
         )
     })?;
 
-    let pairs = db::settings::get_all_effective_settings(&conn, &auth_user.user_id).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("DB error: {e}")})),
-        )
-    })?;
+    let pairs =
+        db::settings::get_all_effective_settings(&conn, &auth_user.user_id).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("DB error: {e}")})),
+            )
+        })?;
 
     let settings: HashMap<String, String> = pairs.into_iter().collect();
 
@@ -78,12 +73,13 @@ async fn update_settings(
     }
 
     // Return the updated full settings
-    let pairs = db::settings::get_all_effective_settings(&conn, &auth_user.user_id).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("DB error: {e}")})),
-        )
-    })?;
+    let pairs =
+        db::settings::get_all_effective_settings(&conn, &auth_user.user_id).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("DB error: {e}")})),
+            )
+        })?;
 
     let settings: HashMap<String, String> = pairs.into_iter().collect();
 

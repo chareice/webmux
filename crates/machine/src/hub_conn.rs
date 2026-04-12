@@ -1,11 +1,18 @@
+use futures::{SinkExt, StreamExt};
 use std::sync::Arc;
 use std::time::Duration;
-use futures::{SinkExt, StreamExt};
+use tc_protocol::{encode_terminal_output_frame, DirEntry, HubToMachine, MachineToHub};
 use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
-use tc_protocol::{HubToMachine, MachineToHub, DirEntry};
 
 use crate::pty::PtyManager;
+
+const HUB_OUTBOUND_CAPACITY: usize = 256;
+
+enum OutboundHubMessage {
+    Json(MachineToHub),
+    TerminalOutput { terminal_id: String, data: Vec<u8> },
+}
 
 pub struct HubConnection {
     pub machine_id: String,
@@ -75,7 +82,9 @@ impl HubConnection {
                 ));
             }
             Ok(Some(_)) => {
-                return Err("Expected AuthResult as first message from hub, got something else".to_string());
+                return Err(
+                    "Expected AuthResult as first message from hub, got something else".to_string(),
+                );
             }
             Ok(None) => {
                 return Err("Connection closed before receiving AuthResult".to_string());
@@ -86,7 +95,7 @@ impl HubConnection {
         }
 
         // Channel for sending messages to Hub
-        let (send_tx, mut send_rx) = mpsc::unbounded_channel::<MachineToHub>();
+        let (send_tx, mut send_rx) = mpsc::channel::<OutboundHubMessage>(HUB_OUTBOUND_CAPACITY);
 
         let pty = self.pty_manager.clone();
 
@@ -105,7 +114,11 @@ impl HubConnection {
                 })
                 .collect();
             tracing::info!("Reporting {} existing terminals to hub", terminals.len());
-            let _ = send_tx.send(MachineToHub::ExistingTerminals { terminals });
+            let _ = send_tx
+                .send(OutboundHubMessage::Json(MachineToHub::ExistingTerminals {
+                    terminals,
+                }))
+                .await;
 
             // Re-establish output forwarding for each existing terminal
             for info in &existing {
@@ -114,23 +127,24 @@ impl HubConnection {
                     let tid = info.id.clone();
 
                     if !buffer.is_empty() {
-                        let text = String::from_utf8_lossy(&buffer).to_string();
-                        let _ = tx.send(MachineToHub::TerminalOutput {
-                            terminal_id: tid.clone(),
-                            data: text,
-                        });
+                        let _ = tx
+                            .send(OutboundHubMessage::TerminalOutput {
+                                terminal_id: tid.clone(),
+                                data: buffer,
+                            })
+                            .await;
                     }
 
                     tokio::spawn(async move {
                         loop {
                             match rx.recv().await {
                                 Ok(data) => {
-                                    let text = String::from_utf8_lossy(&data).to_string();
                                     if tx
-                                        .send(MachineToHub::TerminalOutput {
+                                        .send(OutboundHubMessage::TerminalOutput {
                                             terminal_id: tid.clone(),
-                                            data: text,
+                                            data,
                                         })
+                                        .await
                                         .is_err()
                                     {
                                         break;
@@ -157,7 +171,10 @@ impl HubConnection {
                 interval.tick().await;
                 let stats = collector.collect();
                 if send_tx_stats
-                    .send(MachineToHub::ResourceStats { stats })
+                    .send(OutboundHubMessage::Json(MachineToHub::ResourceStats {
+                        stats,
+                    }))
+                    .await
                     .is_err()
                 {
                     break;
@@ -173,9 +190,15 @@ impl HubConnection {
                 tokio::select! {
                     msg = send_rx.recv() => {
                         match msg {
-                            Some(msg) => {
+                            Some(OutboundHubMessage::Json(msg)) => {
                                 let text = serde_json::to_string(&msg).unwrap();
                                 if ws_tx.send(Message::Text(text.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Some(OutboundHubMessage::TerminalOutput { terminal_id, data }) => {
+                                let frame = encode_terminal_output_frame(&terminal_id, &data);
+                                if ws_tx.send(Message::Binary(frame.into())).await.is_err() {
                                     break;
                                 }
                             }
@@ -238,22 +261,31 @@ impl HubConnection {
 async fn handle_hub_message(
     msg: HubToMachine,
     pty: &Arc<PtyManager>,
-    send_tx: &mpsc::UnboundedSender<MachineToHub>,
+    send_tx: &mpsc::Sender<OutboundHubMessage>,
 ) {
     match msg {
-        HubToMachine::CreateTerminal { request_id, cwd, cols, rows, startup_command, .. } => {
+        HubToMachine::CreateTerminal {
+            request_id,
+            cwd,
+            cols,
+            rows,
+            startup_command,
+            ..
+        } => {
             let terminal_id = uuid::Uuid::new_v4().to_string();
             match pty.create_terminal(&terminal_id, &cwd, cols, rows) {
                 Ok(info) => {
                     // Send TerminalCreated FIRST so Hub creates output channel
-                    let _ = send_tx.send(MachineToHub::TerminalCreated {
-                        request_id,
-                        terminal_id: info.id.clone(),
-                        title: info.title,
-                        cwd: info.cwd,
-                        cols: info.cols,
-                        rows: info.rows,
-                    });
+                    let _ = send_tx
+                        .send(OutboundHubMessage::Json(MachineToHub::TerminalCreated {
+                            request_id,
+                            terminal_id: info.id.clone(),
+                            title: info.title,
+                            cwd: info.cwd,
+                            cols: info.cols,
+                            rows: info.rows,
+                        }))
+                        .await;
 
                     // Then start output forwarding
                     if let Ok((buffer, mut rx)) = pty.subscribe(&terminal_id) {
@@ -262,11 +294,12 @@ async fn handle_hub_message(
 
                         // Send buffered output
                         if !buffer.is_empty() {
-                            let text = String::from_utf8_lossy(&buffer).to_string();
-                            let _ = tx.send(MachineToHub::TerminalOutput {
-                                terminal_id: tid.clone(),
-                                data: text,
-                            });
+                            let _ = tx
+                                .send(OutboundHubMessage::TerminalOutput {
+                                    terminal_id: tid.clone(),
+                                    data: buffer,
+                                })
+                                .await;
                         }
 
                         // Forward live output
@@ -274,16 +307,21 @@ async fn handle_hub_message(
                             loop {
                                 match rx.recv().await {
                                     Ok(data) => {
-                                        let text = String::from_utf8_lossy(&data).to_string();
-                                        if tx.send(MachineToHub::TerminalOutput {
-                                            terminal_id: tid.clone(),
-                                            data: text,
-                                        }).is_err() {
+                                        if tx
+                                            .send(OutboundHubMessage::TerminalOutput {
+                                                terminal_id: tid.clone(),
+                                                data,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
                                             break;
                                         }
                                     }
                                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                        continue
+                                    }
                                 }
                             }
                         });
@@ -303,40 +341,69 @@ async fn handle_hub_message(
                     }
                 }
                 Err(e) => {
-                    let _ = send_tx.send(MachineToHub::TerminalCreateError {
-                        request_id,
-                        error: e,
-                    });
+                    let _ = send_tx
+                        .send(OutboundHubMessage::Json(
+                            MachineToHub::TerminalCreateError {
+                                request_id,
+                                error: e,
+                            },
+                        ))
+                        .await;
                 }
             }
         }
         HubToMachine::DestroyTerminal { terminal_id } => {
             let _ = pty.destroy_terminal(&terminal_id);
-            let _ = send_tx.send(MachineToHub::TerminalDestroyed { terminal_id });
+            let _ = send_tx
+                .send(OutboundHubMessage::Json(MachineToHub::TerminalDestroyed {
+                    terminal_id,
+                }))
+                .await;
         }
         HubToMachine::TerminalInput { terminal_id, data } => {
             let _ = pty.write_to_terminal(&terminal_id, data.as_bytes());
         }
-        HubToMachine::TerminalResize { terminal_id, cols, rows } => {
+        HubToMachine::TerminalResize {
+            terminal_id,
+            cols,
+            rows,
+        } => {
             let _ = pty.resize_terminal(&terminal_id, cols, rows);
         }
         HubToMachine::FsListDir { request_id, path } => {
             let resolved = expand_tilde(&path);
             match read_directory(&resolved) {
                 Ok(entries) => {
-                    let _ = send_tx.send(MachineToHub::FsListResult { request_id, entries });
+                    let _ = send_tx
+                        .send(OutboundHubMessage::Json(MachineToHub::FsListResult {
+                            request_id,
+                            entries,
+                        }))
+                        .await;
                 }
                 Err(e) => {
-                    let _ = send_tx.send(MachineToHub::FsListError { request_id, error: e });
+                    let _ = send_tx
+                        .send(OutboundHubMessage::Json(MachineToHub::FsListError {
+                            request_id,
+                            error: e,
+                        }))
+                        .await;
                 }
             }
         }
-        HubToMachine::ImagePaste { terminal_id, data, mime, filename } => {
-            match handle_image_paste(pty, &terminal_id, &data, &mime, &filename) {
-                Ok(path) => tracing::info!("Image saved to {}, path injected to terminal {}", path, terminal_id),
-                Err(e) => tracing::error!("Image paste failed: {}", e),
-            }
-        }
+        HubToMachine::ImagePaste {
+            terminal_id,
+            data,
+            mime,
+            filename,
+        } => match handle_image_paste(pty, &terminal_id, &data, &mime, &filename) {
+            Ok(path) => tracing::info!(
+                "Image saved to {}, path injected to terminal {}",
+                path,
+                terminal_id
+            ),
+            Err(e) => tracing::error!("Image paste failed: {}", e),
+        },
         HubToMachine::AuthResult { ok, message } => {
             if ok {
                 tracing::info!("Machine authenticated successfully");
@@ -348,7 +415,9 @@ async fn handle_hub_message(
             }
         }
         HubToMachine::Ping => {
-            let _ = send_tx.send(MachineToHub::Pong);
+            let _ = send_tx
+                .send(OutboundHubMessage::Json(MachineToHub::Pong))
+                .await;
         }
     }
 }
@@ -363,14 +432,13 @@ fn handle_image_paste(
     use std::io::Write;
 
     // Decode base64
-    let data = base64_decode(base64_data)
-        .map_err(|e| format!("Base64 decode failed: {}", e))?;
+    let data = base64_decode(base64_data).map_err(|e| format!("Base64 decode failed: {}", e))?;
 
     // Save to temp file
     let tmp_dir = std::env::temp_dir();
     let path = tmp_dir.join(filename);
-    let mut file = std::fs::File::create(&path)
-        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+    let mut file =
+        std::fs::File::create(&path).map_err(|e| format!("Failed to create temp file: {}", e))?;
     file.write_all(&data)
         .map_err(|e| format!("Failed to write temp file: {}", e))?;
 
@@ -385,8 +453,8 @@ fn handle_image_paste(
 
 fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     // Simple base64 decoder
-    let table: Vec<u8> = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-        .to_vec();
+    let table: Vec<u8> =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_vec();
     let mut output = Vec::new();
     let mut buf: u32 = 0;
     let mut bits: u32 = 0;
@@ -395,8 +463,11 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
         if byte == b'=' || byte == b'\n' || byte == b'\r' || byte == b' ' {
             continue;
         }
-        let val = table.iter().position(|&b| b == byte)
-            .ok_or_else(|| format!("Invalid base64 char: {}", byte as char))? as u32;
+        let val = table
+            .iter()
+            .position(|&b| b == byte)
+            .ok_or_else(|| format!("Invalid base64 char: {}", byte as char))?
+            as u32;
         buf = (buf << 6) | val;
         bits += 6;
         if bits >= 8 {
@@ -409,7 +480,8 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
 }
 
 fn read_directory(path: &str) -> Result<Vec<DirEntry>, String> {
-    let entries = std::fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))?;
+    let entries =
+        std::fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     let mut result: Vec<DirEntry> = entries
         .filter_map(|entry| {

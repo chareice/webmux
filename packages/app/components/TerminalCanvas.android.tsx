@@ -13,21 +13,33 @@ import { Canvas } from "./Canvas.android";
 import {
   createTerminal,
   destroyTerminal,
-  listMachines,
-  listTerminals,
   eventsWsUrl,
+  getBootstrap,
 } from "@/lib/api";
+import {
+  applyBootstrapSnapshot,
+  applyBrowserEventEnvelope,
+  EMPTY_BROWSER_SESSION_STATE,
+} from "@/lib/bootstrapState";
 
 export function TerminalCanvas() {
-  const [machines, setMachines] = useState<MachineInfo[]>([]);
-  const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
+  const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const maximizedRef = useRef<string | null>(null);
+  const lastSeqRef = useRef(0);
+  const [bootstrapReady, setBootstrapReady] = useState(false);
+  const [eventsGeneration, setEventsGeneration] = useState(0);
+  const machines = browserState.machines;
+  const terminals = browserState.terminals;
 
   useEffect(() => {
     maximizedRef.current = maximizedId;
   }, [maximizedId]);
+
+  useEffect(() => {
+    lastSeqRef.current = browserState.lastSeq;
+  }, [browserState.lastSeq]);
 
   // Handle Android back button
   useEffect(() => {
@@ -47,63 +59,59 @@ export function TerminalCanvas() {
 
   // Load initial data
   useEffect(() => {
-    listMachines().then(setMachines).catch(() => {});
-    listTerminals().then(setTerminals).catch(() => {});
+    let cancelled = false;
+
+    getBootstrap()
+      .then((snapshot) => {
+        if (cancelled) return;
+        setBrowserState(applyBootstrapSnapshot(snapshot));
+        setBootstrapReady(true);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Events WebSocket for live updates
   useEffect(() => {
-    const url = eventsWsUrl();
+    if (!bootstrapReady) return;
+
+    const url = eventsWsUrl(undefined, lastSeqRef.current);
     const ws = new WebSocket(url);
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     ws.onmessage = (event: any) => {
       try {
-        const msg = JSON.parse(event.data);
-        switch (msg.type) {
-          case "machine_online":
-            setMachines((prev) => {
-              if (prev.some((m) => m.id === msg.machine.id)) return prev;
-              return [...prev, msg.machine];
-            });
-            break;
-          case "machine_offline":
-            setMachines((prev) =>
-              prev.filter((m) => m.id !== msg.machine_id),
-            );
-            setTerminals((prev) =>
-              prev.filter((t) => t.machine_id !== msg.machine_id),
-            );
-            break;
-          case "terminal_created":
-            setTerminals((prev) => {
-              if (prev.some((t) => t.id === msg.terminal.id)) return prev;
-              return [...prev, msg.terminal];
-            });
-            break;
-          case "terminal_destroyed":
-            setTerminals((prev) =>
-              prev.filter((t) => t.id !== msg.terminal_id),
-            );
-            if (maximizedRef.current === msg.terminal_id) {
-              setMaximizedId(null);
-            }
-            break;
-        }
+        const envelope = JSON.parse(event.data);
+        setBrowserState((prev) => {
+          const next = applyBrowserEventEnvelope(prev, envelope);
+          if (
+            next !== prev &&
+            envelope.event?.type === "terminal_destroyed" &&
+            maximizedRef.current === envelope.event.terminal_id
+          ) {
+            setMaximizedId(null);
+          }
+          return next;
+        });
       } catch {
         /* ignore */
       }
     };
 
     ws.onclose = () => {
-      // Reconnect by re-fetching state
-      setTimeout(() => {
-        listMachines().then(setMachines).catch(() => {});
-        listTerminals().then(setTerminals).catch(() => {});
+      reconnectTimer = setTimeout(() => {
+        setEventsGeneration((value) => value + 1);
       }, 1000);
     };
 
-    return () => ws.close();
-  }, []);
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      ws.close();
+    };
+  }, [bootstrapReady, eventsGeneration]);
 
   const handleCreateTerminal = useCallback(
     async (machineId: string, cwd: string) => {

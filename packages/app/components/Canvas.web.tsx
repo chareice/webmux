@@ -5,20 +5,20 @@ interface CanvasProps {
   terminals: TerminalInfo[];
   maximizedId: string | null;
   isMobile: boolean;
-  isController: boolean;
+  isMachineController: (machineId: string) => boolean;
   deviceId: string;
   onMaximize: (id: string) => void;
   onMinimize: () => void;
   onDestroy: (terminal: TerminalInfo) => void;
-  onRequestControl?: () => void;
-  onReleaseControl?: () => void;
+  onRequestControl?: (machineId: string) => void;
+  onReleaseControl?: (machineId: string) => void;
 }
 
 export function Canvas({
   terminals,
   maximizedId,
   isMobile,
-  isController,
+  isMachineController,
   deviceId,
   onMaximize,
   onMinimize,
@@ -81,13 +81,21 @@ export function Canvas({
               terminal={terminal}
               maximized={maximizedId === terminal.id}
               isMobile={isMobile}
-              isController={isController}
+              isController={isMachineController(terminal.machine_id)}
               deviceId={deviceId}
               onMaximize={() => onMaximize(terminal.id)}
               onMinimize={onMinimize}
               onDestroy={() => onDestroy(terminal)}
-              onRequestControl={onRequestControl}
-              onReleaseControl={onReleaseControl}
+              onRequestControl={
+                onRequestControl
+                  ? () => onRequestControl(terminal.machine_id)
+                  : undefined
+              }
+              onReleaseControl={
+                onReleaseControl
+                  ? () => onReleaseControl(terminal.machine_id)
+                  : undefined
+              }
             />
           ))}
         </div>

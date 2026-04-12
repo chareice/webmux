@@ -3,12 +3,14 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 
 const OUTPUT_BUFFER_SIZE: usize = 64 * 1024;
 const BROADCAST_CAPACITY: usize = 256;
 const TMUX_SOCKET: &str = "webmux";
 const TMUX_PREFIX: &str = "wmx_";
+const AUTO_REATTACH_MIN_UPTIME: Duration = Duration::from_secs(2);
 
 struct PtySession {
     #[allow(dead_code)]
@@ -18,6 +20,9 @@ struct PtySession {
     output_tx: broadcast::Sender<Vec<u8>>,
     output_buffer: Arc<Mutex<Vec<u8>>>,
     tmux_backed: bool,
+    attach_generation: u64,
+    attached: bool,
+    last_attach_started_at: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -40,14 +45,27 @@ struct PersistedSession {
 pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>,
     use_tmux: bool,
-    detach_tx: mpsc::UnboundedSender<String>,
+    detach_tx: mpsc::UnboundedSender<DetachEvent>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DetachEvent {
+    pub session_id: String,
+    pub attach_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetachEventAction {
+    Ignore,
+    AutoReattach,
+    KeepDetached,
 }
 
 impl PtyManager {
     /// Create a new PtyManager. Returns the manager and a receiver for
     /// detach notifications — when a tmux attach process dies, the
     /// terminal ID is sent through this channel.
-    pub fn new() -> (Self, mpsc::UnboundedReceiver<String>) {
+    pub fn new() -> (Self, mpsc::UnboundedReceiver<DetachEvent>) {
         let use_tmux = check_tmux_available();
         if use_tmux {
             tracing::info!("tmux available — terminal sessions will persist across restarts");
@@ -96,6 +114,7 @@ impl PtyManager {
     }
 
     pub fn resize_terminal(&self, id: &str, cols: u16, rows: u16) -> Result<(), String> {
+        self.ensure_attached(id)?;
         let mut sessions = self
             .sessions
             .lock()
@@ -124,6 +143,7 @@ impl PtyManager {
     }
 
     pub fn write_to_terminal(&self, id: &str, data: &[u8]) -> Result<(), String> {
+        self.ensure_attached(id)?;
         let mut sessions = self
             .sessions
             .lock()
@@ -142,10 +162,8 @@ impl PtyManager {
         Ok(())
     }
 
-    pub fn subscribe(
-        &self,
-        id: &str,
-    ) -> Result<(Vec<u8>, broadcast::Receiver<Vec<u8>>), String> {
+    pub fn subscribe(&self, id: &str) -> Result<(Vec<u8>, broadcast::Receiver<Vec<u8>>), String> {
+        self.ensure_attached(id)?;
         let sessions = self
             .sessions
             .lock()
@@ -193,7 +211,10 @@ impl PtyManager {
         for (id, meta) in &persisted {
             let tmux_name = tmux_session_name(id);
             if !alive.contains(&tmux_name) {
-                tracing::info!("tmux session {} gone (shell exited), cleaning up", tmux_name);
+                tracing::info!(
+                    "tmux session {} gone (shell exited), cleaning up",
+                    tmux_name
+                );
                 continue;
             }
 
@@ -235,7 +256,7 @@ impl PtyManager {
         }
 
         // Get session info and existing broadcast channel from the current session
-        let (info, output_tx, output_buffer) = {
+        let (info, output_tx, output_buffer, next_generation) = {
             let sessions = self
                 .sessions
                 .lock()
@@ -250,6 +271,7 @@ impl PtyManager {
                 session.info.clone(),
                 session.output_tx.clone(),
                 session.output_buffer.clone(),
+                session.attach_generation.saturating_add(1),
             )
         };
 
@@ -296,10 +318,13 @@ impl PtyManager {
             output_buffer.clone(),
             Some(DetachNotifier {
                 session_id: id.to_string(),
+                attach_generation: next_generation,
                 tx: self.detach_tx.clone(),
             }),
             Some(child),
         );
+
+        let attached_at = Instant::now();
 
         // Replace master and writer in the existing session (channel stays the same)
         {
@@ -310,6 +335,9 @@ impl PtyManager {
             if let Some(session) = sessions.get_mut(id) {
                 session.master = pair.master;
                 session.writer = writer;
+                session.attach_generation = next_generation;
+                session.attached = true;
+                session.last_attach_started_at = attached_at;
             }
         }
 
@@ -318,6 +346,61 @@ impl PtyManager {
         let _ = self.write_to_terminal(id, b"\x0c");
 
         tracing::info!("Re-attached terminal {} (tmux {})", id, tmux_name);
+        Ok(())
+    }
+
+    pub fn should_reattach_detach(&self, event: &DetachEvent) -> bool {
+        let Ok(sessions) = self.sessions.lock() else {
+            return false;
+        };
+        let Some(session) = sessions.get(&event.session_id) else {
+            return false;
+        };
+
+        should_reattach_generation(
+            Some(session.attach_generation),
+            session.tmux_backed,
+            event.attach_generation,
+        )
+    }
+
+    pub fn handle_detach_event(&self, event: &DetachEvent) -> DetachEventAction {
+        let Ok(mut sessions) = self.sessions.lock() else {
+            return DetachEventAction::Ignore;
+        };
+        let Some(session) = sessions.get_mut(&event.session_id) else {
+            return DetachEventAction::Ignore;
+        };
+
+        let action = detach_event_action(
+            Some(session.attach_generation),
+            session.tmux_backed,
+            event.attach_generation,
+            session.last_attach_started_at.elapsed(),
+        );
+        if action == DetachEventAction::Ignore {
+            return action;
+        }
+        session.attached = false;
+        action
+    }
+
+    fn ensure_attached(&self, id: &str) -> Result<(), String> {
+        let should_reattach = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            let Some(session) = sessions.get(id) else {
+                return Err(format!("Terminal {} not found", id));
+            };
+            session.tmux_backed && !session.attached
+        };
+
+        if should_reattach {
+            self.reattach_tmux(id)?;
+        }
+
         Ok(())
     }
 
@@ -361,7 +444,15 @@ impl PtyManager {
         for var in &["CLAUDE_CODE_NO_FLICKER"] {
             if let Ok(val) = std::env::var(var) {
                 let _ = tmux_cmd()
-                    .args(["-L", TMUX_SOCKET, "set-environment", "-t", &tmux_name, var, &val])
+                    .args([
+                        "-L",
+                        TMUX_SOCKET,
+                        "set-environment",
+                        "-t",
+                        &tmux_name,
+                        var,
+                        &val,
+                    ])
                     .status();
             }
         }
@@ -445,6 +536,7 @@ impl PtyManager {
             output_buffer.clone(),
             Some(DetachNotifier {
                 session_id: id.to_string(),
+                attach_generation: 1,
                 tx: self.detach_tx.clone(),
             }),
             Some(child),
@@ -457,6 +549,9 @@ impl PtyManager {
             output_tx,
             output_buffer,
             tmux_backed: true,
+            attach_generation: 1,
+            attached: true,
+            last_attach_started_at: Instant::now(),
         };
 
         self.sessions
@@ -519,7 +614,13 @@ impl PtyManager {
         let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
 
         // Direct PTY sessions don't need detach notification (no tmux to re-attach to)
-        spawn_reader_thread(reader, output_tx.clone(), output_buffer.clone(), None, Some(child));
+        spawn_reader_thread(
+            reader,
+            output_tx.clone(),
+            output_buffer.clone(),
+            None,
+            Some(child),
+        );
 
         let session = PtySession {
             master: pair.master,
@@ -528,6 +629,9 @@ impl PtyManager {
             output_tx,
             output_buffer,
             tmux_backed: false,
+            attach_generation: 0,
+            attached: true,
+            last_attach_started_at: Instant::now(),
         };
 
         self.sessions
@@ -574,7 +678,36 @@ impl PtyManager {
 /// Notifies PtyManager when a reader thread exits (tmux attach died).
 struct DetachNotifier {
     session_id: String,
-    tx: mpsc::UnboundedSender<String>,
+    attach_generation: u64,
+    tx: mpsc::UnboundedSender<DetachEvent>,
+}
+
+fn should_reattach_generation(
+    current_generation: Option<u64>,
+    tmux_backed: bool,
+    event_generation: u64,
+) -> bool {
+    tmux_backed && current_generation == Some(event_generation)
+}
+
+fn detach_event_action(
+    current_generation: Option<u64>,
+    tmux_backed: bool,
+    event_generation: u64,
+    attached_for: Duration,
+) -> DetachEventAction {
+    if !should_reattach_generation(current_generation, tmux_backed, event_generation) {
+        return DetachEventAction::Ignore;
+    }
+    if should_auto_reattach(attached_for) {
+        DetachEventAction::AutoReattach
+    } else {
+        DetachEventAction::KeepDetached
+    }
+}
+
+fn should_auto_reattach(attached_for: Duration) -> bool {
+    attached_for >= AUTO_REATTACH_MIN_UPTIME
 }
 
 fn spawn_reader_thread(
@@ -613,7 +746,10 @@ fn spawn_reader_thread(
 
         // Notify PtyManager that this tmux attach died
         if let Some(notifier) = detach {
-            let _ = notifier.tx.send(notifier.session_id);
+            let _ = notifier.tx.send(DetachEvent {
+                session_id: notifier.session_id,
+                attach_generation: notifier.attach_generation,
+            });
         }
     });
 }
@@ -647,7 +783,8 @@ fn osc52_script_path() -> PathBuf {
 
 /// Build the tmux config string (extracted for testability).
 fn build_tmux_config(osc52_script: &str) -> String {
-    let mut config = String::from("\
+    let mut config = String::from(
+        "\
 set -g default-terminal \"xterm-256color\"
 set -g status off
 set -g prefix None
@@ -656,7 +793,8 @@ set -g mouse on
 set -s set-clipboard on
 set -g allow-passthrough on
 set -g history-limit 10000
-");
+",
+    );
     // Bind mouse drag-end to copy selection and emit OSC 52 via helper script.
     // tmux's built-in OSC 52 emission is unreliable, so we pipe the selection
     // through a script that writes the OSC 52 sequence to the pane's TTY.
@@ -677,7 +815,8 @@ set -g history-limit 10000
     config
 }
 
-const OSC52_SCRIPT: &str = "#!/bin/sh\nDATA=$(base64 -w0)\nprintf \"\\033]52;c;%s\\a\" \"$DATA\" > \"$1\"\n";
+const OSC52_SCRIPT: &str =
+    "#!/bin/sh\nDATA=$(base64 -w0)\nprintf \"\\033]52;c;%s\\a\" \"$DATA\" > \"$1\"\n";
 
 /// Write a minimal tmux config and the OSC 52 helper script.
 fn ensure_tmux_config() {
@@ -699,7 +838,12 @@ fn ensure_tmux_config() {
     // Reload config into any already-running tmux server so that bindings
     // (e.g. OSC 52 copy) take effect without killing existing sessions.
     let _ = tmux_cmd()
-        .args(["-L", TMUX_SOCKET, "source-file", config_path.to_str().unwrap_or("")])
+        .args([
+            "-L",
+            TMUX_SOCKET,
+            "source-file",
+            config_path.to_str().unwrap_or(""),
+        ])
         .status();
 }
 
@@ -843,6 +987,34 @@ mod tests {
         assert!(
             content.contains("copy-pipe-and-cancel '/tmp/osc52copy.sh #{pane_tty}'"),
             "missing osc52 copy binding"
+        );
+    }
+
+    #[test]
+    fn stale_detach_notifications_are_ignored() {
+        assert!(!should_reattach_generation(Some(2), true, 1));
+    }
+
+    #[test]
+    fn current_tmux_detach_notifications_trigger_reattach() {
+        assert!(should_reattach_generation(Some(3), true, 3));
+        assert!(!should_reattach_generation(Some(3), false, 3));
+        assert!(!should_reattach_generation(None, true, 3));
+    }
+
+    #[test]
+    fn short_lived_tmux_attach_stays_detached() {
+        assert_eq!(
+            detach_event_action(Some(3), true, 3, Duration::from_millis(500)),
+            DetachEventAction::KeepDetached
+        );
+    }
+
+    #[test]
+    fn stable_tmux_attach_auto_reattaches() {
+        assert_eq!(
+            detach_event_action(Some(3), true, 3, Duration::from_secs(3)),
+            DetachEventAction::AutoReattach
         );
     }
 }

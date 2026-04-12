@@ -27,6 +27,7 @@ import {
 interface SidebarProps {
   machines: MachineInfo[];
   onCreateTerminal: (machineId: string, cwd: string) => void;
+  canCreateTerminal?: (machineId: string) => boolean;
 }
 
 function pathLabel(path: string): string {
@@ -257,9 +258,11 @@ function PathInput({
 function MachineSection({
   machine,
   onCreateTerminal,
+  canCreateTerminal,
 }: {
   machine: MachineInfo;
   onCreateTerminal: (machineId: string, cwd: string) => void;
+  canCreateTerminal: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -416,9 +419,10 @@ function MachineSection({
           {bookmarks.map((bm) => (
             <Pressable
               key={bm.id}
-              onPress={() =>
-                onCreateTerminal(machine.id, bm.path)
-              }
+              onPress={() => {
+                if (!canCreateTerminal) return;
+                onCreateTerminal(machine.id, bm.path);
+              }}
               style={({ pressed }) => ({
                 flexDirection: "row",
                 alignItems: "center",
@@ -428,6 +432,7 @@ function MachineSection({
                 backgroundColor: pressed
                   ? "rgb(17, 42, 69)"
                   : "transparent",
+                opacity: canCreateTerminal ? 1 : 0.45,
               })}
             >
               <Text
@@ -860,7 +865,11 @@ function SettingsSection() {
   );
 }
 
-export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
+export function Sidebar({
+  machines,
+  onCreateTerminal,
+  canCreateTerminal,
+}: SidebarProps) {
   const [showAddMachine, setShowAddMachine] = useState(false);
 
   return (
@@ -934,6 +943,7 @@ export function Sidebar({ machines, onCreateTerminal }: SidebarProps) {
               key={machine.id}
               machine={machine}
               onCreateTerminal={onCreateTerminal}
+              canCreateTerminal={canCreateTerminal?.(machine.id) ?? true}
             />
           ))
         )}

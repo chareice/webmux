@@ -174,34 +174,68 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       });
 
       const ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
-      let pendingData = "";
+      let pendingChunks: Uint8Array[] = [];
+      let pendingBytes = 0;
       let rafId = 0;
       const MAX_PENDING = 128 * 1024; // flush immediately if buffer exceeds 128KB (e.g. background tab)
 
       const flushPending = () => {
-        if (pendingData) {
-          term.write(pendingData);
-          pendingData = "";
+        if (pendingBytes > 0) {
+          const merged = new Uint8Array(pendingBytes);
+          let offset = 0;
+          for (const chunk of pendingChunks) {
+            merged.set(chunk, offset);
+            offset += chunk.length;
+          }
+          term.write(merged);
+          pendingChunks = [];
+          pendingBytes = 0;
         }
         rafId = 0;
       };
 
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === "output") {
-            pendingData += msg.data;
-            if (pendingData.length >= MAX_PENDING) {
-              if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
-              flushPending();
-            } else if (!rafId) {
-              rafId = requestAnimationFrame(flushPending);
-            }
+      const enqueueOutput = (chunk: Uint8Array) => {
+        pendingChunks.push(chunk);
+        pendingBytes += chunk.length;
+
+        if (pendingBytes >= MAX_PENDING) {
+          if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = 0;
           }
-        } catch {
-          /* ignore */
+          flushPending();
+        } else if (!rafId) {
+          rafId = requestAnimationFrame(flushPending);
+        }
+      };
+
+      ws.onmessage = (event) => {
+        if (typeof event.data === "string") {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === "error") {
+              return;
+            }
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+
+        if (event.data instanceof ArrayBuffer) {
+          enqueueOutput(new Uint8Array(event.data));
+          return;
+        }
+
+        if (event.data instanceof Blob) {
+          void event.data.arrayBuffer().then((buffer) => {
+            enqueueOutput(new Uint8Array(buffer));
+          }).catch(() => {
+            /* ignore */
+          });
         }
       };
 

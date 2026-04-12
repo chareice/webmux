@@ -9,8 +9,8 @@ interface StatusBarProps {
   machineStats: Record<string, ResourceStats>;
   isMobile: boolean;
   isController: boolean;
-  onRequestControl: () => void;
-  onReleaseControl: () => void;
+  onRequestControl: (machineId: string) => void;
+  onReleaseControl: (machineId: string) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -92,6 +92,7 @@ export function StatusBar({
       ? (stats.memory_used / stats.memory_total) * 100
       : null;
   const diskPct = stats ? totalDiskPercent(stats.disks) : null;
+  const canToggleMode = Boolean(activeMachineId);
 
   return (
     <div
@@ -268,18 +269,24 @@ export function StatusBar({
           </span>
         )}
         <button
-          onClick={isController ? onReleaseControl : onRequestControl}
+          onClick={() => {
+            if (!activeMachineId) return;
+            if (isController) onReleaseControl(activeMachineId);
+            else onRequestControl(activeMachineId);
+          }}
           style={{
             background: "rgba(255,255,255,0.15)",
             border: "none",
             borderRadius: 3,
             color: "#fff",
-            cursor: "pointer",
+            cursor: canToggleMode ? "pointer" : "not-allowed",
+            opacity: canToggleMode ? 1 : 0.5,
             padding: layout.actionButtonPadding,
             fontSize: 11,
             fontFamily: "inherit",
             lineHeight: "18px",
           }}
+          disabled={!canToggleMode}
         >
           {isController ? "Release" : "Take Control"}
         </button>

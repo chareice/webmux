@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection};
 
-use super::types::UserRow;
 use super::now_ms;
+use super::types::UserRow;
 
 pub fn find_user_by_id(conn: &Connection, user_id: &str) -> rusqlite::Result<Option<UserRow>> {
     let mut stmt = conn.prepare(
@@ -64,7 +64,15 @@ pub fn create_user(
     conn.execute(
         "INSERT INTO users (id, provider, provider_id, display_name, avatar_url, role, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![id, provider, provider_id, display_name, avatar_url, role, created_at],
+        params![
+            id,
+            provider,
+            provider_id,
+            display_name,
+            avatar_url,
+            role,
+            created_at
+        ],
     )?;
     Ok(UserRow {
         id: id.to_string(),
