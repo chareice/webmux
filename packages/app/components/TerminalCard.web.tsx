@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
-import { Maximize2, Minimize2, X } from "lucide-react";
+import { Maximize2, Minimize2, X, PanelRight } from "lucide-react";
 import { TerminalView } from "./TerminalView.web";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
@@ -35,6 +35,7 @@ export function TerminalCard({
   const termViewRef = useRef<TerminalViewRef>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [commandBarVisible, setCommandBarVisible] = useState(false);
+  const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
 
   const handleToolbarKey = useCallback((data: string) => {
     termViewRef.current?.sendCommandInput(data);
@@ -253,6 +254,27 @@ export function TerminalCard({
                 <Maximize2 size={14} aria-hidden />
               </button>
             )}
+            {maximized && !isMobile && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDesktopPanelOpen(v => !v);
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: desktopPanelOpen ? "rgb(0, 212, 170)" : "rgb(122, 143, 166)",
+                  cursor: "pointer",
+                  padding: "2px 4px",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+                title={desktopPanelOpen ? "Hide control panel" : "Show control panel"}
+                aria-label={desktopPanelOpen ? "Hide control panel" : "Show control panel"}
+              >
+                <PanelRight size={14} aria-hidden />
+              </button>
+            )}
             {maximized && (
               <button
                 onClick={(e) => {
@@ -310,7 +332,7 @@ export function TerminalCard({
                 }}
               />
             </div>
-            {maximized && !isMobile && (
+            {maximized && !isMobile && desktopPanelOpen && (
               <div style={{ width: 200, minWidth: 200, borderLeft: '1px solid rgb(26, 58, 92)' }}>
                 <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
               </div>
