@@ -14,6 +14,8 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
 
   await expect(page.getByTestId("mobile-sidebar-toggle")).toBeVisible();
   await expect(page.getByText("Tap ☰ to open a terminal")).toBeVisible();
+  await expect(page.getByTestId("statusbar-stat-cpu")).toContainText("CPU");
+  await expect(page.getByTestId("statusbar-stat-memory")).toContainText("MEM");
   await expect(page.getByTestId("statusbar-mode-toggle")).toHaveText("Take Control");
 
   await page.getByTestId("statusbar-mode-toggle").click();

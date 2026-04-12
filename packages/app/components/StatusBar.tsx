@@ -40,6 +40,29 @@ function totalDiskPercent(disks: ResourceStats["disks"]): number {
   return (totalUsed / totalSize) * 100;
 }
 
+function formatStatValue(
+  stat: "cpu" | "memory" | "disk",
+  values: {
+    cpuPct: number | null;
+    memPct: number | null;
+    diskPct: number | null;
+    stats: ResourceStats;
+    isMobile: boolean;
+  },
+): string {
+  switch (stat) {
+    case "cpu":
+      return `${values.cpuPct ?? 0}%`;
+    case "memory":
+      if (values.isMobile) {
+        return `${Math.round(values.memPct ?? 0)}%`;
+      }
+      return `${formatBytes(values.stats.memory_used)}/${formatBytes(values.stats.memory_total)}`;
+    case "disk":
+      return `${Math.round(values.diskPct ?? 0)}%`;
+  }
+}
+
 function StatusBarComponent({
   machines,
   activeMachineId,
@@ -93,6 +116,11 @@ function StatusBarComponent({
       : null;
   const diskPct = stats ? totalDiskPercent(stats.disks) : null;
   const canToggleMode = Boolean(activeMachineId);
+  const statLabels = {
+    cpu: "CPU",
+    memory: isMobile ? "MEM" : "MEM",
+    disk: "DISK",
+  } as const;
 
   return (
     <div
@@ -223,31 +251,42 @@ function StatusBarComponent({
                 width: 1,
                 height: 14,
                 background: "rgba(255,255,255,0.35)",
-                margin: "0 6px",
+                margin: layout.separatorMargin,
                 flexShrink: 0,
               }}
             />
-            {/* CPU */}
-            <span style={{ padding: "0 4px", whiteSpace: "nowrap" }}>
-              <span style={{ opacity: 0.8 }}>CPU </span>
-              <span style={{ color: percentColor(cpuPct ?? 0), fontVariantNumeric: "tabular-nums" }}>
-                {cpuPct ?? 0}%
-              </span>
-            </span>
-            {/* MEM */}
-            <span style={{ padding: "0 4px", whiteSpace: "nowrap" }}>
-              <span style={{ opacity: 0.8 }}>MEM </span>
-              <span style={{ color: percentColor(memPct ?? 0), fontVariantNumeric: "tabular-nums" }}>
-                {formatBytes(stats.memory_used)}/{formatBytes(stats.memory_total)}
-              </span>
-            </span>
-            {/* DISK */}
-            <span style={{ padding: "0 4px", whiteSpace: "nowrap" }}>
-              <span style={{ opacity: 0.8 }}>DISK </span>
-              <span style={{ color: percentColor(diskPct ?? 0), fontVariantNumeric: "tabular-nums" }}>
-                {Math.round(diskPct ?? 0)}%
-              </span>
-            </span>
+            {layout.visibleStats.map((stat) => {
+              const pct =
+                stat === "cpu"
+                  ? cpuPct ?? 0
+                  : stat === "memory"
+                    ? memPct ?? 0
+                    : diskPct ?? 0;
+
+              return (
+                <span
+                  key={stat}
+                  data-testid={`statusbar-stat-${stat}`}
+                  style={{ padding: layout.statPadding, whiteSpace: "nowrap" }}
+                >
+                  <span style={{ opacity: 0.8 }}>{statLabels[stat]} </span>
+                  <span
+                    style={{
+                      color: percentColor(pct),
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {formatStatValue(stat, {
+                      cpuPct,
+                      memPct,
+                      diskPct,
+                      stats,
+                      isMobile,
+                    })}
+                  </span>
+                </span>
+              );
+            })}
           </>
         )}
       </div>
