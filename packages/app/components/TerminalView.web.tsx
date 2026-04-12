@@ -17,6 +17,53 @@ import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
 
+// Preferred monospace fonts in priority order.
+// Includes Nerd Font variants common on Linux.
+const PREFERRED_FONTS = [
+  "JetBrains Mono",
+  "JetBrainsMono Nerd Font",
+  "JetBrainsMono NF",
+  "JetBrainsMono Nerd Font Mono",
+  "JetBrainsMono NFM",
+  "Fira Code",
+  "FiraCode Nerd Font",
+  "FiraCode NF",
+  "Cascadia Code",
+  "CaskaydiaCove Nerd Font",
+  "CaskaydiaCove NF",
+  "Source Code Pro",
+  "SauceCodePro Nerd Font",
+  "Hack",
+  "Hack Nerd Font",
+  "Ubuntu Mono",
+  "UbuntuMono Nerd Font",
+  "Consolas",
+  "Menlo",
+  "Monaco",
+  "DejaVu Sans Mono",
+];
+
+// Detect which monospace font is actually available on the client
+// by comparing canvas text measurements against the generic fallback.
+function detectAvailableFont(): string {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "monospace";
+
+  const testStr = "mmmmmmmmmmlli";
+  ctx.font = "72px monospace";
+  const baseWidth = ctx.measureText(testStr).width;
+
+  for (const font of PREFERRED_FONTS) {
+    ctx.font = `72px '${font}', monospace`;
+    if (ctx.measureText(testStr).width !== baseWidth) {
+      return `'${font}', monospace`;
+    }
+  }
+
+  return "monospace";
+}
+
 export type { TerminalViewRef, TerminalViewProps };
 
 export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
@@ -69,14 +116,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const container = containerRef.current;
       if (!container) return;
 
+      const fontFamily = detectAvailableFont();
+
       const term = new Terminal({
         cols: TERM_COLS,
         rows: TERM_ROWS,
         fontSize: 14,
         lineHeight: 1,
         letterSpacing: 0,
-        fontFamily:
-          "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+        fontFamily,
         allowTransparency: false,
         rescaleOverlappingGlyphs: true,
         theme: {
@@ -106,21 +154,23 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       termRef.current = term;
       fitRef.current = fit;
 
-      // Load WebGL renderer after custom font is ready to avoid black-box glyphs.
-      // Guard against component unmount before fonts resolve.
-      document.fonts.ready.then(() => {
-        if (!container.isConnected || termRef.current !== term) return;
+      // Wait two frames so the browser fully resolves the detected font
+      // before WebGL builds its glyph texture atlas (avoids black-box glyphs).
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!container.isConnected || termRef.current !== term) return;
 
-        let webgl: WebglAddon | null = null;
-        try {
-          webgl = new WebglAddon();
-          webgl.onContextLoss(() => {
+          let webgl: WebglAddon | null = null;
+          try {
+            webgl = new WebglAddon();
+            webgl.onContextLoss(() => {
+              webgl?.dispose();
+            });
+            term.loadAddon(webgl);
+          } catch {
             webgl?.dispose();
-          });
-          term.loadAddon(webgl);
-        } catch {
-          webgl?.dispose();
-        }
+          }
+        });
       });
 
       const ws = new WebSocket(wsUrl);
