@@ -62,9 +62,9 @@ export function TerminalCard({
         {/* Left: close button */}
         <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
           <button
+            disabled={!isController}
             onClick={(e) => {
               e.stopPropagation();
-              if (!isController) return;
               onDestroy();
             }}
             style={{

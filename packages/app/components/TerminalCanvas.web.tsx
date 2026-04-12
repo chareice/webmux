@@ -18,6 +18,11 @@ import {
 } from "@/lib/api";
 import { useIsMobile } from "@/lib/hooks";
 
+/** Build URL without hash, preserving pathname + query string */
+function baseUrl() {
+  return window.location.pathname + window.location.search;
+}
+
 export function TerminalCanvas() {
   const [machines, setMachines] = useState<MachineInfo[]>([]);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
@@ -80,6 +85,7 @@ export function TerminalCanvas() {
       const hash = window.location.hash;
       if (hash.startsWith("#/t/")) {
         const id = hash.slice(4);
+        if (!id) return;
         setOpenTabs((prev) => (prev.includes(id) ? prev : [...prev, id]));
         setActiveTabId(id);
       } else {
@@ -151,7 +157,7 @@ export function TerminalCanvas() {
                       window.history.replaceState(
                         null,
                         "",
-                        window.location.pathname,
+                        baseUrl(),
                       );
                     }
                   }
@@ -194,7 +200,7 @@ export function TerminalCanvas() {
                   window.history.replaceState(
                     null,
                     "",
-                    window.location.pathname,
+                    baseUrl(),
                   );
                 }
               }
@@ -259,11 +265,18 @@ export function TerminalCanvas() {
   // Tab management
   const handleOpenTab = useCallback((id: string) => {
     setOpenTabs((prev) => {
-      if (prev.includes(id)) return prev;
-      return [...prev, id];
+      if (!prev.includes(id)) {
+        setActiveTabId(id);
+        window.history.pushState(null, "", `#/t/${id}`);
+        return [...prev, id];
+      }
+      // Tab already open — just activate it
+      if (activeTabRef.current !== id) {
+        setActiveTabId(id);
+        window.history.replaceState(null, "", `#/t/${id}`);
+      }
+      return prev;
     });
-    setActiveTabId(id);
-    window.history.pushState(null, "", `#/t/${id}`);
   }, []);
 
   const handleActivateTab = useCallback((id: string) => {
@@ -389,7 +402,7 @@ export function TerminalCanvas() {
       </div>
 
       {/* Tab container overlay */}
-      {hasOpenTabs && (
+      {openTabs.length > 0 && activeTabId !== null && (
         <TabContainer
           terminals={terminals}
           openTabs={openTabs}

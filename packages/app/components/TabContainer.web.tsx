@@ -43,19 +43,21 @@ export function TabContainer({
 
   const handleToolbarKey = useCallback(
     (data: string) => {
+      if (!isController) return;
       const ref = termViewRefs.current.get(activeTabId);
       ref?.sendCommandInput(data);
-      if (isController) ref?.focus();
+      ref?.focus();
     },
     [activeTabId, isController],
   );
 
   const handleImagePaste = useCallback(
     (base64: string, mime: string) => {
+      if (!isController) return;
       const ref = termViewRefs.current.get(activeTabId);
       ref?.sendImagePaste(base64, mime);
     },
-    [activeTabId],
+    [activeTabId, isController],
   );
 
   return (
@@ -102,6 +104,7 @@ export function TabContainer({
         >
           {/* Scrollable tabs */}
           <div
+            role="tablist"
             style={{
               flex: 1,
               display: "flex",
@@ -113,15 +116,19 @@ export function TabContainer({
             {openTabs.map((tabId) => {
               const term = terminals.find((t) => t.id === tabId);
               const isActive = tabId === activeTabId;
+              const tabTitle = term?.title || tabId.slice(0, 8);
               return (
-                <div
+                <button
                   key={tabId}
+                  role="tab"
+                  aria-selected={isActive}
                   onClick={() => onActivateTab(tabId)}
                   style={{
                     display: "flex",
                     alignItems: "center",
                     gap: 6,
                     padding: isMobile ? "0 10px" : "0 12px",
+                    border: "none",
                     borderRight: "1px solid rgb(26, 58, 92)",
                     borderBottom: isActive
                       ? "2px solid rgb(0, 212, 170)"
@@ -134,6 +141,7 @@ export function TabContainer({
                     minWidth: 0,
                     maxWidth: isMobile ? 160 : 200,
                     userSelect: "none",
+                    height: "100%",
                   }}
                   onMouseEnter={(e) => {
                     if (!isActive)
@@ -142,7 +150,9 @@ export function TabContainer({
                   }}
                   onMouseLeave={(e) => {
                     if (!isActive)
-                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.background = isActive
+                        ? "rgba(0, 212, 170, 0.08)"
+                        : "transparent";
                   }}
                 >
                   <span
@@ -169,12 +179,21 @@ export function TabContainer({
                       minWidth: 0,
                     }}
                   >
-                    {term?.title || tabId.slice(0, 8)}
+                    {tabTitle}
                   </span>
-                  <button
+                  <span
+                    role="button"
+                    tabIndex={0}
                     onClick={(e) => {
                       e.stopPropagation();
                       onCloseTab(tabId);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        onCloseTab(tabId);
+                      }
                     }}
                     style={{
                       background: "none",
@@ -194,11 +213,11 @@ export function TabContainer({
                     onMouseLeave={(e) => {
                       e.currentTarget.style.color = "rgb(74, 97, 120)";
                     }}
-                    title="Close tab"
+                    aria-label={`Close tab ${tabTitle}`}
                   >
                     &#x2715;
-                  </button>
-                </div>
+                  </span>
+                </button>
               );
             })}
           </div>
