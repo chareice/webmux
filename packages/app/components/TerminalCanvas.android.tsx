@@ -29,7 +29,6 @@ export function TerminalCanvas() {
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const maximizedRef = useRef<string | null>(null);
-  const autoClaimedRef = useRef(false);
   const lastSeqRef = useRef(0);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
@@ -87,7 +86,6 @@ export function TerminalCanvas() {
 
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    autoClaimedRef.current = false;
     setBootstrapReady(false);
 
     getBootstrap()
@@ -109,36 +107,6 @@ export function TerminalCanvas() {
       if (retryTimer) clearTimeout(retryTimer);
     };
   }, [deviceId, reconnectGeneration]);
-
-  useEffect(() => {
-    if (!deviceId || !bootstrapReady || autoClaimedRef.current || machines.length === 0) {
-      return;
-    }
-    if (Object.keys(controlLeases).length > 0) {
-      autoClaimedRef.current = true;
-      return;
-    }
-
-    const machineId = machines[0]?.id;
-    if (!machineId) return;
-    autoClaimedRef.current = true;
-
-    void requestControl(machineId, deviceId)
-      .then((next) => {
-        setBrowserState((prev) => ({
-          ...prev,
-          controlLeases: next.controller_device_id
-            ? {
-                ...prev.controlLeases,
-                [machineId]: next.controller_device_id,
-              }
-            : prev.controlLeases,
-        }));
-      })
-      .catch(() => {
-        autoClaimedRef.current = false;
-      });
-  }, [bootstrapReady, controlLeases, deviceId, machines]);
 
   // Events WebSocket for live updates
   useEffect(() => {
@@ -231,6 +199,20 @@ export function TerminalCanvas() {
               machines={machines}
               onCreateTerminal={handleCreateTerminal}
               canCreateTerminal={isMachineController}
+              onRequestControl={(machineId) => {
+                if (!deviceId) return;
+                void requestControl(machineId, deviceId).then((next) => {
+                  setBrowserState((prev) => ({
+                    ...prev,
+                    controlLeases: next.controller_device_id
+                      ? {
+                          ...prev.controlLeases,
+                          [machineId]: next.controller_device_id,
+                        }
+                      : prev.controlLeases,
+                  }));
+                });
+              }}
             />
           </View>
         </>

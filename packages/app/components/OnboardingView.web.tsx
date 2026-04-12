@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createRegistrationToken } from "@/lib/api";
-import { isRegistrationTokenFresh } from "@/lib/tokenExpiry";
 import {
   buildOnboardingScript,
   getInstallCommand,
   getRegisterCommand,
   getServiceInstallCommand,
 } from "@/lib/nodeInstaller";
+import {
+  getTokenActionLabel,
+  shouldGenerateRegistrationToken,
+} from "@/lib/onboardingFlow";
+import { isRegistrationTokenFresh } from "@/lib/tokenExpiry";
 
 // Color constants matching the app's dark theme
 const colors = {
@@ -90,6 +94,7 @@ export function OnboardingView() {
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [requested, setRequested] = useState(false);
   const cachedRef = useRef<CachedToken | null>(null);
 
   const generateToken = useCallback(async () => {
@@ -113,10 +118,22 @@ export function OnboardingView() {
     }
   }, []);
 
-  // Auto-generate on mount
   useEffect(() => {
+    if (loading || error) {
+      return;
+    }
+    const cached = cachedRef.current;
+    if (
+      !shouldGenerateRegistrationToken({
+        requested,
+        token,
+        expiresAt: cached?.expiresAt ?? null,
+      })
+    ) {
+      return;
+    }
     void generateToken();
-  }, [generateToken]);
+  }, [error, generateToken, loading, requested, token]);
 
   const handleCopy = async () => {
     if (!token) return;
@@ -130,10 +147,16 @@ export function OnboardingView() {
   };
 
   const handleRegenerate = () => {
+    setRequested(true);
     cachedRef.current = null;
     setToken(null);
     setCopied(false);
-    void generateToken();
+  };
+
+  const handleGenerateClick = () => {
+    setRequested(true);
+    setError(null);
+    setCopied(false);
   };
 
   const hubUrl = getHubUrl();
@@ -176,7 +199,46 @@ export function OnboardingView() {
           then register it with the commands below.
         </p>
 
-        {loading ? (
+        {!requested && !loading && !error && !token ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+              padding: 24,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 10,
+              background: colors.surface,
+            }}
+          >
+            <p
+              style={{
+                margin: 0,
+                color: colors.foregroundSecondary,
+                lineHeight: 1.6,
+                fontSize: 14,
+              }}
+            >
+              Generate a fresh registration token only when you are ready to copy the install script to a machine.
+            </p>
+            <button
+              onClick={handleGenerateClick}
+              style={{
+                width: "fit-content",
+                backgroundColor: colors.accent,
+                border: "none",
+                borderRadius: 999,
+                color: colors.background,
+                padding: "10px 18px",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              {getTokenActionLabel({ loading, token })}
+            </button>
+          </div>
+        ) : loading ? (
           <div
             style={{
               textAlign: "center" as const,
@@ -185,7 +247,7 @@ export function OnboardingView() {
               fontSize: 14,
             }}
           >
-            Generating registration token...
+            Generating registration token…
           </div>
         ) : error ? (
           <div>
@@ -199,7 +261,7 @@ export function OnboardingView() {
               {error}
             </div>
             <button
-              onClick={handleRegenerate}
+              onClick={handleGenerateClick}
               style={{
                 backgroundColor: colors.surface,
                 border: `1px solid ${colors.border}`,
@@ -268,7 +330,7 @@ export function OnboardingView() {
                   cursor: "pointer",
                 }}
               >
-                Regenerate token
+                {getTokenActionLabel({ loading, token })}
               </button>
             </div>
 

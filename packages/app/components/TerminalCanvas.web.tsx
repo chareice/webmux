@@ -1,9 +1,6 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
 import type { TerminalInfo } from "@webmux/shared";
-import { Sidebar } from "./Sidebar";
 import { Canvas } from "./Canvas.web";
-import { OnboardingView } from "./OnboardingView.web";
-import { StatusBar } from "./StatusBar";
 import {
   createTerminal,
   destroyTerminal,
@@ -21,13 +18,24 @@ import {
 import { getPersistentDeviceId } from "@/lib/deviceId";
 import { useIsMobile } from "@/lib/hooks";
 
+const Sidebar = lazy(() =>
+  import("./Sidebar").then((module) => ({ default: module.Sidebar })),
+);
+const OnboardingView = lazy(() =>
+  import("./OnboardingView.web").then((module) => ({
+    default: module.OnboardingView,
+  })),
+);
+const StatusBar = lazy(() =>
+  import("./StatusBar").then((module) => ({ default: module.StatusBar })),
+);
+
 export function TerminalCanvas() {
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const maximizedRef = useRef<string | null>(null);
-  const autoClaimedRef = useRef(false);
   const lastSeqRef = useRef(0);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
@@ -112,7 +120,6 @@ export function TerminalCanvas() {
 
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    autoClaimedRef.current = false;
     setBootstrapReady(false);
 
     getBootstrap()
@@ -134,35 +141,6 @@ export function TerminalCanvas() {
       if (retryTimer) clearTimeout(retryTimer);
     };
   }, [deviceId, reconnectGeneration]);
-
-  useEffect(() => {
-    if (!deviceId || !bootstrapReady || autoClaimedRef.current || machines.length === 0) {
-      return;
-    }
-    if (Object.keys(controlLeases).length > 0) {
-      autoClaimedRef.current = true;
-      return;
-    }
-
-    const machineId = machines[0]?.id;
-    if (!machineId) return;
-    autoClaimedRef.current = true;
-    void requestControl(machineId, deviceId)
-      .then((next) => {
-        setBrowserState((prev) => ({
-          ...prev,
-          controlLeases: next.controller_device_id
-            ? {
-                ...prev.controlLeases,
-                [machineId]: next.controller_device_id,
-              }
-            : prev.controlLeases,
-        }));
-      })
-      .catch(() => {
-        autoClaimedRef.current = false;
-      });
-  }, [bootstrapReady, controlLeases, deviceId, machines]);
 
   // Events WebSocket for live updates
   useEffect(() => {
@@ -283,6 +261,11 @@ export function TerminalCanvas() {
     window.history.pushState(null, "", window.location.pathname);
   }, []);
 
+  const activeMachine = activeMachineId
+    ? machines.find((machine) => machine.id === activeMachineId) ?? null
+    : machines[0] ?? null;
+  const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
+
   return (
     <div
       style={{
@@ -352,22 +335,31 @@ export function TerminalCanvas() {
                 : {}
             }
           >
-            <Sidebar
-              machines={machines}
-              onCreateTerminal={handleCreateTerminal}
-              canCreateTerminal={isMachineController}
-            />
+            <Suspense fallback={null}>
+              <Sidebar
+                machines={machines}
+                onCreateTerminal={handleCreateTerminal}
+                canCreateTerminal={isMachineController}
+                onRequestControl={handleRequestControl}
+              />
+            </Suspense>
           </div>
         )}
 
         {/* Main content */}
         {machines.length === 0 ? (
-          <OnboardingView />
+          <Suspense fallback={null}>
+            <OnboardingView />
+          </Suspense>
         ) : (
           <Canvas
+            machines={machines}
             terminals={terminals}
             maximizedId={maximizedId}
+            activeMachineId={activeMachine?.id ?? null}
+            machineStats={machineStats}
             isMobile={isMobile}
+            isActiveController={isActiveController}
             isMachineController={isMachineController}
             deviceId={deviceId ?? ""}
             onMaximize={handleMaximize}
@@ -379,16 +371,18 @@ export function TerminalCanvas() {
         )}
       </div>
 
-      <StatusBar
-        machines={machines}
-        activeMachineId={activeMachineId}
-        onSelectMachine={setActiveMachineId}
-        machineStats={machineStats}
-        isMobile={isMobile}
-        isController={isActiveController}
-        onRequestControl={handleRequestControl}
-        onReleaseControl={handleReleaseControl}
-      />
+      <Suspense fallback={null}>
+        <StatusBar
+          machines={machines}
+          activeMachineId={activeMachineId}
+          onSelectMachine={setActiveMachineId}
+          machineStats={machineStats}
+          isMobile={isMobile}
+          isController={isActiveController}
+          onRequestControl={handleRequestControl}
+          onReleaseControl={handleReleaseControl}
+        />
+      </Suspense>
     </div>
   );
 }

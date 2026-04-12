@@ -10,6 +10,7 @@ import { WebView } from "react-native-webview";
 import type { WebViewMessageEvent } from "react-native-webview";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
+import { buildResizeMessage, didGainControl } from "@/lib/terminalResize";
 
 export type { TerminalViewRef, TerminalViewProps };
 
@@ -145,18 +146,37 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const wsRef = useRef<WebSocket | null>(null);
     const readyRef = useRef(false);
     const isControllerRef = useRef(isController ?? true);
+    const previousControllerRef = useRef(isController ?? true);
     const decoderRef = useRef(new TextDecoder());
     // Queue output data that arrives before WebView is ready
     const pendingQueue = useRef<string[]>([]);
-
-    useEffect(() => {
-      isControllerRef.current = isController ?? true;
-    }, [isController]);
 
     // Send a message to the WebView
     const postToWebView = useCallback((msg: object) => {
       webViewRef.current?.postMessage(JSON.stringify(msg));
     }, []);
+
+    const sendResizeToHub = useCallback((dims: { cols: number; rows: number }) => {
+      const ws = wsRef.current;
+      const resizeMessage = buildResizeMessage(dims);
+      if (isControllerRef.current && ws?.readyState === WebSocket.OPEN && resizeMessage) {
+        ws.send(JSON.stringify(resizeMessage));
+      }
+    }, []);
+
+    useEffect(() => {
+      const nextIsController = isController ?? true;
+      const previousIsController = previousControllerRef.current;
+      isControllerRef.current = nextIsController;
+
+      if (didGainControl(previousIsController, nextIsController) && readyRef.current) {
+        requestAnimationFrame(() => {
+          postToWebView({ type: "fit" });
+        });
+      }
+
+      previousControllerRef.current = nextIsController;
+    }, [isController, postToWebView]);
 
     const writeToTerminal = useCallback(
       (data: string) => {
@@ -289,20 +309,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
               pendingQueue.current = [];
 
               // Send initial resize to hub
-              const ws = wsRef.current;
-              if (
-                isControllerRef.current &&
-                ws?.readyState === WebSocket.OPEN &&
-                msg.cols &&
-                msg.rows
-              ) {
-                ws.send(
-                  JSON.stringify({
-                    type: "resize",
-                    cols: msg.cols,
-                    rows: msg.rows,
-                  }),
-                );
+              if (typeof msg.cols === "number" && typeof msg.rows === "number") {
+                sendResizeToHub({ cols: msg.cols, rows: msg.rows });
               }
               break;
             }
@@ -318,20 +326,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
             case "resize": {
               // Terminal dimensions changed — inform the hub
-              const ws = wsRef.current;
-              if (
-                isControllerRef.current &&
-                ws?.readyState === WebSocket.OPEN &&
-                msg.cols &&
-                msg.rows
-              ) {
-                ws.send(
-                  JSON.stringify({
-                    type: "resize",
-                    cols: msg.cols,
-                    rows: msg.rows,
-                  }),
-                );
+              if (typeof msg.cols === "number" && typeof msg.rows === "number") {
+                sendResizeToHub({ cols: msg.cols, rows: msg.rows });
               }
               break;
             }
@@ -340,7 +336,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           /* ignore malformed messages */
         }
       },
-      [postToWebView],
+      [postToWebView, sendResizeToHub],
     );
 
     return (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { memo, useState, useEffect, useRef, useCallback } from "react";
 import type { MachineInfo, ResourceStats } from "@webmux/shared";
 import { getStatusBarLayout } from "./statusBarLayout";
 
@@ -40,7 +40,7 @@ function totalDiskPercent(disks: ResourceStats["disks"]): number {
   return (totalUsed / totalSize) * 100;
 }
 
-export function StatusBar({
+function StatusBarComponent({
   machines,
   activeMachineId,
   onSelectMachine,
@@ -230,21 +230,21 @@ export function StatusBar({
             {/* CPU */}
             <span style={{ padding: "0 4px", whiteSpace: "nowrap" }}>
               <span style={{ opacity: 0.8 }}>CPU </span>
-              <span style={{ color: percentColor(cpuPct ?? 0) }}>
+              <span style={{ color: percentColor(cpuPct ?? 0), fontVariantNumeric: "tabular-nums" }}>
                 {cpuPct ?? 0}%
               </span>
             </span>
             {/* MEM */}
             <span style={{ padding: "0 4px", whiteSpace: "nowrap" }}>
               <span style={{ opacity: 0.8 }}>MEM </span>
-              <span style={{ color: percentColor(memPct ?? 0) }}>
+              <span style={{ color: percentColor(memPct ?? 0), fontVariantNumeric: "tabular-nums" }}>
                 {formatBytes(stats.memory_used)}/{formatBytes(stats.memory_total)}
               </span>
             </span>
             {/* DISK */}
             <span style={{ padding: "0 4px", whiteSpace: "nowrap" }}>
               <span style={{ opacity: 0.8 }}>DISK </span>
-              <span style={{ color: percentColor(diskPct ?? 0) }}>
+              <span style={{ color: percentColor(diskPct ?? 0), fontVariantNumeric: "tabular-nums" }}>
                 {Math.round(diskPct ?? 0)}%
               </span>
             </span>
@@ -294,3 +294,5 @@ export function StatusBar({
     </div>
   );
 }
+
+export const StatusBar = memo(StatusBarComponent);

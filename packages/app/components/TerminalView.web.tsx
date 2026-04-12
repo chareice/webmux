@@ -14,6 +14,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
 import { createOrderedBinaryOutputQueue } from "@/lib/orderedBinaryOutput.mjs";
+import { buildResizeMessage, didGainControl } from "@/lib/terminalResize";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
@@ -74,7 +75,22 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const wsRef = useRef<WebSocket | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const isControllerRef = useRef(isController ?? true);
-    useEffect(() => { isControllerRef.current = isController ?? true; }, [isController]);
+    const syncResizeRef = useRef<() => void>(() => {});
+    const previousControllerRef = useRef(isController ?? true);
+
+    useEffect(() => {
+      const nextIsController = isController ?? true;
+      const previousIsController = previousControllerRef.current;
+      isControllerRef.current = nextIsController;
+
+      if (didGainControl(previousIsController, nextIsController)) {
+        requestAnimationFrame(() => {
+          syncResizeRef.current();
+        });
+      }
+
+      previousControllerRef.current = nextIsController;
+    }, [isController]);
 
     // Expose imperative API
     useImperativeHandle(
@@ -178,6 +194,25 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
+      const syncTerminalResize = () => {
+        const fit = fitRef.current;
+        const liveWs = wsRef.current;
+        if (!fit || liveWs?.readyState !== WebSocket.OPEN || !isControllerRef.current) {
+          return;
+        }
+
+        try {
+          fit.fit();
+          const resizeMessage = buildResizeMessage(fit.proposeDimensions());
+          if (!resizeMessage) return;
+          liveWs.send(JSON.stringify(resizeMessage));
+        } catch {
+          /* ignore */
+        }
+      };
+
+      syncResizeRef.current = syncTerminalResize;
+
       let pendingChunks: Uint8Array[] = [];
       let pendingBytes = 0;
       let rafId = 0;
@@ -239,15 +274,14 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
 
       ws.onopen = () => {
-        if (isControllerRef.current) {
-          ws.send(
-            JSON.stringify({
-              type: "resize",
-              cols: TERM_COLS,
-              rows: TERM_ROWS,
-            }),
-          );
+        const initialResize = buildResizeMessage({
+          cols: TERM_COLS,
+          rows: TERM_ROWS,
+        });
+        if (isControllerRef.current && initialResize) {
+          ws.send(JSON.stringify(initialResize));
         }
+        syncTerminalResize();
       };
 
       term.onData((data) => {
@@ -408,6 +442,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       return () => {
         if (rafId) cancelAnimationFrame(rafId);
+        syncResizeRef.current = () => {};
         container.removeEventListener("paste", handlePaste);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
@@ -423,22 +458,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       if (!container || !fit) return;
 
       const doFit = () => {
-        try {
-          fit.fit();
-          const dims = fit.proposeDimensions();
-          const ws = wsRef.current;
-          if (dims && ws?.readyState === WebSocket.OPEN && isControllerRef.current) {
-            ws.send(
-              JSON.stringify({
-                type: "resize",
-                cols: dims.cols,
-                rows: dims.rows,
-              }),
-            );
-          }
-        } catch {
-          /* ignore */
-        }
+        syncResizeRef.current();
       };
 
       const timer = setTimeout(doFit, 50);
