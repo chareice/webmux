@@ -1,10 +1,14 @@
-import { useRef, useCallback, useState } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { Maximize2, Minimize2, X, PanelRight } from "lucide-react";
 import { TerminalView } from "./TerminalView.web";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { CommandBar } from "./CommandBar";
+import {
+  getMaximizedBackdropStyle,
+  getMaximizedTerminalFrame,
+} from "./terminalLayout";
 import { terminalWsUrl } from "@/lib/api";
 
 interface TerminalCardProps {
@@ -37,14 +41,25 @@ export function TerminalCard({
   const [commandBarVisible, setCommandBarVisible] = useState(false);
   const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
 
+  useEffect(() => {
+    if (isController) {
+      return;
+    }
+    setKeyboardVisible(false);
+    setCommandBarVisible(false);
+    setDesktopPanelOpen(false);
+  }, [isController]);
+
   const handleToolbarKey = useCallback((data: string) => {
+    if (!isController) return;
     termViewRef.current?.sendCommandInput(data);
-    if (isController) termViewRef.current?.focus();
+    termViewRef.current?.focus();
   }, [isController]);
 
   const handleImagePaste = useCallback((base64: string, mime: string) => {
+    if (!isController) return;
     termViewRef.current?.sendImagePaste(base64, mime);
-  }, []);
+  }, [isController]);
 
   const handleTitleClick = useCallback(() => {
     if (!maximized) onMaximize();
@@ -60,7 +75,7 @@ export function TerminalCard({
           onClick={onMinimize}
           style={{
             position: "fixed",
-            inset: 0,
+            ...getMaximizedBackdropStyle(isMobile),
             zIndex: 99,
             background: "rgba(0, 0, 0, 0.7)",
             backdropFilter: "blur(4px)",
@@ -73,10 +88,7 @@ export function TerminalCard({
           maximized
             ? {
                 position: "fixed",
-                top: isMobile ? 0 : "5vh",
-                left: isMobile ? 0 : "5vw",
-                width: isMobile ? "100vw" : "90vw",
-                height: isMobile ? "100dvh" : "90vh",
+                ...getMaximizedTerminalFrame(isMobile),
                 zIndex: 100,
                 background: "rgb(17, 42, 69)",
                 borderRadius: isMobile ? 0 : 8,
@@ -344,7 +356,10 @@ export function TerminalCard({
             <ExtendedKeyBar
               onKey={handleToolbarKey}
               onToggleKeyboard={() => setKeyboardVisible(v => !v)}
-              onToggleCommandBar={() => setCommandBarVisible(v => !v)}
+              onToggleCommandBar={() => {
+                if (!isController) return;
+                setCommandBarVisible(v => !v);
+              }}
               keyboardVisible={keyboardVisible}
               commandBarVisible={commandBarVisible}
               isController={isController}

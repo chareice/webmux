@@ -111,16 +111,20 @@ export function ExtendedKeyBar({
             {group.map(key => (
               <button
                 key={key.label}
-                onClick={() => onKey(key.data)}
+                onClick={() => {
+                  if (!isController) return;
+                  onKey(key.data);
+                }}
+                disabled={!isController}
                 style={{
                   background: 'rgb(17, 42, 69)',
                   border: '1px solid rgb(26, 58, 92)',
                   borderRadius: 4,
-                  color: 'rgb(224, 232, 240)',
+                  color: isController ? 'rgb(224, 232, 240)' : 'rgb(74, 97, 120)',
                   padding: '4px 10px',
                   fontSize: 12,
                   fontFamily: "'JetBrains Mono', monospace",
-                  cursor: 'pointer',
+                  cursor: isController ? 'pointer' : 'not-allowed',
                   whiteSpace: 'nowrap',
                   minWidth: 36,
                   height: 32,
@@ -140,7 +144,11 @@ export function ExtendedKeyBar({
 
       {/* Right: CommandBar toggle */}
       <button
-        onClick={onToggleCommandBar}
+        onClick={() => {
+          if (!isController) return;
+          onToggleCommandBar();
+        }}
+        disabled={!isController}
         style={{
           width: 44,
           height: 44,
@@ -150,10 +158,14 @@ export function ExtendedKeyBar({
           background: commandBarVisible ? 'rgba(0, 212, 170, 0.15)' : 'transparent',
           border: 'none',
           borderLeft: '1px solid rgb(26, 58, 92)',
-          color: commandBarVisible ? 'rgb(0, 212, 170)' : 'rgb(122, 143, 166)',
+          color: !isController
+            ? 'rgb(74, 97, 120)'
+            : commandBarVisible
+              ? 'rgb(0, 212, 170)'
+              : 'rgb(122, 143, 166)',
           fontSize: 14,
           fontFamily: "'JetBrains Mono', monospace",
-          cursor: 'pointer',
+          cursor: isController ? 'pointer' : 'not-allowed',
           flexShrink: 0,
         }}
         title={commandBarVisible ? 'Hide command bar' : 'Show command bar'}

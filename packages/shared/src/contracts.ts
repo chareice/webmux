@@ -227,7 +227,7 @@ export interface LoginResponse {
 
 export interface CreateRegistrationTokenResponse {
   token: string
-  expiresAt: number
+  expires_at: number
 }
 
 export interface RegisterMachineResponse {

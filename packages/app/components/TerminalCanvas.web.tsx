@@ -77,10 +77,16 @@ export function TerminalCanvas() {
   useEffect(() => {
     listMachines().then(setMachines).catch(() => {});
     listTerminals().then(setTerminals).catch(() => {});
-    getMode().then(m => {
-      setControllerDeviceId(m.controller_device_id);
-      if (!m.controller_device_id) requestControl(deviceId);
-    }).catch(() => {});
+    getMode()
+      .then(async (m) => {
+        if (m.controller_device_id) {
+          setControllerDeviceId(m.controller_device_id);
+          return;
+        }
+        const next = await requestControl(deviceId);
+        setControllerDeviceId(next.controller_device_id);
+      })
+      .catch(() => {});
   }, [deviceId]);
 
   // Events WebSocket for live updates
@@ -165,12 +171,14 @@ export function TerminalCanvas() {
     [isMobile, isController],
   );
 
-  const handleRequestControl = useCallback(() => {
-    requestControl(deviceId);
+  const handleRequestControl = useCallback(async () => {
+    const next = await requestControl(deviceId);
+    setControllerDeviceId(next.controller_device_id);
   }, [deviceId]);
 
-  const handleReleaseControl = useCallback(() => {
-    releaseControl(deviceId);
+  const handleReleaseControl = useCallback(async () => {
+    const next = await releaseControl(deviceId);
+    setControllerDeviceId(next.controller_device_id);
   }, [deviceId]);
 
   const handleDestroyTerminal = useCallback(
@@ -290,6 +298,7 @@ export function TerminalCanvas() {
         activeMachineId={activeMachineId}
         onSelectMachine={setActiveMachineId}
         machineStats={machineStats}
+        isMobile={isMobile}
         isController={isController}
         onRequestControl={handleRequestControl}
         onReleaseControl={handleReleaseControl}

@@ -4,6 +4,9 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 function makeTempDir() {
   return mkdtempSync(join(tmpdir(), "webmux-install-test-"));
@@ -62,7 +65,7 @@ exit 1
   );
 
   const result = spawnSync("/bin/sh", ["scripts/install.sh"], {
-    cwd: "/home/chareice/Projects/terminal-canvas/feature-macos-install-fix",
+    cwd: repoRoot,
     env: {
       ...process.env,
       HOME: tempDir,

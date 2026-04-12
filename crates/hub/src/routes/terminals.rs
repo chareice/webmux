@@ -30,38 +30,68 @@ fn default_rows() -> u16 {
 
 async fn list_machines(
     State(state): State<AppState>,
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
 ) -> Json<Vec<MachineInfo>> {
-    Json(state.manager.list_machines().await)
+    Json(state.manager.list_machines_for_user(&auth_user.user_id).await)
 }
 
 async fn list_all_terminals(
     State(state): State<AppState>,
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
 ) -> Json<Vec<TerminalInfo>> {
-    Json(state.manager.list_terminals(None).await)
+    Json(
+        state
+            .manager
+            .list_terminals_for_user(&auth_user.user_id, None)
+            .await,
+    )
 }
 
 async fn list_machine_terminals(
     State(state): State<AppState>,
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
     Path(machine_id): Path<String>,
-) -> Json<Vec<TerminalInfo>> {
-    Json(state.manager.list_terminals(Some(&machine_id)).await)
+) -> Result<Json<Vec<TerminalInfo>>, (StatusCode, String)> {
+    if !state
+        .manager
+        .user_can_access_machine(&auth_user.user_id, &machine_id)
+        .await
+    {
+        return Err((StatusCode::NOT_FOUND, "Machine not found".to_string()));
+    }
+
+    Ok(Json(
+        state
+            .manager
+            .list_terminals_for_user(&auth_user.user_id, Some(&machine_id))
+            .await,
+    ))
 }
 
 async fn create_terminal(
     State(state): State<AppState>,
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
     Path(machine_id): Path<String>,
     Json(req): Json<CreateTerminalRequest>,
 ) -> Result<Json<TerminalInfo>, (StatusCode, String)> {
+    if !state
+        .manager
+        .user_can_access_machine(&auth_user.user_id, &machine_id)
+        .await
+    {
+        return Err((StatusCode::NOT_FOUND, "Machine not found".to_string()));
+    }
+
     let startup_command = {
         let conn = state
             .db
             .get()
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?;
-        crate::db::settings::get_setting(&conn, "default_startup_command")
+        crate::db::settings::get_effective_setting(
+            &conn,
+            &auth_user.user_id,
+            "default_startup_command",
+        )
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {}", e)))?
     };
 
@@ -75,9 +105,17 @@ async fn create_terminal(
 
 async fn destroy_terminal(
     State(state): State<AppState>,
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
     Path((machine_id, terminal_id)): Path<(String, String)>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    if !state
+        .manager
+        .user_can_access_terminal(&auth_user.user_id, &machine_id, &terminal_id)
+        .await
+    {
+        return Err((StatusCode::NOT_FOUND, "Terminal not found".to_string()));
+    }
+
     state
         .manager
         .destroy_terminal(&machine_id, &terminal_id)
@@ -88,10 +126,18 @@ async fn destroy_terminal(
 
 async fn list_directory(
     State(state): State<AppState>,
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
     Path(machine_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<DirEntry>>, (StatusCode, String)> {
+    if !state
+        .manager
+        .user_can_access_machine(&auth_user.user_id, &machine_id)
+        .await
+    {
+        return Err((StatusCode::NOT_FOUND, "Machine not found".to_string()));
+    }
+
     let path = params.get("path").map(|s| s.as_str()).unwrap_or("~");
     state
         .manager
@@ -104,8 +150,16 @@ async fn list_directory(
 async fn get_machine_stats(
     Path(machine_id): Path<String>,
     State(state): State<AppState>,
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
 ) -> impl IntoResponse {
+    if !state
+        .manager
+        .user_can_access_machine(&auth_user.user_id, &machine_id)
+        .await
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
     match state.manager.get_machine_stats(&machine_id).await {
         Some(stats) => Json(stats).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),

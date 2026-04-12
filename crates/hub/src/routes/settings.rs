@@ -25,7 +25,7 @@ struct UpdateSettingsRequest {
 
 async fn get_settings(
     State(state): State<AppState>,
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
 ) -> Result<Json<SettingsResponse>, (StatusCode, Json<serde_json::Value>)> {
     let conn = state.db.get().map_err(|e| {
         (
@@ -34,7 +34,7 @@ async fn get_settings(
         )
     })?;
 
-    let pairs = db::settings::get_all_settings(&conn).map_err(|e| {
+    let pairs = db::settings::get_all_effective_settings(&conn, &auth_user.user_id).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("DB error: {e}")})),
@@ -48,7 +48,7 @@ async fn get_settings(
 
 async fn update_settings(
     State(state): State<AppState>,
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
     Json(req): Json<UpdateSettingsRequest>,
 ) -> Result<Json<SettingsResponse>, (StatusCode, Json<serde_json::Value>)> {
     let conn = state.db.get().map_err(|e| {
@@ -61,14 +61,14 @@ async fn update_settings(
     // Upsert each setting; delete if value is empty string
     for (key, value) in &req.settings {
         if value.is_empty() {
-            db::settings::delete_setting(&conn, key).map_err(|e| {
+            db::settings::delete_user_setting(&conn, &auth_user.user_id, key).map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({"error": format!("DB error: {e}")})),
                 )
             })?;
         } else {
-            db::settings::set_setting(&conn, key, value).map_err(|e| {
+            db::settings::set_user_setting(&conn, &auth_user.user_id, key, value).map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({"error": format!("DB error: {e}")})),
@@ -78,7 +78,7 @@ async fn update_settings(
     }
 
     // Return the updated full settings
-    let pairs = db::settings::get_all_settings(&conn).map_err(|e| {
+    let pairs = db::settings::get_all_effective_settings(&conn, &auth_user.user_id).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("DB error: {e}")})),

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createRegistrationToken } from "@/lib/api";
+import { isRegistrationTokenFresh } from "@/lib/tokenExpiry";
 import {
   buildOnboardingScript,
   getInstallCommand,
@@ -94,7 +95,7 @@ export function OnboardingView() {
   const generateToken = useCallback(async () => {
     // Reuse cached token if still valid (with 60s buffer)
     const cached = cachedRef.current;
-    if (cached && cached.expiresAt * 1000 > Date.now() + 60_000) {
+    if (cached && isRegistrationTokenFresh(cached.expiresAt)) {
       setToken(cached.token);
       return;
     }
