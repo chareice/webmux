@@ -1,6 +1,11 @@
 import { test, expect } from "@playwright/test";
 
-import { expectSingleTerminalCard, expandMachineSection, openApp } from "./helpers";
+import {
+  expectSingleTerminalCard,
+  expandMachineSection,
+  openApp,
+  resetMachineState,
+} from "./helpers";
 
 test("desktop control handoff stays in sync across browser sessions", async ({ browser }) => {
   const contextA = await browser.newContext({ viewport: { width: 1440, height: 960 } });
@@ -9,6 +14,7 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   const pageB = await contextB.newPage();
 
   await openApp(pageA);
+  await resetMachineState(pageA);
   await expandMachineSection(pageA);
 
   await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");

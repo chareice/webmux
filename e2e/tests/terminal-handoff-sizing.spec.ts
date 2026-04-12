@@ -5,6 +5,7 @@ import {
   expandMachineSection,
   listTerminals,
   openApp,
+  resetMachineState,
 } from "./helpers";
 
 test("terminal size stays stable across maximize and cross-device handoff until fit is requested", async ({
@@ -19,6 +20,7 @@ test("terminal size stays stable across maximize and cross-device handoff until 
   const mobilePage = await mobile.newPage();
 
   await openApp(desktopPage);
+  await resetMachineState(desktopPage);
   await expandMachineSection(desktopPage);
   await desktopPage.getByTestId("machine-request-control-e2e-node").click();
   await desktopPage.getByTestId("machine-bookmark-local-home").click();

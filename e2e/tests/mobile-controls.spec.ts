@@ -1,6 +1,11 @@
 import { test, expect, devices } from "@playwright/test";
 
-import { expectSingleTerminalCard, expandMachineSection, openApp } from "./helpers";
+import {
+  expectSingleTerminalCard,
+  expandMachineSection,
+  openApp,
+  resetMachineState,
+} from "./helpers";
 
 test.use({
   ...devices["iPhone 14"],
@@ -11,6 +16,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   const proofFile = `e2e-mobile-${Date.now().toString(36)}.txt`;
 
   await openApp(page);
+  await resetMachineState(page);
 
   await expect(page.getByTestId("mobile-sidebar-toggle")).toBeVisible();
   await expect(page.getByText("Tap ☰ to open a terminal")).toBeVisible();
