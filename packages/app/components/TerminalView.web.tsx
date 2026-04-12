@@ -8,6 +8,7 @@ import {
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
@@ -98,6 +99,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.loadAddon(new ClipboardAddon());
+      term.loadAddon(new WebLinksAddon());
       term.open(container);
 
       termRef.current = term;
