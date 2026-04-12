@@ -22,6 +22,19 @@ export interface DirEntry {
   is_dir: boolean
 }
 
+export interface DiskInfo {
+  mount_point: string
+  total_bytes: number
+  used_bytes: number
+}
+
+export interface ResourceStats {
+  cpu_percent: number
+  memory_total: number
+  memory_used: number
+  disks: DiskInfo[]
+}
+
 // ── Hub → Machine messages (discriminated union on "type") ──
 
 export type HubToMachine =
@@ -92,6 +105,7 @@ export type MachineToHub =
   | MachineToHub.TerminalOutput
   | MachineToHub.FsListResult
   | MachineToHub.FsListError
+  | MachineToHub.ResourceStatsMessage
   | MachineToHub.Pong
 
 export namespace MachineToHub {
@@ -142,6 +156,11 @@ export namespace MachineToHub {
     error: string
   }
 
+  export interface ResourceStatsMessage {
+    type: 'resource_stats'
+    stats: ResourceStats
+  }
+
   export interface Pong {
     type: 'pong'
   }
@@ -154,6 +173,7 @@ export type BrowserEvent =
   | BrowserEvent.MachineOffline
   | BrowserEvent.TerminalCreated
   | BrowserEvent.TerminalDestroyed
+  | BrowserEvent.MachineStats
 
 export namespace BrowserEvent {
   export interface MachineOnline {
@@ -175,6 +195,12 @@ export namespace BrowserEvent {
     type: 'terminal_destroyed'
     machine_id: string
     terminal_id: string
+  }
+
+  export interface MachineStats {
+    type: 'machine_stats'
+    machine_id: string
+    stats: ResourceStats
   }
 }
 
