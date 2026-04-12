@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useRef, useCallback } from "react";
 import type { MachineInfo, ResourceStats } from "@webmux/shared";
 import { getStatusBarLayout } from "./statusBarLayout";
+import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 interface StatusBarProps {
   machines: MachineInfo[];
@@ -116,6 +117,7 @@ function StatusBarComponent({
       : null;
   const diskPct = stats ? totalDiskPercent(stats.disks) : null;
   const canToggleMode = Boolean(activeMachineId);
+  const controlCopy = getTerminalControlCopy(isController);
   const statLabels = {
     cpu: "CPU",
     memory: isMobile ? "MEM" : "MEM",
@@ -304,7 +306,7 @@ function StatusBarComponent({
         />
         {layout.showModeLabel && (
           <span style={{ opacity: 0.9 }}>
-            {isController ? "Control" : "Watch"}
+            {controlCopy.modeLabel}
           </span>
         )}
         <button
@@ -328,7 +330,7 @@ function StatusBarComponent({
           }}
           disabled={!canToggleMode}
         >
-          {isController ? "Release" : "Take Control"}
+          {controlCopy.toggleLabel}
         </button>
       </div>
     </div>

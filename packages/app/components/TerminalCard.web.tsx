@@ -9,6 +9,7 @@ import {
   getMaximizedTerminalFrame,
 } from "./terminalLayout";
 import { terminalWsUrl } from "@/lib/api";
+import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 const LiveTerminalView = lazy(() =>
   import("./TerminalView.web").then((module) => ({
@@ -45,6 +46,7 @@ function TerminalCardComponent({
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [commandBarVisible, setCommandBarVisible] = useState(false);
   const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
+  const controlCopy = getTerminalControlCopy(isController);
 
   useEffect(() => {
     if (isController) {
@@ -166,8 +168,8 @@ function TerminalCardComponent({
               onMouseLeave={(e) => {
                 e.currentTarget.style.opacity = isController ? "0.6" : "0.3";
               }}
-              title={isController ? "Close terminal" : "Watch mode - cannot close"}
-              aria-label={isController ? "Close terminal" : "Watch mode - cannot close"}
+              title={isController ? "Close terminal" : "View only - cannot close"}
+              aria-label={isController ? "Close terminal" : "View only - cannot close"}
             >
               <X size={14} aria-hidden />
             </button>
@@ -205,21 +207,6 @@ function TerminalCardComponent({
             >
               {terminal.title}
             </span>
-            {/* Watch mode badge */}
-            {maximized && !isController && (
-              <span style={{
-                fontSize: 10,
-                color: 'rgb(122, 143, 166)',
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgb(26, 58, 92)',
-                borderRadius: 4,
-                padding: '1px 6px',
-                marginLeft: 4,
-                flexShrink: 0,
-              }}>
-                Watch Mode
-              </span>
-            )}
           </div>
 
           {/* Right: maximize/minimize + mode controls */}
@@ -244,7 +231,7 @@ function TerminalCardComponent({
                         padding: isMobile ? "10px 8px" : "2px 4px",
                       }}
                     >
-                      Fit Here
+                      {controlCopy.sizeActionLabel}
                     </button>
                     <span style={{
                       width: 1, height: 14,
@@ -274,7 +261,7 @@ function TerminalCardComponent({
                     padding: isMobile ? '10px 8px' : '2px 4px',
                   }}
                 >
-                  {isController ? 'Release' : 'Take Control'}
+                  {controlCopy.toggleLabel}
                 </button>
                 <span style={{
                   width: 1, height: 14,
@@ -301,7 +288,7 @@ function TerminalCardComponent({
                 title="Fit terminal here"
                 aria-label="Fit terminal here"
               >
-                Fit Here
+                {controlCopy.sizeActionLabel}
               </button>
             )}
             {!maximized && (
@@ -413,6 +400,7 @@ function TerminalCardComponent({
                   wsUrl={wsUrl}
                   cols={terminal.cols}
                   rows={terminal.rows}
+                  displayMode={maximized ? "immersive" : "card"}
                   isController={isController}
                   canResizeTerminal={maximized && isController}
                   style={

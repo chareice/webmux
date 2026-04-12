@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { MachineInfo, ResourceStats, TerminalInfo } from "@webmux/shared";
 import { TerminalCard } from "./TerminalCard.web";
+import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 interface CanvasProps {
   machines: MachineInfo[];
@@ -39,6 +40,7 @@ function CanvasComponent({
     ? machines.find((machine) => machine.id === activeMachineId) ?? null
     : machines[0] ?? null;
   const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
+  const controlCopy = getTerminalControlCopy(isActiveController);
 
   return (
     <main
@@ -125,7 +127,7 @@ function CanvasComponent({
                       : "rgb(255, 193, 7)",
                   }}
                 />
-                {isActiveController ? "Control Mode" : "Watch Mode"}
+                {controlCopy.modeLabel}
               </span>
             </div>
           </div>
@@ -184,7 +186,7 @@ function CanvasComponent({
                   padding: "10px 16px",
                 }}
               >
-                {isActiveController ? "Release Control" : "Take Control"}
+                {controlCopy.toggleLabel}
               </button>
             )}
           </div>

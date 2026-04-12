@@ -12,6 +12,7 @@ export interface TerminalViewProps {
   wsUrl: string;
   cols: number;
   rows: number;
+  displayMode?: "card" | "immersive";
   isController?: boolean;
   canResizeTerminal?: boolean;
   onTitleChange?: (title: string) => void;
