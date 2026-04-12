@@ -1,9 +1,9 @@
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 
 const OUTPUT_BUFFER_SIZE: usize = 64 * 1024;
 const BROADCAST_CAPACITY: usize = 256;
@@ -40,10 +40,14 @@ struct PersistedSession {
 pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>,
     use_tmux: bool,
+    detach_tx: mpsc::UnboundedSender<String>,
 }
 
 impl PtyManager {
-    pub fn new() -> Self {
+    /// Create a new PtyManager. Returns the manager and a receiver for
+    /// detach notifications — when a tmux attach process dies, the
+    /// terminal ID is sent through this channel.
+    pub fn new() -> (Self, mpsc::UnboundedReceiver<String>) {
         let use_tmux = check_tmux_available();
         if use_tmux {
             tracing::info!("tmux available — terminal sessions will persist across restarts");
@@ -51,10 +55,13 @@ impl PtyManager {
         } else {
             tracing::warn!("tmux not found — terminal sessions will NOT persist across restarts");
         }
-        Self {
+        let (detach_tx, detach_rx) = mpsc::unbounded_channel();
+        let mgr = Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             use_tmux,
-        }
+            detach_tx,
+        };
+        (mgr, detach_rx)
     }
 
     // ── Public API ──────────────────────────────────────────────────
@@ -206,6 +213,114 @@ impl PtyManager {
         recovered
     }
 
+    /// Re-attach to a tmux session after the attach process died.
+    /// Reuses the existing broadcast channel so hub forwarding stays intact.
+    pub fn reattach_tmux(&self, id: &str) -> Result<(), String> {
+        let tmux_name = tmux_session_name(id);
+
+        // Check if the tmux session is still alive
+        let alive = tmux_list_sessions();
+        if !alive.contains(&tmux_name) {
+            // tmux session is gone — remove from sessions and persist
+            let removed = self
+                .sessions
+                .lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?
+                .remove(id);
+            if removed.is_some() {
+                self.persist();
+                tracing::info!("tmux session {} gone, removed terminal {}", tmux_name, id);
+            }
+            return Err(format!("tmux session {} no longer exists", tmux_name));
+        }
+
+        // Get session info and existing broadcast channel from the current session
+        let (info, output_tx, output_buffer) = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            let session = sessions
+                .get(id)
+                .ok_or_else(|| format!("Terminal {} not found", id))?;
+            if !session.tmux_backed {
+                return Err(format!("Terminal {} is not tmux-backed", id));
+            }
+            (
+                session.info.clone(),
+                session.output_tx.clone(),
+                session.output_buffer.clone(),
+            )
+        };
+
+        // Detach any stale clients before re-attaching
+        let _ = tmux_cmd()
+            .args(["-L", TMUX_SOCKET, "detach-client", "-s", &tmux_name, "-a"])
+            .status();
+
+        // Open a new PTY and spawn a fresh tmux attach
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: info.rows,
+                cols: info.cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| format!("Failed to open pty: {}", e))?;
+
+        let mut cmd = CommandBuilder::new("tmux");
+        cmd.args(["-L", TMUX_SOCKET, "attach-session", "-t", &tmux_name]);
+        let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
+        cmd.env("TERM", term);
+
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| format!("Failed to spawn tmux attach: {}", e))?;
+        drop(pair.slave);
+
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|e| format!("Failed to get writer: {}", e))?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|e| format!("Failed to get reader: {}", e))?;
+
+        // Spawn reader thread reusing the EXISTING broadcast channel
+        spawn_reader_thread(
+            reader,
+            output_tx.clone(),
+            output_buffer.clone(),
+            Some(DetachNotifier {
+                session_id: id.to_string(),
+                tx: self.detach_tx.clone(),
+            }),
+            Some(child),
+        );
+
+        // Replace master and writer in the existing session (channel stays the same)
+        {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?;
+            if let Some(session) = sessions.get_mut(id) {
+                session.master = pair.master;
+                session.writer = writer;
+            }
+        }
+
+        // Refresh the terminal display
+        self.clear_output_buffer(id);
+        let _ = self.write_to_terminal(id, b"\x0c");
+
+        tracing::info!("Re-attached terminal {} (tmux {})", id, tmux_name);
+        Ok(())
+    }
+
     // ── tmux-backed terminal ────────────────────────────────────────
 
     fn create_terminal_tmux(
@@ -298,7 +413,8 @@ impl PtyManager {
         let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
         cmd.env("TERM", term);
 
-        pair.slave
+        let child = pair
+            .slave
             .spawn_command(cmd)
             .map_err(|e| format!("Failed to spawn tmux attach: {}", e))?;
         drop(pair.slave);
@@ -323,7 +439,16 @@ impl PtyManager {
         let (output_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
 
-        spawn_reader_thread(reader, output_tx.clone(), output_buffer.clone());
+        spawn_reader_thread(
+            reader,
+            output_tx.clone(),
+            output_buffer.clone(),
+            Some(DetachNotifier {
+                session_id: id.to_string(),
+                tx: self.detach_tx.clone(),
+            }),
+            Some(child),
+        );
 
         let session = PtySession {
             master: pair.master,
@@ -367,7 +492,8 @@ impl PtyManager {
         let mut cmd = CommandBuilder::new(&shell);
         cmd.cwd(&resolved_cwd);
 
-        pair.slave
+        let child = pair
+            .slave
             .spawn_command(cmd)
             .map_err(|e| format!("Failed to spawn command: {}", e))?;
         drop(pair.slave);
@@ -392,7 +518,8 @@ impl PtyManager {
         let (output_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
 
-        spawn_reader_thread(reader, output_tx.clone(), output_buffer.clone());
+        // Direct PTY sessions don't need detach notification (no tmux to re-attach to)
+        spawn_reader_thread(reader, output_tx.clone(), output_buffer.clone(), None, Some(child));
 
         let session = PtySession {
             master: pair.master,
@@ -444,10 +571,18 @@ impl PtyManager {
 
 // ── Free helpers ────────────────────────────────────────────────────
 
+/// Notifies PtyManager when a reader thread exits (tmux attach died).
+struct DetachNotifier {
+    session_id: String,
+    tx: mpsc::UnboundedSender<String>,
+}
+
 fn spawn_reader_thread(
     reader: Box<dyn Read + Send>,
     output_tx: broadcast::Sender<Vec<u8>>,
     output_buffer: Arc<Mutex<Vec<u8>>>,
+    detach: Option<DetachNotifier>,
+    child: Option<Box<dyn Child + Send + Sync>>,
 ) {
     std::thread::spawn(move || {
         let mut reader = reader;
@@ -469,6 +604,16 @@ fn spawn_reader_thread(
                 }
                 Err(_) => break,
             }
+        }
+
+        // Reap the child process to prevent zombies
+        if let Some(mut child) = child {
+            let _ = child.wait();
+        }
+
+        // Notify PtyManager that this tmux attach died
+        if let Some(notifier) = detach {
+            let _ = notifier.tx.send(notifier.session_id);
         }
     });
 }

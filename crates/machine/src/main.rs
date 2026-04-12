@@ -250,13 +250,43 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
         ws_url
     );
 
-    let pty_manager = Arc::new(pty::PtyManager::new());
+    let (pty_manager, mut detach_rx) = pty::PtyManager::new();
+    let pty_manager = Arc::new(pty_manager);
 
     // Recover tmux-backed terminals from previous run
     let recovered = pty_manager.recover_sessions();
     if !recovered.is_empty() {
         tracing::info!("Recovered {} terminals from previous session", recovered.len());
     }
+
+    // Spawn background task to auto-reattach tmux sessions when attach process dies
+    let pty_for_reattach = pty_manager.clone();
+    tokio::spawn(async move {
+        while let Some(terminal_id) = detach_rx.recv().await {
+            tracing::warn!("tmux attach died for terminal {}, attempting re-attach", terminal_id);
+            // Brief delay to let the old process fully exit
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+            const MAX_RETRIES: u32 = 3;
+            for attempt in 1..=MAX_RETRIES {
+                match pty_for_reattach.reattach_tmux(&terminal_id) {
+                    Ok(()) => {
+                        tracing::info!("Re-attached terminal {} (attempt {})", terminal_id, attempt);
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Re-attach failed for terminal {} (attempt {}/{}): {}",
+                            terminal_id, attempt, MAX_RETRIES, e
+                        );
+                        if attempt < MAX_RETRIES {
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        }
+                    }
+                }
+            }
+        }
+    });
 
     let conn = hub_conn::HubConnection {
         machine_id,
