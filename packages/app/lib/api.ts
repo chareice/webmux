@@ -137,6 +137,41 @@ export const releaseControl = (machineId: string, deviceId: string) =>
     machine_id: machineId,
     device_id: deviceId,
   });
+export function releaseControlKeepalive(
+  machineId: string,
+  deviceId: string,
+): void {
+  if (!_token) {
+    return;
+  }
+
+  const body = JSON.stringify({
+    machine_id: machineId,
+    device_id: deviceId,
+  });
+  const url =
+    `${_baseUrl}/api/mode/release-beacon?token=${encodeURIComponent(_token)}`;
+  if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+    const queued = navigator.sendBeacon(
+      url,
+      new Blob([body], { type: "application/json" }),
+    );
+    if (queued) {
+      return;
+    }
+  }
+
+  void fetch(url, {
+    method: "POST",
+    keepalive: true,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body,
+  }).catch(() => {
+    /* ignore unload races */
+  });
+}
 
 // Machine Stats
 export const getMachineStats = (machineId: string) =>

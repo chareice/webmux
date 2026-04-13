@@ -9,9 +9,9 @@
     "typecheck": "tsc -b",
     "e2e:up": "docker compose -f e2e/docker-compose.yml up -d --build hub node",
     "e2e:down": "docker compose -f e2e/docker-compose.yml down --remove-orphans",
-    "e2e:test:host": "playwright test",
     "e2e:test": "./e2e/run-in-docker.sh",
-    "e2e:ci": "./e2e/run-in-docker.sh"
+    "e2e:ci": "./e2e/run-in-docker.sh",
+    "e2e:test:debug-host": "playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

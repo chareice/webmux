@@ -1,5 +1,6 @@
-use crate::{auth::AuthUser, AppState};
+use crate::{auth, auth::AuthUser, AppState};
 use axum::{
+    body::Bytes,
     extract::{Query, State},
     http::StatusCode,
     routing::{get, post},
@@ -86,9 +87,43 @@ async fn release_control(
     }))
 }
 
+async fn release_control_beacon(
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+    body: Bytes,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let token = params
+        .get("token")
+        .ok_or((StatusCode::BAD_REQUEST, "token is required".to_string()))?;
+
+    let user_id = auth::verify_bearer_token(token, &state.db, &state.jwt_secret)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid token".to_string()))?;
+
+    let body: ModeRequest = serde_json::from_slice(&body).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "request body is invalid".to_string(),
+        )
+    })?;
+
+    if !state
+        .manager
+        .user_can_access_machine(&user_id, &body.machine_id)
+        .await
+    {
+        return Err((StatusCode::NOT_FOUND, "Machine not found".to_string()));
+    }
+
+    state
+        .manager
+        .release_control(&user_id, &body.machine_id, &body.device_id);
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/mode", get(get_mode))
         .route("/api/mode/control", post(request_control))
         .route("/api/mode/release", post(release_control))
+        .route("/api/mode/release-beacon", post(release_control_beacon))
 }

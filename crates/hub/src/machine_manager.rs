@@ -2,6 +2,7 @@ use bytes::Bytes;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tc_protocol::{
     BrowserEvent, BrowserEventEnvelope, BrowserStateSnapshot, ControlLeaseSnapshot, DirEntry,
     HubToMachine, MachineInfo, MachineStatsSnapshot, MachineToHub, TerminalInfo,
@@ -10,7 +11,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 
 struct ModeState {
     control_leases: HashMap<String, String>,
-    connected_devices: HashSet<String>,
+    connected_devices: HashMap<String, usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -97,18 +98,11 @@ impl MachineManager {
         self.event_tx.subscribe()
     }
 
-    pub fn subscribe_events_after(
-        &self,
-        user_id: &str,
-        after_seq: u64,
-    ) -> EventSubscription {
+    pub fn subscribe_events_after(&self, user_id: &str, after_seq: u64) -> EventSubscription {
         self.build_event_subscription(Some(user_id), after_seq)
     }
 
-    pub fn subscribe_public_events_after(
-        &self,
-        after_seq: u64,
-    ) -> EventSubscription {
+    pub fn subscribe_public_events_after(&self, after_seq: u64) -> EventSubscription {
         self.build_event_subscription(None, after_seq)
     }
 
@@ -710,12 +704,7 @@ impl MachineManager {
         }
     }
 
-    pub async fn handle_terminal_output(
-        &self,
-        machine_id: &str,
-        terminal_id: &str,
-        bytes: Bytes,
-    ) {
+    pub async fn handle_terminal_output(&self, machine_id: &str, terminal_id: &str, bytes: Bytes) {
         let mut machines = self.machines.lock().await;
         if let Some(conn) = machines.get_mut(machine_id) {
             let buf = conn
@@ -734,44 +723,71 @@ impl MachineManager {
     }
 
     pub fn register_device(&self, user_id: &str, device_id: &str) {
-        self.mode
-            .lock()
-            .unwrap()
+        let mut mode_by_user = self.mode.lock().unwrap();
+        let mode = mode_by_user
             .entry(user_id.to_string())
-            .or_insert_with(new_mode_state)
+            .or_insert_with(new_mode_state);
+        *mode
             .connected_devices
-            .insert(device_id.to_string());
+            .entry(device_id.to_string())
+            .or_insert(0) += 1;
     }
 
     pub fn unregister_device(&self, user_id: &str, device_id: &str) {
         let mut mode_by_user = self.mode.lock().unwrap();
         if let Some(mode) = mode_by_user.get_mut(user_id) {
-            mode.connected_devices.remove(device_id);
-            let released_machines: Vec<_> = mode
-                .control_leases
-                .iter()
-                .filter_map(|(machine_id, controller_device_id)| {
-                    if controller_device_id == device_id {
-                        Some(machine_id.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            for machine_id in released_machines {
-                mode.control_leases.remove(&machine_id);
-                self.send_event(
-                    Some(user_id.to_string()),
-                    BrowserEvent::ModeChanged {
-                        machine_id,
-                        controller_device_id: None,
-                    },
-                );
+            let mut release_control = false;
+
+            if let Some(count) = mode.connected_devices.get_mut(device_id) {
+                if *count > 1 {
+                    *count -= 1;
+                } else {
+                    mode.connected_devices.remove(device_id);
+                    release_control = true;
+                }
             }
+
+            if release_control {
+                let released_machines: Vec<_> = mode
+                    .control_leases
+                    .iter()
+                    .filter_map(|(machine_id, controller_device_id)| {
+                        if controller_device_id == device_id {
+                            Some(machine_id.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                for machine_id in released_machines {
+                    mode.control_leases.remove(&machine_id);
+                    self.send_event(
+                        Some(user_id.to_string()),
+                        BrowserEvent::ModeChanged {
+                            machine_id,
+                            controller_device_id: None,
+                        },
+                    );
+                }
+            }
+
             if mode.connected_devices.is_empty() && mode.control_leases.is_empty() {
                 mode_by_user.remove(user_id);
             }
         }
+    }
+
+    pub fn schedule_unregister_device(
+        self: &Arc<Self>,
+        user_id: String,
+        device_id: String,
+        grace_period: Duration,
+    ) {
+        let manager = Arc::clone(self);
+        tokio::spawn(async move {
+            tokio::time::sleep(grace_period).await;
+            manager.unregister_device(&user_id, &device_id);
+        });
     }
 
     pub fn request_control(&self, user_id: &str, machine_id: &str, device_id: &str) {
@@ -913,10 +929,7 @@ impl MachineManager {
         request_id: &str,
     ) -> oneshot::Receiver<Result<PendingResult, String>> {
         let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .await
-            .insert(request_id.to_string(), tx);
+        self.pending.lock().await.insert(request_id.to_string(), tx);
         rx
     }
 
@@ -924,11 +937,7 @@ impl MachineManager {
         self.pending.lock().await.remove(request_id);
     }
 
-    fn build_event_subscription(
-        &self,
-        user_id: Option<&str>,
-        after_seq: u64,
-    ) -> EventSubscription {
+    fn build_event_subscription(&self, user_id: Option<&str>, after_seq: u64) -> EventSubscription {
         let rx = self.event_tx.subscribe();
         let history = self.event_history.lock().unwrap();
         let requires_resync = history_has_gap_after_seq(&history, after_seq);
@@ -961,7 +970,7 @@ impl MachineManager {
 fn new_mode_state() -> ModeState {
     ModeState {
         control_leases: HashMap::new(),
-        connected_devices: HashSet::new(),
+        connected_devices: HashMap::new(),
     }
 }
 
@@ -1123,6 +1132,47 @@ mod tests {
         manager.unregister_device("user-a", "device-a");
 
         assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+    }
+
+    #[tokio::test]
+    async fn scheduled_disconnect_releases_control_after_grace_period() {
+        let manager = Arc::new(MachineManager::new());
+
+        manager.register_device("user-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-a");
+
+        manager.schedule_unregister_device(
+            "user-a".to_string(),
+            "device-a".to_string(),
+            Duration::from_millis(10),
+        );
+
+        tokio::time::sleep(Duration::from_millis(25)).await;
+
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+    }
+
+    #[tokio::test]
+    async fn reconnect_before_scheduled_disconnect_keeps_control() {
+        let manager = Arc::new(MachineManager::new());
+
+        manager.register_device("user-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-a");
+
+        manager.schedule_unregister_device(
+            "user-a".to_string(),
+            "device-a".to_string(),
+            Duration::from_millis(20),
+        );
+
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        manager.register_device("user-a", "device-a");
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        assert_eq!(
+            manager.get_controller("user-a", "machine-a"),
+            Some("device-a".to_string())
+        );
     }
 
     #[tokio::test]
