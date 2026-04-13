@@ -15,6 +15,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
 import { createOrderedBinaryOutputQueue } from "@/lib/orderedBinaryOutput.mjs";
+import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 import { buildResizeMessage } from "@/lib/terminalResize";
 import {
   getTerminalFitDimensions,
@@ -120,6 +121,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const measureRafRef = useRef<number | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
+    const [sessionGeneration, setSessionGeneration] = useState(0);
     const viewportSizeRef = useRef(viewportSize);
     const surfaceSizeRef = useRef(surfaceSize);
 
@@ -243,6 +245,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     useEffect(() => {
       const container = containerRef.current;
       if (!container) return;
+      let disposed = false;
 
       const fontFamily = detectAvailableFont();
 
@@ -306,6 +309,17 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
+      const reconnectController = createTerminalReconnectController<number>({
+        delayMs: 1000,
+        openReadyState: WebSocket.OPEN,
+        onReconnect: () => {
+          if (!disposed) {
+            setSessionGeneration((value) => value + 1);
+          }
+        },
+        schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+        cancel: (timerId) => window.clearTimeout(timerId),
+      });
 
       let pendingChunks: Uint8Array[] = [];
       let pendingBytes = 0;
@@ -367,7 +381,40 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
       };
 
-      ws.onopen = () => {};
+      const refreshTerminalSurface = () => {
+        term.refresh(0, Math.max(term.rows - 1, 0));
+        scheduleMeasure();
+      };
+
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === "visible") {
+          refreshTerminalSurface();
+        }
+        reconnectController.handleVisibilityChange(
+          document.visibilityState,
+          ws.readyState,
+        );
+      };
+
+      const handlePageShow = () => {
+        refreshTerminalSurface();
+        reconnectController.handleVisibilityChange("visible", ws.readyState);
+      };
+
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      window.addEventListener("pageshow", handlePageShow);
+
+      ws.onopen = () => {
+        reconnectController.handleSocketOpen();
+        refreshTerminalSurface();
+      };
+
+      ws.onclose = () => {
+        if (disposed) {
+          return;
+        }
+        reconnectController.scheduleReconnect();
+      };
 
       term.onData((data) => {
         if (ws.readyState === WebSocket.OPEN && isControllerRef.current) {
@@ -534,6 +581,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       }
 
       return () => {
+        disposed = true;
+        reconnectController.cancelReconnect();
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        window.removeEventListener("pageshow", handlePageShow);
         resizeObserver.disconnect();
         if (measureRafRef.current) {
           cancelAnimationFrame(measureRafRef.current);
@@ -543,10 +594,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         container.removeEventListener("paste", handlePaste);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
+        ws.onclose = null;
         ws.close();
         term.dispose();
       };
-    }, [scheduleMeasure, wsUrl]);
+    }, [scheduleMeasure, sessionGeneration, wsUrl]);
 
     useEffect(() => {
       const term = termRef.current;

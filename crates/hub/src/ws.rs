@@ -10,11 +10,28 @@ use axum::{
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::Duration;
 use tc_protocol::{decode_terminal_output_frame, BrowserEventEnvelope, HubToMachine, MachineToHub};
 
 use crate::auth;
 use crate::db;
 use crate::AppState;
+
+const DEVICE_DISCONNECT_GRACE_PERIOD: Duration = Duration::from_secs(10);
+
+fn schedule_device_disconnect_cleanup(
+    state: &AppState,
+    session_user_id: Option<&str>,
+    device_id: &str,
+) {
+    if let (Some(user_id), false) = (session_user_id, device_id.is_empty()) {
+        state.manager.schedule_unregister_device(
+            user_id.to_string(),
+            device_id.to_string(),
+            DEVICE_DISCONNECT_GRACE_PERIOD,
+        );
+    }
+}
 
 // ── Browser ↔ Hub terminal WebSocket ──
 
@@ -446,6 +463,7 @@ async fn handle_events(
         state.manager.subscribe_public_events_after(after_seq)
     };
     if subscription.requires_resync {
+        schedule_device_disconnect_cleanup(&state, session_user_id.as_deref(), &device_id);
         return;
     }
     let replay = subscription.replay;
@@ -484,7 +502,11 @@ async fn handle_events(
                     tracing::warn!(
                         "Events stream lagged by {} messages for device {}, forcing resync",
                         skipped,
-                        if lag_device_id.is_empty() { "<unknown>" } else { &lag_device_id }
+                        if lag_device_id.is_empty() {
+                            "<unknown>"
+                        } else {
+                            &lag_device_id
+                        }
                     );
                     break;
                 }
@@ -506,9 +528,7 @@ async fn handle_events(
         _ = recv_task => {},
     }
 
-    if let (Some(user_id), false) = (session_user_id.as_deref(), device_id.is_empty()) {
-        state.manager.unregister_device(user_id, &device_id);
-    }
+    schedule_device_disconnect_cleanup(&state, session_user_id.as_deref(), &device_id);
 }
 
 pub fn router() -> Router<AppState> {

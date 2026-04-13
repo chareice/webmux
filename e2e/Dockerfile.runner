@@ -1,4 +1,4 @@
-FROM node:22-bookworm
+FROM mcr.microsoft.com/playwright:v1.59.1-noble
 
 RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
 
@@ -9,7 +9,6 @@ COPY packages/app/package.json packages/app/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
 RUN pnpm install --frozen-lockfile
-RUN pnpm exec playwright install --with-deps chromium
 
 COPY e2e e2e
 

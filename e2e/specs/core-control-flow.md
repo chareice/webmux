@@ -34,4 +34,4 @@
    **eval:** After reload, session A still shows the empty state "Select a directory to open a terminal" and the top-right button "Take Control".
 
 9. **action:** In browser session B, reload the page
-   **eval:** After reload, session B also shows the empty state "Select a directory to open a terminal" and the top-right button "Take Control", because control is released when the page disconnects.
+   **eval:** After reload, session B also shows the empty state "Select a directory to open a terminal" and the top-right button "Take Control", because a full page reload is treated as leaving control.

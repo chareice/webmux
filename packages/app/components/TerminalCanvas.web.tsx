@@ -9,6 +9,7 @@ import {
   getBootstrap,
   requestControl,
   releaseControl,
+  releaseControlKeepalive,
 } from "@/lib/api";
 import {
   applyBootstrapSnapshot,
@@ -18,6 +19,10 @@ import {
 } from "@/lib/bootstrapState";
 import { getPersistentDeviceId } from "@/lib/deviceId";
 import { useIsMobile } from "@/lib/hooks";
+import {
+  storePendingControlRelease,
+  takePendingControlRelease,
+} from "@/lib/unloadControlRelease";
 
 const Sidebar = lazy(() =>
   import("./Sidebar").then((module) => ({ default: module.Sidebar })),
@@ -142,6 +147,60 @@ export function TerminalCanvas() {
       if (retryTimer) clearTimeout(retryTimer);
     };
   }, [deviceId, reconnectGeneration]);
+
+  useEffect(() => {
+    if (!deviceId) return;
+
+    let cancelled = false;
+    const pendingMachineIds = takePendingControlRelease(window.sessionStorage);
+    if (pendingMachineIds.length === 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void Promise.allSettled(
+      pendingMachineIds.map((machineId) => releaseControl(machineId, deviceId)),
+    ).finally(() => {
+      if (!cancelled) {
+        setReconnectGeneration((value) => value + 1);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceId]);
+
+  useEffect(() => {
+    if (!deviceId) return;
+
+    const releaseControlledMachines = () => {
+      const controlledMachineIds = Object.entries(controlLeases)
+        .filter(([, controllerDeviceId]) => controllerDeviceId === deviceId)
+        .map(([machineId]) => machineId);
+
+      storePendingControlRelease(window.sessionStorage, controlledMachineIds);
+
+      for (const machineId of controlledMachineIds) {
+        releaseControlKeepalive(machineId, deviceId);
+      }
+    };
+
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        return;
+      }
+      releaseControlledMachines();
+    };
+
+    window.addEventListener("beforeunload", releaseControlledMachines);
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("beforeunload", releaseControlledMachines);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [controlLeases, deviceId]);
 
   // Events WebSocket for live updates
   useEffect(() => {
