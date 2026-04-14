@@ -1,6 +1,6 @@
 import { isTauri } from "./platform";
 
-const SERVER_URL_KEY = "webmux_server_url";
+const SERVER_URL_KEY = "webmux:server_url";
 
 export function getServerUrl(): string {
   if (!isTauri()) {

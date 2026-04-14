@@ -180,8 +180,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback((provider: "github" | "google") => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      // Same-origin redirect to backend OAuth endpoint
-      window.location.href = `/api/auth/${provider}`;
+      const base = getServerUrl();
+      window.location.href = `${base}/api/auth/${provider}`;
     }
   }, []);
 

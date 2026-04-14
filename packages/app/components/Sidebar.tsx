@@ -1059,7 +1059,7 @@ function SettingsSection() {
             placeholder="e.g. tmux new-session"
             placeholderTextColor="rgb(74, 97, 120)"
           />
-          {!isTauri() && (
+          {!isTauri() && Platform.OS === "web" && (
             <Pressable
               onPress={() => {
                 const url = getDesktopReleasesUrl("chareice/webmux");
