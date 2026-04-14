@@ -12,6 +12,7 @@ import { Platform } from "react-native";
 import { configure, devLogin, getMe } from "./api";
 import type { User } from "@webmux/shared";
 import { storage } from "./storage";
+import { getServerUrl } from "./serverUrl";
 
 export type { User };
 
@@ -84,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           cleanTokenFromUrl();
           await storage.set(TOKEN_KEY, urlToken);
           if (!cancelled) {
-            configure("", urlToken);
+            configure(getServerUrl(), urlToken);
             setToken(urlToken);
           }
           return;
@@ -94,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const storedToken = await storage.get(TOKEN_KEY);
         if (storedToken) {
           if (!cancelled) {
-            configure("", storedToken);
+            configure(getServerUrl(), storedToken);
             setToken(storedToken);
           }
           return;
@@ -107,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (result?.token) {
               await storage.set(TOKEN_KEY, result.token);
               if (!cancelled) {
-                configure("", result.token);
+                configure(getServerUrl(), result.token);
                 setToken(result.token);
               }
               return;
@@ -159,7 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Token invalid or expired — clear session
         await storage.remove(TOKEN_KEY);
         if (!cancelled) {
-          configure("", null);
+          configure(getServerUrl(), null);
           setToken(null);
           setUser(null);
         }
@@ -179,14 +180,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback((provider: "github" | "google") => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      // Same-origin redirect to backend OAuth endpoint
-      window.location.href = `/api/auth/${provider}`;
+      const base = getServerUrl();
+      window.location.href = `${base}/api/auth/${provider}`;
     }
   }, []);
 
   const logout = useCallback(async () => {
     await storage.remove(TOKEN_KEY);
-    configure("", null);
+    configure(getServerUrl(), null);
     setToken(null);
     setUser(null);
   }, []);

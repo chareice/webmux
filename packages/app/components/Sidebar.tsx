@@ -33,6 +33,8 @@ import {
   getTokenActionLabel,
   shouldGenerateRegistrationToken,
 } from "@/lib/onboardingFlow";
+import { isTauri, getDesktopReleasesUrl } from "@/lib/platform";
+import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import { shouldLoadMachineBookmarks } from "@/lib/sidebarSections";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
@@ -986,6 +988,46 @@ function SettingsSection() {
 
       {expanded && (
         <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+          {isTauri() && (
+            <View style={{ marginBottom: 12 }}>
+              <Text
+                style={{
+                  fontSize: 11,
+                  color: "rgb(122, 143, 166)",
+                  marginBottom: 6,
+                }}
+              >
+                Server URL
+              </Text>
+              <TextInput
+                defaultValue={getServerUrl()}
+                onBlur={(e: any) => {
+                  const value = e.nativeEvent?.text || e.target?.value || "";
+                  setServerUrl(value);
+                  window.location.reload();
+                }}
+                onKeyPress={(e: any) => {
+                  if (e.nativeEvent?.key === "Enter") {
+                    const value = e.target?.value || "";
+                    setServerUrl(value);
+                    window.location.reload();
+                  }
+                }}
+                placeholder="https://your-server:4317"
+                placeholderTextColor="rgb(74, 97, 120)"
+                style={{
+                  backgroundColor: "rgb(17, 42, 69)",
+                  borderWidth: 1,
+                  borderColor: "rgb(26, 58, 92)",
+                  borderRadius: 4,
+                  color: "rgb(224, 232, 240)",
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  fontSize: 12,
+                }}
+              />
+            </View>
+          )}
           <Text
             style={{
               fontSize: 11,
@@ -1017,6 +1059,37 @@ function SettingsSection() {
             placeholder="e.g. tmux new-session"
             placeholderTextColor="rgb(74, 97, 120)"
           />
+          {!isTauri() && Platform.OS === "web" && (
+            <Pressable
+              onPress={() => {
+                const url = getDesktopReleasesUrl("chareice/webmux");
+                if (typeof window !== "undefined") {
+                  window.open(url, "_blank");
+                }
+              }}
+              style={({ pressed }) => ({
+                marginTop: 12,
+                paddingVertical: 8,
+                paddingHorizontal: 10,
+                borderRadius: 6,
+                backgroundColor: pressed
+                  ? "rgba(74, 97, 120, 0.3)"
+                  : "rgba(74, 97, 120, 0.15)",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+              })}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: "rgb(122, 143, 166)",
+                }}
+              >
+                {"\u2193"} Download Desktop App
+              </Text>
+            </Pressable>
+          )}
         </View>
       )}
     </View>
