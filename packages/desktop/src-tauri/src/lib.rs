@@ -1,7 +1,7 @@
 mod tray;
 
 use tauri::Manager;
-use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -17,7 +17,7 @@ pub fn run() {
                 .with_shortcut(shortcut)
                 .expect("failed to register shortcut")
                 .with_handler(|app, _shortcut, event| {
-                    if event == ShortcutState::Pressed {
+                    if event == ShortcutEvent::Pressed {
                         if let Some(win) = app.get_webview_window("main") {
                             if win.is_visible().unwrap_or(false) {
                                 let _ = win.hide();
