@@ -34,6 +34,7 @@ import {
   shouldGenerateRegistrationToken,
 } from "@/lib/onboardingFlow";
 import { isTauri, getDesktopReleasesUrl } from "@/lib/platform";
+import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import { shouldLoadMachineBookmarks } from "@/lib/sidebarSections";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
@@ -987,6 +988,46 @@ function SettingsSection() {
 
       {expanded && (
         <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+          {isTauri() && (
+            <View style={{ marginBottom: 12 }}>
+              <Text
+                style={{
+                  fontSize: 11,
+                  color: "rgb(122, 143, 166)",
+                  marginBottom: 6,
+                }}
+              >
+                Server URL
+              </Text>
+              <TextInput
+                defaultValue={getServerUrl()}
+                onBlur={(e: any) => {
+                  const value = e.nativeEvent?.text || e.target?.value || "";
+                  setServerUrl(value);
+                  window.location.reload();
+                }}
+                onKeyPress={(e: any) => {
+                  if (e.nativeEvent?.key === "Enter") {
+                    const value = e.target?.value || "";
+                    setServerUrl(value);
+                    window.location.reload();
+                  }
+                }}
+                placeholder="https://your-server:4317"
+                placeholderTextColor="rgb(74, 97, 120)"
+                style={{
+                  backgroundColor: "rgb(17, 42, 69)",
+                  borderWidth: 1,
+                  borderColor: "rgb(26, 58, 92)",
+                  borderRadius: 4,
+                  color: "rgb(224, 232, 240)",
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  fontSize: 12,
+                }}
+              />
+            </View>
+          )}
           <Text
             style={{
               fontSize: 11,
