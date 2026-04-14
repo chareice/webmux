@@ -1,9 +1,0 @@
-/home/chareice/projects/webmux/main/packages/desktop/src-tauri/target/debug/deps/global_hotkey-6a745f53139888b0.d: /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/lib.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/error.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/hotkey.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/platform_impl/mod.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/platform_impl/x11/mod.rs
-
-/home/chareice/projects/webmux/main/packages/desktop/src-tauri/target/debug/deps/libglobal_hotkey-6a745f53139888b0.rmeta: /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/lib.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/error.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/hotkey.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/platform_impl/mod.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/platform_impl/x11/mod.rs
-
-/home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/lib.rs:
-/home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/error.rs:
-/home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/hotkey.rs:
-/home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/platform_impl/mod.rs:
-/home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/global-hotkey-0.7.0/src/platform_impl/x11/mod.rs:
