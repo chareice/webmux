@@ -33,6 +33,7 @@ import {
   getTokenActionLabel,
   shouldGenerateRegistrationToken,
 } from "@/lib/onboardingFlow";
+import { isTauri, getDesktopReleasesUrl } from "@/lib/platform";
 import { shouldLoadMachineBookmarks } from "@/lib/sidebarSections";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
@@ -1017,6 +1018,37 @@ function SettingsSection() {
             placeholder="e.g. tmux new-session"
             placeholderTextColor="rgb(74, 97, 120)"
           />
+          {!isTauri() && (
+            <Pressable
+              onPress={() => {
+                const url = getDesktopReleasesUrl("chareice/webmux");
+                if (typeof window !== "undefined") {
+                  window.open(url, "_blank");
+                }
+              }}
+              style={({ pressed }) => ({
+                marginTop: 12,
+                paddingVertical: 8,
+                paddingHorizontal: 10,
+                borderRadius: 6,
+                backgroundColor: pressed
+                  ? "rgba(74, 97, 120, 0.3)"
+                  : "rgba(74, 97, 120, 0.15)",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+              })}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: "rgb(122, 143, 166)",
+                }}
+              >
+                {"\u2193"} Download Desktop App
+              </Text>
+            </Pressable>
+          )}
         </View>
       )}
     </View>
