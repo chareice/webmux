@@ -1,0 +1,14 @@
+/home/chareice/projects/webmux/main/packages/desktop/src-tauri/target/debug/deps/serde-94207bccd47ab253.d: /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/chareice/projects/webmux/main/packages/desktop/src-tauri/target/debug/build/serde-9d18533f5d534864/out/private.rs
+
+/home/chareice/projects/webmux/main/packages/desktop/src-tauri/target/debug/deps/libserde-94207bccd47ab253.rlib: /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/chareice/projects/webmux/main/packages/desktop/src-tauri/target/debug/build/serde-9d18533f5d534864/out/private.rs
+
+/home/chareice/projects/webmux/main/packages/desktop/src-tauri/target/debug/deps/libserde-94207bccd47ab253.rmeta: /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /home/chareice/projects/webmux/main/packages/desktop/src-tauri/target/debug/build/serde-9d18533f5d534864/out/private.rs
+
+/home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/home/chareice/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/home/chareice/projects/webmux/main/packages/desktop/src-tauri/target/debug/build/serde-9d18533f5d534864/out/private.rs:
+
+# env-dep:OUT_DIR=/home/chareice/projects/webmux/main/packages/desktop/src-tauri/target/debug/build/serde-9d18533f5d534864/out

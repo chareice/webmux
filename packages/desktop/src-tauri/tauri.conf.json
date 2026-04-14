@@ -1,0 +1,44 @@
+{
+  "productName": "webmux",
+  "version": "0.1.0",
+  "identifier": "com.webmux.desktop",
+  "build": {
+    "frontendDist": "../../app/dist",
+    "devUrl": "http://localhost:8081",
+    "beforeBuildCommand": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app build",
+    "beforeDevCommand": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app dev:web"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "webmux",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "decorations": true,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": []
+    }
+  }
+}
