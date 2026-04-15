@@ -48,3 +48,14 @@ pub struct RegistrationTokenRow {
     pub expires_at: i64,
     pub used: bool,
 }
+
+pub struct TerminalSessionRow {
+    pub id: String,
+    pub machine_id: String,
+    pub title: String,
+    pub cwd: String,
+    pub cols: i64,
+    pub rows: i64,
+    pub created_at: i64,
+    pub destroyed_at: Option<i64>,
+}

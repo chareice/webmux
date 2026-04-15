@@ -19,6 +19,12 @@ pub struct TerminalInfo {
     pub cwd: String,
     pub cols: u16,
     pub rows: u16,
+    #[serde(default = "default_reachable")]
+    pub reachable: bool,
+}
+
+fn default_reachable() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -181,6 +187,12 @@ pub enum BrowserEvent {
     TerminalDestroyed {
         machine_id: String,
         terminal_id: String,
+    },
+    #[serde(rename = "terminal_reachable_changed")]
+    TerminalReachableChanged {
+        machine_id: String,
+        terminal_id: String,
+        reachable: bool,
     },
     #[serde(rename = "machine_stats")]
     MachineStats {

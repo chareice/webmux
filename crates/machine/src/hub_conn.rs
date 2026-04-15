@@ -113,6 +113,7 @@ impl HubConnection {
                     cwd: s.cwd.clone(),
                     cols: s.cols,
                     rows: s.rows,
+                    reachable: true,
                 })
                 .collect();
             tracing::info!("Reporting {} existing terminals to hub", terminals.len());
@@ -121,6 +122,23 @@ impl HubConnection {
                     terminals,
                 }))
                 .await;
+
+            // Send tmux scrollback for each recovered terminal
+            for info in &existing {
+                if let Some(scrollback) = pty.capture_scrollback(&info.id) {
+                    tracing::info!(
+                        "Sending {} bytes of scrollback for terminal {}",
+                        scrollback.len(),
+                        info.id
+                    );
+                    let _ = send_tx
+                        .send(OutboundHubMessage::TerminalOutput {
+                            terminal_id: info.id.clone(),
+                            data: scrollback.into(),
+                        })
+                        .await;
+                }
+            }
 
             // Re-establish output forwarding for each existing terminal
             for info in &existing {

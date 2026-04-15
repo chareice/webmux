@@ -166,7 +166,6 @@ mod tests {
     use super::*;
 
     fn test_state() -> AppState {
-        let manager = Arc::new(crate::machine_manager::MachineManager::new());
         let pool = Pool::builder()
             .max_size(1)
             .build(SqliteConnectionManager::memory())
@@ -175,6 +174,8 @@ mod tests {
         crate::db::init_db(&conn).unwrap();
         crate::db::users::create_user(&conn, "user-a", "test", "user-a", "User A", None, "admin")
             .unwrap();
+        drop(conn);
+        let manager = Arc::new(crate::machine_manager::MachineManager::new(pool.clone()));
 
         AppState {
             manager,

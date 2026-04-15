@@ -64,7 +64,7 @@ async fn main() {
     tracing::info!("Database initialized at {}", args.database);
 
     let state = AppState {
-        manager: Arc::new(MachineManager::new()),
+        manager: Arc::new(MachineManager::new(pool.clone())),
         db: pool,
         jwt_secret: env_or("JWT_SECRET", "dev-secret-change-me"),
         base_url: env_or("WEBMUX_BASE_URL", "http://localhost:4317"),
@@ -74,6 +74,8 @@ async fn main() {
         google_client_id: env_opt("GOOGLE_CLIENT_ID"),
         google_client_secret: env_opt("GOOGLE_CLIENT_SECRET"),
     };
+
+    state.manager.start_seq_flush_task();
 
     let app = routes::router()
         .merge(ws::router())

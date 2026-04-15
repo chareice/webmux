@@ -82,10 +82,7 @@ function applyBrowserEvent(
         state.controlLeases;
       return {
         ...state,
-        machines: state.machines.filter((machine) => machine.id !== event.machine_id),
-        terminals: state.terminals.filter(
-          (terminal) => terminal.machine_id !== event.machine_id,
-        ),
+        // Keep machines list unchanged — machine info needed for unreachable terminals
         machineStats: nextStats,
         controlLeases: nextLeases,
       };
@@ -101,6 +98,15 @@ function applyBrowserEvent(
         ...state,
         terminals: state.terminals.filter(
           (terminal) => terminal.id !== event.terminal_id,
+        ),
+      };
+    case "terminal_reachable_changed":
+      return {
+        ...state,
+        terminals: state.terminals.map((terminal) =>
+          terminal.id === event.terminal_id && terminal.machine_id === event.machine_id
+            ? { ...terminal, reachable: event.reachable }
+            : terminal,
         ),
       };
     case "machine_stats":

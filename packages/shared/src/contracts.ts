@@ -14,6 +14,7 @@ export interface TerminalInfo {
   cwd: string
   cols: number
   rows: number
+  reachable: boolean
 }
 
 export interface DirEntry {
@@ -192,6 +193,7 @@ export type BrowserEvent =
   | BrowserEvent.TerminalCreated
   | BrowserEvent.TerminalResized
   | BrowserEvent.TerminalDestroyed
+  | BrowserEvent.TerminalReachableChanged
   | BrowserEvent.MachineStats
   | BrowserEvent.ModeChanged
 
@@ -220,6 +222,13 @@ export namespace BrowserEvent {
     type: 'terminal_destroyed'
     machine_id: string
     terminal_id: string
+  }
+
+  export interface TerminalReachableChanged {
+    type: 'terminal_reachable_changed'
+    machine_id: string
+    terminal_id: string
+    reachable: boolean
   }
 
   export interface MachineStats {
