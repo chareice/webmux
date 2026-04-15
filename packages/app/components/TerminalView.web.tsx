@@ -604,20 +604,27 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       scheduleMeasure();
     }, [displayMode, scheduleMeasure]);
 
-    // Auto-fit terminal when switching to immersive mode with resize permission.
-    // Waits briefly for layout to settle and WebSocket to be ready.
+    // Auto-fit terminal when first created at default size (80x24).
+    // Only triggers once — switching tabs on an already-sized terminal won't re-fit.
     useEffect(() => {
       if (displayMode !== "immersive" || !canResizeTerminal) return;
+      // Only auto-fit if terminal is at the server default size (newly created).
+      // Already-sized terminals keep their size when switching tabs.
+      if (cols !== 80 || rows !== 24) return;
 
       const timerId = window.setTimeout(() => {
         const fit = fitRef.current;
         const liveWs = wsRef.current;
+        const viewport = viewportRef.current;
         if (
           !fit ||
           !liveWs ||
           liveWs.readyState !== WebSocket.OPEN ||
           !isControllerRef.current ||
-          !canResizeTerminalRef.current
+          !canResizeTerminalRef.current ||
+          // Skip auto-fit if the viewport is hidden (e.g. inactive tab kept alive)
+          !viewport ||
+          viewport.offsetParent === null
         ) {
           return;
         }

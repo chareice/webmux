@@ -29,15 +29,19 @@ test("terminal size stays stable across tab view and cross-device handoff until 
   // After creating a terminal, it auto-switches to tab (immersive) view
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
 
+  // Wait for auto-fit to settle (runs ~200ms after tab switch for newly created terminals)
   let initialTerminal: Awaited<ReturnType<typeof listTerminals>>[number] | null = null;
   await expect.poll(async () => {
     const terminals = await listTerminals(desktopPage);
-    initialTerminal = terminals.length === 1 ? terminals[0] : null;
-    return terminals.length;
-  }).toBe(1);
+    if (terminals.length !== 1) return false;
+    // Auto-fit changes size from defaults (80x24); wait until it stabilizes
+    if (terminals[0].cols === 80 && terminals[0].rows === 24) return false;
+    initialTerminal = terminals[0];
+    return true;
+  }).toBe(true);
   expect(initialTerminal).not.toBeNull();
 
-  // Size should stay stable in tab view
+  // Size should stay stable after auto-fit
   await expect
     .poll(async () => listTerminals(desktopPage))
     .toEqual([initialTerminal]);
