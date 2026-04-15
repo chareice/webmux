@@ -18,6 +18,7 @@ import {
   shouldResyncForEnvelope,
 } from "@/lib/bootstrapState";
 import { getPersistentDeviceId } from "@/lib/deviceId";
+import { colors } from "@/lib/colors";
 import { useIsMobile } from "@/lib/hooks";
 import {
   storePendingControlRelease,
@@ -363,10 +364,10 @@ export function TerminalCanvas() {
               top: 12,
               left: 12,
               zIndex: 90,
-              background: "rgb(17, 42, 69)",
-              border: "1px solid rgb(26, 58, 92)",
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
               borderRadius: 6,
-              color: "rgb(224, 232, 240)",
+              color: colors.foreground,
               cursor: "pointer",
               fontSize: 18,
               padding: "6px 10px",

@@ -9,6 +9,7 @@ import {
   getMaximizedTerminalFrame,
 } from "./terminalLayout";
 import { terminalWsUrl } from "@/lib/api";
+import { colors } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 const LiveTerminalView = lazy(() =>
@@ -103,19 +104,19 @@ function TerminalCardComponent({
                 position: "fixed",
                 ...getMaximizedTerminalFrame(isMobile),
                 zIndex: 100,
-                background: "rgb(17, 42, 69)",
+                background: colors.surface,
                 borderRadius: isMobile ? 0 : 8,
                 border: isMobile
                   ? "none"
-                  : "2px solid rgb(0, 212, 170)",
+                  : `2px solid ${colors.accent}`,
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
               }
             : {
-                background: "rgb(17, 42, 69)",
+                background: colors.surface,
                 borderRadius: 8,
-                border: "1px solid rgb(26, 58, 92)",
+                border: `1px solid ${colors.border}`,
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
@@ -124,11 +125,11 @@ function TerminalCardComponent({
         }
         onMouseEnter={(e) => {
           if (!maximized)
-            e.currentTarget.style.borderColor = "rgb(0, 212, 170)";
+            e.currentTarget.style.borderColor = colors.accent;
         }}
         onMouseLeave={(e) => {
           if (!maximized)
-            e.currentTarget.style.borderColor = "rgb(26, 58, 92)";
+            e.currentTarget.style.borderColor = colors.border;
         }}
       >
         {/* Title bar */}
@@ -138,7 +139,7 @@ function TerminalCardComponent({
             alignItems: "center",
             justifyContent: "space-between",
             padding: maximized ? "8px 12px" : "4px 8px",
-            borderBottom: "1px solid rgb(26, 58, 92)",
+            borderBottom: `1px solid ${colors.border}`,
             background: "rgba(0,0,0,0.2)",
             cursor: maximized ? "default" : "pointer",
           }}
@@ -155,7 +156,7 @@ function TerminalCardComponent({
               style={{
                 background: "none",
                 border: "none",
-                color: isController ? "rgb(255, 107, 107)" : "rgb(74, 97, 120)",
+                color: isController ? colors.danger : colors.foregroundMuted,
                 cursor: isController ? "pointer" : "not-allowed",
                 padding: isMobile ? "10px 12px" : "2px 4px",
                 display: "flex",
@@ -192,14 +193,14 @@ function TerminalCardComponent({
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                background: "rgb(0, 212, 170)",
+                background: colors.accent,
                 flexShrink: 0,
               }}
             />
             <span
               style={{
                 fontSize: maximized ? 13 : 11,
-                color: "rgb(224, 232, 240)",
+                color: colors.foreground,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -225,7 +226,7 @@ function TerminalCardComponent({
                       style={{
                         background: "none",
                         border: "none",
-                        color: "rgb(0, 212, 170)",
+                        color: colors.accent,
                         cursor: "pointer",
                         fontSize: 11,
                         padding: isMobile ? "10px 8px" : "2px 4px",
@@ -235,14 +236,14 @@ function TerminalCardComponent({
                     </button>
                     <span style={{
                       width: 1, height: 14,
-                      background: 'rgb(26, 58, 92)',
+                      background: colors.border,
                       flexShrink: 0,
                     }} />
                   </>
                 )}
                 <span style={{
                   width: 6, height: 6, borderRadius: '50%',
-                  background: isController ? 'rgb(0, 212, 170)' : 'rgb(74, 97, 120)',
+                  background: isController ? colors.accent : colors.foregroundMuted,
                   flexShrink: 0,
                 }} />
                 <button
@@ -255,7 +256,7 @@ function TerminalCardComponent({
                   style={{
                     background: 'none',
                     border: 'none',
-                    color: isController ? 'rgb(122, 143, 166)' : 'rgb(0, 212, 170)',
+                    color: isController ? colors.foregroundSecondary : colors.accent,
                     cursor: 'pointer',
                     fontSize: 11,
                     padding: isMobile ? '10px 8px' : '2px 4px',
@@ -265,7 +266,7 @@ function TerminalCardComponent({
                 </button>
                 <span style={{
                   width: 1, height: 14,
-                  background: 'rgb(26, 58, 92)',
+                  background: colors.border,
                   flexShrink: 0,
                 }} />
               </>
@@ -280,7 +281,7 @@ function TerminalCardComponent({
                 style={{
                   background: "none",
                   border: "none",
-                  color: "rgb(0, 212, 170)",
+                  color: colors.accent,
                   cursor: "pointer",
                   fontSize: 11,
                   padding: "2px 4px",
@@ -300,7 +301,7 @@ function TerminalCardComponent({
                 style={{
                   background: "none",
                   border: "none",
-                  color: "rgb(122, 143, 166)",
+                  color: colors.foregroundSecondary,
                   cursor: "pointer",
                   padding: isMobile ? "10px 12px" : "2px 4px",
                   display: "flex",
@@ -321,7 +322,7 @@ function TerminalCardComponent({
                 style={{
                   background: "none",
                   border: "none",
-                  color: desktopPanelOpen ? "rgb(0, 212, 170)" : "rgb(122, 143, 166)",
+                  color: desktopPanelOpen ? colors.accent : colors.foregroundSecondary,
                   cursor: "pointer",
                   padding: "2px 4px",
                   display: "flex",
@@ -342,7 +343,7 @@ function TerminalCardComponent({
                 style={{
                   background: "none",
                   border: "none",
-                  color: "rgb(122, 143, 166)",
+                  color: colors.foregroundSecondary,
                   cursor: "pointer",
                   padding: isMobile ? "10px 12px" : "2px 4px",
                   display: "flex",
@@ -385,7 +386,7 @@ function TerminalCardComponent({
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      color: "rgb(122, 143, 166)",
+                      color: colors.foregroundSecondary,
                       fontSize: 12,
                     }}
                   >
@@ -417,7 +418,7 @@ function TerminalCardComponent({
               </Suspense>
             </div>
             {maximized && !isMobile && desktopPanelOpen && (
-              <div style={{ width: 200, minWidth: 200, borderLeft: '1px solid rgb(26, 58, 92)' }}>
+              <div style={{ width: 200, minWidth: 200, borderLeft: `1px solid ${colors.border}` }}>
                 <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
               </div>
             )}
@@ -441,7 +442,7 @@ function TerminalCardComponent({
           {/* Mobile CommandBar bottom sheet */}
           {maximized && isMobile && commandBarVisible && (
             <div style={{
-              borderTop: '1px solid rgb(26, 58, 92)',
+              borderTop: `1px solid ${colors.border}`,
               maxHeight: '40vh',
               overflow: 'auto',
             }}>
@@ -454,9 +455,9 @@ function TerminalCardComponent({
         <div
           style={{
             padding: maximized ? "4px 12px" : "2px 8px",
-            borderTop: "1px solid rgb(26, 58, 92)",
+            borderTop: `1px solid ${colors.border}`,
             fontSize: maximized ? 11 : 9,
-            color: "rgb(74, 97, 120)",
+            color: colors.foregroundMuted,
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",

@@ -13,6 +13,7 @@ import { TerminalView } from "./TerminalView.android";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { TerminalToolbar } from "./TerminalToolbar";
 import { terminalWsUrl } from "@/lib/api";
+import { colors } from "@/lib/colors";
 
 interface TerminalCardProps {
   terminal: TerminalInfo;
@@ -61,7 +62,7 @@ export function TerminalCard({
         statusBarTranslucent
       >
         <SafeAreaView style={styles.modalContainer}>
-          <StatusBar barStyle="light-content" backgroundColor="#0d2137" />
+          <StatusBar barStyle="light-content" backgroundColor={colors.backgroundSecondary} />
 
           {/* Title bar — close on left, minimize on right */}
           <View style={styles.modalTitleBar}>
@@ -189,7 +190,7 @@ const styles = StyleSheet.create({
   // ── Modal (maximized) ──
   modalContainer: {
     flex: 1,
-    backgroundColor: "#0d2137",
+    backgroundColor: colors.backgroundSecondary,
   },
   modalTitleBar: {
     flexDirection: "row",
@@ -198,7 +199,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgb(26, 58, 92)",
+    borderBottomColor: colors.border,
     backgroundColor: "rgba(0,0,0,0.2)",
   },
   titleRow: {
@@ -212,11 +213,11 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "rgb(0, 212, 170)",
+    backgroundColor: colors.accent,
   },
   titleText: {
     fontSize: 13,
-    color: "rgb(224, 232, 240)",
+    color: colors.foreground,
     flex: 1,
   },
   closeButton: {
@@ -237,19 +238,19 @@ const styles = StyleSheet.create({
   },
   minimizeText: {
     fontSize: 16,
-    color: "rgb(122, 143, 166)",
+    color: colors.foregroundSecondary,
   },
   fitText: {
     fontSize: 12,
-    color: "rgb(0, 212, 170)",
+    color: colors.accent,
     fontWeight: "600",
   },
   closeText: {
     fontSize: 14,
-    color: "rgb(255, 107, 107)",
+    color: colors.danger,
   },
   disabledCloseText: {
-    color: "rgb(74, 97, 120)",
+    color: colors.foregroundMuted,
     opacity: 0.5,
   },
   terminalContainer: {
@@ -260,19 +261,19 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 12,
     borderTopWidth: 1,
-    borderTopColor: "rgb(26, 58, 92)",
+    borderTopColor: colors.border,
   },
   footerText: {
     fontSize: 11,
-    color: "rgb(74, 97, 120)",
+    color: colors.foregroundMuted,
   },
 
   // ── Card (thumbnail) ──
   card: {
-    backgroundColor: "rgb(17, 42, 69)",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgb(26, 58, 92)",
+    borderColor: colors.border,
     overflow: "hidden",
   },
   cardHeader: {
@@ -282,12 +283,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "rgb(26, 58, 92)",
+    borderBottomColor: colors.border,
     backgroundColor: "rgba(0,0,0,0.2)",
   },
   cardTitle: {
     fontSize: 12,
-    color: "rgb(224, 232, 240)",
+    color: colors.foreground,
     flex: 1,
   },
   cardCloseButton: {
@@ -296,7 +297,7 @@ const styles = StyleSheet.create({
   },
   cardCloseText: {
     fontSize: 12,
-    color: "rgb(255, 107, 107)",
+    color: colors.danger,
     opacity: 0.6,
   },
   previewContainer: {
@@ -307,8 +308,8 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 10,
     fontSize: 9,
-    color: "rgb(74, 97, 120)",
+    color: colors.foregroundMuted,
     borderTopWidth: 1,
-    borderTopColor: "rgb(26, 58, 92)",
+    borderTopColor: colors.border,
   },
 });

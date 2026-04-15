@@ -1,3 +1,5 @@
+import { colors } from "@/lib/colors";
+
 interface ExtendedKeyBarProps {
   onKey: (data: string) => void;
   onToggleKeyboard: () => void;
@@ -48,8 +50,8 @@ export function ExtendedKeyBar({
     <div style={{
       display: 'flex',
       alignItems: 'center',
-      borderTop: '1px solid rgb(26, 58, 92)',
-      background: 'rgb(13, 33, 55)',
+      borderTop: `1px solid ${colors.border}`,
+      background: colors.backgroundSecondary,
       height: 44,
       flexShrink: 0,
       touchAction: 'none',
@@ -64,10 +66,10 @@ export function ExtendedKeyBar({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: keyboardVisible ? 'rgba(0, 212, 170, 0.15)' : 'transparent',
+            background: keyboardVisible ? 'rgba(var(--color-accent) / 0.15)' : 'transparent',
             border: 'none',
-            borderRight: '1px solid rgb(26, 58, 92)',
-            color: keyboardVisible ? 'rgb(0, 212, 170)' : 'rgb(122, 143, 166)',
+            borderRight: `1px solid ${colors.border}`,
+            color: keyboardVisible ? colors.accent : colors.foregroundSecondary,
             fontSize: 18,
             cursor: 'pointer',
             flexShrink: 0,
@@ -104,7 +106,7 @@ export function ExtendedKeyBar({
             display: 'flex',
             gap: 2,
             padding: '0 2px',
-            borderRight: gi < KEY_GROUPS.length - 1 ? '1px solid rgb(26, 58, 92)' : 'none',
+            borderRight: gi < KEY_GROUPS.length - 1 ? `1px solid ${colors.border}` : 'none',
             paddingRight: gi < KEY_GROUPS.length - 1 ? 6 : 2,
             marginRight: gi < KEY_GROUPS.length - 1 ? 2 : 0,
           }}>
@@ -117,10 +119,10 @@ export function ExtendedKeyBar({
                 }}
                 disabled={!isController}
                 style={{
-                  background: 'rgb(17, 42, 69)',
-                  border: '1px solid rgb(26, 58, 92)',
+                  background: colors.surface,
+                  border: `1px solid ${colors.border}`,
                   borderRadius: 4,
-                  color: isController ? 'rgb(224, 232, 240)' : 'rgb(74, 97, 120)',
+                  color: isController ? colors.foreground : colors.foregroundMuted,
                   padding: '4px 10px',
                   fontSize: 12,
                   fontFamily: "'JetBrains Mono', monospace",
@@ -155,14 +157,14 @@ export function ExtendedKeyBar({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: commandBarVisible ? 'rgba(0, 212, 170, 0.15)' : 'transparent',
+          background: commandBarVisible ? 'rgba(var(--color-accent) / 0.15)' : 'transparent',
           border: 'none',
-          borderLeft: '1px solid rgb(26, 58, 92)',
+          borderLeft: `1px solid ${colors.border}`,
           color: !isController
-            ? 'rgb(74, 97, 120)'
+            ? colors.foregroundMuted
             : commandBarVisible
-              ? 'rgb(0, 212, 170)'
-              : 'rgb(122, 143, 166)',
+              ? colors.accent
+              : colors.foregroundSecondary,
           fontSize: 14,
           fontFamily: "'JetBrains Mono', monospace",
           cursor: isController ? 'pointer' : 'not-allowed',

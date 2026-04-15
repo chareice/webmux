@@ -11,19 +11,7 @@ import {
   shouldGenerateRegistrationToken,
 } from "@/lib/onboardingFlow";
 import { isRegistrationTokenFresh } from "@/lib/tokenExpiry";
-
-// Color constants matching the app's dark theme
-const colors = {
-  background: "rgb(10, 25, 41)",
-  surface: "rgb(17, 42, 69)",
-  border: "rgb(26, 58, 92)",
-  foreground: "rgb(224, 232, 240)",
-  foregroundSecondary: "rgb(122, 143, 166)",
-  foregroundMuted: "rgb(74, 97, 120)",
-  accent: "rgb(0, 212, 170)",
-  accentDim: "rgba(0, 212, 170, 0.1)",
-  danger: "rgb(255, 107, 107)",
-};
+import { colors } from "@/lib/colors";
 
 function getHubUrl(): string {
   const { protocol, host } = window.location;
