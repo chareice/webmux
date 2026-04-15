@@ -1,7 +1,7 @@
 import { memo } from "react";
 import type { MachineInfo, ResourceStats, TerminalInfo } from "@webmux/shared";
 import { TerminalCard } from "./TerminalCard.web";
-import { colors } from "@/lib/colors";
+import { colors, colorAlpha } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 interface CanvasProps {
@@ -66,7 +66,7 @@ function CanvasComponent({
             borderRadius: 12,
             border: `1px solid ${colors.border}`,
             background:
-              "linear-gradient(135deg, rgba(var(--color-surface) / 0.94) 0%, rgba(var(--color-background) / 0.98) 100%)",
+              `linear-gradient(135deg, ${colorAlpha.surfaceOpaque94} 0%, ${colorAlpha.backgroundOpaque98} 100%)`,
           }}
         >
           <div style={{ minWidth: 0 }}>
@@ -106,11 +106,11 @@ function CanvasComponent({
                   padding: "4px 8px",
                   borderRadius: 999,
                   background: isActiveController
-                    ? "rgba(var(--color-accent) / 0.12)"
-                    : "rgba(var(--color-warning) / 0.12)",
+                    ? colorAlpha.accentLight12
+                    : colorAlpha.warningLight12,
                   border: isActiveController
-                    ? "1px solid rgba(var(--color-accent) / 0.25)"
-                    : "1px solid rgba(var(--color-warning) / 0.22)",
+                    ? `1px solid ${colorAlpha.accentBorder}`
+                    : `1px solid ${colorAlpha.warningBorder22}`,
                   color: isActiveController
                     ? colors.accent
                     : colors.warning,

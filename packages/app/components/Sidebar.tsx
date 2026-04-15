@@ -18,7 +18,7 @@ import {
   getSettings,
   updateSettings,
 } from "@/lib/api";
-import { colors } from "@/lib/colors";
+import { colors, colorAlpha } from "@/lib/colors";
 import {
   buildDirectorySuggestions,
   createDirectoryCache,
@@ -222,7 +222,7 @@ function PathInput({
         <Pressable
           onPress={() => onSubmit(value.trim())}
           style={{
-            backgroundColor: "rgba(var(--color-accent) / 0.1)",
+            backgroundColor: colorAlpha.accentLight,
             borderWidth: 1,
             borderColor: colors.accent,
             borderRadius: 4,
@@ -270,7 +270,7 @@ function PathInput({
                   paddingHorizontal: 8,
                   backgroundColor:
                     i === selectedIndex
-                      ? "rgba(var(--color-accent) / 0.1)"
+                      ? colorAlpha.accentLight
                       : "transparent",
                 }}
               >
@@ -417,7 +417,7 @@ function MachineSection({
           gap: 8,
           paddingVertical: 10,
           paddingHorizontal: 12,
-          backgroundColor: "rgba(var(--color-background) / 0.15)",
+          backgroundColor: colorAlpha.backgroundDim,
         }}
       >
         <View
@@ -469,8 +469,8 @@ function MachineSection({
                 padding: 10,
                 borderRadius: 8,
                 borderWidth: 1,
-                borderColor: "rgba(var(--color-warning) / 0.2)",
-                backgroundColor: "rgba(var(--color-warning) / 0.08)",
+                borderColor: colorAlpha.warningBorder,
+                backgroundColor: colorAlpha.warningSubtle,
                 gap: 8,
               }}
             >
@@ -736,7 +736,7 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
           <Pressable
             onPress={handleGenerateClick}
             style={{
-              backgroundColor: "rgba(var(--color-accent) / 0.1)",
+              backgroundColor: colorAlpha.accentLight,
               borderWidth: 1,
               borderColor: colors.accent,
               borderRadius: 6,
@@ -893,8 +893,8 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
             onPress={handleCopy}
             style={{
               backgroundColor: copied
-                ? "rgba(var(--color-accent) / 0.2)"
-                : "rgba(var(--color-accent) / 0.1)",
+                ? colorAlpha.accentMedium
+                : colorAlpha.accentLight,
               borderWidth: 1,
               borderColor: colors.accent,
               borderRadius: 4,
@@ -1076,8 +1076,8 @@ function SettingsSection() {
                 paddingHorizontal: 10,
                 borderRadius: 6,
                 backgroundColor: pressed
-                  ? "rgba(var(--color-foreground-muted) / 0.3)"
-                  : "rgba(var(--color-foreground-muted) / 0.15)",
+                  ? colorAlpha.mutedMedium
+                  : colorAlpha.mutedLight,
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 8,
@@ -1215,7 +1215,7 @@ function SidebarComponent({
         <AddMachinePanel onClose={() => setShowAddMachine(false)} />
       )}
       <SettingsSection />
-      <ThemeToggle />
+      {Platform.OS === "web" && <ThemeToggle />}
     </View>
   );
 }

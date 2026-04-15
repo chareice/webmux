@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useRef, useCallback } from "react";
 import type { MachineInfo, ResourceStats } from "@webmux/shared";
 import { getStatusBarLayout } from "./statusBarLayout";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
-import { colors } from "@/lib/colors";
+import { colors, colorAlpha } from "@/lib/colors";
 
 interface StatusBarProps {
   machines: MachineInfo[];
@@ -205,7 +205,7 @@ function StatusBarComponent({
                 borderRadius: 4,
                 minWidth: 160,
                 zIndex: 1000,
-                boxShadow: "0 -4px 12px rgba(var(--color-background) / 0.4)",
+                boxShadow: `0 -4px 12px ${colorAlpha.backgroundShadow}`,
               }}
             >
               {machines.map((m) => (
@@ -253,7 +253,7 @@ function StatusBarComponent({
               style={{
                 width: 1,
                 height: 14,
-                background: "rgba(var(--color-foreground) / 0.35)",
+                background: colorAlpha.foregroundSubtle,
                 margin: layout.separatorMargin,
                 flexShrink: 0,
               }}
@@ -318,7 +318,7 @@ function StatusBarComponent({
             else onRequestControl(activeMachineId);
           }}
           style={{
-            background: "rgba(var(--color-foreground) / 0.15)",
+            background: colorAlpha.foregroundOverlay,
             border: "none",
             borderRadius: 3,
             color: colors.foreground,

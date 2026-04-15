@@ -1,4 +1,4 @@
-import { colors } from "@/lib/colors";
+import { colors, colorAlpha } from "@/lib/colors";
 
 interface ExtendedKeyBarProps {
   onKey: (data: string) => void;
@@ -66,7 +66,7 @@ export function ExtendedKeyBar({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: keyboardVisible ? 'rgba(var(--color-accent) / 0.15)' : 'transparent',
+            background: keyboardVisible ? colorAlpha.accentMedium15 : 'transparent',
             border: 'none',
             borderRight: `1px solid ${colors.border}`,
             color: keyboardVisible ? colors.accent : colors.foregroundSecondary,
@@ -157,7 +157,7 @@ export function ExtendedKeyBar({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: commandBarVisible ? 'rgba(var(--color-accent) / 0.15)' : 'transparent',
+          background: commandBarVisible ? colorAlpha.accentMedium15 : 'transparent',
           border: 'none',
           borderLeft: `1px solid ${colors.border}`,
           color: !isController

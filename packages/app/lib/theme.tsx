@@ -6,6 +6,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
+import { Platform, Appearance } from "react-native";
 
 type Theme = "light" | "dark" | "system";
 type ResolvedTheme = "light" | "dark";
@@ -21,7 +22,7 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 const STORAGE_KEY = "theme";
 
 function getStoredTheme(): Theme {
-  if (typeof localStorage !== "undefined") {
+  if (Platform.OS === "web" && typeof localStorage !== "undefined") {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "light" || stored === "dark" || stored === "system") {
       return stored;
@@ -31,15 +32,21 @@ function getStoredTheme(): Theme {
 }
 
 function getSystemTheme(): ResolvedTheme {
-  if (typeof window !== "undefined" && window.matchMedia) {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined" && window.matchMedia) {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+    return "light";
   }
-  return "light";
+  // Native: use React Native Appearance API
+  return Appearance.getColorScheme() === "dark" ? "dark" : "light";
 }
 
 function applyTheme(resolved: ResolvedTheme) {
+  // DOM manipulation is web-only
+  if (Platform.OS !== "web") return;
   if (typeof document === "undefined") return;
   const el = document.documentElement;
   if (resolved === "dark") {
@@ -59,15 +66,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Listen for system theme changes
   useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
+    if (Platform.OS === "web") {
+      if (typeof window === "undefined" || !window.matchMedia) return;
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      const handler = (e: MediaQueryListEvent) => {
+        setSystemTheme(e.matches ? "dark" : "light");
+      };
+      mq.addEventListener("change", handler);
+      return () => mq.removeEventListener("change", handler);
+    }
 
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (e: MediaQueryListEvent) => {
-      setSystemTheme(e.matches ? "dark" : "light");
-    };
-
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
+    // Native: listen via Appearance API
+    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
+      setSystemTheme(colorScheme === "dark" ? "dark" : "light");
+    });
+    return () => subscription.remove();
   }, []);
 
   // Apply theme to DOM whenever resolved theme changes
@@ -77,7 +90,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);
-    if (typeof localStorage !== "undefined") {
+    if (Platform.OS === "web" && typeof localStorage !== "undefined") {
       localStorage.setItem(STORAGE_KEY, next);
     }
   }, []);

@@ -1,5 +1,5 @@
 import type { TerminalInfo, ResourceStats } from "@webmux/shared";
-import { colors } from "@/lib/colors";
+import { colors, colorAlpha } from "@/lib/colors";
 
 interface TerminalPreviewProps {
   terminal: TerminalInfo;
@@ -32,7 +32,7 @@ export function TerminalPreview({
         display: "grid",
         gridTemplateRows: "1fr auto",
         background:
-          "linear-gradient(180deg, rgba(var(--color-background) / 0.96) 0%, rgba(var(--color-background-secondary) / 0.96) 100%)",
+          `linear-gradient(180deg, ${colorAlpha.backgroundOpaque96} 0%, ${colorAlpha.backgroundSecondaryOpaque96} 100%)`,
       }}
     >
       <div
@@ -53,8 +53,8 @@ export function TerminalPreview({
               width: "fit-content",
               padding: "4px 8px",
               borderRadius: 999,
-              border: "1px solid rgba(var(--color-accent) / 0.2)",
-              background: "rgba(var(--color-accent) / 0.08)",
+              border: `1px solid ${colorAlpha.accentMedium}`,
+              background: colorAlpha.accentSubtle,
               color: colors.accent,
               fontSize: 11,
               fontWeight: 600,

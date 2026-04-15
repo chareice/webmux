@@ -7,7 +7,7 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
-import { colors } from "@/lib/colors";
+import { colors, colorAlpha } from "@/lib/colors";
 
 interface CommandBarProps {
   onSend: (data: string) => void;
@@ -101,7 +101,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
   return (
     <View
       style={{
-        backgroundColor: "rgba(var(--color-background) / 0.2)",
+        backgroundColor: colorAlpha.backgroundOverlay,
         flexDirection: "column",
         overflow: "hidden",
         flex: 1,
@@ -219,7 +219,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
               testID="command-bar-send"
               onPress={handleSubmit}
               style={{
-                backgroundColor: "rgba(var(--color-accent) / 0.1)",
+                backgroundColor: colorAlpha.accentLight,
                 borderWidth: 1,
                 borderColor: colors.success,
                 borderRadius: 4,
