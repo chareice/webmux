@@ -50,7 +50,7 @@ export default function LoginScreen() {
               >
                 {active ? (
                   <ActivityIndicator
-                    color={isGitHub ? "#0a1929" : "#e0e8f0"}
+                    color={isGitHub ? "#201d1d" : "#fdfcfc"}
                   />
                 ) : (
                   <Text

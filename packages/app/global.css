@@ -4,20 +4,39 @@
 
 @layer base {
   :root {
-    /* Terminal Canvas dark theme — derived from client/src/index.css */
-    --color-background: 10 25 41;          /* #0a1929 */
-    --color-background-secondary: 13 33 55; /* #0d2137 */
-    --color-surface: 17 42 69;             /* #112a45 */
-    --color-surface-hover: 21 53 85;       /* #153555 */
-    --color-foreground: 224 232 240;       /* #e0e8f0 */
-    --color-foreground-secondary: 122 143 166; /* #7a8fa6 */
-    --color-foreground-muted: 74 97 120;   /* #4a6178 */
-    --color-accent: 0 212 170;             /* #00d4aa */
-    --color-accent-dim: 0 212 170;         /* used with opacity */
-    --color-danger: 255 107 107;           /* #ff6b6b */
-    --color-warning: 255 217 61;           /* #ffd93d */
-    --color-border: 26 58 92;             /* #1a3a5c */
-    --color-border-active: 0 212 170;      /* #00d4aa */
+    /* Light mode (default) */
+    --color-background: 253 252 252;        /* #fdfcfc */
+    --color-background-secondary: 241 238 238; /* #f1eeee */
+    --color-surface: 248 247 247;           /* #f8f7f7 */
+    --color-surface-hover: 241 238 238;     /* #f1eeee */
+    --color-foreground: 32 29 29;           /* #201d1d */
+    --color-foreground-secondary: 66 66 69; /* #424245 */
+    --color-foreground-muted: 110 110 115;  /* #6e6e73 */
+    --color-accent: 0 122 255;             /* #007aff */
+    --color-accent-dim: 0 86 179;          /* #0056b3 */
+    --color-danger: 255 59 48;             /* #ff3b30 */
+    --color-warning: 255 159 10;           /* #ff9f0a */
+    --color-success: 48 209 88;            /* #30d158 */
+    --color-border: 15 0 0;               /* used at 12% opacity: rgba(15, 0, 0, 0.12) */
+    --color-border-active: 0 122 255;      /* #007aff */
+  }
+
+  .dark {
+    /* Dark mode */
+    --color-background: 32 29 29;           /* #201d1d */
+    --color-background-secondary: 48 44 44; /* #302c2c */
+    --color-surface: 48 44 44;             /* #302c2c */
+    --color-surface-hover: 64 60 60;       /* ~#403c3c */
+    --color-foreground: 253 252 252;       /* #fdfcfc */
+    --color-foreground-secondary: 154 152 152; /* #9a9898 */
+    --color-foreground-muted: 110 110 115; /* #6e6e73 */
+    --color-accent: 0 122 255;             /* #007aff */
+    --color-accent-dim: 0 86 179;          /* #0056b3 */
+    --color-danger: 255 59 48;             /* #ff3b30 */
+    --color-warning: 255 159 10;           /* #ff9f0a */
+    --color-success: 48 209 88;            /* #30d158 */
+    --color-border: 15 0 0;               /* used at 12% opacity */
+    --color-border-active: 0 122 255;      /* #007aff */
   }
 }
 
@@ -27,7 +46,6 @@ html, body {
   background-color: rgb(var(--color-background) / 1);
   color: rgb(var(--color-foreground) / 1);
   min-height: 100%;
-  color-scheme: dark;
 }
 
 body {

@@ -1,6 +1,7 @@
 import { View, Text, ScrollView, StyleSheet } from "react-native";
 import type { TerminalInfo } from "@webmux/shared";
 import { TerminalCard } from "./TerminalCard.android";
+import { colors } from "@/lib/colors";
 
 interface CanvasProps {
   terminals: TerminalInfo[];
@@ -56,7 +57,7 @@ export function Canvas({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "rgb(10, 25, 41)",
+    backgroundColor: colors.background,
     padding: 12,
     paddingTop: 52,
   },
@@ -69,10 +70,10 @@ const styles = StyleSheet.create({
     fontSize: 48,
     marginBottom: 16,
     opacity: 0.3,
-    color: "rgb(74, 97, 120)",
+    color: colors.foregroundMuted,
   },
   emptyText: {
-    color: "rgb(74, 97, 120)",
+    color: colors.foregroundMuted,
     fontSize: 14,
   },
   grid: {

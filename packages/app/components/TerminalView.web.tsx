@@ -21,6 +21,7 @@ import {
   getTerminalFitDimensions,
   getTerminalViewportLayout,
 } from "@/lib/terminalViewModel";
+import { terminalTheme } from "@/lib/colors";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
@@ -258,20 +259,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         fontFamily,
         allowTransparency: false,
         rescaleOverlappingGlyphs: true,
-        theme: {
-          background: "#112a45",
-          foreground: "#e0e8f0",
-          cursor: "#00d4aa",
-          selectionBackground: "rgba(0, 212, 170, 0.3)",
-          black: "#0a1929",
-          red: "#ff6b6b",
-          green: "#00d4aa",
-          yellow: "#ffd93d",
-          blue: "#4dabf7",
-          magenta: "#cc5de8",
-          cyan: "#22b8cf",
-          white: "#e0e8f0",
-        },
+        theme: terminalTheme,
         cursorBlink: true,
         scrollback: 0,
       });

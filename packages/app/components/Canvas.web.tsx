@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { MachineInfo, ResourceStats, TerminalInfo } from "@webmux/shared";
 import { TerminalCard } from "./TerminalCard.web";
+import { colors, colorAlpha } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 interface CanvasProps {
@@ -49,7 +50,7 @@ function CanvasComponent({
         overflow: "auto",
         padding: isMobile ? 12 : 20,
         paddingTop: isMobile ? 52 : 20,
-        background: "rgb(10, 25, 41)",
+        background: colors.background,
       }}
     >
       {activeMachine && (
@@ -63,9 +64,9 @@ function CanvasComponent({
             marginBottom: 16,
             padding: isMobile ? "14px 16px" : "16px 18px",
             borderRadius: 12,
-            border: "1px solid rgb(26, 58, 92)",
+            border: `1px solid ${colors.border}`,
             background:
-              "linear-gradient(135deg, rgba(17, 42, 69, 0.94) 0%, rgba(10, 25, 41, 0.98) 100%)",
+              `linear-gradient(135deg, ${colorAlpha.surfaceOpaque94} 0%, ${colorAlpha.backgroundOpaque98} 100%)`,
           }}
         >
           <div style={{ minWidth: 0 }}>
@@ -74,7 +75,7 @@ function CanvasComponent({
                 fontSize: 11,
                 letterSpacing: 0.6,
                 textTransform: "uppercase",
-                color: "rgb(74, 97, 120)",
+                color: colors.foregroundMuted,
                 marginBottom: 6,
               }}
             >
@@ -92,7 +93,7 @@ function CanvasComponent({
                 style={{
                   fontSize: isMobile ? 18 : 20,
                   fontWeight: 700,
-                  color: "rgb(224, 232, 240)",
+                  color: colors.foreground,
                 }}
               >
                 {activeMachine.name}
@@ -105,14 +106,14 @@ function CanvasComponent({
                   padding: "4px 8px",
                   borderRadius: 999,
                   background: isActiveController
-                    ? "rgba(0, 212, 170, 0.12)"
-                    : "rgba(255, 193, 7, 0.12)",
+                    ? colorAlpha.accentLight12
+                    : colorAlpha.warningLight12,
                   border: isActiveController
-                    ? "1px solid rgba(0, 212, 170, 0.25)"
-                    : "1px solid rgba(255, 193, 7, 0.22)",
+                    ? `1px solid ${colorAlpha.accentBorder}`
+                    : `1px solid ${colorAlpha.warningBorder22}`,
                   color: isActiveController
-                    ? "rgb(0, 212, 170)"
-                    : "rgb(255, 193, 7)",
+                    ? colors.accent
+                    : colors.warning,
                   fontSize: 11,
                   fontWeight: 600,
                 }}
@@ -123,8 +124,8 @@ function CanvasComponent({
                     height: 6,
                     borderRadius: "50%",
                     background: isActiveController
-                      ? "rgb(0, 212, 170)"
-                      : "rgb(255, 193, 7)",
+                      ? colors.accent
+                      : colors.warning,
                   }}
                 />
                 {controlCopy.modeLabel}
@@ -147,7 +148,7 @@ function CanvasComponent({
                   display: "flex",
                   gap: 10,
                   flexWrap: "wrap",
-                  color: "rgb(122, 143, 166)",
+                  color: colors.foregroundSecondary,
                   fontSize: 12,
                   fontVariantNumeric: "tabular-nums",
                 }}
@@ -172,14 +173,14 @@ function CanvasComponent({
                 style={{
                   background: isActiveController
                     ? "transparent"
-                    : "rgb(0, 212, 170)",
+                    : colors.accent,
                   border: isActiveController
-                    ? "1px solid rgb(26, 58, 92)"
+                    ? `1px solid ${colors.border}`
                     : "none",
                   borderRadius: 999,
                   color: isActiveController
-                    ? "rgb(224, 232, 240)"
-                    : "rgb(10, 25, 41)",
+                    ? colors.foreground
+                    : colors.background,
                   cursor: "pointer",
                   fontSize: 12,
                   fontWeight: 700,
@@ -200,7 +201,7 @@ function CanvasComponent({
             alignItems: "center",
             justifyContent: "center",
             height: "100%",
-            color: "rgb(74, 97, 120)",
+            color: colors.foregroundMuted,
             fontSize: 14,
           }}
         >

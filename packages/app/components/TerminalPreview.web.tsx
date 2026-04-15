@@ -1,4 +1,5 @@
 import type { TerminalInfo, ResourceStats } from "@webmux/shared";
+import { colors, colorAlpha } from "@/lib/colors";
 
 interface TerminalPreviewProps {
   terminal: TerminalInfo;
@@ -31,7 +32,7 @@ export function TerminalPreview({
         display: "grid",
         gridTemplateRows: "1fr auto",
         background:
-          "linear-gradient(180deg, rgba(8, 18, 30, 0.96) 0%, rgba(13, 33, 55, 0.96) 100%)",
+          `linear-gradient(180deg, ${colorAlpha.backgroundOpaque96} 0%, ${colorAlpha.backgroundSecondaryOpaque96} 100%)`,
       }}
     >
       <div
@@ -52,9 +53,9 @@ export function TerminalPreview({
               width: "fit-content",
               padding: "4px 8px",
               borderRadius: 999,
-              border: "1px solid rgba(0, 212, 170, 0.2)",
-              background: "rgba(0, 212, 170, 0.08)",
-              color: "rgb(0, 212, 170)",
+              border: `1px solid ${colorAlpha.accentMedium}`,
+              background: colorAlpha.accentSubtle,
+              color: colors.accent,
               fontSize: 11,
               fontWeight: 600,
               letterSpacing: 0.2,
@@ -65,7 +66,7 @@ export function TerminalPreview({
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                background: isController ? "rgb(0, 212, 170)" : "rgb(255, 193, 7)",
+                background: isController ? colors.accent : colors.warning,
               }}
             />
             {isController ? "Ready to Control" : "Open to Watch"}
@@ -76,7 +77,7 @@ export function TerminalPreview({
               fontFamily: "'SF Mono', 'Cascadia Code', 'Fira Code', 'Menlo', monospace",
               fontSize: 12,
               lineHeight: 1.7,
-              color: "rgb(122, 143, 166)",
+              color: colors.foregroundSecondary,
               whiteSpace: "pre-wrap",
             }}
           >
@@ -90,7 +91,7 @@ export function TerminalPreview({
             gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
             gap: 8,
             fontSize: 11,
-            color: "rgb(122, 143, 166)",
+            color: colors.foregroundSecondary,
           }}
         >
           <div
@@ -98,11 +99,11 @@ export function TerminalPreview({
               padding: "10px 12px",
               borderRadius: 8,
               background: "rgba(255, 255, 255, 0.03)",
-              border: "1px solid rgba(26, 58, 92, 0.9)",
+              border: `1px solid ${colors.border}`,
             }}
           >
-            <div style={{ color: "rgb(74, 97, 120)", marginBottom: 4 }}>Machine</div>
-            <div style={{ color: "rgb(224, 232, 240)" }}>
+            <div style={{ color: colors.foregroundMuted, marginBottom: 4 }}>Machine</div>
+            <div style={{ color: colors.foreground }}>
               {activeMachineName ?? terminal.machine_id}
             </div>
           </div>
@@ -111,11 +112,11 @@ export function TerminalPreview({
               padding: "10px 12px",
               borderRadius: 8,
               background: "rgba(255, 255, 255, 0.03)",
-              border: "1px solid rgba(26, 58, 92, 0.9)",
+              border: `1px solid ${colors.border}`,
             }}
           >
-            <div style={{ color: "rgb(74, 97, 120)", marginBottom: 4 }}>Memory</div>
-            <div style={{ color: "rgb(224, 232, 240)" }}>{formatMemory(stats)}</div>
+            <div style={{ color: colors.foregroundMuted, marginBottom: 4 }}>Memory</div>
+            <div style={{ color: colors.foreground }}>{formatMemory(stats)}</div>
           </div>
         </div>
       </div>
@@ -127,14 +128,14 @@ export function TerminalPreview({
           justifyContent: "space-between",
           gap: 12,
           padding: "10px 16px",
-          borderTop: "1px solid rgba(26, 58, 92, 0.9)",
+          borderTop: `1px solid ${colors.border}`,
           background: "rgba(0, 0, 0, 0.18)",
-          color: "rgb(122, 143, 166)",
+          color: colors.foregroundSecondary,
           fontSize: 11,
         }}
       >
         <span>Terminal stays lightweight here to keep the grid responsive.</span>
-        <span style={{ color: "rgb(224, 232, 240)" }}>Open Full View</span>
+        <span style={{ color: colors.foreground }}>Open Full View</span>
       </div>
     </div>
   );

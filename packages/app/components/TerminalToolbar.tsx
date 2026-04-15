@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
+import { colors } from "@/lib/colors";
 
 interface TerminalToolbarProps {
   onKey: (data: string) => void;
@@ -48,8 +49,8 @@ export function TerminalToolbar({ onKey }: TerminalToolbarProps) {
     <View
       style={{
         borderTopWidth: 1,
-        borderTopColor: "rgb(26, 58, 92)",
-        backgroundColor: "rgb(13, 33, 55)",
+        borderTopColor: colors.border,
+        backgroundColor: colors.backgroundSecondary,
         flexShrink: 0,
       }}
     >
@@ -66,12 +67,12 @@ export function TerminalToolbar({ onKey }: TerminalToolbarProps) {
           onPress={handleCtrlToggle}
           style={{
             backgroundColor: ctrlMode
-              ? "rgba(0, 212, 170, 0.1)"
-              : "rgb(17, 42, 69)",
+              ? colors.accentDim
+              : colors.surface,
             borderWidth: 1,
             borderColor: ctrlMode
-              ? "rgb(0, 212, 170)"
-              : "rgb(26, 58, 92)",
+              ? colors.accent
+              : colors.border,
             borderRadius: 4,
             paddingVertical: 6,
             paddingHorizontal: 10,
@@ -83,8 +84,8 @@ export function TerminalToolbar({ onKey }: TerminalToolbarProps) {
             style={{
               fontSize: 13,
               color: ctrlMode
-                ? "rgb(0, 212, 170)"
-                : "rgb(224, 232, 240)",
+                ? colors.accent
+                : colors.foreground,
             }}
             selectable={false}
           >
@@ -98,10 +99,10 @@ export function TerminalToolbar({ onKey }: TerminalToolbarProps) {
             onPress={() => handleKey(k.data)}
             style={({ pressed }) => ({
               backgroundColor: pressed
-                ? "rgb(21, 53, 85)"
-                : "rgb(17, 42, 69)",
+                ? colors.surfaceHover
+                : colors.surface,
               borderWidth: 1,
-              borderColor: "rgb(26, 58, 92)",
+              borderColor: colors.border,
               borderRadius: 4,
               paddingVertical: 6,
               paddingHorizontal: 10,
@@ -110,7 +111,7 @@ export function TerminalToolbar({ onKey }: TerminalToolbarProps) {
             })}
           >
             <Text
-              style={{ fontSize: 13, color: "rgb(224, 232, 240)" }}
+              style={{ fontSize: 13, color: colors.foreground }}
               selectable={false}
             >
               {ctrlMode ? `^${k.label}` : k.label}

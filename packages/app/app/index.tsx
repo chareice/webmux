@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
+import { colors } from "@/lib/colors";
 
 const WebTerminalCanvas = lazy(() =>
   import("../components/TerminalCanvas.web").then((module) => ({
@@ -17,10 +18,10 @@ export default function HomeScreen() {
               flex: 1,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "rgb(10, 25, 41)",
+              backgroundColor: colors.background,
             }}
           >
-            <ActivityIndicator color="rgb(0, 212, 170)" />
+            <ActivityIndicator color={colors.accent} />
           </View>
         }
       >

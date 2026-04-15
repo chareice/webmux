@@ -7,6 +7,7 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
+import { Sun, Moon, Monitor } from "lucide-react";
 import type { MachineInfo, Bookmark } from "@webmux/shared";
 import {
   listDirectory,
@@ -17,6 +18,7 @@ import {
   getSettings,
   updateSettings,
 } from "@/lib/api";
+import { colors, colorAlpha } from "@/lib/colors";
 import {
   buildDirectorySuggestions,
   createDirectoryCache,
@@ -37,6 +39,7 @@ import { isTauri, getDesktopReleasesUrl } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import { shouldLoadMachineBookmarks } from "@/lib/sidebarSections";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
+import { useTheme } from "@/lib/theme";
 
 interface SidebarProps {
   machines: MachineInfo[];
@@ -204,24 +207,24 @@ function PathInput({
           }
           style={{
             flex: 1,
-            backgroundColor: "rgb(17, 42, 69)",
+            backgroundColor: colors.surface,
             borderWidth: 1,
-            borderColor: "rgb(26, 58, 92)",
+            borderColor: colors.border,
             borderRadius: 4,
-            color: "rgb(224, 232, 240)",
+            color: colors.foreground,
             paddingVertical: 4,
             paddingHorizontal: 8,
             fontSize: 12,
           }}
           placeholder="/path/to/directory…"
-          placeholderTextColor="rgb(74, 97, 120)"
+          placeholderTextColor={colors.foregroundMuted}
         />
         <Pressable
           onPress={() => onSubmit(value.trim())}
           style={{
-            backgroundColor: "rgba(0, 212, 170, 0.1)",
+            backgroundColor: colorAlpha.accentLight,
             borderWidth: 1,
-            borderColor: "rgb(0, 212, 170)",
+            borderColor: colors.accent,
             borderRadius: 4,
             paddingVertical: 4,
             paddingHorizontal: 8,
@@ -231,7 +234,7 @@ function PathInput({
           <Text
             style={{
               fontSize: 12,
-              color: "rgb(0, 212, 170)",
+              color: colors.accent,
             }}
           >
             Add
@@ -248,9 +251,9 @@ function PathInput({
             right: 12,
             top: "100%" as any,
             marginTop: 2,
-            backgroundColor: "rgb(17, 42, 69)",
+            backgroundColor: colors.surface,
             borderWidth: 1,
-            borderColor: "rgb(26, 58, 92)",
+            borderColor: colors.border,
             borderRadius: 4,
             zIndex: 50,
             maxHeight: 200,
@@ -267,7 +270,7 @@ function PathInput({
                   paddingHorizontal: 8,
                   backgroundColor:
                     i === selectedIndex
-                      ? "rgba(0, 212, 170, 0.1)"
+                      ? colorAlpha.accentLight
                       : "transparent",
                 }}
               >
@@ -277,8 +280,8 @@ function PathInput({
                     fontSize: 12,
                     color:
                       i === selectedIndex
-                        ? "rgb(0, 212, 170)"
-                        : "rgb(224, 232, 240)",
+                        ? colors.accent
+                        : colors.foreground,
                   }}
                 >
                   {path}
@@ -401,7 +404,7 @@ function MachineSection({
     <View
       style={{
         borderBottomWidth: 1,
-        borderBottomColor: "rgb(26, 58, 92)",
+        borderBottomColor: colors.border,
       }}
     >
       {/* Machine header */}
@@ -414,7 +417,7 @@ function MachineSection({
           gap: 8,
           paddingVertical: 10,
           paddingHorizontal: 12,
-          backgroundColor: "rgba(0,0,0,0.15)",
+          backgroundColor: colorAlpha.backgroundDim,
         }}
       >
         <View
@@ -422,7 +425,7 @@ function MachineSection({
             width: 8,
             height: 8,
             borderRadius: 4,
-            backgroundColor: "rgb(0, 212, 170)",
+            backgroundColor: colors.accent,
           }}
         />
         <Text
@@ -430,7 +433,7 @@ function MachineSection({
           style={{
             fontSize: 13,
             fontWeight: "600",
-            color: "rgb(224, 232, 240)",
+            color: colors.foreground,
             flex: 1,
           }}
         >
@@ -439,7 +442,7 @@ function MachineSection({
         <Text
           style={{
             fontSize: 10,
-            color: "rgb(74, 97, 120)",
+            color: colors.foregroundMuted,
           }}
         >
           {machine.os}
@@ -447,7 +450,7 @@ function MachineSection({
         <Text
           style={{
             fontSize: 10,
-            color: "rgb(122, 143, 166)",
+            color: colors.foregroundSecondary,
             transform: [{ rotate: expanded ? "90deg" : "0deg" }],
           }}
         >
@@ -466,12 +469,12 @@ function MachineSection({
                 padding: 10,
                 borderRadius: 8,
                 borderWidth: 1,
-                borderColor: "rgba(255, 193, 7, 0.2)",
-                backgroundColor: "rgba(255, 193, 7, 0.08)",
+                borderColor: colorAlpha.warningBorder,
+                backgroundColor: colorAlpha.warningSubtle,
                 gap: 8,
               }}
             >
-              <Text style={{ fontSize: 11, color: "rgb(255, 193, 7)" }}>
+              <Text style={{ fontSize: 11, color: colors.warning }}>
                 You are viewing this machine. Control it here before opening a new terminal.
               </Text>
               {onRequestControl && (
@@ -480,7 +483,7 @@ function MachineSection({
                   onPress={() => onRequestControl(machine.id)}
                   style={{
                     alignSelf: "flex-start",
-                    backgroundColor: "rgb(0, 212, 170)",
+                    backgroundColor: colors.accent,
                     borderRadius: 999,
                     paddingVertical: 6,
                     paddingHorizontal: 10,
@@ -490,7 +493,7 @@ function MachineSection({
                     style={{
                       fontSize: 11,
                       fontWeight: "700",
-                      color: "rgb(10, 25, 41)",
+                      color: colors.background,
                     }}
                   >
                     {controlCopy.toggleLabel}
@@ -515,7 +518,7 @@ function MachineSection({
                 paddingVertical: 6,
                 paddingHorizontal: 12,
                 backgroundColor: pressed
-                  ? "rgb(17, 42, 69)"
+                  ? colors.surface
                   : "transparent",
                 opacity: canCreateTerminal ? 1 : 0.45,
               })}
@@ -523,7 +526,7 @@ function MachineSection({
               <Text
                 style={{
                   fontSize: 14,
-                  color: "rgb(122, 143, 166)",
+                  color: colors.foregroundSecondary,
                 }}
               >
                 {"\u25B8"}
@@ -533,7 +536,7 @@ function MachineSection({
                   numberOfLines={1}
                   style={{
                     fontSize: 13,
-                    color: "rgb(224, 232, 240)",
+                    color: colors.foreground,
                   }}
                 >
                   {bm.label}
@@ -542,7 +545,7 @@ function MachineSection({
                   numberOfLines={1}
                   style={{
                     fontSize: 10,
-                    color: "rgb(74, 97, 120)",
+                    color: colors.foregroundMuted,
                   }}
                 >
                   {bm.path}
@@ -559,7 +562,7 @@ function MachineSection({
                 <Text
                   style={{
                     fontSize: 10,
-                    color: "rgb(74, 97, 120)",
+                    color: colors.foregroundMuted,
                   }}
                 >
                   &#x2715;
@@ -590,7 +593,7 @@ function MachineSection({
               <Text
                 style={{
                   fontSize: 14,
-                  color: "rgb(74, 97, 120)",
+                  color: colors.foregroundMuted,
                 }}
               >
                 +
@@ -598,7 +601,7 @@ function MachineSection({
               <Text
                 style={{
                   fontSize: 12,
-                  color: "rgb(74, 97, 120)",
+                  color: colors.foregroundMuted,
                 }}
               >
                 Add directory
@@ -697,8 +700,8 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
       style={{
         padding: 12,
         borderTopWidth: 1,
-        borderTopColor: "rgb(26, 58, 92)",
-        backgroundColor: "rgb(17, 42, 69)",
+        borderTopColor: colors.border,
+        backgroundColor: colors.surface,
       }}
     >
       <View
@@ -713,13 +716,13 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
           style={{
             fontSize: 12,
             fontWeight: "600",
-            color: "rgb(224, 232, 240)",
+            color: colors.foreground,
           }}
         >
           Add Machine
         </Text>
         <Pressable onPress={onClose} hitSlop={6}>
-          <Text style={{ fontSize: 12, color: "rgb(74, 97, 120)" }}>
+          <Text style={{ fontSize: 12, color: colors.foregroundMuted }}>
             &#x2715;
           </Text>
         </Pressable>
@@ -727,21 +730,21 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
 
       {!requested && !loading && !token && !error && (
         <View style={{ gap: 10 }}>
-          <Text style={{ fontSize: 11, color: "rgb(122, 143, 166)" }}>
+          <Text style={{ fontSize: 11, color: colors.foregroundSecondary }}>
             Generate a registration token only when you are ready to copy the commands to a machine.
           </Text>
           <Pressable
             onPress={handleGenerateClick}
             style={{
-              backgroundColor: "rgba(0, 212, 170, 0.1)",
+              backgroundColor: colorAlpha.accentLight,
               borderWidth: 1,
-              borderColor: "rgb(0, 212, 170)",
+              borderColor: colors.accent,
               borderRadius: 6,
               paddingVertical: 8,
               alignItems: "center",
             }}
           >
-            <Text style={{ fontSize: 12, color: "rgb(0, 212, 170)", fontWeight: "700" }}>
+            <Text style={{ fontSize: 12, color: colors.accent, fontWeight: "700" }}>
               {getTokenActionLabel({ loading, token })}
             </Text>
           </Pressable>
@@ -749,14 +752,14 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
       )}
 
       {loading && (
-        <Text style={{ fontSize: 11, color: "rgb(74, 97, 120)" }}>
+        <Text style={{ fontSize: 11, color: colors.foregroundMuted }}>
           Generating token…
         </Text>
       )}
 
       {error && (
         <View style={{ gap: 8 }}>
-          <Text style={{ fontSize: 11, color: "rgb(255, 100, 100)" }}>
+          <Text style={{ fontSize: 11, color: colors.danger }}>
             {error}
           </Text>
           <Pressable
@@ -764,20 +767,20 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
             style={{
               alignSelf: "flex-start",
               borderWidth: 1,
-              borderColor: "rgb(26, 58, 92)",
+              borderColor: colors.border,
               borderRadius: 6,
               paddingVertical: 6,
               paddingHorizontal: 10,
             }}
           >
-            <Text style={{ fontSize: 11, color: "rgb(224, 232, 240)" }}>Try Again</Text>
+            <Text style={{ fontSize: 11, color: colors.foreground }}>Try Again</Text>
           </Pressable>
         </View>
       )}
 
       {token && (
         <View style={{ gap: 10 }}>
-          <Text style={{ fontSize: 11, color: "rgb(122, 143, 166)" }}>
+          <Text style={{ fontSize: 11, color: colors.foregroundSecondary }}>
             Run these commands on the target machine:
           </Text>
 
@@ -787,7 +790,7 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
               style={{
                 fontSize: 10,
                 fontWeight: "600",
-                color: "rgb(122, 143, 166)",
+                color: colors.foregroundSecondary,
                 textTransform: "uppercase",
                 letterSpacing: 0.5,
               }}
@@ -796,9 +799,9 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
             </Text>
             <View
               style={{
-                backgroundColor: "rgb(13, 33, 55)",
+                backgroundColor: colors.backgroundSecondary,
                 borderWidth: 1,
-                borderColor: "rgb(26, 58, 92)",
+                borderColor: colors.border,
                 borderRadius: 4,
                 padding: 8,
               }}
@@ -807,7 +810,7 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
                 selectable
                 style={{
                   fontSize: 11,
-                  color: "rgb(0, 212, 170)",
+                  color: colors.accent,
                   fontFamily: Platform.OS === "web" ? "monospace" : undefined,
                 }}
               >
@@ -822,7 +825,7 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
               style={{
                 fontSize: 10,
                 fontWeight: "600",
-                color: "rgb(122, 143, 166)",
+                color: colors.foregroundSecondary,
                 textTransform: "uppercase",
                 letterSpacing: 0.5,
               }}
@@ -831,9 +834,9 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
             </Text>
             <View
               style={{
-                backgroundColor: "rgb(13, 33, 55)",
+                backgroundColor: colors.backgroundSecondary,
                 borderWidth: 1,
-                borderColor: "rgb(26, 58, 92)",
+                borderColor: colors.border,
                 borderRadius: 4,
                 padding: 8,
               }}
@@ -842,7 +845,7 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
                 selectable
                 style={{
                   fontSize: 11,
-                  color: "rgb(0, 212, 170)",
+                  color: colors.accent,
                   fontFamily: Platform.OS === "web" ? "monospace" : undefined,
                 }}
               >
@@ -857,7 +860,7 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
               style={{
                 fontSize: 10,
                 fontWeight: "600",
-                color: "rgb(122, 143, 166)",
+                color: colors.foregroundSecondary,
                 textTransform: "uppercase",
                 letterSpacing: 0.5,
               }}
@@ -866,9 +869,9 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
             </Text>
             <View
               style={{
-                backgroundColor: "rgb(13, 33, 55)",
+                backgroundColor: colors.backgroundSecondary,
                 borderWidth: 1,
-                borderColor: "rgb(26, 58, 92)",
+                borderColor: colors.border,
                 borderRadius: 4,
                 padding: 8,
               }}
@@ -877,7 +880,7 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
                 selectable
                 style={{
                   fontSize: 11,
-                  color: "rgb(0, 212, 170)",
+                  color: colors.accent,
                   fontFamily: Platform.OS === "web" ? "monospace" : undefined,
                 }}
               >
@@ -890,16 +893,16 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
             onPress={handleCopy}
             style={{
               backgroundColor: copied
-                ? "rgba(0, 212, 170, 0.2)"
-                : "rgba(0, 212, 170, 0.1)",
+                ? colorAlpha.accentMedium
+                : colorAlpha.accentLight,
               borderWidth: 1,
-              borderColor: "rgb(0, 212, 170)",
+              borderColor: colors.accent,
               borderRadius: 4,
               paddingVertical: 6,
               alignItems: "center",
             }}
           >
-            <Text style={{ fontSize: 12, color: "rgb(0, 212, 170)" }}>
+            <Text style={{ fontSize: 12, color: colors.accent }}>
               {copied ? "Copied!" : "Copy all commands"}
             </Text>
           </Pressable>
@@ -907,17 +910,17 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
             onPress={handleGenerateClick}
             style={{
               borderWidth: 1,
-              borderColor: "rgb(26, 58, 92)",
+              borderColor: colors.border,
               borderRadius: 4,
               paddingVertical: 6,
               alignItems: "center",
             }}
           >
-            <Text style={{ fontSize: 11, color: "rgb(122, 143, 166)" }}>
+            <Text style={{ fontSize: 11, color: colors.foregroundSecondary }}>
               {getTokenActionLabel({ loading, token })}
             </Text>
           </Pressable>
-          <Text style={{ fontSize: 10, color: "rgb(74, 97, 120)" }}>
+          <Text style={{ fontSize: 10, color: colors.foregroundMuted }}>
             Token expires in 24 hours
           </Text>
         </View>
@@ -950,7 +953,7 @@ function SettingsSection() {
     <View
       style={{
         borderTopWidth: 1,
-        borderTopColor: "rgb(26, 58, 92)",
+        borderTopColor: colors.border,
       }}
     >
       {/* Settings header */}
@@ -968,7 +971,7 @@ function SettingsSection() {
           style={{
             fontSize: 13,
             fontWeight: "600",
-            color: "rgb(122, 143, 166)",
+            color: colors.foregroundSecondary,
             textTransform: "uppercase",
             letterSpacing: 1,
           }}
@@ -978,7 +981,7 @@ function SettingsSection() {
         <Text
           style={{
             fontSize: 10,
-            color: "rgb(122, 143, 166)",
+            color: colors.foregroundSecondary,
             transform: [{ rotate: expanded ? "90deg" : "0deg" }],
           }}
         >
@@ -993,7 +996,7 @@ function SettingsSection() {
               <Text
                 style={{
                   fontSize: 11,
-                  color: "rgb(122, 143, 166)",
+                  color: colors.foregroundSecondary,
                   marginBottom: 6,
                 }}
               >
@@ -1014,13 +1017,13 @@ function SettingsSection() {
                   }
                 }}
                 placeholder="https://your-server:4317"
-                placeholderTextColor="rgb(74, 97, 120)"
+                placeholderTextColor={colors.foregroundMuted}
                 style={{
-                  backgroundColor: "rgb(17, 42, 69)",
+                  backgroundColor: colors.surface,
                   borderWidth: 1,
-                  borderColor: "rgb(26, 58, 92)",
+                  borderColor: colors.border,
                   borderRadius: 4,
-                  color: "rgb(224, 232, 240)",
+                  color: colors.foreground,
                   paddingVertical: 4,
                   paddingHorizontal: 8,
                   fontSize: 12,
@@ -1031,7 +1034,7 @@ function SettingsSection() {
           <Text
             style={{
               fontSize: 11,
-              color: "rgb(122, 143, 166)",
+              color: colors.foregroundSecondary,
               marginBottom: 6,
             }}
           >
@@ -1047,17 +1050,17 @@ function SettingsSection() {
               }
             }}
             style={{
-              backgroundColor: "rgb(17, 42, 69)",
+              backgroundColor: colors.surface,
               borderWidth: 1,
-              borderColor: "rgb(26, 58, 92)",
+              borderColor: colors.border,
               borderRadius: 4,
-              color: "rgb(224, 232, 240)",
+              color: colors.foreground,
               paddingVertical: 4,
               paddingHorizontal: 8,
               fontSize: 12,
             }}
             placeholder="e.g. tmux new-session"
-            placeholderTextColor="rgb(74, 97, 120)"
+            placeholderTextColor={colors.foregroundMuted}
           />
           {!isTauri() && Platform.OS === "web" && (
             <Pressable
@@ -1073,8 +1076,8 @@ function SettingsSection() {
                 paddingHorizontal: 10,
                 borderRadius: 6,
                 backgroundColor: pressed
-                  ? "rgba(74, 97, 120, 0.3)"
-                  : "rgba(74, 97, 120, 0.15)",
+                  ? colorAlpha.mutedMedium
+                  : colorAlpha.mutedLight,
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 8,
@@ -1083,7 +1086,7 @@ function SettingsSection() {
               <Text
                 style={{
                   fontSize: 12,
-                  color: "rgb(122, 143, 166)",
+                  color: colors.foregroundSecondary,
                 }}
               >
                 {"\u2193"} Download Desktop App
@@ -1093,6 +1096,33 @@ function SettingsSection() {
         </View>
       )}
     </View>
+  );
+}
+
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  const next = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+  const Icon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
+  const label = theme === "light" ? "Light" : theme === "dark" ? "Dark" : "System";
+
+  return (
+    <Pressable
+      onPress={() => setTheme(next)}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+      }}
+    >
+      <Icon size={14} color={colors.foregroundSecondary} />
+      <Text style={{ fontSize: 12, color: colors.foregroundSecondary }}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -1109,9 +1139,9 @@ function SidebarComponent({
       style={{
         width: 260,
         minWidth: 260,
-        backgroundColor: "rgb(13, 33, 55)",
+        backgroundColor: colors.backgroundSecondary,
         borderRightWidth: 1,
-        borderRightColor: "rgb(26, 58, 92)",
+        borderRightColor: colors.border,
         flexDirection: "column",
         overflow: "hidden",
         height: "100%",
@@ -1123,7 +1153,7 @@ function SidebarComponent({
           paddingBottom: 12,
           paddingHorizontal: 12,
           borderBottomWidth: 1,
-          borderBottomColor: "rgb(26, 58, 92)",
+          borderBottomColor: colors.border,
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "center",
@@ -1133,7 +1163,7 @@ function SidebarComponent({
           style={{
             fontSize: 13,
             fontWeight: "600",
-            color: "rgb(122, 143, 166)",
+            color: colors.foregroundSecondary,
             textTransform: "uppercase",
             letterSpacing: 1,
           }}
@@ -1150,7 +1180,7 @@ function SidebarComponent({
           <Text
             style={{
               fontSize: 16,
-              color: "rgb(74, 97, 120)",
+              color: colors.foregroundMuted,
             }}
           >
             +
@@ -1162,7 +1192,7 @@ function SidebarComponent({
           <View style={{ padding: 20, alignItems: "center" }}>
             <Text
               style={{
-                color: "rgb(74, 97, 120)",
+                color: colors.foregroundMuted,
                 fontSize: 13,
               }}
             >
@@ -1185,6 +1215,7 @@ function SidebarComponent({
         <AddMachinePanel onClose={() => setShowAddMachine(false)} />
       )}
       <SettingsSection />
+      {Platform.OS === "web" && <ThemeToggle />}
     </View>
   );
 }

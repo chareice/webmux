@@ -23,6 +23,7 @@ import {
   EMPTY_BROWSER_SESSION_STATE,
   shouldResyncForEnvelope,
 } from "@/lib/bootstrapState";
+import { colors } from "@/lib/colors";
 import { getPersistentDeviceId } from "@/lib/deviceId";
 
 export function TerminalCanvas() {
@@ -184,7 +185,7 @@ export function TerminalCanvas() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0a1929" />
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
       {/* Hamburger button */}
       {!maximizedId && (
@@ -245,23 +246,23 @@ export function TerminalCanvas() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "rgb(10, 25, 41)",
+    backgroundColor: colors.background,
   },
   hamburger: {
     position: "absolute",
     top: 12,
     left: 12,
     zIndex: 90,
-    backgroundColor: "rgb(17, 42, 69)",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "rgb(26, 58, 92)",
+    borderColor: colors.border,
     borderRadius: 6,
     paddingVertical: 6,
     paddingHorizontal: 10,
   },
   hamburgerText: {
     fontSize: 18,
-    color: "rgb(224, 232, 240)",
+    color: colors.foreground,
     lineHeight: 22,
   },
   backdrop: {

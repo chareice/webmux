@@ -1,0 +1,23 @@
+// Static hex terminal theme for XTerm.js (always dark, platform-independent)
+export const terminalTheme = {
+  background: '#201d1d',
+  foreground: '#fdfcfc',
+  cursor: '#007aff',
+  selectionBackground: 'rgba(0, 122, 255, 0.3)',
+  black: '#201d1d',
+  red: '#ff3b30',
+  green: '#30d158',
+  yellow: '#ff9f0a',
+  blue: '#007aff',
+  magenta: '#cc5de8',
+  cyan: '#22b8cf',
+  white: '#fdfcfc',
+  brightBlack: '#302c2c',
+  brightRed: '#d70015',
+  brightGreen: '#30d158',
+  brightYellow: '#cc7f08',
+  brightBlue: '#0056b3',
+  brightMagenta: '#cc5de8',
+  brightCyan: '#22b8cf',
+  brightWhite: '#fdfcfc',
+};
