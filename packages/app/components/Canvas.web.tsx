@@ -154,7 +154,7 @@ function TabBar({
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
                     {terminal.title}
                   </span>
-                  {isActive && terminal.cwd && (
+                  {terminal.cwd && (
                     <span style={{
                       fontSize: 10,
                       color: colors.foregroundMuted,
