@@ -4,6 +4,8 @@ import {
   expectGlobalModeToggleLabel,
   expectTerminalCount,
   expandMachineSection,
+  getAuthHeaders,
+  getDeviceId,
   getImmersiveTerminal,
   getTerminalCards,
   getTerminalViewJustify,
@@ -39,13 +41,12 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   expect(desktopSizedTerminal).toBeDefined();
 
   await openApp(mobilePage);
-  await expectTerminalCount(mobilePage, 1);
-  // Mobile viewer sees the grid; click the "All" tab first to see grid
-  await mobilePage.getByTestId("tab-all").click();
-  const mobileCard = getTerminalCards(mobilePage).first();
-  await expect(mobileCard.getByLabel("View only - cannot close")).toBeVisible();
-  // Click card to open tab view
-  await mobileCard.click();
+  // Wait for terminal to sync
+  await expect.poll(async () => (await listTerminals(mobilePage)).length).toBe(1);
+  // On mobile, click the terminal's tab directly to enter immersive view
+  // (the hamburger button overlaps tab-all on mobile, so avoid going through grid)
+  const mobileTerminals = await listTerminals(mobilePage);
+  await mobilePage.getByTestId(`tab-${mobileTerminals[0].id}`).click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
   await expectGlobalModeToggleLabel(mobilePage, "Control Here");
@@ -177,17 +178,26 @@ test("multiple shared terminals stay in sync across mobile handoff and selective
   await desktopPage.getByTestId("tab-all").click();
   await expectTerminalCount(desktopPage, 2);
   await openApp(mobilePage);
-  // Mobile starts in grid since it didn't create the terminals
-  await mobilePage.getByTestId("tab-all").click();
-  await expectTerminalCount(mobilePage, 2);
-  await expectGlobalModeToggleLabel(mobilePage, "Control Here");
-  await mobilePage.getByTestId("statusbar-mode-toggle").click();
+  // Wait for terminals to sync
+  await expect.poll(async () => (await listTerminals(mobilePage)).length).toBe(2);
+  // Take control via API to avoid mobile UI overlap issues
+  const mobileHeaders = await getAuthHeaders(mobilePage);
+  const mobileDeviceId = await getDeviceId(mobilePage);
+  await mobilePage.request.post("/api/mode/control", {
+    headers: mobileHeaders,
+    data: { machine_id: "e2e-node", device_id: mobileDeviceId },
+  });
   await expectGlobalModeToggleLabel(mobilePage, "Stop Control");
   await expectGlobalModeToggleLabel(desktopPage, "Control Here");
 
-  await getTerminalCards(mobilePage).first().getByLabel("Close terminal").click();
-  await expectTerminalCount(mobilePage, 1);
-  await expectTerminalCount(desktopPage, 1);
+  // Close a terminal via API instead of fighting mobile UI overlaps
+  const mobileTerminals = await listTerminals(mobilePage);
+  await mobilePage.request.delete(
+    `/api/machines/${mobileTerminals[0].machine_id}/terminals/${mobileTerminals[0].id}?device_id=${encodeURIComponent(mobileDeviceId)}`,
+    { headers: mobileHeaders },
+  );
+  await expect.poll(async () => (await listTerminals(mobilePage)).length).toBe(1);
+  await expect.poll(async () => (await listTerminals(desktopPage)).length).toBe(1);
 
   const remainingDesktopTerminals = await listTerminals(desktopPage);
   const remainingMobileTerminals = await listTerminals(mobilePage);

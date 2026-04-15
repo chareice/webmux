@@ -81,7 +81,7 @@ test("terminal size stays stable across tab view and cross-device handoff until 
     )
     .toBe(1);
 
-  await mobilePage.getByLabel("Close terminal").click();
+  await mobilePage.getByLabel("Close terminal").first().click();
   await expect
     .poll(async () => listTerminals(mobilePage))
     .toEqual([]);
