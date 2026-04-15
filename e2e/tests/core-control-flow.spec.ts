@@ -22,10 +22,14 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Stop Control");
 
   await pageA.getByTestId("machine-bookmark-local-home").click();
+  // Terminal auto-switches to tab view; go back to grid to verify card state
+  await pageA.getByTestId("tab-all").click();
   const cardA = await expectSingleTerminalCard(pageA);
   await expect(cardA.getByLabel("Close terminal")).toBeVisible();
 
   await openApp(pageB);
+  // Session B starts in grid view (didn't create the terminal)
+  await pageB.getByTestId("tab-all").click();
   const cardB = await expectSingleTerminalCard(pageB);
   await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
   await expect(cardB.getByLabel("View only - cannot close")).toBeVisible();

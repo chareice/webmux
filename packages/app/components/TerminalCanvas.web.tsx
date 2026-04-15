@@ -39,10 +39,11 @@ const StatusBar = lazy(() =>
 
 export function TerminalCanvas() {
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
-  const [maximizedId, setMaximizedId] = useState<string | null>(null);
+  // null = grid overview ("All" tab), terminal id = single terminal tab
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
-  const maximizedRef = useRef<string | null>(null);
+  const activeTabRef = useRef<string | null>(null);
   const lastSeqRef = useRef(0);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
@@ -83,8 +84,8 @@ export function TerminalCanvas() {
   }, [browserState.lastSeq]);
 
   useEffect(() => {
-    maximizedRef.current = maximizedId;
-  }, [maximizedId]);
+    activeTabRef.current = activeTabId;
+  }, [activeTabId]);
 
   // Auto-select first machine as active, reset if selected machine goes offline
   useEffect(() => {
@@ -98,12 +99,12 @@ export function TerminalCanvas() {
     }
   }, [machines, activeMachineId]);
 
-  // Restore maximized state from URL hash
+  // Restore active tab from URL hash
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.startsWith("#/t/")) {
       const id = hash.slice(4);
-      if (id) setMaximizedId(id);
+      if (id) setActiveTabId(id);
     }
   }, []);
 
@@ -112,9 +113,9 @@ export function TerminalCanvas() {
     const onPopState = () => {
       const hash = window.location.hash;
       if (hash.startsWith("#/t/")) {
-        setMaximizedId(hash.slice(4));
+        setActiveTabId(hash.slice(4));
       } else {
-        setMaximizedId(null);
+        setActiveTabId(null);
       }
     };
     window.addEventListener("popstate", onPopState);
@@ -223,9 +224,10 @@ export function TerminalCanvas() {
           if (
             next !== prev &&
             envelope.event?.type === "terminal_destroyed" &&
-            maximizedRef.current === envelope.event.terminal_id
+            activeTabRef.current === envelope.event.terminal_id
           ) {
-            setMaximizedId(null);
+            setActiveTabId(null);
+            window.history.pushState(null, "", window.location.pathname);
           }
           return next;
         });
@@ -254,7 +256,10 @@ export function TerminalCanvas() {
     async (machineId: string, cwd: string) => {
       if (!deviceId) return;
       if (!isMachineController(machineId)) return;
-      await createTerminal(machineId, cwd, deviceId);
+      const newTerminal = await createTerminal(machineId, cwd, deviceId);
+      // Auto-switch to the new terminal's tab
+      setActiveTabId(newTerminal.id);
+      window.history.pushState(null, "", `#/t/${newTerminal.id}`);
       if (isMobile) setSidebarOpen(false);
     },
     [deviceId, isMachineController, isMobile],
@@ -320,14 +325,13 @@ export function TerminalCanvas() {
     [deviceId, isMachineController],
   );
 
-  const handleMaximize = useCallback((id: string) => {
-    setMaximizedId(id);
-    window.history.pushState(null, "", `#/t/${id}`);
-  }, []);
-
-  const handleMinimize = useCallback(() => {
-    setMaximizedId(null);
-    window.history.pushState(null, "", window.location.pathname);
+  const handleSelectTab = useCallback((id: string | null) => {
+    setActiveTabId(id);
+    if (id) {
+      window.history.pushState(null, "", `#/t/${id}`);
+    } else {
+      window.history.pushState(null, "", window.location.pathname);
+    }
   }, []);
 
   const activeMachine = activeMachineId
@@ -354,7 +358,7 @@ export function TerminalCanvas() {
         }}
       >
         {/* Mobile hamburger button */}
-        {isMobile && !maximizedId && (
+        {isMobile && !activeTabId && (
           <button
             onClick={() => setSidebarOpen((prev) => !prev)}
             aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
@@ -426,15 +430,14 @@ export function TerminalCanvas() {
           <Canvas
             machines={machines}
             terminals={terminals}
-            maximizedId={maximizedId}
+            activeTabId={activeTabId}
             activeMachineId={activeMachine?.id ?? null}
             machineStats={machineStats}
             isMobile={isMobile}
             isActiveController={isActiveController}
             isMachineController={isMachineController}
             deviceId={deviceId ?? ""}
-            onMaximize={handleMaximize}
-            onMinimize={handleMinimize}
+            onSelectTab={handleSelectTab}
             onDestroy={handleDestroyTerminal}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}

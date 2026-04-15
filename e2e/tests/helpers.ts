@@ -153,10 +153,21 @@ export async function expectGlobalModeToggleLabel(
 }
 
 export async function maximizeOnlyTerminal(page: Page): Promise<Locator> {
+  // After creating a terminal, it auto-switches to tab view (immersive mode).
+  // If already in tab view, just wait for the terminal card.
+  // If in grid view (e.g. navigated back), click the terminal's tab.
+  const immersive = getImmersiveTerminal(page);
+  if (await immersive.isVisible().catch(() => false)) {
+    const card = page.locator(TERMINAL_CARD_SELECTOR).first();
+    await expect(card).toBeVisible();
+    return card;
+  }
+
+  // Click the first terminal tab to switch to it
   const card = await expectSingleTerminalCard(page);
-  await card.getByLabel("Maximize").click();
-  await expect(page.getByLabel("Minimize")).toBeVisible();
-  return card;
+  await card.click();
+  await expect(immersive).toBeVisible();
+  return page.locator(TERMINAL_CARD_SELECTOR).first();
 }
 
 export function getImmersiveTerminal(page: Page): Locator {
