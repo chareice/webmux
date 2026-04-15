@@ -868,12 +868,16 @@ fn tmux_config_path() -> PathBuf {
     webmux_dir().join("tmux.conf")
 }
 
+fn user_tmux_config_path() -> PathBuf {
+    webmux_dir().join("tmux.user.conf")
+}
+
 fn osc52_script_path() -> PathBuf {
     webmux_dir().join("osc52copy.sh")
 }
 
 /// Build the tmux config string (extracted for testability).
-fn build_tmux_config(osc52_script: &str) -> String {
+fn build_tmux_config(osc52_script: &str, user_config: &str) -> String {
     let mut config = String::from(
         "\
 set -g default-terminal \"xterm-256color\"
@@ -905,6 +909,10 @@ bind -n WheelUpPane if -Ft= '#{mouse_any_flag}' 'send -M' 'if -Ft= \"#{pane_in_m
             config.push_str(&format!("set-environment -g {} \"{}\"\n", var, val));
         }
     }
+    // Source user overrides last — never overwritten by the node, so users can
+    // customize tmux settings without rebuilding the binary.
+    // The -q flag silently ignores the file if it doesn't exist.
+    config.push_str(&format!("source-file -q \"{}\"\n", user_config));
     config
 }
 
@@ -925,7 +933,11 @@ fn ensure_tmux_config() {
     }
 
     let config_path = tmux_config_path();
-    let config = build_tmux_config(script_path.to_str().unwrap_or("osc52copy.sh"));
+    let user_config_path = user_tmux_config_path();
+    let config = build_tmux_config(
+        script_path.to_str().unwrap_or("osc52copy.sh"),
+        user_config_path.to_str().unwrap_or("tmux.user.conf"),
+    );
     let _ = std::fs::write(&config_path, config);
 
     // Reload config into any already-running tmux server so that bindings
@@ -1074,7 +1086,7 @@ mod tests {
 
     #[test]
     fn tmux_config_contains_mouse_and_clipboard() {
-        let content = build_tmux_config("/tmp/osc52copy.sh");
+        let content = build_tmux_config("/tmp/osc52copy.sh", "/tmp/tmux.user.conf");
         assert!(content.contains("set -g mouse on"), "missing mouse on");
         assert!(
             content.contains("set -s set-clipboard on"),
@@ -1091,6 +1103,10 @@ mod tests {
         assert!(
             content.contains("WheelUpPane") && content.contains("copy-mode -e"),
             "missing scroll-to-copy-mode binding"
+        );
+        assert!(
+            content.contains("source-file -q \"/tmp/tmux.user.conf\""),
+            "missing user config source"
         );
     }
 
