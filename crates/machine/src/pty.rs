@@ -841,6 +841,7 @@ unbind C-b
 set -g mouse on
 set -s set-clipboard on
 set -g allow-passthrough on
+set -g focus-events on
 set -g history-limit 10000
 ",
     );
