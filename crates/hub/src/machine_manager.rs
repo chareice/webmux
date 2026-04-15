@@ -1020,6 +1020,16 @@ impl MachineManager {
     pub fn release_control(&self, user_id: &str, machine_id: &str, device_id: &str) {
         let mut mode_by_user = self.mode.lock().unwrap();
         if let Some(mode) = mode_by_user.get_mut(user_id) {
+            // Always clear from released_leases so an explicit release is not
+            // accidentally restored on reconnect — even if the grace-period
+            // disconnect already removed it from control_leases.
+            if let Some(stashed) = mode.released_leases.get_mut(device_id) {
+                stashed.retain(|mid| mid != machine_id);
+                if stashed.is_empty() {
+                    mode.released_leases.remove(device_id);
+                }
+            }
+
             if mode
                 .control_leases
                 .get(machine_id)
@@ -1027,16 +1037,6 @@ impl MachineManager {
                 == Some(device_id)
             {
                 mode.control_leases.remove(machine_id);
-
-                // Clear from released_leases so an explicit release is not
-                // accidentally restored on reconnect.
-                if let Some(stashed) = mode.released_leases.get_mut(device_id) {
-                    stashed.retain(|mid| mid != machine_id);
-                    if stashed.is_empty() {
-                        mode.released_leases.remove(device_id);
-                    }
-                }
-
                 self.send_event(
                     Some(user_id.to_string()),
                     BrowserEvent::ModeChanged {
@@ -2006,6 +2006,31 @@ mod tests {
         manager.unregister_device("user-a", "device-a");
 
         // Device reconnects — should NOT restore explicitly released control
+        manager.register_device("user-a", "device-a");
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+    }
+
+    #[tokio::test]
+    async fn explicit_release_after_grace_period_prevents_restore() {
+        let manager = Arc::new(MachineManager::new(test_db()));
+
+        manager.register_device("user-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-a");
+
+        // Grace period expires → control released, lease stashed
+        manager.schedule_unregister_device(
+            "user-a".to_string(),
+            "device-a".to_string(),
+            Duration::from_millis(10),
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+
+        // Explicit release arrives (e.g. delayed beforeunload beacon)
+        // even though control_leases no longer has the entry
+        manager.release_control("user-a", "machine-a", "device-a");
+
+        // Device reconnects — should NOT restore because of the explicit release
         manager.register_device("user-a", "device-a");
         assert_eq!(manager.get_controller("user-a", "machine-a"), None);
     }

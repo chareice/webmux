@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import path from "path";
+import { fileURLToPath, URL } from "url";
 
 export default defineConfig({
   test: {
@@ -7,8 +7,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@webmux/shared": path.resolve(__dirname, "packages/shared/src"),
-      "@": path.resolve(__dirname, "packages/app"),
+      "@webmux/shared": fileURLToPath(new URL("packages/shared/src", import.meta.url)),
+      "@": fileURLToPath(new URL("packages/app", import.meta.url)),
     },
   },
 });

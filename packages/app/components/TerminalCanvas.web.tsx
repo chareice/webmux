@@ -267,6 +267,9 @@ export function TerminalCanvas() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      // Prevent the onclose handler from scheduling a spurious reconnect
+      // when the effect is torn down intentionally.
+      ws.onclose = null;
       ws.close();
     };
   }, [bootstrapReady, deviceId]);
