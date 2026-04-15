@@ -12,7 +12,7 @@ function AuthGate() {
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#007aff" />
+        <ActivityIndicator size="large" color="#c96442" />
       </View>
     );
   }

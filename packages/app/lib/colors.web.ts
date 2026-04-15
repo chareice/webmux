@@ -12,7 +12,7 @@ export const colors = {
   danger: 'rgb(var(--color-danger))',
   warning: 'rgb(var(--color-warning))',
   success: 'rgb(var(--color-success))',
-  border: 'rgba(var(--color-border) / 0.12)',
+  border: 'rgb(var(--color-border))',
   borderActive: 'rgb(var(--color-border-active))',
 } as const;
 
