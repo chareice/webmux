@@ -1,11 +1,11 @@
-import { lazy, memo, Suspense, useRef, useCallback, useEffect, useState } from "react";
+import { lazy, memo, Suspense, useRef, useCallback, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import type { TerminalInfo } from "@webmux/shared";
-import { X, PanelRight } from "lucide-react";
+import { X } from "lucide-react";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { CommandBar } from "./CommandBar";
 import { terminalWsUrl } from "@/lib/api";
-import { colors } from "@/lib/colors";
+import { colors, terminalTheme } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 const LiveTerminalView = lazy(() =>
@@ -14,35 +14,48 @@ const LiveTerminalView = lazy(() =>
   })),
 );
 
+export interface TerminalCardRef {
+  fitToContainer: () => void;
+}
+
 interface TerminalCardProps {
   terminal: TerminalInfo;
   displayMode: "card" | "tab";
   isMobile: boolean;
   isController: boolean;
   deviceId: string;
+  desktopPanelOpen?: boolean;
   onSelectTab: (id: string | null) => void;
   onDestroy: (terminal: TerminalInfo) => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
 }
 
-function TerminalCardComponent({
+const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(function TerminalCardComponent({
   terminal,
   displayMode,
   isMobile,
   isController,
   deviceId,
+  desktopPanelOpen = false,
   onSelectTab,
   onDestroy,
   onRequestControl,
   onReleaseControl,
-}: TerminalCardProps) {
+}, ref) {
   const termViewRef = useRef<TerminalViewRef>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [commandBarVisible, setCommandBarVisible] = useState(false);
-  const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
   const controlCopy = getTerminalControlCopy(isController);
   const isTab = displayMode === "tab";
+
+  useImperativeHandle(ref, () => ({
+    fitToContainer: () => {
+      if (!isController || !isTab) return;
+      termViewRef.current?.fitToContainer();
+      termViewRef.current?.focus();
+    },
+  }), [isController, isTab]);
 
   useEffect(() => {
     if (isController) {
@@ -50,7 +63,6 @@ function TerminalCardComponent({
     }
     setKeyboardVisible(false);
     setCommandBarVisible(false);
-    setDesktopPanelOpen(false);
   }, [isController]);
 
   const handleToolbarKey = useCallback((data: string) => {
@@ -63,12 +75,6 @@ function TerminalCardComponent({
     if (!isController) return;
     termViewRef.current?.sendImagePaste(base64, mime);
   }, [isController]);
-
-  const handleFitHere = useCallback(() => {
-    if (!isController || !isTab) return;
-    termViewRef.current?.fitToContainer();
-    termViewRef.current?.focus();
-  }, [isController, isTab]);
 
   const handleCardClick = useCallback(() => {
     if (!isTab) onSelectTab(terminal.id);
@@ -130,132 +136,37 @@ function TerminalCardComponent({
         </div>
       )}
 
-      {/* Title bar - only shown in tab mode for controls */}
-      {isTab && (
+      {/* Mobile-only controls bar in tab mode */}
+      {isTab && isMobile && onRequestControl && onReleaseControl && (
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
+            justifyContent: "flex-end",
             padding: "4px 12px",
             borderBottom: `1px solid ${colors.border}`,
             background: "rgba(0,0,0,0.2)",
           }}
         >
-          {/* Left: close button */}
-          <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-            <button
-              onClick={() => {
-                if (!isController) return;
-                onDestroy(terminal);
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                color: isController ? colors.danger : colors.foregroundMuted,
-                cursor: isController ? "pointer" : "not-allowed",
-                padding: isMobile ? "10px 12px" : "2px 4px",
-                display: "flex",
-                alignItems: "center",
-                opacity: isController ? 0.6 : 0.3,
-              }}
-              onMouseEnter={(e) => {
-                if (isController) e.currentTarget.style.opacity = "1";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = isController ? "0.6" : "0.3";
-              }}
-              title={isController ? "Close terminal" : "View only - cannot close"}
-              aria-label={isController ? "Close terminal" : "View only - cannot close"}
-            >
-              <X size={14} aria-hidden />
-            </button>
-          </div>
-
-          {/* Center: title + cwd */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              overflow: "hidden",
-              minWidth: 0,
-              flex: 1,
-              marginLeft: 4,
-            }}
-          >
-            <span
-              style={{
-                fontSize: 13,
-                color: colors.foreground,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {terminal.title}
-            </span>
-            <span
-              style={{
-                fontSize: 11,
-                color: colors.foregroundMuted,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {terminal.cwd}
-            </span>
-          </div>
-
-          {/* Right: controls */}
-          <div style={{ display: "flex", gap: isMobile ? 4 : 6, flexShrink: 0, alignItems: "center" }}>
-            {isMobile && onRequestControl && onReleaseControl && (
+          <div style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}>
+            {isController && (
               <>
-                {isController && (
-                  <>
-                    <button
-                      data-testid="terminal-fit-button"
-                      onClick={() => handleFitHere()}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: colors.accent,
-                        cursor: "pointer",
-                        fontSize: 11,
-                        padding: isMobile ? "10px 8px" : "2px 4px",
-                      }}
-                    >
-                      {controlCopy.sizeActionLabel}
-                    </button>
-                    <span style={{
-                      width: 1, height: 14,
-                      background: colors.border,
-                      flexShrink: 0,
-                    }} />
-                  </>
-                )}
-                <span style={{
-                  width: 6, height: 6, borderRadius: '50%',
-                  background: isController ? colors.accent : colors.foregroundMuted,
-                  flexShrink: 0,
-                }} />
                 <button
-                  data-testid="terminal-mode-toggle"
+                  data-testid="terminal-fit-button"
                   onClick={() => {
-                    if (isController) onReleaseControl?.(terminal.machine_id);
-                    else onRequestControl?.(terminal.machine_id);
+                    termViewRef.current?.fitToContainer();
+                    termViewRef.current?.focus();
                   }}
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    color: isController ? colors.foregroundSecondary : colors.accent,
-                    cursor: 'pointer',
+                    background: "none",
+                    border: "none",
+                    color: colors.accent,
+                    cursor: "pointer",
                     fontSize: 11,
-                    padding: isMobile ? '10px 8px' : '2px 4px',
+                    padding: "10px 8px",
                   }}
                 >
-                  {controlCopy.toggleLabel}
+                  {controlCopy.sizeActionLabel}
                 </button>
                 <span style={{
                   width: 1, height: 14,
@@ -264,42 +175,28 @@ function TerminalCardComponent({
                 }} />
               </>
             )}
-            {!isMobile && isController && (
-              <button
-                data-testid="terminal-fit-button"
-                onClick={() => handleFitHere()}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: colors.accent,
-                  cursor: "pointer",
-                  fontSize: 11,
-                  padding: "2px 4px",
-                }}
-                title="Fit terminal here"
-                aria-label="Fit terminal here"
-              >
-                {controlCopy.sizeActionLabel}
-              </button>
-            )}
-            {!isMobile && (
-              <button
-                onClick={() => setDesktopPanelOpen(v => !v)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: desktopPanelOpen ? colors.accent : colors.foregroundSecondary,
-                  cursor: "pointer",
-                  padding: "2px 4px",
-                  display: "flex",
-                  alignItems: "center",
-                }}
-                title={desktopPanelOpen ? "Hide control panel" : "Show control panel"}
-                aria-label={desktopPanelOpen ? "Hide control panel" : "Show control panel"}
-              >
-                <PanelRight size={14} aria-hidden />
-              </button>
-            )}
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: isController ? colors.accent : colors.foregroundMuted,
+              flexShrink: 0,
+            }} />
+            <button
+              data-testid="terminal-mode-toggle"
+              onClick={() => {
+                if (isController) onReleaseControl?.(terminal.machine_id);
+                else onRequestControl?.(terminal.machine_id);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: isController ? colors.foregroundSecondary : colors.accent,
+                cursor: 'pointer',
+                fontSize: 11,
+                padding: '10px 8px',
+              }}
+            >
+              {controlCopy.toggleLabel}
+            </button>
           </div>
         </div>
       )}
@@ -398,7 +295,7 @@ function TerminalCardComponent({
           width: "100%", height: "100%", pointerEvents: "none" as const, overflow: "hidden",
         }}>
           <div style={isTab ? {
-            flex: 1, padding: "8px 10px", overflow: "hidden",
+            flex: 1, padding: "8px 10px", overflow: "hidden", background: terminalTheme.background,
           } : {
             width: "100%", height: "100%",
           }}>
@@ -496,7 +393,7 @@ function TerminalCardComponent({
       )}
     </div>
   );
-}
+});
 
 function areTerminalCardPropsEqual(
   previous: TerminalCardProps,
@@ -508,6 +405,7 @@ function areTerminalCardPropsEqual(
     previous.isMobile === next.isMobile &&
     previous.isController === next.isController &&
     previous.deviceId === next.deviceId &&
+    previous.desktopPanelOpen === next.desktopPanelOpen &&
     previous.onSelectTab === next.onSelectTab &&
     previous.onDestroy === next.onDestroy &&
     previous.onRequestControl === next.onRequestControl &&

@@ -36,7 +36,7 @@ export function getTerminalControlCopy(
   return {
     modeLabel: isController ? "Controlling" : "Viewing",
     toggleLabel: isController ? "Stop Control" : "Control Here",
-    sizeActionLabel: "Use This Size",
+    sizeActionLabel: "Fit to Window",
   };
 }
 

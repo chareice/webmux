@@ -1,7 +1,8 @@
-import { memo } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import type { MachineInfo, ResourceStats, TerminalInfo } from "@webmux/shared";
 import { TerminalCard } from "./TerminalCard.web";
-import { LayoutGrid, X } from "lucide-react";
+import type { TerminalCardRef } from "./TerminalCard.web";
+import { LayoutGrid, X, PanelRight } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
@@ -25,16 +26,29 @@ function TabBar({
   terminals,
   activeTabId,
   isMobile,
+  isController,
+  desktopPanelOpen,
   onSelectTab,
   onCloseTab,
+  onFitToWindow,
+  onTogglePanel,
 }: {
   terminals: TerminalInfo[];
   activeTabId: string | null;
   isMobile: boolean;
+  isController: boolean;
+  desktopPanelOpen: boolean;
   onSelectTab: (id: string | null) => void;
   onCloseTab: (terminal: TerminalInfo) => void;
+  onFitToWindow: () => void;
+  onTogglePanel: () => void;
 }) {
   if (terminals.length === 0) return null;
+
+  const activeTerminal = activeTabId
+    ? terminals.find((t) => t.id === activeTabId) ?? null
+    : null;
+  const controlCopy = getTerminalControlCopy(isController);
 
   return (
     <div
@@ -44,120 +58,196 @@ function TabBar({
         gap: 0,
         borderBottom: `1px solid ${colors.border}`,
         background: colors.surface,
-        overflowX: "auto",
-        overflowY: "hidden",
         flexShrink: 0,
         minHeight: isMobile ? 40 : 36,
       }}
     >
-      {/* All tab */}
-      <button
-        data-testid="tab-all"
-        onClick={() => onSelectTab(null)}
+      {/* Scrollable tabs area */}
+      <div
         style={{
+          display: "flex",
+          alignItems: "stretch",
+          flex: 1,
+          minWidth: 0,
+          overflowX: "auto",
+          overflowY: "hidden",
+        }}
+      >
+        {/* All tab */}
+        <button
+          data-testid="tab-all"
+          onClick={() => onSelectTab(null)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: isMobile ? "8px 14px" : "6px 14px",
+            background: activeTabId === null ? colors.background : "transparent",
+            border: "none",
+            borderBottom: activeTabId === null
+              ? `2px solid ${colors.accent}`
+              : "2px solid transparent",
+            color: activeTabId === null ? colors.foreground : colors.foregroundSecondary,
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: activeTabId === null ? 600 : 400,
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+          }}
+        >
+          <LayoutGrid size={14} />
+          All
+        </button>
+
+        {/* Terminal tabs */}
+        {terminals.map((terminal) => {
+          const isActive = activeTabId === terminal.id;
+          return (
+            <div
+              key={terminal.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                borderBottom: isActive
+                  ? `2px solid ${colors.accent}`
+                  : "2px solid transparent",
+                background: isActive ? colors.background : "transparent",
+                flexShrink: 0,
+                maxWidth: 280,
+              }}
+            >
+              <button
+                data-testid={`tab-${terminal.id}`}
+                onClick={() => onSelectTab(terminal.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: isMobile ? "8px 8px 8px 14px" : "6px 6px 6px 14px",
+                  background: "none",
+                  border: "none",
+                  color: isActive ? colors.foreground : colors.foregroundSecondary,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: isActive ? 600 : 400,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  minWidth: 0,
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: colors.accent,
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                  alignItems: "flex-start",
+                }}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
+                    {terminal.title}
+                  </span>
+                  {isActive && terminal.cwd && (
+                    <span style={{
+                      fontSize: 10,
+                      color: colors.foregroundMuted,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      maxWidth: "100%",
+                      lineHeight: 1.2,
+                    }}>
+                      {terminal.cwd}
+                    </span>
+                  )}
+                </span>
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCloseTab(terminal);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  padding: isMobile ? "8px 8px" : "4px 6px",
+                  background: "none",
+                  border: "none",
+                  color: colors.foregroundMuted,
+                  cursor: "pointer",
+                  opacity: 0.5,
+                  flexShrink: 0,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.opacity = "1";
+                  e.currentTarget.style.color = colors.danger;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = "0.5";
+                  e.currentTarget.style.color = colors.foregroundMuted;
+                }}
+                title="Close terminal"
+                aria-label="Close terminal"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Right controls - only when a tab is active */}
+      {activeTerminal && !isMobile && (
+        <div style={{
           display: "flex",
           alignItems: "center",
           gap: 6,
-          padding: isMobile ? "8px 14px" : "6px 14px",
-          background: activeTabId === null ? colors.background : "transparent",
-          border: "none",
-          borderBottom: activeTabId === null
-            ? `2px solid ${colors.accent}`
-            : "2px solid transparent",
-          color: activeTabId === null ? colors.foreground : colors.foregroundSecondary,
-          cursor: "pointer",
-          fontSize: 12,
-          fontWeight: activeTabId === null ? 600 : 400,
-          whiteSpace: "nowrap",
+          padding: "0 10px",
           flexShrink: 0,
-        }}
-      >
-        <LayoutGrid size={14} />
-        All
-      </button>
-
-      {/* Terminal tabs */}
-      {terminals.map((terminal) => {
-        const isActive = activeTabId === terminal.id;
-        return (
-          <div
-            key={terminal.id}
+          borderLeft: `1px solid ${colors.border}`,
+        }}>
+          {isController && (
+            <button
+              data-testid="terminal-fit-button"
+              onClick={onFitToWindow}
+              style={{
+                background: "none",
+                border: "none",
+                color: colors.accent,
+                cursor: "pointer",
+                fontSize: 11,
+                padding: "2px 4px",
+              }}
+              title="Fit terminal to window"
+              aria-label="Fit terminal to window"
+            >
+              {controlCopy.sizeActionLabel}
+            </button>
+          )}
+          <button
+            onClick={onTogglePanel}
             style={{
+              background: "none",
+              border: "none",
+              color: desktopPanelOpen ? colors.accent : colors.foregroundSecondary,
+              cursor: "pointer",
+              padding: "2px 4px",
               display: "flex",
               alignItems: "center",
-              borderBottom: isActive
-                ? `2px solid ${colors.accent}`
-                : "2px solid transparent",
-              background: isActive ? colors.background : "transparent",
-              flexShrink: 0,
-              maxWidth: 200,
             }}
+            title={desktopPanelOpen ? "Hide control panel" : "Show control panel"}
+            aria-label={desktopPanelOpen ? "Hide control panel" : "Show control panel"}
           >
-            <button
-              data-testid={`tab-${terminal.id}`}
-              onClick={() => onSelectTab(terminal.id)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: isMobile ? "8px 8px 8px 14px" : "6px 6px 6px 14px",
-                background: "none",
-                border: "none",
-                color: isActive ? colors.foreground : colors.foregroundSecondary,
-                cursor: "pointer",
-                fontSize: 12,
-                fontWeight: isActive ? 600 : 400,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                minWidth: 0,
-              }}
-            >
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: colors.accent,
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                {terminal.title}
-              </span>
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCloseTab(terminal);
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                padding: isMobile ? "8px 8px" : "4px 6px",
-                background: "none",
-                border: "none",
-                color: colors.foregroundMuted,
-                cursor: "pointer",
-                opacity: 0.5,
-                flexShrink: 0,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "1";
-                e.currentTarget.style.color = colors.danger;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "0.5";
-                e.currentTarget.style.color = colors.foregroundMuted;
-              }}
-              title="Close terminal"
-              aria-label="Close terminal"
-            >
-              <X size={12} />
-            </button>
-          </div>
-        );
-      })}
+            <PanelRight size={14} aria-hidden />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -182,6 +272,8 @@ function CanvasComponent({
     : machines[0] ?? null;
   const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
   const controlCopy = getTerminalControlCopy(isActiveController);
+  const [desktopPanelOpen, setDesktopPanelOpen] = useState(false);
+  const terminalCardRefs = useRef<Record<string, TerminalCardRef | null>>({});
 
   const activeTerminal = activeTabId
     ? terminals.find((t) => t.id === activeTabId) ?? null
@@ -189,6 +281,16 @@ function CanvasComponent({
 
   // If activeTabId points to a terminal that no longer exists, fall back to grid
   const effectiveTabId = activeTerminal ? activeTabId : null;
+
+  const handleFitToWindow = useCallback(() => {
+    if (effectiveTabId) {
+      terminalCardRefs.current[effectiveTabId]?.fitToContainer();
+    }
+  }, [effectiveTabId]);
+
+  const handleTogglePanel = useCallback(() => {
+    setDesktopPanelOpen(v => !v);
+  }, []);
 
   return (
     <main
@@ -205,8 +307,12 @@ function CanvasComponent({
         terminals={terminals}
         activeTabId={effectiveTabId}
         isMobile={isMobile}
+        isController={isActiveController}
+        desktopPanelOpen={desktopPanelOpen}
         onSelectTab={onSelectTab}
         onCloseTab={onDestroy}
+        onFitToWindow={handleFitToWindow}
+        onTogglePanel={handleTogglePanel}
       />
 
       {/* Content area — all terminals stay mounted to preserve state (mouse tracking, scrollback) */}
@@ -222,11 +328,13 @@ function CanvasComponent({
           }
         >
           <TerminalCard
+            ref={(el) => { terminalCardRefs.current[terminal.id] = el; }}
             terminal={terminal}
             displayMode="tab"
             isMobile={isMobile}
             isController={isMachineController(terminal.machine_id)}
             deviceId={deviceId}
+            desktopPanelOpen={effectiveTabId === terminal.id ? desktopPanelOpen : false}
             onSelectTab={onSelectTab}
             onDestroy={onDestroy}
             onRequestControl={onRequestControl}
