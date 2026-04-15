@@ -48,7 +48,7 @@ What makes Claude's design truly distinctive is its warm neutral palette. Every 
 - **Border Warm** (`#e8e6dc`): Prominent borders, section dividers, and emphasized containment on light surfaces.
 - **Border Dark** (`#30302e`): Standard border on dark surfaces — maintains the warm tone.
 - **Ring Warm** (`#d1cfc5`): Shadow ring color for button hover/focus states.
-- **Ring Subtle** (`#dedc01`): Secondary ring variant for lighter interactive surfaces.
+- **Ring Subtle** (`#dedcd1`): Secondary ring variant for lighter interactive surfaces.
 - **Ring Deep** (`#c2c0b6`): Deeper ring for active/pressed states.
 
 ### Gradient System

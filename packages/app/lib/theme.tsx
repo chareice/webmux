@@ -147,7 +147,7 @@ const darkColors = {
   danger: "#b53333",
   warning: "#d97757",
   success: "#30d158",
-  border: "#30302e",
+  border: "#3d3d3a",
   borderActive: "#d97757",
 } as const;
 
