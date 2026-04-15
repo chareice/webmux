@@ -604,6 +604,43 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       scheduleMeasure();
     }, [displayMode, scheduleMeasure]);
 
+    // Auto-fit terminal when switching to immersive mode with resize permission.
+    // Waits briefly for layout to settle and WebSocket to be ready.
+    useEffect(() => {
+      if (displayMode !== "immersive" || !canResizeTerminal) return;
+
+      const timerId = window.setTimeout(() => {
+        const fit = fitRef.current;
+        const liveWs = wsRef.current;
+        if (
+          !fit ||
+          !liveWs ||
+          liveWs.readyState !== WebSocket.OPEN ||
+          !isControllerRef.current ||
+          !canResizeTerminalRef.current
+        ) {
+          return;
+        }
+        try {
+          const nextDims = getTerminalFitDimensions({
+            viewportWidth: viewportSizeRef.current.width,
+            viewportHeight: viewportSizeRef.current.height,
+            contentWidth: surfaceSizeRef.current.width,
+            contentHeight: surfaceSizeRef.current.height,
+            cols,
+            rows,
+          });
+          const resizeMessage = buildResizeMessage(nextDims);
+          if (!resizeMessage) return;
+          liveWs.send(JSON.stringify(resizeMessage));
+        } catch {
+          /* ignore */
+        }
+      }, 200);
+
+      return () => window.clearTimeout(timerId);
+    }, [displayMode, canResizeTerminal, cols, rows]);
+
     const viewportLayout = getTerminalViewportLayout({
       displayMode,
       viewportWidth: viewportSize.width,
