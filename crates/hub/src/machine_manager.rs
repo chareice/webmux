@@ -173,9 +173,9 @@ impl MachineManager {
     }
 
     /// Unregister a machine when it disconnects. Only removes if conn_id matches.
+    /// Terminals are preserved as unreachable (moved to persisted_terminals) instead of being destroyed.
     pub async fn unregister_machine(&self, machine_id: &str, conn_id: &str) {
         let mut machines = self.machines.lock().await;
-        // Only remove if this is still the same connection (not replaced by a reconnect)
         let should_remove = machines
             .get(machine_id)
             .map(|c| c.conn_id == conn_id)
@@ -184,18 +184,39 @@ impl MachineManager {
             return;
         }
         if let Some(conn) = machines.remove(machine_id) {
-            // Notify browsers about each terminal being destroyed
-            for terminal_id in conn.terminals.keys() {
-                self.send_event(
-                    conn.user_id.clone(),
-                    BrowserEvent::TerminalDestroyed {
-                        machine_id: machine_id.to_string(),
-                        terminal_id: terminal_id.clone(),
-                    },
-                );
+            let target_user_id = conn.user_id.clone();
+
+            // Move terminals to persisted_terminals instead of destroying them
+            if !conn.terminals.is_empty() {
+                let unreachable_terminals: Vec<TerminalInfo> = conn
+                    .terminals
+                    .values()
+                    .map(|t| TerminalInfo {
+                        reachable: false,
+                        ..t.clone()
+                    })
+                    .collect();
+
+                // Send reachable_changed events for each terminal
+                for terminal in &unreachable_terminals {
+                    self.send_event(
+                        target_user_id.clone(),
+                        BrowserEvent::TerminalReachableChanged {
+                            machine_id: machine_id.to_string(),
+                            terminal_id: terminal.id.clone(),
+                            reachable: false,
+                        },
+                    );
+                }
+
+                self.persisted_terminals
+                    .lock()
+                    .await
+                    .insert(machine_id.to_string(), unreachable_terminals);
             }
+
             self.send_event(
-                conn.user_id,
+                target_user_id,
                 BrowserEvent::MachineOffline {
                     machine_id: machine_id.to_string(),
                 },
@@ -1586,6 +1607,42 @@ mod tests {
         let conn = pool.get().unwrap();
         let active = crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
         assert!(active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn machine_disconnect_keeps_terminals_unreachable() {
+        let pool = test_db();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO users (id, provider, provider_id, display_name, role, created_at) VALUES ('user-a', 'test', 'test', 'Test', 'user', 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES ('machine-a', 'user-a', 'Machine A', 'hash', 'offline', 0)",
+                [],
+            ).unwrap();
+        }
+        let manager = MachineManager::new(pool);
+
+        let (conn_id, _cmd_rx) = manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+
+        manager.unregister_machine("machine-a", &conn_id).await;
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert_eq!(snapshot.terminals.len(), 1);
+        assert_eq!(snapshot.terminals[0].id, "term-a");
+        assert!(!snapshot.terminals[0].reachable);
     }
 
     #[tokio::test]
