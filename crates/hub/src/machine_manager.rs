@@ -523,7 +523,9 @@ impl MachineManager {
 
         // Persist size change to DB
         if let Ok(db_conn) = self.db.get() {
-            let _ = crate::db::terminal_sessions::update_size(&db_conn, terminal_id, cols, rows);
+            if let Err(e) = crate::db::terminal_sessions::update_size(&db_conn, terminal_id, cols, rows) {
+                tracing::warn!("Failed to persist terminal size update: {}", e);
+            }
         }
 
         self.send_event(
@@ -671,7 +673,7 @@ impl MachineManager {
 
                 // Persist to DB
                 if let Ok(db_conn) = self.db.get() {
-                    let _ = crate::db::terminal_sessions::insert(
+                    if let Err(e) = crate::db::terminal_sessions::insert(
                         &db_conn,
                         &terminal_id,
                         machine_id,
@@ -679,7 +681,9 @@ impl MachineManager {
                         &cwd,
                         cols,
                         rows,
-                    );
+                    ) {
+                        tracing::warn!("Failed to persist terminal session: {}", e);
+                    }
                 }
 
                 // Resolve pending request
@@ -707,7 +711,9 @@ impl MachineManager {
                     conn.output_buffers.remove(&terminal_id);
                     // Persist to DB before terminal_id is moved into the event
                     if let Ok(db_conn) = self.db.get() {
-                        let _ = crate::db::terminal_sessions::mark_destroyed(&db_conn, &terminal_id);
+                        if let Err(e) = crate::db::terminal_sessions::mark_destroyed(&db_conn, &terminal_id) {
+                            tracing::warn!("Failed to mark terminal session as destroyed: {}", e);
+                        }
                     }
                     self.send_event(
                         target_user_id,
@@ -769,17 +775,19 @@ impl MachineManager {
                         if let Ok(db_conn) = self.db.get() {
                             if persisted_ids.contains(&terminal.id) {
                                 // Update metadata from machine (machine is ground truth)
-                                let _ = crate::db::terminal_sessions::update_metadata(
+                                if let Err(e) = crate::db::terminal_sessions::update_metadata(
                                     &db_conn,
                                     &terminal.id,
                                     &terminal.title,
                                     &terminal.cwd,
                                     terminal.cols,
                                     terminal.rows,
-                                );
+                                ) {
+                                    tracing::warn!("Failed to update terminal session metadata: {}", e);
+                                }
                             } else {
                                 // New terminal — insert to DB
-                                let _ = crate::db::terminal_sessions::insert(
+                                if let Err(e) = crate::db::terminal_sessions::insert(
                                     &db_conn,
                                     &terminal.id,
                                     machine_id,
@@ -787,7 +795,9 @@ impl MachineManager {
                                     &terminal.cwd,
                                     terminal.cols,
                                     terminal.rows,
-                                );
+                                ) {
+                                    tracing::warn!("Failed to persist terminal session on reconnect: {}", e);
+                                }
                             }
                         }
 
@@ -814,10 +824,12 @@ impl MachineManager {
                     for old_terminal in &persisted {
                         if !reported_ids.contains(&old_terminal.id) {
                             if let Ok(db_conn) = self.db.get() {
-                                let _ = crate::db::terminal_sessions::mark_destroyed(
+                                if let Err(e) = crate::db::terminal_sessions::mark_destroyed(
                                     &db_conn,
                                     &old_terminal.id,
-                                );
+                                ) {
+                                    tracing::warn!("Failed to mark stale terminal session as destroyed: {}", e);
+                                }
                             }
                             self.send_event(
                                 target_user_id.clone(),
@@ -1120,7 +1132,9 @@ impl MachineManager {
     pub fn flush_event_seq(&self) {
         let seq = self.next_event_seq.load(Ordering::Acquire);
         if let Ok(conn) = self.db.get() {
-            let _ = crate::db::hub_state::set(&conn, "next_event_seq", &seq.to_string());
+            if let Err(e) = crate::db::hub_state::set(&conn, "next_event_seq", &seq.to_string()) {
+                tracing::warn!("Failed to flush event sequence to DB: {}", e);
+            }
         }
     }
 

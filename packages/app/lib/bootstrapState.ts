@@ -82,7 +82,7 @@ function applyBrowserEvent(
         state.controlLeases;
       return {
         ...state,
-        machines: state.machines.filter((machine) => machine.id !== event.machine_id),
+        // Keep machines list unchanged — machine info needed for unreachable terminals
         machineStats: nextStats,
         controlLeases: nextLeases,
       };

@@ -108,6 +108,9 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_terminal_sessions_machine
             ON terminal_sessions(machine_id);
 
+        CREATE INDEX IF NOT EXISTS idx_terminal_sessions_active
+            ON terminal_sessions(machine_id) WHERE destroyed_at IS NULL;
+
         CREATE TABLE IF NOT EXISTS hub_state (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
