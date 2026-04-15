@@ -75,6 +75,8 @@ async fn main() {
         google_client_secret: env_opt("GOOGLE_CLIENT_SECRET"),
     };
 
+    state.manager.start_seq_flush_task();
+
     let app = routes::router()
         .merge(ws::router())
         .layer(CorsLayer::permissive())

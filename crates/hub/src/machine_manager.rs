@@ -1012,8 +1012,9 @@ impl MachineManager {
     }
 
     fn send_event(&self, target_user_id: Option<String>, event: BrowserEvent) {
+        let seq = self.next_event_seq.fetch_add(1, Ordering::AcqRel) + 1;
         let envelope = EventEnvelope {
-            seq: self.next_event_seq.fetch_add(1, Ordering::AcqRel) + 1,
+            seq,
             target_user_id,
             event,
         };
@@ -1025,6 +1026,31 @@ impl MachineManager {
             }
         }
         let _ = self.event_tx.send(envelope);
+
+        // Periodic flush every 100 events
+        if seq % 100 == 0 {
+            self.flush_event_seq();
+        }
+    }
+
+    /// Flush the current event sequence to the database
+    pub fn flush_event_seq(&self) {
+        let seq = self.next_event_seq.load(Ordering::Acquire);
+        if let Ok(conn) = self.db.get() {
+            let _ = crate::db::hub_state::set(&conn, "next_event_seq", &seq.to_string());
+        }
+    }
+
+    /// Start the background task that periodically flushes event sequence
+    pub fn start_seq_flush_task(self: &Arc<Self>) {
+        let manager = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                manager.flush_event_seq();
+            }
+        });
     }
 
     async fn register_pending(
@@ -1560,5 +1586,27 @@ mod tests {
         let conn = pool.get().unwrap();
         let active = crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
         assert!(active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn event_sequence_is_persisted_and_recovered() {
+        let pool = test_db();
+
+        // First lifecycle: generate some events
+        {
+            let manager = MachineManager::new(pool.clone());
+            manager
+                .register_machine(machine("machine-a"), Some("user-a".to_string()))
+                .await;
+            for i in 0..150 {
+                manager.request_control("user-a", "machine-a", &format!("device-{}", i));
+            }
+            manager.flush_event_seq();
+        }
+
+        // Second lifecycle: should recover with +200 offset
+        let manager = MachineManager::new(pool);
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert!(snapshot.snapshot_seq >= 350);
     }
 }
