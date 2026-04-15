@@ -54,8 +54,10 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await openApp(pageB);
   await expect(pageA.getByText("Select a directory to open a terminal")).toBeVisible();
   await expect(pageB.getByText("Select a directory to open a terminal")).toBeVisible();
+  // pageA had no control before reload → stays without control
   await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
-  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
+  // pageB had control before reload → auto-restored on reload
+  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Stop Control");
 
   await contextA.close();
   await contextB.close();

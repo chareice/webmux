@@ -150,6 +150,9 @@ export function TerminalCanvas() {
     };
   }, [deviceId, reconnectGeneration]);
 
+  // On page load, if sessionStorage contains pending control releases it means
+  // this is a same-tab reload (the beforeunload beacon already released on the
+  // server). Re-request control so the user doesn't have to click again.
   useEffect(() => {
     if (!deviceId) return;
 
@@ -162,7 +165,7 @@ export function TerminalCanvas() {
     }
 
     void Promise.allSettled(
-      pendingMachineIds.map((machineId) => releaseControl(machineId, deviceId)),
+      pendingMachineIds.map((machineId) => requestControl(machineId, deviceId)),
     ).finally(() => {
       if (!cancelled) {
         setReconnectGeneration((value) => value + 1);
