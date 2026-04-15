@@ -12,6 +12,9 @@ use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 struct ModeState {
     control_leases: HashMap<String, String>,
     connected_devices: HashMap<String, usize>,
+    /// Leases released by grace-period disconnect, keyed by device_id → Vec<machine_id>.
+    /// Restored when the same device reconnects, if no other device claimed them.
+    released_leases: HashMap<String, Vec<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -904,6 +907,30 @@ impl MachineManager {
             .connected_devices
             .entry(device_id.to_string())
             .or_insert(0) += 1;
+
+        // Restore control leases that were released when the device disconnected,
+        // as long as no other device has claimed them since.
+        let mut restored_machines = Vec::new();
+        if let Some(machines) = mode.released_leases.remove(device_id) {
+            for machine_id in machines {
+                if !mode.control_leases.contains_key(&machine_id) {
+                    mode.control_leases
+                        .insert(machine_id.clone(), device_id.to_string());
+                    restored_machines.push(machine_id);
+                }
+            }
+        }
+        drop(mode_by_user);
+
+        for machine_id in restored_machines {
+            self.send_event(
+                Some(user_id.to_string()),
+                BrowserEvent::ModeChanged {
+                    machine_id,
+                    controller_device_id: Some(device_id.to_string()),
+                },
+            );
+        }
     }
 
     pub fn unregister_device(&self, user_id: &str, device_id: &str) {
@@ -932,6 +959,13 @@ impl MachineManager {
                         }
                     })
                     .collect();
+
+                // Stash released leases so they can be restored if the device reconnects
+                if !released_machines.is_empty() {
+                    mode.released_leases
+                        .insert(device_id.to_string(), released_machines.clone());
+                }
+
                 for machine_id in released_machines {
                     mode.control_leases.remove(&machine_id);
                     self.send_event(
@@ -944,7 +978,10 @@ impl MachineManager {
                 }
             }
 
-            if mode.connected_devices.is_empty() && mode.control_leases.is_empty() {
+            if mode.connected_devices.is_empty()
+                && mode.control_leases.is_empty()
+                && mode.released_leases.is_empty()
+            {
                 mode_by_user.remove(user_id);
             }
         }
@@ -983,6 +1020,16 @@ impl MachineManager {
     pub fn release_control(&self, user_id: &str, machine_id: &str, device_id: &str) {
         let mut mode_by_user = self.mode.lock().unwrap();
         if let Some(mode) = mode_by_user.get_mut(user_id) {
+            // Always clear from released_leases so an explicit release is not
+            // accidentally restored on reconnect — even if the grace-period
+            // disconnect already removed it from control_leases.
+            if let Some(stashed) = mode.released_leases.get_mut(device_id) {
+                stashed.retain(|mid| mid != machine_id);
+                if stashed.is_empty() {
+                    mode.released_leases.remove(device_id);
+                }
+            }
+
             if mode
                 .control_leases
                 .get(machine_id)
@@ -998,7 +1045,10 @@ impl MachineManager {
                     },
                 );
             }
-            if mode.connected_devices.is_empty() && mode.control_leases.is_empty() {
+            if mode.connected_devices.is_empty()
+                && mode.control_leases.is_empty()
+                && mode.released_leases.is_empty()
+            {
                 mode_by_user.remove(user_id);
             }
         }
@@ -1200,6 +1250,7 @@ fn new_mode_state() -> ModeState {
     ModeState {
         control_leases: HashMap::new(),
         connected_devices: HashMap::new(),
+        released_leases: HashMap::new(),
     }
 }
 
@@ -1887,5 +1938,123 @@ mod tests {
             assert_eq!(snapshot.terminals.len(), 1);
             assert!(snapshot.terminals[0].reachable);
         }
+    }
+
+    #[tokio::test]
+    async fn reconnect_after_grace_period_restores_control() {
+        let manager = Arc::new(MachineManager::new(test_db()));
+
+        manager.register_device("user-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-a");
+
+        // Grace period expires → control released
+        manager.schedule_unregister_device(
+            "user-a".to_string(),
+            "device-a".to_string(),
+            Duration::from_millis(10),
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+
+        // Device reconnects → control restored
+        manager.register_device("user-a", "device-a");
+        assert_eq!(
+            manager.get_controller("user-a", "machine-a"),
+            Some("device-a".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn reconnect_does_not_restore_lease_claimed_by_another_device() {
+        let manager = Arc::new(MachineManager::new(test_db()));
+
+        manager.register_device("user-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-a");
+
+        // Grace period expires → control released
+        manager.schedule_unregister_device(
+            "user-a".to_string(),
+            "device-a".to_string(),
+            Duration::from_millis(10),
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+
+        // Another device claims control before device-a reconnects
+        manager.register_device("user-a", "device-b");
+        manager.request_control("user-a", "machine-a", "device-b");
+
+        // device-a reconnects — should NOT override device-b's control
+        manager.register_device("user-a", "device-a");
+        assert_eq!(
+            manager.get_controller("user-a", "machine-a"),
+            Some("device-b".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_release_prevents_reconnect_restore() {
+        let manager = Arc::new(MachineManager::new(test_db()));
+
+        manager.register_device("user-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-a");
+
+        // Simulate beforeunload beacon: explicit release
+        manager.release_control("user-a", "machine-a", "device-a");
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+
+        // Grace period also fires (both can happen)
+        manager.unregister_device("user-a", "device-a");
+
+        // Device reconnects — should NOT restore explicitly released control
+        manager.register_device("user-a", "device-a");
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+    }
+
+    #[tokio::test]
+    async fn explicit_release_after_grace_period_prevents_restore() {
+        let manager = Arc::new(MachineManager::new(test_db()));
+
+        manager.register_device("user-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-a");
+
+        // Grace period expires → control released, lease stashed
+        manager.schedule_unregister_device(
+            "user-a".to_string(),
+            "device-a".to_string(),
+            Duration::from_millis(10),
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+
+        // Explicit release arrives (e.g. delayed beforeunload beacon)
+        // even though control_leases no longer has the entry
+        manager.release_control("user-a", "machine-a", "device-a");
+
+        // Device reconnects — should NOT restore because of the explicit release
+        manager.register_device("user-a", "device-a");
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+    }
+
+    #[tokio::test]
+    async fn reconnect_restores_multiple_leases() {
+        let manager = Arc::new(MachineManager::new(test_db()));
+
+        manager.register_device("user-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-a");
+        manager.request_control("user-a", "machine-b", "device-a");
+
+        manager.unregister_device("user-a", "device-a");
+        assert_eq!(manager.get_controller("user-a", "machine-a"), None);
+        assert_eq!(manager.get_controller("user-a", "machine-b"), None);
+
+        manager.register_device("user-a", "device-a");
+        assert_eq!(
+            manager.get_controller("user-a", "machine-a"),
+            Some("device-a".to_string())
+        );
+        assert_eq!(
+            manager.get_controller("user-a", "machine-b"),
+            Some("device-a".to_string())
+        );
     }
 }

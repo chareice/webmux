@@ -246,8 +246,30 @@ export function TerminalCanvas() {
       }, 1000);
     };
 
+    // When the tab becomes visible, check if the events WS is still alive.
+    // Background tabs may have their WS silently closed by the browser or
+    // network intermediaries, and setTimeout is throttled, so the normal
+    // onclose reconnect timer may not have fired yet.
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible" &&
+        ws.readyState !== WebSocket.OPEN &&
+        ws.readyState !== WebSocket.CONNECTING
+      ) {
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        setBootstrapReady(false);
+        setReconnectGeneration((value) => value + 1);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      // Prevent the onclose handler from scheduling a spurious reconnect
+      // when the effect is torn down intentionally.
+      ws.onclose = null;
       ws.close();
     };
   }, [bootstrapReady, deviceId]);
