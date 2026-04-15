@@ -885,6 +885,7 @@ set -s set-clipboard on
 set -g allow-passthrough on
 set -g focus-events on
 set -g history-limit 10000
+bind -n WheelUpPane if -Ft= '#{mouse_any_flag}' 'send -M' 'if -Ft= \"#{pane_in_mode}\" \"send -M\" \"copy-mode -e\"'
 ",
     );
     // Bind mouse drag-end to copy selection and emit OSC 52 via helper script.
@@ -1086,6 +1087,10 @@ mod tests {
         assert!(
             content.contains("copy-pipe-and-cancel '/tmp/osc52copy.sh #{pane_tty}'"),
             "missing osc52 copy binding"
+        );
+        assert!(
+            content.contains("WheelUpPane") && content.contains("copy-mode -e"),
+            "missing scroll-to-copy-mode binding"
         );
     }
 
