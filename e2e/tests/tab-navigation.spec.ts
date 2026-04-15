@@ -128,9 +128,8 @@ test("tab-based terminal navigation: create, switch, close, URL hash sync", asyn
   // The hash should still be set, and the terminal tab should be active
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
-  // Step 11: Re-take control (released on reload) and close terminal
+  // Step 11: Control is auto-restored on reload — verify and close terminal
   await page.getByTestId("tab-all").click();
-  await page.getByTestId("canvas-mode-toggle").click();
   await expect(page.getByTestId("canvas-mode-toggle")).toHaveText("Stop Control");
   // Switch back to terminal tab and close from title bar
   await page.getByTestId(`tab-${firstTerminalId}`).click();
