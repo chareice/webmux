@@ -21,8 +21,10 @@ export default {
         "accent-dim": colorVar("--color-accent-dim"),
         danger: colorVar("--color-danger"),
         warning: colorVar("--color-warning"),
+        success: colorVar("--color-success"),
         border: colorVar("--color-border"),
         "border-active": colorVar("--color-border-active"),
+        "border-outline": "#646262",
         white: "#ffffff",
       },
       fontFamily: {
