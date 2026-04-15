@@ -18,7 +18,7 @@ import {
   getSettings,
   updateSettings,
 } from "@/lib/api";
-import { colors, colorAlpha } from "@/lib/colors";
+import { useTheme, useColors, useColorAlpha } from "@/lib/theme";
 import {
   buildDirectorySuggestions,
   createDirectoryCache,
@@ -39,7 +39,6 @@ import { isTauri, getDesktopReleasesUrl } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import { shouldLoadMachineBookmarks } from "@/lib/sidebarSections";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
-import { useTheme } from "@/lib/theme";
 
 interface SidebarProps {
   machines: MachineInfo[];
@@ -65,6 +64,8 @@ function PathInput({
   onSubmit: (path: string) => void;
   onCancel: () => void;
 }) {
+  const colors = useColors();
+  const colorAlpha = useColorAlpha();
   const [value, setValue] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -306,6 +307,8 @@ function MachineSection({
   canCreateTerminal: boolean;
   onRequestControl?: (machineId: string) => void;
 }) {
+  const colors = useColors();
+  const colorAlpha = useColorAlpha();
   const controlCopy = getTerminalControlCopy(false);
   const [expanded, setExpanded] = useState(Platform.OS !== "web");
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -615,6 +618,8 @@ function MachineSection({
 }
 
 function AddMachinePanel({ onClose }: { onClose: () => void }) {
+  const colors = useColors();
+  const colorAlpha = useColorAlpha();
   const [token, setToken] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -930,6 +935,8 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
 }
 
 function SettingsSection() {
+  const colors = useColors();
+  const colorAlpha = useColorAlpha();
   const [expanded, setExpanded] = useState(false);
   const [startupCommand, setStartupCommand] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -1100,6 +1107,7 @@ function SettingsSection() {
 }
 
 function ThemeToggle() {
+  const colors = useColors();
   const { theme, setTheme } = useTheme();
   const next = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
   const Icon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
@@ -1132,6 +1140,7 @@ function SidebarComponent({
   canCreateTerminal,
   onRequestControl,
 }: SidebarProps) {
+  const colors = useColors();
   const [showAddMachine, setShowAddMachine] = useState(false);
 
   return (

@@ -24,7 +24,7 @@ export default {
         success: colorVar("--color-success"),
         border: colorVar("--color-border"),
         "border-active": colorVar("--color-border-active"),
-        "border-outline": "#646262",
+        "border-outline": "#e8e6dc",
         white: "#ffffff",
       },
       fontFamily: {
