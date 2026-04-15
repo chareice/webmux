@@ -148,6 +148,18 @@ async fn handle_terminal_ws(
         }
     }
 
+    // Re-enable mouse tracking for the new client.  tmux always runs with
+    // `mouse on`, but the enable escape sequences may have been pushed out
+    // of the 64 KB output buffer by subsequent terminal output.  Sending
+    // them again is idempotent — a no-op if already active.
+    {
+        // SGR mouse mode (1006) + all-motion tracking (1003)
+        const MOUSE_ENABLE: &[u8] = b"\x1b[?1003h\x1b[?1006h";
+        let _ = sender
+            .send(Message::Binary(MOUSE_ENABLE.to_vec().into()))
+            .await;
+    }
+
     // Task: forward terminal output to browser (coalesced in 8ms windows)
     let send_task = tokio::spawn(async move {
         let mut batch = Vec::<u8>::new();
