@@ -1804,4 +1804,71 @@ mod tests {
         let active = crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
         assert!(active.is_empty());
     }
+
+    #[tokio::test]
+    async fn full_persistence_cycle_hub_restart_and_reconnect() {
+        let pool = test_db();
+
+        // Set up DB records needed for snapshot_for_user
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO users (id, provider, provider_id, display_name, role, created_at) VALUES ('user-a', 'test', 'test', 'Test', 'user', 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES ('machine-a', 'user-a', 'Machine A', 'hash', 'offline', 0)",
+                [],
+            ).unwrap();
+        }
+
+        // Phase 1: Normal operation — create terminal
+        {
+            let manager = MachineManager::new(pool.clone());
+            let (_conn_id, _cmd_rx) = manager
+                .register_machine(machine("machine-a"), Some("user-a".to_string()))
+                .await;
+            manager
+                .handle_machine_message(
+                    "machine-a",
+                    MachineToHub::ExistingTerminals {
+                        terminals: vec![terminal("machine-a", "term-a")],
+                    },
+                )
+                .await;
+
+            let snapshot = manager.snapshot_for_user("user-a").await;
+            assert_eq!(snapshot.terminals.len(), 1);
+            assert!(snapshot.terminals[0].reachable);
+
+            manager.flush_event_seq();
+        }
+        // MachineManager dropped — simulates hub restart
+
+        // Phase 2: Hub restarts — terminals should be unreachable
+        {
+            let manager = MachineManager::new(pool.clone());
+            let snapshot = manager.snapshot_for_user("user-a").await;
+            assert_eq!(snapshot.terminals.len(), 1);
+            assert_eq!(snapshot.terminals[0].id, "term-a");
+            assert!(!snapshot.terminals[0].reachable);
+
+            // Phase 3: Machine reconnects with the same terminal
+            manager
+                .register_machine(machine("machine-a"), Some("user-a".to_string()))
+                .await;
+            manager
+                .handle_machine_message(
+                    "machine-a",
+                    MachineToHub::ExistingTerminals {
+                        terminals: vec![terminal("machine-a", "term-a")],
+                    },
+                )
+                .await;
+
+            let snapshot = manager.snapshot_for_user("user-a").await;
+            assert_eq!(snapshot.terminals.len(), 1);
+            assert!(snapshot.terminals[0].reachable);
+        }
+    }
 }
