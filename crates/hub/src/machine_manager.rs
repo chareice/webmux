@@ -312,6 +312,7 @@ impl MachineManager {
                     cwd,
                     cols,
                     rows,
+                    reachable: true,
                 };
                 Ok(terminal)
             }
@@ -595,6 +596,7 @@ impl MachineManager {
                             cwd: cwd.clone(),
                             cols,
                             rows,
+                            reachable: true,
                         };
                         conn.terminals.insert(terminal_id.clone(), terminal.clone());
                         conn.output_channels.insert(terminal_id.clone(), output_tx);
@@ -1021,6 +1023,7 @@ mod tests {
             cwd: "/tmp".to_string(),
             cols: 80,
             rows: 24,
+            reachable: true,
         }
     }
 

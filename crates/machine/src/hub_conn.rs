@@ -113,6 +113,7 @@ impl HubConnection {
                     cwd: s.cwd.clone(),
                     cols: s.cols,
                     rows: s.rows,
+                    reachable: true,
                 })
                 .collect();
             tracing::info!("Reporting {} existing terminals to hub", terminals.len());
