@@ -49,6 +49,10 @@ pub struct EventSubscription {
 
 const OUTPUT_BUFFER_SIZE: usize = 64 * 1024;
 const EVENT_HISTORY_LIMIT: usize = 1024;
+/// Safety offset added to persisted event sequence on recovery.
+/// Must exceed the maximum number of events that can go unflushed
+/// (flush cadence is every 100 events or 5 seconds).
+const SEQ_RECOVERY_OFFSET: u64 = 200;
 
 /// A connected machine
 struct MachineConnection {
@@ -77,10 +81,46 @@ pub struct MachineManager {
     event_history: Arc<std::sync::Mutex<VecDeque<EventEnvelope>>>,
     next_event_seq: AtomicU64,
     mode: Arc<std::sync::Mutex<HashMap<String, ModeState>>>,
+    db: crate::db::DbPool,
+    /// Persisted terminals loaded at startup, consumed during machine reconnect reconciliation
+    persisted_terminals: Arc<Mutex<HashMap<String, Vec<TerminalInfo>>>>,
 }
 
 impl MachineManager {
-    pub fn new() -> Self {
+    pub fn new(db: crate::db::DbPool) -> Self {
+        // Load persisted event sequence
+        let initial_seq = {
+            let conn = db.get().expect("Failed to get DB connection for startup");
+            crate::db::hub_state::get(&conn, "next_event_seq")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<u64>().ok())
+                .map(|v| v + SEQ_RECOVERY_OFFSET)
+                .unwrap_or(0)
+        };
+
+        // Load persisted active terminals
+        let persisted_terminals = {
+            let conn = db.get().expect("Failed to get DB connection for startup");
+            let rows = crate::db::terminal_sessions::find_all_active(&conn).unwrap_or_default();
+            let mut by_machine: HashMap<String, Vec<TerminalInfo>> = HashMap::new();
+            for row in rows {
+                by_machine
+                    .entry(row.machine_id.clone())
+                    .or_default()
+                    .push(TerminalInfo {
+                        id: row.id,
+                        machine_id: row.machine_id,
+                        title: row.title,
+                        cwd: row.cwd,
+                        cols: u16::try_from(row.cols).unwrap_or(80),
+                        rows: u16::try_from(row.rows).unwrap_or(24),
+                        reachable: false,
+                    });
+            }
+            by_machine
+        };
+
         let (event_tx, _) = broadcast::channel(256);
         Self {
             machines: Arc::new(Mutex::new(HashMap::new())),
@@ -89,8 +129,10 @@ impl MachineManager {
             event_history: Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(
                 EVENT_HISTORY_LIMIT,
             ))),
-            next_event_seq: AtomicU64::new(0),
+            next_event_seq: AtomicU64::new(initial_seq),
             mode: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            db,
+            persisted_terminals: Arc::new(Mutex::new(persisted_terminals)),
         }
     }
 
@@ -135,9 +177,9 @@ impl MachineManager {
     }
 
     /// Unregister a machine when it disconnects. Only removes if conn_id matches.
+    /// Terminals are preserved as unreachable (moved to persisted_terminals) instead of being destroyed.
     pub async fn unregister_machine(&self, machine_id: &str, conn_id: &str) {
         let mut machines = self.machines.lock().await;
-        // Only remove if this is still the same connection (not replaced by a reconnect)
         let should_remove = machines
             .get(machine_id)
             .map(|c| c.conn_id == conn_id)
@@ -146,18 +188,39 @@ impl MachineManager {
             return;
         }
         if let Some(conn) = machines.remove(machine_id) {
-            // Notify browsers about each terminal being destroyed
-            for terminal_id in conn.terminals.keys() {
-                self.send_event(
-                    conn.user_id.clone(),
-                    BrowserEvent::TerminalDestroyed {
-                        machine_id: machine_id.to_string(),
-                        terminal_id: terminal_id.clone(),
-                    },
-                );
+            let target_user_id = conn.user_id.clone();
+
+            // Move terminals to persisted_terminals instead of destroying them
+            if !conn.terminals.is_empty() {
+                let unreachable_terminals: Vec<TerminalInfo> = conn
+                    .terminals
+                    .values()
+                    .map(|t| TerminalInfo {
+                        reachable: false,
+                        ..t.clone()
+                    })
+                    .collect();
+
+                // Send reachable_changed events for each terminal
+                for terminal in &unreachable_terminals {
+                    self.send_event(
+                        target_user_id.clone(),
+                        BrowserEvent::TerminalReachableChanged {
+                            machine_id: machine_id.to_string(),
+                            terminal_id: terminal.id.clone(),
+                            reachable: false,
+                        },
+                    );
+                }
+
+                self.persisted_terminals
+                    .lock()
+                    .await
+                    .insert(machine_id.to_string(), unreachable_terminals);
             }
+
             self.send_event(
-                conn.user_id,
+                target_user_id,
                 BrowserEvent::MachineOffline {
                     machine_id: machine_id.to_string(),
                 },
@@ -312,6 +375,7 @@ impl MachineManager {
                     cwd,
                     cols,
                     rows,
+                    reachable: true,
                 };
                 Ok(terminal)
             }
@@ -461,6 +525,13 @@ impl MachineManager {
             terminal.clone()
         };
 
+        // Persist size change to DB
+        if let Ok(db_conn) = self.db.get() {
+            if let Err(e) = crate::db::terminal_sessions::update_size(&db_conn, terminal_id, cols, rows) {
+                tracing::warn!("Failed to persist terminal size update: {}", e);
+            }
+        }
+
         self.send_event(
             target_user_id,
             BrowserEvent::TerminalResized {
@@ -595,11 +666,27 @@ impl MachineManager {
                             cwd: cwd.clone(),
                             cols,
                             rows,
+                            reachable: true,
                         };
                         conn.terminals.insert(terminal_id.clone(), terminal.clone());
                         conn.output_channels.insert(terminal_id.clone(), output_tx);
 
                         self.send_event(target_user_id, BrowserEvent::TerminalCreated { terminal });
+                    }
+                }
+
+                // Persist to DB
+                if let Ok(db_conn) = self.db.get() {
+                    if let Err(e) = crate::db::terminal_sessions::insert(
+                        &db_conn,
+                        &terminal_id,
+                        machine_id,
+                        &title,
+                        &cwd,
+                        cols,
+                        rows,
+                    ) {
+                        tracing::warn!("Failed to persist terminal session: {}", e);
                     }
                 }
 
@@ -626,6 +713,12 @@ impl MachineManager {
                     conn.terminals.remove(&terminal_id);
                     conn.output_channels.remove(&terminal_id);
                     conn.output_buffers.remove(&terminal_id);
+                    // Persist to DB before terminal_id is moved into the event
+                    if let Ok(db_conn) = self.db.get() {
+                        if let Err(e) = crate::db::terminal_sessions::mark_destroyed(&db_conn, &terminal_id) {
+                            tracing::warn!("Failed to mark terminal session as destroyed: {}", e);
+                        }
+                    }
                     self.send_event(
                         target_user_id,
                         BrowserEvent::TerminalDestroyed {
@@ -659,17 +752,97 @@ impl MachineManager {
                     machine_id,
                     terminals.len()
                 );
+
+                let reported_ids: HashSet<String> =
+                    terminals.iter().map(|t| t.id.clone()).collect();
+
+                // Get persisted terminals for this machine (if any)
+                let persisted = self
+                    .persisted_terminals
+                    .lock()
+                    .await
+                    .remove(machine_id)
+                    .unwrap_or_default();
+                let persisted_ids: HashSet<String> =
+                    persisted.iter().map(|t| t.id.clone()).collect();
+
                 let mut machines = self.machines.lock().await;
                 if let Some(conn) = machines.get_mut(machine_id) {
                     let target_user_id = conn.user_id.clone();
+
+                    // 1. Terminals reported by machine
                     for terminal in terminals {
                         let (output_tx, _) = broadcast::channel(256);
                         conn.terminals.insert(terminal.id.clone(), terminal.clone());
                         conn.output_channels.insert(terminal.id.clone(), output_tx);
-                        self.send_event(
-                            target_user_id.clone(),
-                            BrowserEvent::TerminalCreated { terminal },
-                        );
+
+                        if let Ok(db_conn) = self.db.get() {
+                            if persisted_ids.contains(&terminal.id) {
+                                // Update metadata from machine (machine is ground truth)
+                                if let Err(e) = crate::db::terminal_sessions::update_metadata(
+                                    &db_conn,
+                                    &terminal.id,
+                                    &terminal.title,
+                                    &terminal.cwd,
+                                    terminal.cols,
+                                    terminal.rows,
+                                ) {
+                                    tracing::warn!("Failed to update terminal session metadata: {}", e);
+                                }
+                            } else {
+                                // New terminal — insert to DB
+                                if let Err(e) = crate::db::terminal_sessions::insert(
+                                    &db_conn,
+                                    &terminal.id,
+                                    machine_id,
+                                    &terminal.title,
+                                    &terminal.cwd,
+                                    terminal.cols,
+                                    terminal.rows,
+                                ) {
+                                    tracing::warn!("Failed to persist terminal session on reconnect: {}", e);
+                                }
+                            }
+                        }
+
+                        if persisted_ids.contains(&terminal.id) {
+                            // Was persisted, now reachable again
+                            self.send_event(
+                                target_user_id.clone(),
+                                BrowserEvent::TerminalReachableChanged {
+                                    machine_id: machine_id.to_string(),
+                                    terminal_id: terminal.id.clone(),
+                                    reachable: true,
+                                },
+                            );
+                        } else {
+                            // Brand new terminal
+                            self.send_event(
+                                target_user_id.clone(),
+                                BrowserEvent::TerminalCreated { terminal },
+                            );
+                        }
+                    }
+
+                    // 2. Persisted terminals NOT reported by machine — they died
+                    for old_terminal in &persisted {
+                        if !reported_ids.contains(&old_terminal.id) {
+                            if let Ok(db_conn) = self.db.get() {
+                                if let Err(e) = crate::db::terminal_sessions::mark_destroyed(
+                                    &db_conn,
+                                    &old_terminal.id,
+                                ) {
+                                    tracing::warn!("Failed to mark stale terminal session as destroyed: {}", e);
+                                }
+                            }
+                            self.send_event(
+                                target_user_id.clone(),
+                                BrowserEvent::TerminalDestroyed {
+                                    machine_id: machine_id.to_string(),
+                                    terminal_id: old_terminal.id.clone(),
+                                },
+                            );
+                        }
                     }
                 }
             }
@@ -892,13 +1065,46 @@ impl MachineManager {
             })
             .collect();
 
+        let mut all_machines: Vec<MachineInfo> =
+            visible.iter().map(|conn| conn.info.clone()).collect();
+        let mut all_terminals: Vec<TerminalInfo> = visible
+            .iter()
+            .flat_map(|conn| conn.terminals.values().cloned())
+            .collect();
+
+        // Include persisted terminals from offline machines owned by this user
+        // Clone persisted terminal data and release lock before DB queries
+        let persisted_snapshot: Vec<(String, Vec<TerminalInfo>)> = {
+            let persisted = self.persisted_terminals.lock().await;
+            persisted
+                .iter()
+                .filter(|(mid, _)| !visible_machine_ids.contains(mid.as_str()))
+                .map(|(mid, terms)| (mid.clone(), terms.clone()))
+                .collect()
+        };
+
+        for (machine_id, terminals) in &persisted_snapshot {
+            if let Ok(conn) = self.db.get() {
+                if let Ok(Some(machine_row)) =
+                    crate::db::machines::find_machine_by_id(&conn, machine_id)
+                {
+                    if machine_row.user_id == user_id {
+                        all_machines.push(MachineInfo {
+                            id: machine_row.id,
+                            name: machine_row.name,
+                            os: machine_row.os.unwrap_or_default(),
+                            home_dir: machine_row.home_dir.unwrap_or_default(),
+                        });
+                        all_terminals.extend(terminals.iter().cloned());
+                    }
+                }
+            }
+        }
+
         BrowserStateSnapshot {
             snapshot_seq,
-            machines: visible.iter().map(|conn| conn.info.clone()).collect(),
-            terminals: visible
-                .iter()
-                .flat_map(|conn| conn.terminals.values().cloned())
-                .collect(),
+            machines: all_machines,
+            terminals: all_terminals,
             machine_stats,
             control_leases: self
                 .get_control_leases(user_id)
@@ -909,8 +1115,9 @@ impl MachineManager {
     }
 
     fn send_event(&self, target_user_id: Option<String>, event: BrowserEvent) {
+        let seq = self.next_event_seq.fetch_add(1, Ordering::AcqRel) + 1;
         let envelope = EventEnvelope {
-            seq: self.next_event_seq.fetch_add(1, Ordering::AcqRel) + 1,
+            seq,
             target_user_id,
             event,
         };
@@ -922,6 +1129,28 @@ impl MachineManager {
             }
         }
         let _ = self.event_tx.send(envelope);
+    }
+
+    /// Flush the current event sequence to the database
+    pub fn flush_event_seq(&self) {
+        let seq = self.next_event_seq.load(Ordering::Acquire);
+        if let Ok(conn) = self.db.get() {
+            if let Err(e) = crate::db::hub_state::set(&conn, "next_event_seq", &seq.to_string()) {
+                tracing::warn!("Failed to flush event sequence to DB: {}", e);
+            }
+        }
+    }
+
+    /// Start the background task that periodically flushes event sequence
+    pub fn start_seq_flush_task(self: &Arc<Self>) {
+        let manager = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                manager.flush_event_seq();
+            }
+        });
     }
 
     async fn register_pending(
@@ -1004,6 +1233,15 @@ fn history_has_gap_after_seq(history: &VecDeque<EventEnvelope>, after_seq: u64) 
 mod tests {
     use super::*;
 
+    fn test_db() -> crate::db::DbPool {
+        let pool = crate::db::create_pool(":memory:").unwrap();
+        {
+            let conn = pool.get().unwrap();
+            crate::db::init_db(&conn).unwrap();
+        }
+        pool
+    }
+
     fn machine(id: &str) -> MachineInfo {
         MachineInfo {
             id: id.to_string(),
@@ -1021,6 +1259,7 @@ mod tests {
             cwd: "/tmp".to_string(),
             cols: 80,
             rows: 24,
+            reachable: true,
         }
     }
 
@@ -1039,7 +1278,7 @@ mod tests {
 
     #[tokio::test]
     async fn manager_filters_machines_and_terminals_by_user() {
-        let manager = MachineManager::new();
+        let manager = MachineManager::new(test_db());
 
         manager
             .register_machine(machine("machine-a"), Some("user-a".to_string()))
@@ -1087,7 +1326,7 @@ mod tests {
 
     #[test]
     fn mode_state_is_scoped_per_user_and_machine() {
-        let manager = MachineManager::new();
+        let manager = MachineManager::new(test_db());
 
         manager.request_control("user-a", "machine-a", "device-a");
         manager.request_control("user-a", "machine-b", "device-b");
@@ -1124,7 +1363,7 @@ mod tests {
 
     #[test]
     fn unregistering_a_device_releases_its_machine_control() {
-        let manager = MachineManager::new();
+        let manager = MachineManager::new(test_db());
 
         manager.register_device("user-a", "device-a");
         manager.request_control("user-a", "machine-a", "device-a");
@@ -1136,7 +1375,7 @@ mod tests {
 
     #[tokio::test]
     async fn scheduled_disconnect_releases_control_after_grace_period() {
-        let manager = Arc::new(MachineManager::new());
+        let manager = Arc::new(MachineManager::new(test_db()));
 
         manager.register_device("user-a", "device-a");
         manager.request_control("user-a", "machine-a", "device-a");
@@ -1154,7 +1393,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconnect_before_scheduled_disconnect_keeps_control() {
-        let manager = Arc::new(MachineManager::new());
+        let manager = Arc::new(MachineManager::new(test_db()));
 
         manager.register_device("user-a", "device-a");
         manager.request_control("user-a", "machine-a", "device-a");
@@ -1177,7 +1416,7 @@ mod tests {
 
     #[tokio::test]
     async fn snapshot_for_user_includes_visible_state_and_sequence_watermark() {
-        let manager = MachineManager::new();
+        let manager = MachineManager::new(test_db());
 
         manager
             .register_machine(machine("machine-a"), Some("user-a".to_string()))
@@ -1219,7 +1458,7 @@ mod tests {
 
     #[tokio::test]
     async fn resize_terminal_updates_snapshot_state_and_emits_terminal_resized_event() {
-        let manager = MachineManager::new();
+        let manager = MachineManager::new(test_db());
 
         let (_conn_id, mut cmd_rx) = manager
             .register_machine(machine("machine-a"), Some("user-a".to_string()))
@@ -1266,7 +1505,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_events_after_replays_only_newer_events_for_the_user() {
-        let manager = MachineManager::new();
+        let manager = MachineManager::new(test_db());
 
         manager
             .register_machine(machine("machine-a"), Some("user-a".to_string()))
@@ -1298,7 +1537,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_terminal_cleans_pending_request_when_machine_is_missing() {
-        let manager = MachineManager::new();
+        let manager = MachineManager::new(test_db());
 
         let error = manager
             .create_terminal("missing-machine", "/tmp", 80, 24, None)
@@ -1311,7 +1550,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_terminal_cleans_pending_request_when_machine_receiver_is_gone() {
-        let manager = MachineManager::new();
+        let manager = MachineManager::new(test_db());
 
         let (_conn_id, cmd_rx) = manager
             .register_machine(machine("machine-a"), Some("user-a".to_string()))
@@ -1329,7 +1568,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_directory_cleans_pending_request_when_machine_is_missing() {
-        let manager = MachineManager::new();
+        let manager = MachineManager::new(test_db());
 
         let error = manager
             .list_directory("missing-machine", "/tmp")
@@ -1342,7 +1581,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_events_after_requests_resync_when_history_has_a_gap() {
-        let manager = MachineManager::new();
+        let manager = MachineManager::new(test_db());
 
         manager
             .register_machine(machine("machine-a"), Some("user-a".to_string()))
@@ -1356,5 +1595,297 @@ mod tests {
 
         assert!(subscription.requires_resync);
         assert!(subscription.replay.is_empty());
+    }
+
+    #[tokio::test]
+    async fn startup_loads_persisted_terminals_as_unreachable() {
+        let pool = test_db();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO users (id, provider, provider_id, display_name, role, created_at) VALUES ('user-a', 'test', 'test', 'Test', 'user', 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES ('machine-a', 'user-a', 'Machine A', 'hash', 'offline', 0)",
+                [],
+            ).unwrap();
+            crate::db::terminal_sessions::insert(&conn, "term-a", "machine-a", "bash", "/home", 80, 24).unwrap();
+        }
+
+        let manager = MachineManager::new(pool);
+        let snapshot = manager.snapshot_for_user("user-a").await;
+
+        assert_eq!(snapshot.terminals.len(), 1);
+        assert_eq!(snapshot.terminals[0].id, "term-a");
+        assert!(!snapshot.terminals[0].reachable);
+    }
+
+    fn seed_machine(pool: &crate::db::DbPool, user_id: &str, machine_id: &str) {
+        let conn = pool.get().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO users (id, provider, provider_id, display_name, role, created_at) VALUES (?1, 'test', ?1, 'Test', 'user', 0)",
+            rusqlite::params![user_id],
+        ).unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES (?1, ?2, ?1, 'hash', 'offline', 0)",
+            rusqlite::params![machine_id, user_id],
+        ).unwrap();
+    }
+
+    #[tokio::test]
+    async fn terminal_created_is_persisted_to_db() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "machine-a");
+        let manager = MachineManager::new(pool.clone());
+
+        manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+
+        let conn = pool.get().unwrap();
+        let active = crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].id, "term-a");
+    }
+
+    #[tokio::test]
+    async fn terminal_destroyed_is_persisted_to_db() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "machine-a");
+        let manager = MachineManager::new(pool.clone());
+
+        manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::TerminalDestroyed {
+                    terminal_id: "term-a".to_string(),
+                },
+            )
+            .await;
+
+        let conn = pool.get().unwrap();
+        let active = crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
+        assert!(active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn machine_disconnect_keeps_terminals_unreachable() {
+        let pool = test_db();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO users (id, provider, provider_id, display_name, role, created_at) VALUES ('user-a', 'test', 'test', 'Test', 'user', 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES ('machine-a', 'user-a', 'Machine A', 'hash', 'offline', 0)",
+                [],
+            ).unwrap();
+        }
+        let manager = MachineManager::new(pool);
+
+        let (conn_id, _cmd_rx) = manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+
+        manager.unregister_machine("machine-a", &conn_id).await;
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert_eq!(snapshot.terminals.len(), 1);
+        assert_eq!(snapshot.terminals[0].id, "term-a");
+        assert!(!snapshot.terminals[0].reachable);
+    }
+
+    #[tokio::test]
+    async fn event_sequence_is_persisted_and_recovered() {
+        let pool = test_db();
+
+        // First lifecycle: generate some events
+        {
+            let manager = MachineManager::new(pool.clone());
+            manager
+                .register_machine(machine("machine-a"), Some("user-a".to_string()))
+                .await;
+            for i in 0..150 {
+                manager.request_control("user-a", "machine-a", &format!("device-{}", i));
+            }
+            manager.flush_event_seq();
+        }
+
+        // Second lifecycle: should recover with +200 offset
+        let manager = MachineManager::new(pool);
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert!(snapshot.snapshot_seq >= 350);
+    }
+
+    #[tokio::test]
+    async fn reconcile_marks_persisted_terminals_as_reachable() {
+        let pool = test_db();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO users (id, provider, provider_id, display_name, role, created_at) VALUES ('user-a', 'test', 'test', 'Test', 'user', 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES ('machine-a', 'user-a', 'Machine A', 'hash', 'offline', 0)",
+                [],
+            ).unwrap();
+            crate::db::terminal_sessions::insert(&conn, "term-a", "machine-a", "bash", "/home", 80, 24).unwrap();
+        }
+
+        let manager = MachineManager::new(pool.clone());
+
+        // Machine reconnects and reports the same terminal
+        manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert_eq!(snapshot.terminals.len(), 1);
+        assert_eq!(snapshot.terminals[0].id, "term-a");
+        assert!(snapshot.terminals[0].reachable);
+    }
+
+    #[tokio::test]
+    async fn reconcile_destroys_terminals_missing_from_machine() {
+        let pool = test_db();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO users (id, provider, provider_id, display_name, role, created_at) VALUES ('user-a', 'test', 'test', 'Test', 'user', 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES ('machine-a', 'user-a', 'Machine A', 'hash', 'offline', 0)",
+                [],
+            ).unwrap();
+            crate::db::terminal_sessions::insert(&conn, "term-a", "machine-a", "bash", "/home", 80, 24).unwrap();
+        }
+
+        let manager = MachineManager::new(pool.clone());
+
+        // Machine reconnects but does NOT report term-a
+        manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![],
+                },
+            )
+            .await;
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert!(snapshot.terminals.is_empty());
+
+        let conn = pool.get().unwrap();
+        let active = crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
+        assert!(active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn full_persistence_cycle_hub_restart_and_reconnect() {
+        let pool = test_db();
+
+        // Set up DB records needed for snapshot_for_user
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO users (id, provider, provider_id, display_name, role, created_at) VALUES ('user-a', 'test', 'test', 'Test', 'user', 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES ('machine-a', 'user-a', 'Machine A', 'hash', 'offline', 0)",
+                [],
+            ).unwrap();
+        }
+
+        // Phase 1: Normal operation — create terminal
+        {
+            let manager = MachineManager::new(pool.clone());
+            let (_conn_id, _cmd_rx) = manager
+                .register_machine(machine("machine-a"), Some("user-a".to_string()))
+                .await;
+            manager
+                .handle_machine_message(
+                    "machine-a",
+                    MachineToHub::ExistingTerminals {
+                        terminals: vec![terminal("machine-a", "term-a")],
+                    },
+                )
+                .await;
+
+            let snapshot = manager.snapshot_for_user("user-a").await;
+            assert_eq!(snapshot.terminals.len(), 1);
+            assert!(snapshot.terminals[0].reachable);
+
+            manager.flush_event_seq();
+        }
+        // MachineManager dropped — simulates hub restart
+
+        // Phase 2: Hub restarts — terminals should be unreachable
+        {
+            let manager = MachineManager::new(pool.clone());
+            let snapshot = manager.snapshot_for_user("user-a").await;
+            assert_eq!(snapshot.terminals.len(), 1);
+            assert_eq!(snapshot.terminals[0].id, "term-a");
+            assert!(!snapshot.terminals[0].reachable);
+
+            // Phase 3: Machine reconnects with the same terminal
+            manager
+                .register_machine(machine("machine-a"), Some("user-a".to_string()))
+                .await;
+            manager
+                .handle_machine_message(
+                    "machine-a",
+                    MachineToHub::ExistingTerminals {
+                        terminals: vec![terminal("machine-a", "term-a")],
+                    },
+                )
+                .await;
+
+            let snapshot = manager.snapshot_for_user("user-a").await;
+            assert_eq!(snapshot.terminals.len(), 1);
+            assert!(snapshot.terminals[0].reachable);
+        }
     }
 }

@@ -242,6 +242,48 @@ impl PtyManager {
             .collect()
     }
 
+    /// Capture the tmux scrollback buffer for a terminal.
+    /// Returns up to 64KB of terminal output history.
+    pub fn capture_scrollback(&self, id: &str) -> Option<Vec<u8>> {
+        let sessions = self.sessions.lock().ok()?;
+        let session = sessions.get(id)?;
+        if !session.tmux_backed {
+            return None;
+        }
+        drop(sessions);
+
+        let tmux_name = tmux_session_name(id);
+        let output = tmux_cmd()
+            .args([
+                "-L",
+                TMUX_SOCKET,
+                "capture-pane",
+                "-p",    // print to stdout
+                "-S",
+                "-1000", // last 1000 lines
+                "-t",
+                &tmux_name,
+            ])
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let mut data = output.stdout;
+        if data.len() > OUTPUT_BUFFER_SIZE {
+            let start = data.len() - OUTPUT_BUFFER_SIZE;
+            data = data[start..].to_vec();
+        }
+
+        if data.is_empty() {
+            None
+        } else {
+            Some(data)
+        }
+    }
+
     /// Recover existing tmux sessions from a previous run.
     /// Returns recovered SessionInfo list for reporting to the hub.
     pub fn recover_sessions(&self) -> Vec<SessionInfo> {
@@ -841,6 +883,7 @@ unbind C-b
 set -g mouse on
 set -s set-clipboard on
 set -g allow-passthrough on
+set -g focus-events on
 set -g history-limit 10000
 ",
     );

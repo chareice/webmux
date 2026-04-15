@@ -24,7 +24,7 @@ const TERMINAL_HTML = `<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-html,body{width:100%;height:100%;overflow:hidden;background:#201d1d;}
+html,body{width:100%;height:100%;overflow:hidden;background:#141413;}
 #terminal{width:100%;height:100%;}
 .xterm{padding:4px;}
 </style>
@@ -37,13 +37,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:#201d1d;}
     fontSize: 14,
     fontFamily: "'JetBrains Mono','Fira Code','Cascadia Code',monospace",
     theme: {
-      background: '#201d1d',
-      foreground: '#fdfcfc',
-      cursor: '#007aff',
-      selectionBackground: 'rgba(0,122,255,0.3)',
-      black: '#201d1d', red: '#ff3b30', green: '#30d158',
-      yellow: '#ff9f0a', blue: '#007aff', magenta: '#cc5de8',
-      cyan: '#22b8cf', white: '#fdfcfc',
+      background: '#141413',
+      foreground: '#faf9f5',
+      cursor: '#d97757',
+      selectionBackground: 'rgba(217,119,87,0.3)',
+      black: '#141413', red: '#b53333', green: '#30d158',
+      yellow: '#d97757', blue: '#3898ec', magenta: '#cc5de8',
+      cyan: '#22b8cf', white: '#faf9f5',
     },
     cursorBlink: true,
     scrollback: 5000,
@@ -374,10 +374,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#201d1d",
+    backgroundColor: "#141413",
   },
   webview: {
     flex: 1,
-    backgroundColor: "#201d1d",
+    backgroundColor: "#141413",
   },
 });

@@ -4,39 +4,39 @@
 
 @layer base {
   :root {
-    /* Light mode (default) */
-    --color-background: 253 252 252;        /* #fdfcfc */
-    --color-background-secondary: 241 238 238; /* #f1eeee */
-    --color-surface: 248 247 247;           /* #f8f7f7 */
-    --color-surface-hover: 241 238 238;     /* #f1eeee */
-    --color-foreground: 32 29 29;           /* #201d1d */
-    --color-foreground-secondary: 66 66 69; /* #424245 */
-    --color-foreground-muted: 110 110 115;  /* #6e6e73 */
-    --color-accent: 0 122 255;             /* #007aff */
-    --color-accent-dim: 0 86 179;          /* #0056b3 */
-    --color-danger: 255 59 48;             /* #ff3b30 */
-    --color-warning: 255 159 10;           /* #ff9f0a */
+    /* Light mode — Claude/Anthropic warm parchment palette */
+    --color-background: 245 244 237;        /* #f5f4ed Parchment */
+    --color-background-secondary: 250 249 245; /* #faf9f5 Ivory */
+    --color-surface: 250 249 245;           /* #faf9f5 Ivory */
+    --color-surface-hover: 240 238 230;     /* #f0eee6 Border Cream */
+    --color-foreground: 20 20 19;           /* #141413 Anthropic Near Black */
+    --color-foreground-secondary: 94 93 89; /* #5e5d59 Olive Gray */
+    --color-foreground-muted: 135 134 127;  /* #87867f Stone Gray */
+    --color-accent: 201 100 66;            /* #c96442 Terracotta Brand */
+    --color-accent-dim: 217 119 87;        /* #d97757 Coral Accent */
+    --color-danger: 181 51 51;             /* #b53333 Error Crimson */
+    --color-warning: 201 100 66;           /* #c96442 Terracotta */
     --color-success: 48 209 88;            /* #30d158 */
-    --color-border: 15 0 0;               /* used at 12% opacity: rgba(15, 0, 0, 0.12) */
-    --color-border-active: 0 122 255;      /* #007aff */
+    --color-border: 240 238 230;           /* #f0eee6 Border Cream */
+    --color-border-active: 201 100 66;     /* #c96442 Terracotta */
   }
 
   .dark {
-    /* Dark mode */
-    --color-background: 32 29 29;           /* #201d1d */
-    --color-background-secondary: 48 44 44; /* #302c2c */
-    --color-surface: 48 44 44;             /* #302c2c */
-    --color-surface-hover: 64 60 60;       /* ~#403c3c */
-    --color-foreground: 253 252 252;       /* #fdfcfc */
-    --color-foreground-secondary: 154 152 152; /* #9a9898 */
-    --color-foreground-muted: 110 110 115; /* #6e6e73 */
-    --color-accent: 0 122 255;             /* #007aff */
-    --color-accent-dim: 0 86 179;          /* #0056b3 */
-    --color-danger: 255 59 48;             /* #ff3b30 */
-    --color-warning: 255 159 10;           /* #ff9f0a */
+    /* Dark mode — Claude/Anthropic warm dark palette */
+    --color-background: 20 20 19;           /* #141413 Deep Dark */
+    --color-background-secondary: 48 48 46; /* #30302e Dark Surface */
+    --color-surface: 48 48 46;             /* #30302e Dark Surface */
+    --color-surface-hover: 61 61 58;       /* #3d3d3a Dark Warm */
+    --color-foreground: 250 249 245;       /* #faf9f5 Ivory */
+    --color-foreground-secondary: 200 198 190; /* #c8c6be Warm Silver Bright */
+    --color-foreground-muted: 160 158 150;  /* #a09e96 Stone Gray Bright */
+    --color-accent: 217 119 87;            /* #d97757 Coral Accent */
+    --color-accent-dim: 201 100 66;        /* #c96442 Terracotta */
+    --color-danger: 181 51 51;             /* #b53333 Error Crimson */
+    --color-warning: 217 119 87;           /* #d97757 Coral */
     --color-success: 48 209 88;            /* #30d158 */
-    --color-border: 15 0 0;               /* used at 12% opacity */
-    --color-border-active: 0 122 255;      /* #007aff */
+    --color-border: 61 61 58;             /* #3d3d3a Dark Warm border */
+    --color-border-active: 217 119 87;     /* #d97757 Coral */
   }
 }
 
@@ -59,7 +59,7 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid rgb(var(--color-accent) / 0.9);
+  outline: 2px solid #3898ec;
   outline-offset: 2px;
 }
 

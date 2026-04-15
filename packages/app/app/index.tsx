@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
-import { colors } from "@/lib/colors";
+import { useColors } from "@/lib/theme";
 
 const WebTerminalCanvas = lazy(() =>
   import("../components/TerminalCanvas.web").then((module) => ({
@@ -9,6 +9,7 @@ const WebTerminalCanvas = lazy(() =>
 );
 
 export default function HomeScreen() {
+  const colors = useColors();
   if (Platform.OS === "web") {
     return (
       <Suspense

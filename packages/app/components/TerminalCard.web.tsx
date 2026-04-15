@@ -74,7 +74,9 @@ function TerminalCardComponent({
     if (!isTab) onSelectTab(terminal.id);
   }, [isTab, onSelectTab, terminal.id]);
 
-  const wsUrl = terminalWsUrl(terminal.machine_id, terminal.id, deviceId);
+  const wsUrl = terminal.reachable
+    ? terminalWsUrl(terminal.machine_id, terminal.id, deviceId)
+    : null;
 
   return (
     <div
@@ -89,6 +91,7 @@ function TerminalCardComponent({
               background: colors.surface,
             }
           : {
+              position: "relative" as const,
               background: colors.surface,
               borderRadius: 8,
               border: `1px solid ${colors.border}`,
@@ -107,6 +110,26 @@ function TerminalCardComponent({
           e.currentTarget.style.borderColor = colors.border;
       }}
     >
+      {!terminal.reachable && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0, 0, 0, 0.6)",
+            zIndex: 10,
+            borderRadius: "inherit",
+            pointerEvents: "all",
+          }}
+        >
+          <span style={{ color: colors.foregroundSecondary, fontSize: 14 }}>
+            Waiting for reconnection…
+          </span>
+        </div>
+      )}
+
       {/* Title bar - only shown in tab mode for controls */}
       {isTab && (
         <div
@@ -379,45 +402,47 @@ function TerminalCardComponent({
           } : {
             width: "100%", height: "100%",
           }}>
-            <Suspense
-              fallback={
-                <div
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: colors.foregroundSecondary,
-                    fontSize: 12,
-                  }}
-                >
-                  Loading terminal…
-                </div>
-              }
-            >
-              <LiveTerminalView
-                ref={termViewRef}
-                machineId={terminal.machine_id}
-                terminalId={terminal.id}
-                wsUrl={wsUrl}
-                cols={terminal.cols}
-                rows={terminal.rows}
-                displayMode={isTab ? "immersive" : "card"}
-                isController={isController}
-                canResizeTerminal={isTab && isController}
-                style={
-                  isTab
-                    ? undefined
-                    : {
-                        transform: "scale(0.35)",
-                        transformOrigin: "top left",
-                        width: "286%",
-                        height: "286%",
-                      }
+            {terminal.reachable ? (
+              <Suspense
+                fallback={
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: colors.foregroundSecondary,
+                      fontSize: 12,
+                    }}
+                  >
+                    Loading terminal…
+                  </div>
                 }
-              />
-            </Suspense>
+              >
+                <LiveTerminalView
+                  ref={termViewRef}
+                  machineId={terminal.machine_id}
+                  terminalId={terminal.id}
+                  wsUrl={wsUrl!}
+                  cols={terminal.cols}
+                  rows={terminal.rows}
+                  displayMode={isTab ? "immersive" : "card"}
+                  isController={isController}
+                  canResizeTerminal={isTab && isController}
+                  style={
+                    isTab
+                      ? undefined
+                      : {
+                          transform: "scale(0.35)",
+                          transformOrigin: "top left",
+                          width: "286%",
+                          height: "286%",
+                        }
+                  }
+                />
+              </Suspense>
+            ) : null}
           </div>
           {isTab && !isMobile && desktopPanelOpen && (
             <div style={{ width: 200, minWidth: 200, borderLeft: `1px solid ${colors.border}` }}>
