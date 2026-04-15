@@ -28,8 +28,8 @@
     --color-surface: 48 48 46;             /* #30302e Dark Surface */
     --color-surface-hover: 61 61 58;       /* #3d3d3a Dark Warm */
     --color-foreground: 250 249 245;       /* #faf9f5 Ivory */
-    --color-foreground-secondary: 176 174 165; /* #b0aea5 Warm Silver */
-    --color-foreground-muted: 135 134 127; /* #87867f Stone Gray */
+    --color-foreground-secondary: 200 198 190; /* #c8c6be Warm Silver Bright */
+    --color-foreground-muted: 160 158 150;  /* #a09e96 Stone Gray Bright */
     --color-accent: 217 119 87;            /* #d97757 Coral Accent */
     --color-accent-dim: 201 100 66;        /* #c96442 Terracotta */
     --color-danger: 181 51 51;             /* #b53333 Error Crimson */

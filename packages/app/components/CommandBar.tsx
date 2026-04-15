@@ -7,7 +7,7 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
-import { colors, colorAlpha } from "@/lib/colors";
+import { useColors, useColorAlpha } from "@/lib/theme";
 
 interface CommandBarProps {
   onSend: (data: string) => void;
@@ -41,6 +41,8 @@ function readImageFile(
 }
 
 export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
+  const colors = useColors();
+  const colorAlpha = useColorAlpha();
   const [value, setValue] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);

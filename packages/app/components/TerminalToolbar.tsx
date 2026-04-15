@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
-import { colors } from "@/lib/colors";
+import { useColors } from "@/lib/theme";
 
 interface TerminalToolbarProps {
   onKey: (data: string) => void;
@@ -31,6 +31,7 @@ const CTRL_KEYS = [
 ];
 
 export function TerminalToolbar({ onKey }: TerminalToolbarProps) {
+  const colors = useColors();
   const [ctrlMode, setCtrlMode] = useState(false);
 
   const handleCtrlToggle = useCallback(() => {

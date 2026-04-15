@@ -23,8 +23,8 @@ const darkColors = {
   surface: '#30302e',
   surfaceHover: '#3d3d3a',
   foreground: '#faf9f5',
-  foregroundSecondary: '#b0aea5',
-  foregroundMuted: '#87867f',
+  foregroundSecondary: '#c8c6be',
+  foregroundMuted: '#a09e96',
   accent: '#d97757',
   accentDim: '#c96442',
   danger: '#b53333',
@@ -78,8 +78,8 @@ const darkAlpha = {
   warningLight12: 'rgba(217, 119, 87, 0.12)',
   warningBorder: 'rgba(217, 119, 87, 0.2)',
   warningBorder22: 'rgba(217, 119, 87, 0.22)',
-  mutedLight: 'rgba(135, 134, 127, 0.15)',
-  mutedMedium: 'rgba(135, 134, 127, 0.3)',
+  mutedLight: 'rgba(160, 158, 150, 0.15)',
+  mutedMedium: 'rgba(160, 158, 150, 0.3)',
 } as const;
 
 // Resolve theme from system appearance
