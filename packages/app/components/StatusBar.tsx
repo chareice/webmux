@@ -2,6 +2,7 @@ import { memo, useState, useEffect, useRef, useCallback } from "react";
 import type { MachineInfo, ResourceStats } from "@webmux/shared";
 import { getStatusBarLayout } from "./statusBarLayout";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
+import { colors } from "@/lib/colors";
 
 interface StatusBarProps {
   machines: MachineInfo[];
@@ -24,9 +25,9 @@ function formatBytes(bytes: number): string {
 }
 
 function percentColor(pct: number): string {
-  if (pct >= 85) return "rgb(255, 82, 82)";
-  if (pct >= 60) return "rgb(255, 193, 7)";
-  return "rgb(0, 212, 170)";
+  if (pct >= 85) return colors.danger;
+  if (pct >= 60) return colors.warning;
+  return colors.success;
 }
 
 function totalDiskPercent(disks: ResourceStats["disks"]): number {
@@ -130,8 +131,8 @@ function StatusBarComponent({
         height: 24,
         minHeight: 24,
         maxHeight: 24,
-        background: "rgb(0, 122, 204)",
-        color: "#fff",
+        background: colors.accent,
+        color: colors.foreground,
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -155,7 +156,7 @@ function StatusBarComponent({
             style={{
               background: "none",
               border: "none",
-              color: "#fff",
+              color: colors.foreground,
               cursor: machines.length > 1 ? "pointer" : "default",
               display: "flex",
               alignItems: "center",
@@ -173,7 +174,7 @@ function StatusBarComponent({
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: "rgb(0, 212, 170)",
+                background: colors.success,
                 flexShrink: 0,
               }}
             />
@@ -199,12 +200,12 @@ function StatusBarComponent({
                 position: "absolute",
                 bottom: 24,
                 left: 0,
-                background: "rgb(30, 30, 30)",
-                border: "1px solid rgb(60, 60, 60)",
+                background: colors.backgroundSecondary,
+                border: `1px solid ${colors.border}`,
                 borderRadius: 4,
                 minWidth: 160,
                 zIndex: 1000,
-                boxShadow: "0 -4px 12px rgba(0,0,0,0.4)",
+                boxShadow: "0 -4px 12px rgba(var(--color-background) / 0.4)",
               }}
             >
               {machines.map((m) => (
@@ -219,10 +220,10 @@ function StatusBarComponent({
                     padding: "6px 10px",
                     background:
                       m.id === activeMachineId
-                        ? "rgb(4, 57, 94)"
+                        ? colors.surface
                         : "transparent",
                     border: "none",
-                    color: "#fff",
+                    color: colors.foreground,
                     cursor: "pointer",
                     fontSize: 12,
                     fontFamily: "inherit",
@@ -234,7 +235,7 @@ function StatusBarComponent({
                       width: 7,
                       height: 7,
                       borderRadius: "50%",
-                      background: "rgb(0, 212, 170)",
+                      background: colors.success,
                       flexShrink: 0,
                     }}
                   />
@@ -252,7 +253,7 @@ function StatusBarComponent({
               style={{
                 width: 1,
                 height: 14,
-                background: "rgba(255,255,255,0.35)",
+                background: "rgba(var(--color-foreground) / 0.35)",
                 margin: layout.separatorMargin,
                 flexShrink: 0,
               }}
@@ -300,7 +301,7 @@ function StatusBarComponent({
             width: 7,
             height: 7,
             borderRadius: "50%",
-            background: isController ? "rgb(0, 212, 170)" : "rgb(120, 120, 120)",
+            background: isController ? colors.success : colors.foregroundMuted,
             flexShrink: 0,
           }}
         />
@@ -317,10 +318,10 @@ function StatusBarComponent({
             else onRequestControl(activeMachineId);
           }}
           style={{
-            background: "rgba(255,255,255,0.15)",
+            background: "rgba(var(--color-foreground) / 0.15)",
             border: "none",
             borderRadius: 3,
-            color: "#fff",
+            color: colors.foreground,
             cursor: canToggleMode ? "pointer" : "not-allowed",
             opacity: canToggleMode ? 1 : 0.5,
             padding: layout.actionButtonPadding,

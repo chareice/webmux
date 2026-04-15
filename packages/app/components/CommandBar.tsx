@@ -7,6 +7,7 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
+import { colors } from "@/lib/colors";
 
 interface CommandBarProps {
   onSend: (data: string) => void;
@@ -100,7 +101,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
   return (
     <View
       style={{
-        backgroundColor: "rgba(0,0,0,0.2)",
+        backgroundColor: "rgba(var(--color-background) / 0.2)",
         flexDirection: "column",
         overflow: "hidden",
         flex: 1,
@@ -112,14 +113,14 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
           padding: 8,
           paddingHorizontal: 10,
           borderBottomWidth: 1,
-          borderBottomColor: "rgb(26, 58, 92)",
+          borderBottomColor: colors.border,
         }}
       >
         <Text
           style={{
             fontSize: 11,
             fontWeight: "600",
-            color: "rgb(122, 143, 166)",
+            color: colors.foregroundSecondary,
             textTransform: "uppercase",
             letterSpacing: 0.5,
           }}
@@ -134,7 +135,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
           padding: 8,
           paddingHorizontal: 10,
           borderBottomWidth: 1,
-          borderBottomColor: "rgb(26, 58, 92)",
+          borderBottomColor: colors.border,
         }}
       >
         <TextInput
@@ -150,11 +151,11 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
           numberOfLines={3}
           style={{
             width: "100%",
-            backgroundColor: "rgb(10, 25, 41)",
+            backgroundColor: colors.background,
             borderWidth: 1,
-            borderColor: "rgb(26, 58, 92)",
+            borderColor: colors.border,
             borderRadius: 4,
-            color: "rgb(224, 232, 240)",
+            color: colors.foreground,
             padding: 6,
             paddingHorizontal: 8,
             fontSize: 12,
@@ -163,7 +164,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
             maxHeight: 60,
           }}
           placeholder="Command..."
-          placeholderTextColor="rgb(74, 97, 120)"
+          placeholderTextColor={colors.foregroundMuted}
         />
         <View
           style={{
@@ -173,7 +174,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
             marginTop: 4,
           }}
         >
-          <Text style={{ fontSize: 10, color: "rgb(74, 97, 120)" }}>
+          <Text style={{ fontSize: 10, color: colors.foregroundMuted }}>
             Paste image or drag file
           </Text>
           <View style={{ flexDirection: "row", gap: 4 }}>
@@ -200,15 +201,15 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
                   fileInputRef.current.click();
                 }}
                 style={{
-                  backgroundColor: "rgb(17, 42, 69)",
+                  backgroundColor: colors.surface,
                   borderWidth: 1,
-                  borderColor: "rgb(26, 58, 92)",
+                  borderColor: colors.border,
                   borderRadius: 4,
                   paddingVertical: 3,
                   paddingHorizontal: 8,
                 }}
               >
-                <Text style={{ fontSize: 13, color: "rgb(122, 143, 166)" }}>
+                <Text style={{ fontSize: 13, color: colors.foregroundSecondary }}>
                   IMG
                 </Text>
               </Pressable>
@@ -218,9 +219,9 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
               testID="command-bar-send"
               onPress={handleSubmit}
               style={{
-                backgroundColor: "rgba(0, 212, 170, 0.1)",
+                backgroundColor: "rgba(var(--color-accent) / 0.1)",
                 borderWidth: 1,
-                borderColor: "rgb(0, 212, 170)",
+                borderColor: colors.success,
                 borderRadius: 4,
                 paddingVertical: 3,
                 paddingHorizontal: 10,
@@ -230,7 +231,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
                 style={{
                   fontSize: 11,
                   fontWeight: "600",
-                  color: "rgb(0, 212, 170)",
+                  color: colors.success,
                 }}
               >
                 Send
@@ -253,20 +254,20 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
               paddingVertical: 5,
               paddingHorizontal: 10,
               backgroundColor: pressed
-                ? "rgb(17, 42, 69)"
+                ? colors.surface
                 : "transparent",
             })}
           >
             <Text
               style={{
-                color: "rgb(224, 232, 240)",
+                color: colors.foreground,
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 11,
               }}
             >
               {s.label}
             </Text>
-            <Text style={{ color: "rgb(74, 97, 120)", fontSize: 10 }}>
+            <Text style={{ color: colors.foregroundMuted, fontSize: 10 }}>
               {s.desc}
             </Text>
           </Pressable>
@@ -278,7 +279,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
         <View
           style={{
             borderTopWidth: 1,
-            borderTopColor: "rgb(26, 58, 92)",
+            borderTopColor: colors.border,
             maxHeight: 120,
           }}
         >
@@ -288,7 +289,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
               paddingTop: 6,
               paddingBottom: 2,
               fontSize: 10,
-              color: "rgb(74, 97, 120)",
+              color: colors.foregroundMuted,
               textTransform: "uppercase",
             }}
           >
@@ -309,7 +310,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
                     paddingVertical: 3,
                     paddingHorizontal: 10,
                     backgroundColor: pressed
-                      ? "rgb(17, 42, 69)"
+                      ? colors.surface
                       : "transparent",
                   })}
                 >
@@ -318,7 +319,7 @@ export function CommandBar({ onSend, onImagePaste }: CommandBarProps) {
                     style={{
                       fontSize: 11,
                       fontFamily: "'JetBrains Mono', monospace",
-                      color: "rgb(122, 143, 166)",
+                      color: colors.foregroundSecondary,
                     }}
                   >
                     {cmd}
