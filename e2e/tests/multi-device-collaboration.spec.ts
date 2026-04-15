@@ -4,6 +4,7 @@ import {
   expectGlobalModeToggleLabel,
   expectTerminalCount,
   expandMachineSection,
+  getImmersiveTerminal,
   getTerminalCards,
   getTerminalViewJustify,
   getTerminalViewScale,
@@ -30,7 +31,8 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   await expandMachineSection(desktopPage);
   await desktopPage.getByTestId("machine-request-control-e2e-node").click();
   await openRootBookmark(desktopPage);
-  await maximizeOnlyTerminal(desktopPage);
+  // Terminal auto-switches to tab view after creation
+  await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
   await desktopPage.getByTestId("terminal-fit-button").click();
 
   const [desktopSizedTerminal] = await listTerminals(desktopPage);
@@ -38,10 +40,13 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
 
   await openApp(mobilePage);
   await expectTerminalCount(mobilePage, 1);
+  // Mobile viewer sees the grid; click the "All" tab first to see grid
+  await mobilePage.getByTestId("tab-all").click();
   const mobileCard = getTerminalCards(mobilePage).first();
   await expect(mobileCard.getByLabel("View only - cannot close")).toBeVisible();
-  await mobileCard.getByLabel("Maximize").click();
-  await expect(mobilePage.getByLabel("Minimize")).toBeVisible();
+  // Click card to open tab view
+  await mobileCard.click();
+  await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
   await expectGlobalModeToggleLabel(mobilePage, "Control Here");
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
@@ -77,7 +82,8 @@ test("explicit terminal sizing can round-trip between desktop and mobile without
   await expandMachineSection(desktopPage);
   await desktopPage.getByTestId("machine-request-control-e2e-node").click();
   await openRootBookmark(desktopPage);
-  await maximizeOnlyTerminal(desktopPage);
+  // Terminal auto-switches to tab view after creation
+  await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
   await desktopPage.getByTestId("terminal-fit-button").click();
 
   const [desktopSizedTerminal] = await listTerminals(desktopPage);
@@ -111,15 +117,17 @@ test("explicit terminal sizing can round-trip between desktop and mobile without
     .poll(async () => getTerminalViewScale(desktopPage))
     .toBe(1);
 
-  await desktopPage.getByLabel("Minimize").click();
+  // Switch desktop back to "All" grid view, then take control
+  await desktopPage.getByTestId("tab-all").click();
   await expectGlobalModeToggleLabel(desktopPage, "Control Here");
   await desktopPage.getByTestId("canvas-mode-toggle").click();
   await expectGlobalModeToggleLabel(desktopPage, "Stop Control");
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
     "Control Here",
   );
-  await getTerminalCards(desktopPage).first().getByLabel("Maximize").click();
-  await expect(desktopPage.getByLabel("Minimize")).toBeVisible();
+  // Click the terminal card in grid to open tab view
+  await getTerminalCards(desktopPage).first().click();
+  await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
   await expect
     .poll(async () => listTerminals(desktopPage))
     .toEqual([mobileSizedTerminal]);
@@ -165,8 +173,12 @@ test("multiple shared terminals stay in sync across mobile handoff and selective
     .map((terminal) => terminal.id)
     .sort();
 
+  // Switch to grid view to see all terminals
+  await desktopPage.getByTestId("tab-all").click();
   await expectTerminalCount(desktopPage, 2);
   await openApp(mobilePage);
+  // Mobile starts in grid since it didn't create the terminals
+  await mobilePage.getByTestId("tab-all").click();
   await expectTerminalCount(mobilePage, 2);
   await expectGlobalModeToggleLabel(mobilePage, "Control Here");
   await mobilePage.getByTestId("statusbar-mode-toggle").click();

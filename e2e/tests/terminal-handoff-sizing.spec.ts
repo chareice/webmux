@@ -3,12 +3,13 @@ import { expect, test, devices } from "@playwright/test";
 import {
   expectSingleTerminalCard,
   expandMachineSection,
+  getImmersiveTerminal,
   listTerminals,
   openApp,
   resetMachineState,
 } from "./helpers";
 
-test("terminal size stays stable across maximize and cross-device handoff until fit is requested", async ({
+test("terminal size stays stable across tab view and cross-device handoff until fit is requested", async ({
   browser,
 }) => {
   const desktop = await browser.newContext({ viewport: { width: 1440, height: 960 } });
@@ -25,7 +26,9 @@ test("terminal size stays stable across maximize and cross-device handoff until 
   await desktopPage.getByTestId("machine-request-control-e2e-node").click();
   await desktopPage.getByTestId("machine-bookmark-local-home").click();
 
-  const desktopCard = await expectSingleTerminalCard(desktopPage);
+  // After creating a terminal, it auto-switches to tab (immersive) view
+  await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
+
   let initialTerminal: Awaited<ReturnType<typeof listTerminals>>[number] | null = null;
   await expect.poll(async () => {
     const terminals = await listTerminals(desktopPage);
@@ -34,24 +37,21 @@ test("terminal size stays stable across maximize and cross-device handoff until 
   }).toBe(1);
   expect(initialTerminal).not.toBeNull();
 
-  await desktopCard.getByLabel("Maximize").click();
-  await expect(desktopPage.getByLabel("Minimize")).toBeVisible();
-
+  // Size should stay stable in tab view
   await expect
     .poll(async () => listTerminals(desktopPage))
     .toEqual([initialTerminal]);
 
   await openApp(mobilePage);
+  // Terminal shows in grid (card mode) for mobile viewer, click to open tab
   const mobileCard = await expectSingleTerminalCard(mobilePage);
   await mobilePage.getByTestId("statusbar-mode-toggle").click();
-  await mobileCard.getByLabel("Maximize").click();
-  await expect(mobilePage.getByLabel("Minimize")).toBeVisible();
+  await mobileCard.click();
+  await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
   await expect
     .poll(async () =>
       Number(
-        await mobilePage
-          .locator("[data-terminal-display-mode='immersive']")
-          .getAttribute("data-terminal-view-scale"),
+        await getImmersiveTerminal(mobilePage).getAttribute("data-terminal-view-scale"),
       ),
     )
     .toBeLessThan(1);
@@ -70,17 +70,13 @@ test("terminal size stays stable across maximize and cross-device handoff until 
     .not.toEqual(initialTerminal);
   await expect
     .poll(async () =>
-      await desktopPage
-        .locator("[data-terminal-display-mode='immersive']")
-        .getAttribute("data-terminal-view-justify"),
+      await getImmersiveTerminal(desktopPage).getAttribute("data-terminal-view-justify"),
     )
     .toBe("center");
   await expect
     .poll(async () =>
       Number(
-        await desktopPage
-          .locator("[data-terminal-display-mode='immersive']")
-          .getAttribute("data-terminal-view-scale"),
+        await getImmersiveTerminal(desktopPage).getAttribute("data-terminal-view-scale"),
       ),
     )
     .toBe(1);

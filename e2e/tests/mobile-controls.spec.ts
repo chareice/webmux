@@ -1,8 +1,8 @@
 import { test, expect, devices } from "@playwright/test";
 
 import {
-  expectSingleTerminalCard,
   expandMachineSection,
+  getImmersiveTerminal,
   openApp,
   resetMachineState,
 } from "./helpers";
@@ -31,12 +31,8 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await expandMachineSection(page);
   await page.getByTestId("machine-bookmark-local-home").click();
 
-  const card = await expectSingleTerminalCard(page);
-  await expect(card.locator(".xterm")).toHaveCount(1);
-  await expect(card.getByLabel("Maximize")).toBeVisible();
-  await card.getByLabel("Maximize").click();
-
-  await expect(page.getByLabel("Minimize")).toBeVisible();
+  // After creating, terminal auto-switches to tab (immersive) view
+  await expect(getImmersiveTerminal(page)).toBeVisible();
   await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Stop Control");
   await expect(page.getByTestId("terminal-fit-button")).toHaveText("Use This Size");
   await expect(page.getByTitle("Show command bar")).toBeVisible();
@@ -76,8 +72,10 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await page.getByTestId("terminal-mode-toggle").click();
   await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Stop Control");
 
-  await page.getByLabel("Minimize").click();
-  await expect(card.getByLabel("Maximize")).toBeVisible();
+  // Switch to grid view via "All" tab, then close the terminal from the card
+  await page.getByTestId("tab-all").click();
+  const card = page.locator("[data-testid^='terminal-card-']").first();
+  await expect(card).toBeVisible();
   await card.getByLabel("Close terminal").click();
   await expect(page.locator("[data-testid^='terminal-card-']")).toHaveCount(0);
   await expect(page.getByText("Tap ☰ to open a terminal")).toBeVisible();
