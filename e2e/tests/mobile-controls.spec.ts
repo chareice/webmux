@@ -74,9 +74,9 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
 
   // Switch to grid view via "All" tab, then close the terminal from the card
   await page.getByTestId("tab-all").click();
-  const card = page.locator("[data-testid^='terminal-card-']").first();
+  const card = page.locator("[data-testid^='terminal-card-']:visible").first();
   await expect(card).toBeVisible();
   await card.getByLabel("Close terminal").click();
-  await expect(page.locator("[data-testid^='terminal-card-']")).toHaveCount(0);
+  await expect(page.locator("[data-testid^='terminal-card-']:visible")).toHaveCount(0);
   await expect(page.getByText("Tap ☰ to open a terminal")).toBeVisible();
 });

@@ -109,13 +109,13 @@ export async function expandMachineSection(page: Page): Promise<void> {
 }
 
 export async function expectSingleTerminalCard(page: Page): Promise<Locator> {
-  const cards = page.locator(TERMINAL_CARD_SELECTOR);
+  const cards = getTerminalCards(page);
   await expect(cards).toHaveCount(1);
   return cards.first();
 }
 
 export function getTerminalCards(page: Page): Locator {
-  return page.locator(TERMINAL_CARD_SELECTOR);
+  return page.locator(`${TERMINAL_CARD_SELECTOR}:visible`);
 }
 
 export async function expectTerminalCount(

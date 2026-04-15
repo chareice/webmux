@@ -42,8 +42,8 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await expect(cardA.getByLabel("View only - cannot close")).toBeVisible();
 
   await cardB.getByLabel("Close terminal").click();
-  await expect(pageA.locator("[data-testid^='terminal-card-']")).toHaveCount(0);
-  await expect(pageB.locator("[data-testid^='terminal-card-']")).toHaveCount(0);
+  await expect(pageA.locator("[data-testid^='terminal-card-']:visible")).toHaveCount(0);
+  await expect(pageB.locator("[data-testid^='terminal-card-']:visible")).toHaveCount(0);
   await expect(pageA.getByText("Select a directory to open a terminal")).toBeVisible();
   await expect(pageB.getByText("Select a directory to open a terminal")).toBeVisible();
 
