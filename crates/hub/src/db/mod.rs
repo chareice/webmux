@@ -3,8 +3,10 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 
 pub mod bookmarks;
+pub mod hub_state;
 pub mod machines;
 pub mod settings;
+pub mod terminal_sessions;
 pub mod tokens;
 pub mod types;
 pub mod users;
@@ -91,6 +93,25 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
         CREATE INDEX IF NOT EXISTS idx_bookmarks_machine ON bookmarks(machine_id);
         CREATE INDEX IF NOT EXISTS idx_user_settings_user ON user_settings(user_id);
+
+        CREATE TABLE IF NOT EXISTS terminal_sessions (
+            id TEXT PRIMARY KEY,
+            machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            cwd TEXT NOT NULL,
+            cols INTEGER NOT NULL,
+            rows INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,
+            destroyed_at INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_terminal_sessions_machine
+            ON terminal_sessions(machine_id);
+
+        CREATE TABLE IF NOT EXISTS hub_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
     ",
     )?;
 
