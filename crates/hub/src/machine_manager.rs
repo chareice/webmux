@@ -49,6 +49,10 @@ pub struct EventSubscription {
 
 const OUTPUT_BUFFER_SIZE: usize = 64 * 1024;
 const EVENT_HISTORY_LIMIT: usize = 1024;
+/// Safety offset added to persisted event sequence on recovery.
+/// Must exceed the maximum number of events that can go unflushed
+/// (flush cadence is every 100 events or 5 seconds).
+const SEQ_RECOVERY_OFFSET: u64 = 200;
 
 /// A connected machine
 struct MachineConnection {
@@ -91,7 +95,7 @@ impl MachineManager {
                 .ok()
                 .flatten()
                 .and_then(|v| v.parse::<u64>().ok())
-                .map(|v| v + 200)
+                .map(|v| v + SEQ_RECOVERY_OFFSET)
                 .unwrap_or(0)
         };
 
@@ -109,8 +113,8 @@ impl MachineManager {
                         machine_id: row.machine_id,
                         title: row.title,
                         cwd: row.cwd,
-                        cols: row.cols as u16,
-                        rows: row.rows as u16,
+                        cols: u16::try_from(row.cols).unwrap_or(80),
+                        rows: u16::try_from(row.rows).unwrap_or(24),
                         reachable: false,
                     });
             }
@@ -1069,13 +1073,17 @@ impl MachineManager {
             .collect();
 
         // Include persisted terminals from offline machines owned by this user
-        let persisted = self.persisted_terminals.lock().await;
-        for (machine_id, terminals) in persisted.iter() {
-            // Skip machines that are currently online (already included above)
-            if visible_machine_ids.contains(machine_id.as_str()) {
-                continue;
-            }
-            // Check if this offline machine belongs to the requesting user
+        // Clone persisted terminal data and release lock before DB queries
+        let persisted_snapshot: Vec<(String, Vec<TerminalInfo>)> = {
+            let persisted = self.persisted_terminals.lock().await;
+            persisted
+                .iter()
+                .filter(|(mid, _)| !visible_machine_ids.contains(mid.as_str()))
+                .map(|(mid, terms)| (mid.clone(), terms.clone()))
+                .collect()
+        };
+
+        for (machine_id, terminals) in &persisted_snapshot {
             if let Ok(conn) = self.db.get() {
                 if let Ok(Some(machine_row)) =
                     crate::db::machines::find_machine_by_id(&conn, machine_id)
@@ -1121,11 +1129,6 @@ impl MachineManager {
             }
         }
         let _ = self.event_tx.send(envelope);
-
-        // Periodic flush every 100 events
-        if seq % 100 == 0 {
-            self.flush_event_seq();
-        }
     }
 
     /// Flush the current event sequence to the database

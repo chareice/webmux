@@ -15,7 +15,13 @@ pub fn insert(
     let created_at = now_ms();
     conn.execute(
         "INSERT INTO terminal_sessions (id, machine_id, title, cwd, cols, rows, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(id) DO UPDATE SET
+             machine_id = excluded.machine_id,
+             title = excluded.title,
+             cwd = excluded.cwd,
+             cols = excluded.cols,
+             rows = excluded.rows",
         params![id, machine_id, title, cwd, cols as i64, rows as i64, created_at],
     )?;
     Ok(())
