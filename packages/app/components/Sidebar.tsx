@@ -575,6 +575,7 @@ function MachineSection({
                   {quickCommands.map((cmd) => (
                     <Pressable
                       key={cmd.label}
+                      testID={`quick-cmd-${cmd.label}`}
                       onPress={() =>
                         onCreateTerminal(machine.id, bm.path, cmd.command)
                       }
@@ -1118,6 +1119,7 @@ function SettingsSection({
           {quickCommands.map((cmd, i) => (
             <View
               key={i}
+              testID={`quick-cmd-row-${i}`}
               style={{
                 flexDirection: "row",
                 gap: 4,
@@ -1126,6 +1128,7 @@ function SettingsSection({
               }}
             >
               <TextInput
+                testID={`quick-cmd-label-${i}`}
                 value={cmd.label}
                 onChangeText={(v) => handleUpdateCommand(i, "label", v)}
                 onBlur={handleBlurSave}
@@ -1144,6 +1147,7 @@ function SettingsSection({
                 }}
               />
               <TextInput
+                testID={`quick-cmd-command-${i}`}
                 value={cmd.command}
                 onChangeText={(v) => handleUpdateCommand(i, "command", v)}
                 onBlur={handleBlurSave}
@@ -1162,6 +1166,7 @@ function SettingsSection({
                 }}
               />
               <Pressable
+                testID={`quick-cmd-remove-${i}`}
                 onPress={() => handleRemoveCommand(i)}
                 hitSlop={4}
               >
@@ -1178,6 +1183,7 @@ function SettingsSection({
             </View>
           ))}
           <Pressable
+            testID="quick-cmd-add"
             onPress={handleAddCommand}
             style={({ pressed }) => ({
               flexDirection: "row",
