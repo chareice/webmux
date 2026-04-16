@@ -19,33 +19,35 @@ const PROVIDERS: { value: OAuthProvider; label: string }[] = [
 
 export default function LoginScreen() {
   const { login } = useAuth();
+  const [connecting, setConnecting] = useState(false);
   const [activeProvider, setActiveProvider] = useState<OAuthProvider | null>(
     null,
   );
   const [serverUrlInput, setServerUrlInput] = useState(getServerUrl());
   const isDesktop = isTauri();
 
-  const handleLogin = (provider: OAuthProvider) => {
-    if (isDesktop) {
-      setServerUrl(serverUrlInput.trim());
-    }
+  const handleDesktopConnect = () => {
+    setServerUrl(serverUrlInput.trim());
+    setConnecting(true);
+    login();
+  };
+
+  const handleWebLogin = (provider: OAuthProvider) => {
     setActiveProvider(provider);
     login(provider);
   };
 
-  return (
-    <View className="flex-1 bg-background items-center justify-center p-6">
-      <View className="w-full max-w-sm bg-surface rounded-2xl p-8">
-        {/* Title */}
-        <Text className="text-foreground text-3xl font-bold text-center mb-2">
-          Terminal Canvas
-        </Text>
-        <Text className="text-foreground text-center mb-8 opacity-80">
-          Sign in to continue
-        </Text>
+  if (isDesktop) {
+    return (
+      <View className="flex-1 bg-background items-center justify-center p-6">
+        <View className="w-full max-w-sm bg-surface rounded-2xl p-8">
+          <Text className="text-foreground text-3xl font-bold text-center mb-2">
+            Terminal Canvas
+          </Text>
+          <Text className="text-foreground text-center mb-8 opacity-80">
+            Connect to your server
+          </Text>
 
-        {/* Server URL input for desktop */}
-        {isDesktop && (
           <View className="mb-6">
             <Text className="text-foreground text-sm mb-2 opacity-60">
               Server URL
@@ -60,27 +62,56 @@ export default function LoginScreen() {
               className="bg-background border border-border rounded-lg px-3 py-2.5 text-foreground text-sm"
             />
           </View>
-        )}
 
-        {/* OAuth buttons */}
+          <Pressable
+            onPress={handleDesktopConnect}
+            disabled={connecting || !serverUrlInput.trim()}
+            className={`py-3 px-4 rounded-lg items-center active:opacity-80 bg-foreground ${
+              connecting || !serverUrlInput.trim() ? "opacity-50" : ""
+            }`}
+          >
+            {connecting ? (
+              <ActivityIndicator color="#141413" />
+            ) : (
+              <Text className="font-semibold text-base text-background">
+                Sign in via Browser
+              </Text>
+            )}
+          </Pressable>
+
+          <Text className="text-foreground text-xs text-center mt-4 opacity-40">
+            Opens your browser to sign in or reuse an existing session
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View className="flex-1 bg-background items-center justify-center p-6">
+      <View className="w-full max-w-sm bg-surface rounded-2xl p-8">
+        <Text className="text-foreground text-3xl font-bold text-center mb-2">
+          Terminal Canvas
+        </Text>
+        <Text className="text-foreground text-center mb-8 opacity-80">
+          Sign in to continue
+        </Text>
+
         <View className="gap-3">
           {PROVIDERS.map((provider) => {
             const active = activeProvider === provider.value;
             const isGitHub = provider.value === "github";
-            const disabled =
-              activeProvider !== null ||
-              (isDesktop && !serverUrlInput.trim());
 
             return (
               <Pressable
                 key={provider.value}
-                onPress={() => handleLogin(provider.value)}
+                onPress={() => handleWebLogin(provider.value)}
                 className={`py-3 px-4 rounded-lg items-center active:opacity-80 ${
                   isGitHub
                     ? "bg-foreground"
                     : "bg-background border border-border"
-                } ${disabled ? "opacity-50" : ""}`}
-                disabled={disabled}
+                } ${activeProvider ? "opacity-50" : ""}`}
+                disabled={activeProvider !== null}
               >
                 {active ? (
                   <ActivityIndicator
