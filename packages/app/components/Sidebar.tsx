@@ -504,17 +504,19 @@ function MachineSection({
             </View>
           )}
 
-          {bookmarks.map((bm) => (
-            <View key={bm.id}>
+          {bookmarks.map((bm) => {
+            const visibleCmds = quickCommands.filter((c) => c.label && c.command);
+            return (
               <Pressable
+                key={bm.id}
                 testID={`machine-bookmark-${bm.id}`}
                 onPress={() => {
                   if (!canCreateTerminal) return;
-                  onCreateTerminal(machine.id, bm.path);
+                  onCreateTerminal(machine.id, bm.path, "");
                 }}
                 style={({ pressed }) => ({
                   flexDirection: "row",
-                  alignItems: "center",
+                  alignItems: "flex-start",
                   gap: 8,
                   paddingVertical: 6,
                   paddingHorizontal: 12,
@@ -539,10 +541,48 @@ function MachineSection({
                     style={{
                       fontSize: 10,
                       color: colors.foregroundMuted,
+                      marginBottom: visibleCmds.length > 0 && canCreateTerminal ? 3 : 0,
                     }}
                   >
                     {bm.path}
                   </Text>
+                  {canCreateTerminal && visibleCmds.length > 0 && (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        flexWrap: "wrap",
+                        gap: 4,
+                      }}
+                    >
+                      {visibleCmds.map((cmd) => (
+                        <Pressable
+                          key={cmd.label}
+                          testID={`quick-cmd-${cmd.label}`}
+                          onPress={(e) => {
+                            e.stopPropagation?.();
+                            onCreateTerminal(machine.id, bm.path, cmd.command);
+                          }}
+                          style={({ pressed }) => ({
+                            backgroundColor: pressed
+                              ? colorAlpha.accentMedium
+                              : colorAlpha.accentSubtle,
+                            borderRadius: 3,
+                            paddingVertical: 1,
+                            paddingHorizontal: 5,
+                          })}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 10,
+                              color: colors.accent,
+                            }}
+                          >
+                            {cmd.label}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
                 </View>
                 <Pressable
                   onPress={(e) => {
@@ -562,46 +602,8 @@ function MachineSection({
                   </Text>
                 </Pressable>
               </Pressable>
-              {canCreateTerminal && quickCommands.length > 0 && (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    flexWrap: "wrap",
-                    gap: 4,
-                    paddingHorizontal: 12,
-                    paddingBottom: 4,
-                  }}
-                >
-                  {quickCommands.filter((c) => c.label && c.command).map((cmd) => (
-                    <Pressable
-                      key={cmd.label}
-                      testID={`quick-cmd-${cmd.label}`}
-                      onPress={() =>
-                        onCreateTerminal(machine.id, bm.path, cmd.command)
-                      }
-                      style={({ pressed }) => ({
-                        backgroundColor: pressed
-                          ? colorAlpha.accentMedium
-                          : colorAlpha.accentSubtle,
-                        borderRadius: 3,
-                        paddingVertical: 1,
-                        paddingHorizontal: 5,
-                      })}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 10,
-                          color: colors.accent,
-                        }}
-                      >
-                        {cmd.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
-          ))}
+            );
+          })}
 
           {/* Add bookmark */}
           {showAdd ? (
