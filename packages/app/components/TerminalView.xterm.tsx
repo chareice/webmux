@@ -23,6 +23,7 @@ import {
 } from "@/lib/terminalViewModel";
 import { terminalTheme } from "@/lib/colors";
 import { isTauri } from "@/lib/platform";
+import { isAppShortcut } from "@/lib/shortcuts";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
@@ -341,6 +342,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // Ctrl+C / Cmd+C copies selection to clipboard instead of sending SIGINT
       // Ctrl+V / Cmd+V checks clipboard for images before letting xterm paste text
       term.attachCustomKeyEventHandler((event) => {
+        // Let app-level shortcuts bubble up to the window handler
+        if (isAppShortcut(event)) {
+          return false;
+        }
+
         if (
           (event.ctrlKey || event.metaKey) &&
           event.key === "c" &&
