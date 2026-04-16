@@ -40,9 +40,14 @@ import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import { shouldLoadMachineBookmarks } from "@/lib/sidebarSections";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
+interface QuickCommand {
+  label: string;
+  command: string;
+}
+
 interface SidebarProps {
   machines: MachineInfo[];
-  onCreateTerminal: (machineId: string, cwd: string) => void;
+  onCreateTerminal: (machineId: string, cwd: string, startupCommand?: string) => void;
   canCreateTerminal?: (machineId: string) => boolean;
   onRequestControl?: (machineId: string) => void;
 }
@@ -301,11 +306,13 @@ function MachineSection({
   onCreateTerminal,
   canCreateTerminal,
   onRequestControl,
+  quickCommands,
 }: {
   machine: MachineInfo;
-  onCreateTerminal: (machineId: string, cwd: string) => void;
+  onCreateTerminal: (machineId: string, cwd: string, startupCommand?: string) => void;
   canCreateTerminal: boolean;
   onRequestControl?: (machineId: string) => void;
+  quickCommands: QuickCommand[];
 }) {
   const colors = useColors();
   const colorAlpha = useColorAlpha();
@@ -450,15 +457,6 @@ function MachineSection({
         >
           {machine.os}
         </Text>
-        <Text
-          style={{
-            fontSize: 10,
-            color: colors.foregroundSecondary,
-            transform: [{ rotate: expanded ? "90deg" : "0deg" }],
-          }}
-        >
-          {"\u25B6"}
-        </Text>
       </Pressable>
 
       {expanded && (
@@ -507,71 +505,101 @@ function MachineSection({
           )}
 
           {bookmarks.map((bm) => (
-            <Pressable
-              key={bm.id}
-              testID={`machine-bookmark-${bm.id}`}
-              onPress={() => {
-                if (!canCreateTerminal) return;
-                onCreateTerminal(machine.id, bm.path);
-              }}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                paddingVertical: 6,
-                paddingHorizontal: 12,
-                backgroundColor: pressed
-                  ? colors.surface
-                  : "transparent",
-                opacity: canCreateTerminal ? 1 : 0.45,
-              })}
-            >
-              <Text
-                style={{
-                  fontSize: 14,
-                  color: colors.foregroundSecondary,
-                }}
-              >
-                {"\u25B8"}
-              </Text>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text
-                  numberOfLines={1}
-                  style={{
-                    fontSize: 13,
-                    color: colors.foreground,
-                  }}
-                >
-                  {bm.label}
-                </Text>
-                <Text
-                  numberOfLines={1}
-                  style={{
-                    fontSize: 10,
-                    color: colors.foregroundMuted,
-                  }}
-                >
-                  {bm.path}
-                </Text>
-              </View>
+            <View key={bm.id}>
               <Pressable
-                onPress={(e) => {
-                  e.stopPropagation?.();
-                  handleRemoveBookmark(bm);
+                testID={`machine-bookmark-${bm.id}`}
+                onPress={() => {
+                  if (!canCreateTerminal) return;
+                  onCreateTerminal(machine.id, bm.path);
                 }}
-                hitSlop={6}
-                style={{ paddingHorizontal: 4 }}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  paddingVertical: 6,
+                  paddingHorizontal: 12,
+                  backgroundColor: pressed
+                    ? colors.surface
+                    : "transparent",
+                  opacity: canCreateTerminal ? 1 : 0.45,
+                })}
               >
-                <Text
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontSize: 13,
+                      color: colors.foreground,
+                    }}
+                  >
+                    {bm.label}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontSize: 10,
+                      color: colors.foregroundMuted,
+                    }}
+                  >
+                    {bm.path}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    handleRemoveBookmark(bm);
+                  }}
+                  hitSlop={6}
+                  style={{ paddingHorizontal: 4 }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      color: colors.foregroundMuted,
+                    }}
+                  >
+                    &#x2715;
+                  </Text>
+                </Pressable>
+              </Pressable>
+              {canCreateTerminal && quickCommands.length > 0 && (
+                <View
                   style={{
-                    fontSize: 10,
-                    color: colors.foregroundMuted,
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: 4,
+                    paddingHorizontal: 12,
+                    paddingBottom: 4,
                   }}
                 >
-                  &#x2715;
-                </Text>
-              </Pressable>
-            </Pressable>
+                  {quickCommands.map((cmd) => (
+                    <Pressable
+                      key={cmd.label}
+                      onPress={() =>
+                        onCreateTerminal(machine.id, bm.path, cmd.command)
+                      }
+                      style={({ pressed }) => ({
+                        backgroundColor: pressed
+                          ? colorAlpha.accentMedium
+                          : colorAlpha.accentSubtle,
+                        borderRadius: 3,
+                        paddingVertical: 1,
+                        paddingHorizontal: 5,
+                      })}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          color: colors.accent,
+                        }}
+                      >
+                        {cmd.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
           ))}
 
           {/* Add bookmark */}
@@ -934,27 +962,67 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SettingsSection() {
+function SettingsSection({
+  onQuickCommandsChange,
+}: {
+  onQuickCommandsChange: (cmds: QuickCommand[]) => void;
+}) {
   const colors = useColors();
   const colorAlpha = useColorAlpha();
   const [expanded, setExpanded] = useState(false);
-  const [startupCommand, setStartupCommand] = useState("");
+  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (expanded && !loaded) {
       getSettings()
         .then((res) => {
-          setStartupCommand(res.settings.default_startup_command || "");
+          try {
+            const cmds = JSON.parse(res.settings.quick_commands || "[]");
+            setQuickCommands(cmds);
+            onQuickCommandsChange(cmds);
+          } catch {
+            /* ignore */
+          }
           setLoaded(true);
         })
         .catch(() => setLoaded(true));
     }
-  }, [expanded, loaded]);
+  }, [expanded, loaded, onQuickCommandsChange]);
 
-  const handleSave = useCallback(() => {
-    updateSettings({ default_startup_command: startupCommand });
-  }, [startupCommand]);
+  const saveQuickCommands = useCallback(
+    (cmds: QuickCommand[]) => {
+      setQuickCommands(cmds);
+      onQuickCommandsChange(cmds);
+      updateSettings({ quick_commands: JSON.stringify(cmds) });
+    },
+    [onQuickCommandsChange],
+  );
+
+  const handleAddCommand = useCallback(() => {
+    saveQuickCommands([...quickCommands, { label: "", command: "" }]);
+  }, [quickCommands, saveQuickCommands]);
+
+  const handleRemoveCommand = useCallback(
+    (index: number) => {
+      saveQuickCommands(quickCommands.filter((_, i) => i !== index));
+    },
+    [quickCommands, saveQuickCommands],
+  );
+
+  const handleUpdateCommand = useCallback(
+    (index: number, field: "label" | "command", value: string) => {
+      const updated = quickCommands.map((cmd, i) =>
+        i === index ? { ...cmd, [field]: value } : cmd,
+      );
+      setQuickCommands(updated);
+    },
+    [quickCommands],
+  );
+
+  const handleBlurSave = useCallback(() => {
+    saveQuickCommands(quickCommands.filter((c) => c.label && c.command));
+  }, [quickCommands, saveQuickCommands]);
 
   return (
     <View
@@ -963,7 +1031,6 @@ function SettingsSection() {
         borderTopColor: colors.border,
       }}
     >
-      {/* Settings header */}
       <Pressable
         onPress={() => setExpanded((prev) => !prev)}
         style={{
@@ -1038,6 +1105,7 @@ function SettingsSection() {
               />
             </View>
           )}
+
           <Text
             style={{
               fontSize: 11,
@@ -1045,30 +1113,86 @@ function SettingsSection() {
               marginBottom: 6,
             }}
           >
-            Startup Command
+            Quick Commands
           </Text>
-          <TextInput
-            value={startupCommand}
-            onChangeText={setStartupCommand}
-            onBlur={handleSave}
-            onKeyPress={(e: any) => {
-              if (e.nativeEvent?.key === "Enter") {
-                handleSave();
-              }
-            }}
-            style={{
-              backgroundColor: colors.surface,
-              borderWidth: 1,
-              borderColor: colors.border,
-              borderRadius: 4,
-              color: colors.foreground,
+          {quickCommands.map((cmd, i) => (
+            <View
+              key={i}
+              style={{
+                flexDirection: "row",
+                gap: 4,
+                marginBottom: 4,
+                alignItems: "center",
+              }}
+            >
+              <TextInput
+                value={cmd.label}
+                onChangeText={(v) => handleUpdateCommand(i, "label", v)}
+                onBlur={handleBlurSave}
+                placeholder="label"
+                placeholderTextColor={colors.foregroundMuted}
+                style={{
+                  width: 50,
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 4,
+                  color: colors.foreground,
+                  paddingVertical: 2,
+                  paddingHorizontal: 6,
+                  fontSize: 11,
+                }}
+              />
+              <TextInput
+                value={cmd.command}
+                onChangeText={(v) => handleUpdateCommand(i, "command", v)}
+                onBlur={handleBlurSave}
+                placeholder="command"
+                placeholderTextColor={colors.foregroundMuted}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 4,
+                  color: colors.foreground,
+                  paddingVertical: 2,
+                  paddingHorizontal: 6,
+                  fontSize: 11,
+                }}
+              />
+              <Pressable
+                onPress={() => handleRemoveCommand(i)}
+                hitSlop={4}
+              >
+                <Text
+                  style={{
+                    fontSize: 10,
+                    color: colors.foregroundMuted,
+                    paddingHorizontal: 2,
+                  }}
+                >
+                  &#x2715;
+                </Text>
+              </Pressable>
+            </View>
+          ))}
+          <Pressable
+            onPress={handleAddCommand}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
               paddingVertical: 4,
-              paddingHorizontal: 8,
-              fontSize: 12,
-            }}
-            placeholder="e.g. tmux new-session"
-            placeholderTextColor={colors.foregroundMuted}
-          />
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Text style={{ fontSize: 12, color: colors.foregroundMuted }}>+</Text>
+            <Text style={{ fontSize: 11, color: colors.foregroundMuted }}>
+              Add command
+            </Text>
+          </Pressable>
+
           {!isTauri() && Platform.OS === "web" && (
             <Pressable
               onPress={() => {
@@ -1142,6 +1266,27 @@ function SidebarComponent({
 }: SidebarProps) {
   const colors = useColors();
   const [showAddMachine, setShowAddMachine] = useState(false);
+  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
+
+  // Load quick commands eagerly so tags appear when machine sections expand
+  useEffect(() => {
+    getSettings()
+      .then((res) => {
+        try {
+          const cmds = JSON.parse(res.settings.quick_commands || "[]");
+          setQuickCommands(cmds);
+        } catch {
+          /* ignore */
+        }
+      })
+      .catch(() => {
+        /* ignore */
+      });
+  }, []);
+
+  const handleQuickCommandsChange = useCallback((cmds: QuickCommand[]) => {
+    setQuickCommands(cmds);
+  }, []);
 
   return (
     <View
@@ -1216,6 +1361,7 @@ function SidebarComponent({
               onCreateTerminal={onCreateTerminal}
               canCreateTerminal={canCreateTerminal?.(machine.id) ?? true}
               onRequestControl={onRequestControl}
+              quickCommands={quickCommands}
             />
           ))
         )}
@@ -1223,7 +1369,7 @@ function SidebarComponent({
       {showAddMachine && (
         <AddMachinePanel onClose={() => setShowAddMachine(false)} />
       )}
-      <SettingsSection />
+      <SettingsSection onQuickCommandsChange={handleQuickCommandsChange} />
       {Platform.OS === "web" && <ThemeToggle />}
     </View>
   );

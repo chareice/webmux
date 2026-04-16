@@ -278,10 +278,10 @@ export function TerminalCanvas() {
   }, [bootstrapReady, deviceId]);
 
   const handleCreateTerminal = useCallback(
-    async (machineId: string, cwd: string) => {
+    async (machineId: string, cwd: string, startupCommand?: string) => {
       if (!deviceId) return;
       if (!isMachineController(machineId)) return;
-      const newTerminal = await createTerminal(machineId, cwd, deviceId);
+      const newTerminal = await createTerminal(machineId, cwd, deviceId, startupCommand);
       // Auto-switch to the new terminal's tab
       setActiveTabId(newTerminal.id);
       window.history.pushState(null, "", `#/t/${newTerminal.id}`);
