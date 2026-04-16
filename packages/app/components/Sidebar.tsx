@@ -975,6 +975,17 @@ function SettingsSection({
   const [expanded, setExpanded] = useState(false);
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [terminalFont, setTerminalFont] = useState("");
+  const [terminalFontSize, setTerminalFontSize] = useState("");
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      const savedFont = localStorage.getItem("webmux:terminal-font-family") || "";
+      const savedSize = localStorage.getItem("webmux:terminal-font-size") || "";
+      setTerminalFont(savedFont);
+      setTerminalFontSize(savedSize);
+    }
+  }, []);
 
   useEffect(() => {
     if (expanded && !loaded) {
@@ -1107,6 +1118,68 @@ function SettingsSection({
                 }}
               />
             </View>
+          )}
+
+          {Platform.OS === "web" && (
+            <>
+              <Text style={{ fontSize: 11, color: colors.foregroundSecondary, marginBottom: 6 }}>
+                Terminal Font
+              </Text>
+              <TextInput
+                value={terminalFont}
+                onChangeText={setTerminalFont}
+                onBlur={() => {
+                  if (terminalFont) {
+                    localStorage.setItem("webmux:terminal-font-family", terminalFont);
+                  } else {
+                    localStorage.removeItem("webmux:terminal-font-family");
+                  }
+                }}
+                placeholder="JetBrains Mono (auto-detect)"
+                placeholderTextColor={colors.foregroundMuted}
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 4,
+                  color: colors.foreground,
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  fontSize: 12,
+                  marginBottom: 12,
+                }}
+              />
+              <Text style={{ fontSize: 11, color: colors.foregroundSecondary, marginBottom: 6 }}>
+                Font Size
+              </Text>
+              <TextInput
+                value={terminalFontSize}
+                onChangeText={setTerminalFontSize}
+                onBlur={() => {
+                  const size = parseInt(terminalFontSize, 10);
+                  if (size >= 10 && size <= 24) {
+                    localStorage.setItem("webmux:terminal-font-size", String(size));
+                  } else if (!terminalFontSize) {
+                    localStorage.removeItem("webmux:terminal-font-size");
+                  }
+                }}
+                placeholder="14"
+                placeholderTextColor={colors.foregroundMuted}
+                keyboardType="numeric"
+                style={{
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 4,
+                  color: colors.foreground,
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  fontSize: 12,
+                  width: 80,
+                  marginBottom: 12,
+                }}
+              />
+            </>
           )}
 
           <Text
