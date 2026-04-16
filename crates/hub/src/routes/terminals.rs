@@ -21,6 +21,8 @@ pub struct CreateTerminalRequest {
     pub cols: u16,
     #[serde(default = "default_rows")]
     pub rows: u16,
+    #[serde(default)]
+    pub startup_command: Option<String>,
 }
 
 fn default_cols() -> u16 {
@@ -106,7 +108,9 @@ async fn create_terminal(
         return Err((StatusCode::FORBIDDEN, "Control required".to_string()));
     }
 
-    let startup_command = {
+    let startup_command = if req.startup_command.is_some() {
+        req.startup_command.clone()
+    } else {
         let conn = state.db.get().map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
