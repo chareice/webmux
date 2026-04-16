@@ -364,6 +364,11 @@ export function TerminalCanvas() {
     : machines[0] ?? null;
   const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
 
+  const handleNewTerminalFromTitleBar = useCallback(async () => {
+    if (!activeMachine || !deviceId || !isMachineController(activeMachine.id)) return;
+    await handleCreateTerminal(activeMachine.id, "~");
+  }, [activeMachine, deviceId, isMachineController, handleCreateTerminal]);
+
   return (
     <div
       style={{
@@ -466,6 +471,7 @@ export function TerminalCanvas() {
             onDestroy={handleDestroyTerminal}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
+            onNewTerminal={isActiveController ? handleNewTerminalFromTitleBar : undefined}
           />
         )}
       </div>
