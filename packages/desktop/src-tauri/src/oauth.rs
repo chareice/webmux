@@ -2,6 +2,8 @@ use axum::{extract::Query, response::Html, routing::get, Router};
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 use tokio::net::TcpListener;
+use std::sync::{Arc, Mutex};
+use tokio::sync::oneshot;
 
 #[derive(Deserialize)]
 struct CallbackParams {
@@ -21,12 +23,19 @@ pub async fn start_oauth_listener(app: AppHandle) -> Result<u16, String> {
         .port();
 
     let app_handle = app.clone();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));
+
     tauri::async_runtime::spawn(async move {
         let router = Router::new().route(
             "/callback",
-            get(|Query(params): Query<CallbackParams>| async move {
+            get(move |Query(params): Query<CallbackParams>| async move {
                 if let Some(token) = params.token {
                     let _ = app_handle.emit("oauth-token", token);
+                }
+                // Signal server shutdown after handling the callback
+                if let Some(tx) = shutdown_tx.lock().unwrap().take() {
+                    let _ = tx.send(());
                 }
                 Html(
                     r#"<!DOCTYPE html>
@@ -43,11 +52,16 @@ pub async fn start_oauth_listener(app: AppHandle) -> Result<u16, String> {
             }),
         );
 
-        // Serve exactly one request, then stop
         let _ = axum::serve(listener, router)
             .with_graceful_shutdown(async {
-                // Keep alive for a short time so the browser can receive the response
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                // Shut down after callback is handled, or after 5 minutes (abandon timeout)
+                tokio::select! {
+                    _ = async { shutdown_rx.await.ok() } => {
+                        // Give browser time to receive the HTML response
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {}
+                }
             })
             .await;
     });

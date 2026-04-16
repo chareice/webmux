@@ -208,10 +208,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
 
     if (isTauri()) {
-      tauriOAuthLogin(provider, async (newToken) => {
+      void tauriOAuthLogin(provider, async (newToken) => {
         await storage.set(TOKEN_KEY, newToken);
         configure(getServerUrl(), newToken);
         setToken(newToken);
+      }).catch((err) => {
+        console.error("OAuth flow failed:", err);
       });
     } else {
       const base = getServerUrl();

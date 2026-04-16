@@ -49,7 +49,7 @@ async fn github_redirect(
         )
     })?;
 
-    let url = auth::github_oauth_url(client_id, &state.base_url, query.redirect_to.as_deref());
+    let url = auth::github_oauth_url(client_id, &state.base_url, query.redirect_to.as_deref(), &state.jwt_secret);
     Ok(Redirect::temporary(&url))
 }
 
@@ -95,8 +95,7 @@ async fn github_callback(
         gh_user.avatar_url.as_deref(),
     )?;
 
-    let base = resolve_redirect_base(&state.base_url, query.state.as_deref());
-    let redirect_url = format!("{}?token={}", base, jwt);
+    let redirect_url = build_token_redirect(&state.base_url, query.state.as_deref(), &state.jwt_secret, &jwt);
     Ok(Redirect::temporary(&redirect_url))
 }
 
@@ -113,7 +112,7 @@ async fn google_redirect(
         )
     })?;
 
-    let url = auth::google_oauth_url(client_id, &state.base_url, query.redirect_to.as_deref());
+    let url = auth::google_oauth_url(client_id, &state.base_url, query.redirect_to.as_deref(), &state.jwt_secret);
     Ok(Redirect::temporary(&url))
 }
 
@@ -162,8 +161,7 @@ async fn google_callback(
         g_user.picture.as_deref(),
     )?;
 
-    let base = resolve_redirect_base(&state.base_url, query.state.as_deref());
-    let redirect_url = format!("{}?token={}", base, jwt);
+    let redirect_url = build_token_redirect(&state.base_url, query.state.as_deref(), &state.jwt_secret, &jwt);
     Ok(Redirect::temporary(&redirect_url))
 }
 
@@ -238,13 +236,20 @@ async fn me(
 
 // ── Helpers ──
 
-/// Determine the final redirect base URL after OAuth.
-/// If the OAuth state carries a valid loopback redirect_to, use that;
-/// otherwise fall back to the server's base_url.
-fn resolve_redirect_base(base_url: &str, state: Option<&str>) -> String {
-    state
-        .and_then(auth::decode_oauth_state_redirect)
-        .unwrap_or_else(|| base_url.to_string())
+/// Build the final redirect URL with `?token=` after OAuth.
+/// Uses `url::Url` to correctly append the query parameter regardless of
+/// whether the base URL already contains a query string.
+fn build_token_redirect(base_url: &str, state: Option<&str>, jwt_secret: &str, token: &str) -> String {
+    let base = state
+        .and_then(|s| auth::decode_oauth_state_redirect(s, jwt_secret))
+        .unwrap_or_else(|| base_url.to_string());
+    match url::Url::parse(&base) {
+        Ok(mut url) => {
+            url.query_pairs_mut().append_pair("token", token);
+            url.to_string()
+        }
+        Err(_) => format!("{}?token={}", base, token),
+    }
 }
 
 fn upsert_oauth_user_and_sign(

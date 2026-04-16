@@ -27,7 +27,7 @@ export default function LoginScreen() {
 
   const handleLogin = (provider: OAuthProvider) => {
     if (isDesktop) {
-      setServerUrl(serverUrlInput);
+      setServerUrl(serverUrlInput.trim());
     }
     setActiveProvider(provider);
     login(provider);
