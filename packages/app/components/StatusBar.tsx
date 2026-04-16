@@ -3,6 +3,7 @@ import type { MachineInfo, ResourceStats } from "@webmux/shared";
 import { getStatusBarLayout } from "./statusBarLayout";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 import { colors, colorAlpha } from "@/lib/colors";
+import { UpdateNotification } from "./UpdateNotification";
 
 interface StatusBarProps {
   machines: MachineInfo[];
@@ -334,6 +335,7 @@ function StatusBarComponent({
 
       {/* Right side — renderer switch + mode toggle */}
       <div style={{ display: "flex", alignItems: "center", gap: layout.sectionGap, flexShrink: 0, marginLeft: 8 }}>
+        <UpdateNotification />
         <RendererSwitch />
         <span
           style={{

@@ -16,6 +16,8 @@ const LiveTerminalView = lazy(() =>
 
 export interface TerminalCardRef {
   fitToContainer: () => void;
+  focus: () => void;
+  sendInput: (data: string) => void;
 }
 
 interface TerminalCardProps {
@@ -54,6 +56,12 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
       if (!isController || !isTab) return;
       termViewRef.current?.fitToContainer();
       termViewRef.current?.focus();
+    },
+    focus: () => {
+      termViewRef.current?.focus();
+    },
+    sendInput: (data: string) => {
+      termViewRef.current?.sendInput(data);
     },
   }), [isController, isTab]);
 
@@ -136,7 +144,38 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         </div>
       )}
 
-      {/* Mobile-only controls bar in tab mode */}
+      {/* Desktop fit button in tab mode */}
+      {isTab && !isMobile && isController && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            padding: "2px 12px",
+            borderBottom: `1px solid ${colors.border}`,
+          }}
+        >
+          <button
+            data-testid="terminal-fit-button"
+            onClick={() => {
+              termViewRef.current?.fitToContainer();
+              termViewRef.current?.focus();
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              color: colors.accent,
+              cursor: "pointer",
+              fontSize: 11,
+              padding: "4px 8px",
+            }}
+          >
+            {controlCopy.sizeActionLabel}
+          </button>
+        </div>
+      )}
+
+      {/* Mobile controls bar in tab mode */}
       {isTab && isMobile && onRequestControl && onReleaseControl && (
         <div
           style={{

@@ -16,7 +16,8 @@
         "height": 800,
         "minWidth": 800,
         "minHeight": 600,
-        "decorations": true,
+        "decorations": false,
+        "titleBarStyle": "overlay",
         "resizable": true
       }
     ],
@@ -37,7 +38,9 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": [],
+      "endpoints": [
+        "https://github.com/chareice/webmux/releases/latest/download/latest.json"
+      ],
       "pubkey": ""
     }
   }

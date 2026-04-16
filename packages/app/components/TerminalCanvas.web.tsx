@@ -20,6 +20,7 @@ import {
 import { getPersistentDeviceId } from "@/lib/deviceId";
 import { colors } from "@/lib/colors";
 import { useIsMobile } from "@/lib/hooks";
+import { useShortcuts } from "@/lib/shortcuts";
 import {
   storePendingControlRelease,
   takePendingControlRelease,
@@ -364,6 +365,80 @@ export function TerminalCanvas() {
     : machines[0] ?? null;
   const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
 
+  const handleNewTerminalFromTitleBar = useCallback(async () => {
+    if (!activeMachine || !deviceId || !isMachineController(activeMachine.id)) return;
+    await handleCreateTerminal(activeMachine.id, "~");
+  }, [activeMachine, deviceId, isMachineController, handleCreateTerminal]);
+
+  const handleCloseActiveTab = useCallback(async () => {
+    if (!activeTabId) return;
+    const terminal = terminals.find((t) => t.id === activeTabId);
+    if (terminal) await handleDestroyTerminal(terminal);
+  }, [activeTabId, terminals, handleDestroyTerminal]);
+
+  const handleNextTab = useCallback(() => {
+    if (terminals.length === 0) return;
+    if (!activeTabId) {
+      handleSelectTab(terminals[0].id);
+      return;
+    }
+    const idx = terminals.findIndex((t) => t.id === activeTabId);
+    const nextIdx = (idx + 1) % terminals.length;
+    handleSelectTab(terminals[nextIdx].id);
+  }, [activeTabId, terminals, handleSelectTab]);
+
+  const handlePrevTab = useCallback(() => {
+    if (terminals.length === 0) return;
+    if (!activeTabId) {
+      handleSelectTab(terminals[terminals.length - 1].id);
+      return;
+    }
+    const idx = terminals.findIndex((t) => t.id === activeTabId);
+    const prevIdx = (idx - 1 + terminals.length) % terminals.length;
+    handleSelectTab(terminals[prevIdx].id);
+  }, [activeTabId, terminals, handleSelectTab]);
+
+  const handleSelectTabByIndex = useCallback((index: number) => {
+    if (index < terminals.length) {
+      handleSelectTab(terminals[index].id);
+    }
+  }, [terminals, handleSelectTab]);
+
+  const splitPaneRef = useRef<{
+    splitVertical: () => void;
+    splitHorizontal: () => void;
+    focusPrevPane: () => void;
+    focusNextPane: () => void;
+  } | null>(null);
+
+  const handleSplitVertical = useCallback(() => {
+    splitPaneRef.current?.splitVertical();
+  }, []);
+
+  const handleSplitHorizontal = useCallback(() => {
+    splitPaneRef.current?.splitHorizontal();
+  }, []);
+
+  const handleFocusPrevPane = useCallback(() => {
+    splitPaneRef.current?.focusPrevPane();
+  }, []);
+
+  const handleFocusNextPane = useCallback(() => {
+    splitPaneRef.current?.focusNextPane();
+  }, []);
+
+  useShortcuts({
+    newTerminal: isActiveController ? handleNewTerminalFromTitleBar : undefined,
+    closeTab: handleCloseActiveTab,
+    nextTab: handleNextTab,
+    prevTab: handlePrevTab,
+    selectTab: handleSelectTabByIndex,
+    splitVertical: isActiveController ? handleSplitVertical : undefined,
+    splitHorizontal: isActiveController ? handleSplitHorizontal : undefined,
+    focusPrevPane: handleFocusPrevPane,
+    focusNextPane: handleFocusNextPane,
+  });
+
   return (
     <div
       style={{
@@ -466,6 +541,8 @@ export function TerminalCanvas() {
             onDestroy={handleDestroyTerminal}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
+            onNewTerminal={isActiveController ? handleNewTerminalFromTitleBar : undefined}
+            splitPaneRef={splitPaneRef}
           />
         )}
       </div>

@@ -22,6 +22,8 @@ import {
   getTerminalViewportLayout,
 } from "@/lib/terminalViewModel";
 import { terminalTheme } from "@/lib/colors";
+import { isTauri } from "@/lib/platform";
+import { isAppShortcut } from "@/lib/shortcuts";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
@@ -171,6 +173,23 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       });
     }, [measureLayout]);
 
+    const clipboardWrite = useCallback(async (text: string) => {
+      if (isTauri()) {
+        const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+        await writeText(text);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+    }, []);
+
+    const clipboardRead = useCallback(async (): Promise<string> => {
+      if (isTauri()) {
+        const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+        return await readText();
+      }
+      return await navigator.clipboard.readText();
+    }, []);
+
     // Expose imperative API
     useImperativeHandle(
       ref,
@@ -248,12 +267,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const container = containerRef.current;
       if (!container) return;
 
-      const fontFamily = detectAvailableFont();
+      const userFont = localStorage.getItem("webmux:terminal-font-family");
+      const userFontSize = localStorage.getItem("webmux:terminal-font-size");
+      const fontFamily = userFont ? `'${userFont}', monospace` : detectAvailableFont();
+      const fontSize = userFontSize ? Math.max(10, Math.min(24, parseInt(userFontSize, 10) || 14)) : 14;
 
       const term = new Terminal({
         cols,
         rows,
-        fontSize: 14,
+        fontSize,
         lineHeight: 1,
         letterSpacing: 0,
         fontFamily,
@@ -320,17 +342,19 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // Ctrl+C / Cmd+C copies selection to clipboard instead of sending SIGINT
       // Ctrl+V / Cmd+V checks clipboard for images before letting xterm paste text
       term.attachCustomKeyEventHandler((event) => {
+        // Let app-level shortcuts bubble up to the window handler
+        if (isAppShortcut(event)) {
+          return false;
+        }
+
         if (
           (event.ctrlKey || event.metaKey) &&
           event.key === "c" &&
           event.type === "keydown"
         ) {
-          const writeText = navigator.clipboard?.writeText?.bind(
-            navigator.clipboard,
-          );
-          if (writeText && term.hasSelection()) {
+          if (term.hasSelection()) {
             event.preventDefault();
-            void writeText(term.getSelection()).then(() => {
+            void clipboardWrite(term.getSelection()).then(() => {
               term.clearSelection();
             }).catch(() => {
               /* clipboard write failed — ignore */
@@ -347,27 +371,34 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           event.preventDefault();
           void (async () => {
             try {
-              const items = await navigator.clipboard.read();
-              for (const item of items) {
-                const imageType = item.types.find((t) =>
-                  t.startsWith("image/"),
-                );
-                if (imageType) {
-                  const blob = await item.getType(imageType);
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const base64 = (reader.result as string).split(",")[1];
-                    sendImageToWs(base64, imageType);
-                  };
-                  reader.readAsDataURL(blob);
-                  return;
+              if (isTauri()) {
+                // On Tauri, use native clipboard (text only — no image read API)
+                const text = await clipboardRead();
+                if (text) term.paste(text);
+              } else {
+                // On web, read full clipboard including images
+                const items = await navigator.clipboard.read();
+                for (const item of items) {
+                  const imageType = item.types.find((t) =>
+                    t.startsWith("image/"),
+                  );
+                  if (imageType) {
+                    const blob = await item.getType(imageType);
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const base64 = (reader.result as string).split(",")[1];
+                      sendImageToWs(base64, imageType);
+                    };
+                    reader.readAsDataURL(blob);
+                    return;
+                  }
                 }
+                const text = await navigator.clipboard.readText();
+                if (text) term.paste(text);
               }
-              const text = await navigator.clipboard.readText();
-              if (text) term.paste(text);
             } catch {
               try {
-                const text = await navigator.clipboard.readText();
+                const text = await clipboardRead();
                 if (text) term.paste(text);
               } catch {
                 /* clipboard read failed — ignore */
@@ -401,6 +432,14 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
       };
       container.addEventListener("paste", handlePaste);
+
+      // Suppress the browser default context menu on the terminal — the custom
+      // context menu is rendered by Canvas.web.tsx via an onContextMenu handler
+      // on the wrapping container div.
+      const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault();
+      };
+      container.addEventListener("contextmenu", handleContextMenu);
 
       // Touch scroll handling for mobile
       const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
@@ -457,6 +496,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           measureRafRef.current = null;
         }
         container.removeEventListener("paste", handlePaste);
+        container.removeEventListener("contextmenu", handleContextMenu);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
         term.dispose();
