@@ -13,6 +13,7 @@ import { configure, devLogin, getMe } from "./api";
 import type { User } from "@webmux/shared";
 import { storage } from "./storage";
 import { getServerUrl } from "./serverUrl";
+import { isTauri } from "./platform";
 
 export type { User };
 
@@ -64,6 +65,31 @@ function cleanTokenFromUrl(): void {
     "",
     url.pathname + url.search + url.hash,
   );
+}
+
+/**
+ * Tauri desktop OAuth: start loopback listener, open system browser,
+ * wait for token via Tauri event.
+ */
+async function tauriOAuthLogin(
+  provider: "github" | "google",
+  onToken: (token: string) => void,
+): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const { open } = await import("@tauri-apps/plugin-shell");
+  const { listen } = await import("@tauri-apps/api/event");
+
+  const port: number = await invoke("start_oauth_listener");
+  const redirectTo = `http://127.0.0.1:${port}/callback`;
+  const serverUrl = getServerUrl();
+  const authUrl = `${serverUrl}/api/auth/${provider}?redirect_to=${encodeURIComponent(redirectTo)}`;
+
+  const unlisten = await listen<string>("oauth-token", (event) => {
+    unlisten();
+    onToken(event.payload);
+  });
+
+  await open(authUrl);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -179,7 +205,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   const login = useCallback((provider: "github" | "google") => {
-    if (Platform.OS === "web" && typeof window !== "undefined") {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+
+    if (isTauri()) {
+      tauriOAuthLogin(provider, async (newToken) => {
+        await storage.set(TOKEN_KEY, newToken);
+        configure(getServerUrl(), newToken);
+        setToken(newToken);
+      });
+    } else {
       const base = getServerUrl();
       window.location.href = `${base}/api/auth/${provider}`;
     }

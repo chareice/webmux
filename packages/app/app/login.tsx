@@ -1,6 +1,14 @@
 import { useState } from "react";
-import { ActivityIndicator, View, Text, Pressable } from "react-native";
+import {
+  ActivityIndicator,
+  View,
+  Text,
+  Pressable,
+  TextInput,
+} from "react-native";
 import { useAuth } from "../lib/auth";
+import { isTauri } from "../lib/platform";
+import { getServerUrl, setServerUrl } from "../lib/serverUrl";
 
 type OAuthProvider = "github" | "google";
 
@@ -14,8 +22,13 @@ export default function LoginScreen() {
   const [activeProvider, setActiveProvider] = useState<OAuthProvider | null>(
     null,
   );
+  const [serverUrlInput, setServerUrlInput] = useState(getServerUrl());
+  const isDesktop = isTauri();
 
   const handleLogin = (provider: OAuthProvider) => {
+    if (isDesktop) {
+      setServerUrl(serverUrlInput);
+    }
     setActiveProvider(provider);
     login(provider);
   };
@@ -31,11 +44,32 @@ export default function LoginScreen() {
           Sign in to continue
         </Text>
 
+        {/* Server URL input for desktop */}
+        {isDesktop && (
+          <View className="mb-6">
+            <Text className="text-foreground text-sm mb-2 opacity-60">
+              Server URL
+            </Text>
+            <TextInput
+              value={serverUrlInput}
+              onChangeText={setServerUrlInput}
+              placeholder="https://your-server:4317"
+              placeholderTextColor="#999"
+              autoCapitalize="none"
+              autoCorrect={false}
+              className="bg-background border border-border rounded-lg px-3 py-2.5 text-foreground text-sm"
+            />
+          </View>
+        )}
+
         {/* OAuth buttons */}
         <View className="gap-3">
           {PROVIDERS.map((provider) => {
             const active = activeProvider === provider.value;
             const isGitHub = provider.value === "github";
+            const disabled =
+              activeProvider !== null ||
+              (isDesktop && !serverUrlInput.trim());
 
             return (
               <Pressable
@@ -45,8 +79,8 @@ export default function LoginScreen() {
                   isGitHub
                     ? "bg-foreground"
                     : "bg-background border border-border"
-                } ${activeProvider ? "opacity-80" : ""}`}
-                disabled={activeProvider !== null}
+                } ${disabled ? "opacity-50" : ""}`}
+                disabled={disabled}
               >
                 {active ? (
                   <ActivityIndicator

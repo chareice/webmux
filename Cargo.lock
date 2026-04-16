@@ -1878,6 +1878,7 @@ name = "tc-hub"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "bcrypt",
  "bytes",
  "chrono",
@@ -1900,6 +1901,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
  "vt100",
 ]

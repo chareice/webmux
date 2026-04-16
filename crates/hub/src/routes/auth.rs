@@ -12,8 +12,14 @@ use crate::db;
 use crate::AppState;
 
 #[derive(Deserialize)]
+pub struct OAuthRedirectQuery {
+    pub redirect_to: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct OAuthCallbackQuery {
     pub code: Option<String>,
+    pub state: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -34,6 +40,7 @@ struct DevLoginResponse {
 
 async fn github_redirect(
     State(state): State<AppState>,
+    Query(query): Query<OAuthRedirectQuery>,
 ) -> Result<Redirect, (StatusCode, Json<serde_json::Value>)> {
     let client_id = state.github_client_id.as_deref().ok_or_else(|| {
         (
@@ -42,7 +49,7 @@ async fn github_redirect(
         )
     })?;
 
-    let url = auth::github_oauth_url(client_id, &state.base_url);
+    let url = auth::github_oauth_url(client_id, &state.base_url, query.redirect_to.as_deref());
     Ok(Redirect::temporary(&url))
 }
 
@@ -88,7 +95,8 @@ async fn github_callback(
         gh_user.avatar_url.as_deref(),
     )?;
 
-    let redirect_url = format!("{}?token={}", state.base_url, jwt);
+    let base = resolve_redirect_base(&state.base_url, query.state.as_deref());
+    let redirect_url = format!("{}?token={}", base, jwt);
     Ok(Redirect::temporary(&redirect_url))
 }
 
@@ -96,6 +104,7 @@ async fn github_callback(
 
 async fn google_redirect(
     State(state): State<AppState>,
+    Query(query): Query<OAuthRedirectQuery>,
 ) -> Result<Redirect, (StatusCode, Json<serde_json::Value>)> {
     let client_id = state.google_client_id.as_deref().ok_or_else(|| {
         (
@@ -104,7 +113,7 @@ async fn google_redirect(
         )
     })?;
 
-    let url = auth::google_oauth_url(client_id, &state.base_url);
+    let url = auth::google_oauth_url(client_id, &state.base_url, query.redirect_to.as_deref());
     Ok(Redirect::temporary(&url))
 }
 
@@ -153,7 +162,8 @@ async fn google_callback(
         g_user.picture.as_deref(),
     )?;
 
-    let redirect_url = format!("{}?token={}", state.base_url, jwt);
+    let base = resolve_redirect_base(&state.base_url, query.state.as_deref());
+    let redirect_url = format!("{}?token={}", base, jwt);
     Ok(Redirect::temporary(&redirect_url))
 }
 
@@ -227,6 +237,15 @@ async fn me(
 }
 
 // ── Helpers ──
+
+/// Determine the final redirect base URL after OAuth.
+/// If the OAuth state carries a valid loopback redirect_to, use that;
+/// otherwise fall back to the server's base_url.
+fn resolve_redirect_base(base_url: &str, state: Option<&str>) -> String {
+    state
+        .and_then(auth::decode_oauth_state_redirect)
+        .unwrap_or_else(|| base_url.to_string())
+}
 
 fn upsert_oauth_user_and_sign(
     state: &AppState,

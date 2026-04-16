@@ -367,24 +367,61 @@ fn urlencoded(s: &str) -> String {
     out
 }
 
+/// Encode an OAuth state parameter that optionally carries a desktop redirect URL.
+pub fn encode_oauth_state(redirect_to: Option<&str>) -> String {
+    use base64::Engine;
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let payload = serde_json::json!({
+        "nonce": nonce,
+        "redirect_to": redirect_to.unwrap_or(""),
+    });
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload.to_string().as_bytes())
+}
+
+/// Decode an OAuth state parameter and extract the desktop redirect URL (if any).
+/// Returns None if the state is missing, malformed, or the redirect_to is empty.
+pub fn decode_oauth_state_redirect(state: &str) -> Option<String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(state)
+        .ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let redirect_to = json.get("redirect_to")?.as_str()?;
+    if redirect_to.is_empty() {
+        return None;
+    }
+    // Only allow loopback addresses to prevent open redirect
+    if let Ok(url) = url::Url::parse(redirect_to) {
+        let host = url.host_str().unwrap_or("");
+        if host == "127.0.0.1" || host == "localhost" || host == "[::1]" {
+            return Some(redirect_to.to_string());
+        }
+    }
+    None
+}
+
 /// Build the GitHub OAuth authorization URL.
-pub fn github_oauth_url(client_id: &str, base_url: &str) -> String {
+pub fn github_oauth_url(client_id: &str, base_url: &str, redirect_to: Option<&str>) -> String {
     let redirect_uri = format!("{base_url}/api/auth/github/callback");
+    let state = encode_oauth_state(redirect_to);
     let query = format!(
-        "client_id={}&redirect_uri={}&scope=read%3Auser",
+        "client_id={}&redirect_uri={}&scope=read%3Auser&state={}",
         urlencoded(client_id),
-        urlencoded(&redirect_uri)
+        urlencoded(&redirect_uri),
+        urlencoded(&state)
     );
     format!("https://github.com/login/oauth/authorize?{query}")
 }
 
 /// Build the Google OAuth authorization URL.
-pub fn google_oauth_url(client_id: &str, base_url: &str) -> String {
+pub fn google_oauth_url(client_id: &str, base_url: &str, redirect_to: Option<&str>) -> String {
     let redirect_uri = format!("{base_url}/api/auth/google/callback");
+    let state = encode_oauth_state(redirect_to);
     let query = format!(
-        "client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile",
+        "client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}",
         urlencoded(client_id),
-        urlencoded(&redirect_uri)
+        urlencoded(&redirect_uri),
+        urlencoded(&state)
     );
     format!("https://accounts.google.com/o/oauth2/v2/auth?{query}")
 }

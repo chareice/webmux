@@ -1,15 +1,20 @@
 import { isTauri } from "./platform";
 
 const SERVER_URL_KEY = "webmux:server_url";
+const DEFAULT_SERVER_URL = "https://webmux.nas.chareice.site";
 
 export function getServerUrl(): string {
   if (!isTauri()) {
     return "";
   }
   if (typeof localStorage !== "undefined") {
-    return localStorage.getItem(SERVER_URL_KEY) || "";
+    return localStorage.getItem(SERVER_URL_KEY) || DEFAULT_SERVER_URL;
   }
-  return "";
+  return DEFAULT_SERVER_URL;
+}
+
+export function getDefaultServerUrl(): string {
+  return DEFAULT_SERVER_URL;
 }
 
 export function setServerUrl(url: string): void {
