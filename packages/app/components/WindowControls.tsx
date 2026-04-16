@@ -1,12 +1,9 @@
 import { useCallback } from "react";
-import { isTauri, detectOS } from "@/lib/platform";
+import { isTauri } from "@/lib/platform";
 import { colors } from "@/lib/colors";
 
 export function WindowControls() {
   if (!isTauri()) return null;
-
-  const os = detectOS();
-  if (os === "macos") return null;
 
   const handleMinimize = useCallback(async () => {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");

@@ -2,7 +2,7 @@ import { memo, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { LayoutGrid, X, Plus } from "lucide-react";
 import { colors } from "@/lib/colors";
-import { isTauri, detectOS } from "@/lib/platform";
+import { isTauri } from "@/lib/platform";
 import { WindowControls } from "./WindowControls";
 
 interface TitleBarProps {
@@ -28,7 +28,6 @@ function TitleBarComponent({
   if (terminals.length === 0 && !isTauri()) return null;
 
   const isDesktop = isTauri();
-  const isMac = detectOS() === "macos";
 
   return (
     <div
@@ -41,7 +40,6 @@ function TitleBarComponent({
         background: colors.surface,
         flexShrink: 0,
         minHeight: isMobile ? 40 : 36,
-        paddingLeft: isDesktop && isMac ? 70 : 0,
         userSelect: "none",
         WebkitAppRegion: isDesktop ? "drag" : undefined,
       } as React.CSSProperties}
