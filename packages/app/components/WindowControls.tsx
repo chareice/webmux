@@ -24,14 +24,13 @@ function MacControls() {
     width: 12,
     height: 12,
     borderRadius: "50%",
-    background: hovered ? color : colors.foregroundMuted,
+    background: color,
     border: "none",
     cursor: "pointer",
     padding: 0,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    transition: "background 0.15s",
   });
 
   return (
