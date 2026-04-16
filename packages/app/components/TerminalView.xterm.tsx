@@ -433,6 +433,14 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
       container.addEventListener("paste", handlePaste);
 
+      // Suppress the browser default context menu on the terminal — the custom
+      // context menu is rendered by Canvas.web.tsx via an onContextMenu handler
+      // on the wrapping container div.
+      const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault();
+      };
+      container.addEventListener("contextmenu", handleContextMenu);
+
       // Touch scroll handling for mobile
       const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
       let lastTouchY = 0;
@@ -488,6 +496,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           measureRafRef.current = null;
         }
         container.removeEventListener("paste", handlePaste);
+        container.removeEventListener("contextmenu", handleContextMenu);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
         term.dispose();

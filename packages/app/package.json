@@ -32,12 +32,13 @@
     "react-native-webview": "^13.12.5"
   },
   "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "@babel/plugin-transform-react-jsx": "^7.28.6",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-clipboard-manager": "^2",
     "@tauri-apps/plugin-shell": "^2",
-    "@babel/core": "^7.25.0",
-    "@babel/plugin-transform-react-jsx": "^7.28.6",
     "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.2.3",
     "babel-preset-expo": "~55.0.12",
     "react-native-worklets": "0.8.1",
     "tailwindcss": "^3.4.19",

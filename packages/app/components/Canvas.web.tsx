@@ -5,6 +5,7 @@ import type { TerminalCardRef } from "./TerminalCard.web";
 import { colors, colorAlpha } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 import { TitleBar } from "./TitleBar";
+import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 
 interface CanvasProps {
   machines: MachineInfo[];
@@ -60,6 +61,15 @@ function CanvasComponent({
     setTabOrder(newOrder);
   }, []);
 
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; terminalId: string } | null>(null);
+
+  const handleTerminalContextMenu = useCallback((e: React.MouseEvent, terminalId: string) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, terminalId });
+  }, []);
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
   const activeMachine = activeMachineId
     ? machines.find((machine) => machine.id === activeMachineId) ?? null
     : machines[0] ?? null;
@@ -106,6 +116,7 @@ function CanvasComponent({
               ? { flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }
               : { display: "none" }
           }
+          onContextMenu={(e) => handleTerminalContextMenu(e, terminal.id)}
         >
           <TerminalCard
             ref={(el) => { terminalCardRefs.current[terminal.id] = el; }}
@@ -330,6 +341,54 @@ function CanvasComponent({
           </div>
         )}
       </div>
+      )}
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={closeContextMenu}
+          items={[
+            {
+              label: "Copy",
+              shortcut: "Ctrl+C",
+              onClick: () => {
+                document.execCommand("copy");
+              },
+            },
+            {
+              label: "Paste",
+              shortcut: "Ctrl+V",
+              onClick: () => {
+                const ref = terminalCardRefs.current[contextMenu.terminalId];
+                ref?.focus();
+              },
+            },
+            { type: "separator" as const },
+            {
+              label: "Split Vertically",
+              shortcut: "Ctrl+\\",
+              onClick: () => {
+                // Will be wired in Task 7 (Split Panes)
+              },
+            },
+            {
+              label: "Split Horizontally",
+              shortcut: "Ctrl+Shift+\\",
+              onClick: () => {
+                // Will be wired in Task 7 (Split Panes)
+              },
+            },
+            { type: "separator" as const },
+            {
+              label: "Clear Screen",
+              onClick: () => {
+                const ref = terminalCardRefs.current[contextMenu.terminalId];
+                ref?.sendInput("\x0c");
+              },
+            },
+          ] as ContextMenuEntry[]}
+        />
       )}
     </main>
   );

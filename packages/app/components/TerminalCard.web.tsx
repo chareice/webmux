@@ -16,6 +16,8 @@ const LiveTerminalView = lazy(() =>
 
 export interface TerminalCardRef {
   fitToContainer: () => void;
+  focus: () => void;
+  sendInput: (data: string) => void;
 }
 
 interface TerminalCardProps {
@@ -54,6 +56,12 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
       if (!isController || !isTab) return;
       termViewRef.current?.fitToContainer();
       termViewRef.current?.focus();
+    },
+    focus: () => {
+      termViewRef.current?.focus();
+    },
+    sendInput: (data: string) => {
+      termViewRef.current?.sendInput(data);
     },
   }), [isController, isTab]);
 
