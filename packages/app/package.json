@@ -10,9 +10,7 @@
   },
   "dependencies": {
     "@webmux/shared": "workspace:*",
-    "@wterm/core": "^0.1.7",
     "@wterm/dom": "^0.1.7",
-    "@wterm/react": "^0.1.7",
     "expo": "~55.0.8",
     "expo-router": "~55.0.7",
     "expo-secure-store": "~14.2.3",

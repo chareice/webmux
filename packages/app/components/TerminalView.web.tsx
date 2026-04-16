@@ -44,8 +44,7 @@ function measureTerminalSurface(
 }
 
 // Build inline CSS custom properties to apply the webmux theme to wterm
-const WTERM_THEME_STYLE: React.CSSProperties = {
-  // @ts-expect-error CSS custom properties
+const WTERM_THEME_STYLE: React.CSSProperties & Record<`--${string}`, string> = {
   "--term-bg": terminalTheme.background,
   "--term-fg": terminalTheme.foreground,
   "--term-cursor": terminalTheme.cursor,
