@@ -96,9 +96,15 @@ importers:
       '@tauri-apps/plugin-clipboard-manager':
         specifier: ^2
         version: 2.3.2
+      '@tauri-apps/plugin-process':
+        specifier: ^2
+        version: 2.3.1
       '@tauri-apps/plugin-shell':
         specifier: ^2
         version: 2.3.5
+      '@tauri-apps/plugin-updater':
+        specifier: ^2
+        version: 2.10.1
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
