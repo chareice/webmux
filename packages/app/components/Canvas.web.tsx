@@ -124,17 +124,18 @@ function CanvasComponent({
       const next = { ...prev };
       let changed = false;
       for (const [tabId, layout] of Object.entries(next)) {
+        let current: PaneNode | null = layout;
         const leaves = getLeaves(layout);
         for (const leaf of leaves) {
-          if (!terminalIds.has(leaf.terminalId)) {
-            const updated = removePane(layout, leaf.terminalId);
-            if (updated) {
-              next[tabId] = updated;
-            } else {
-              delete next[tabId];
-            }
+          if (!terminalIds.has(leaf.terminalId) && current) {
+            current = removePane(current, leaf.terminalId);
             changed = true;
           }
+        }
+        if (current) {
+          next[tabId] = current;
+        } else {
+          delete next[tabId];
         }
       }
       return changed ? next : prev;
