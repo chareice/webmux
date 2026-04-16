@@ -37,6 +37,9 @@ const OnboardingView = lazy(() =>
 const StatusBar = lazy(() =>
   import("./StatusBar").then((module) => ({ default: module.StatusBar })),
 );
+const SettingsPage = lazy(() =>
+  import("./SettingsPage").then((module) => ({ default: module.SettingsPage })),
+);
 
 export function TerminalCanvas() {
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
@@ -50,6 +53,7 @@ export function TerminalCanvas() {
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const machines = browserState.machines;
   const terminals = browserState.terminals;
   const machineStats = browserState.machineStats;
@@ -516,13 +520,18 @@ export function TerminalCanvas() {
                 onCreateTerminal={handleCreateTerminal}
                 canCreateTerminal={isMachineController}
                 onRequestControl={handleRequestControl}
+                onOpenSettings={() => setShowSettings(true)}
               />
             </Suspense>
           </div>
         )}
 
         {/* Main content */}
-        {machines.length === 0 ? (
+        {showSettings ? (
+          <Suspense fallback={null}>
+            <SettingsPage onClose={() => setShowSettings(false)} />
+          </Suspense>
+        ) : machines.length === 0 ? (
           <Suspense fallback={null}>
             <OnboardingView />
           </Suspense>

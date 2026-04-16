@@ -289,7 +289,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.loadAddon(new ClipboardAddon());
-      term.loadAddon(new WebLinksAddon());
+      term.loadAddon(
+        new WebLinksAddon((_event, url) => {
+          if (isTauri()) {
+            import("@tauri-apps/plugin-shell").then(({ open }) => open(url));
+          } else {
+            window.open(url, "_blank");
+          }
+        }),
+      );
       term.open(container);
       scheduleMeasure();
 
