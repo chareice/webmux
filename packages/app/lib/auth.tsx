@@ -26,7 +26,7 @@ export interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (provider: "github" | "google") => void;
+  login: (provider?: "github" | "google") => void;
   logout: () => Promise<void>;
 }
 
@@ -59,17 +59,23 @@ function removeUrlParams(...names: string[]): void {
  * (persisted across the OAuth redirect round-trip).
  */
 function getDesktopCallback(): string | null {
-  const fromUrl = getUrlParam("desktop_callback");
-  if (fromUrl) {
-    sessionStorage.setItem(DESKTOP_CALLBACK_KEY, fromUrl);
-    removeUrlParams("desktop_callback");
-    return fromUrl;
+  if (Platform.OS !== "web" || typeof sessionStorage === "undefined") return null;
+  try {
+    const fromUrl = getUrlParam("desktop_callback");
+    if (fromUrl) {
+      sessionStorage.setItem(DESKTOP_CALLBACK_KEY, fromUrl);
+      removeUrlParams("desktop_callback");
+      return fromUrl;
+    }
+    return sessionStorage.getItem(DESKTOP_CALLBACK_KEY);
+  } catch {
+    return null;
   }
-  return sessionStorage.getItem(DESKTOP_CALLBACK_KEY);
 }
 
 function clearDesktopCallback(): void {
-  sessionStorage.removeItem(DESKTOP_CALLBACK_KEY);
+  if (Platform.OS !== "web" || typeof sessionStorage === "undefined") return;
+  try { sessionStorage.removeItem(DESKTOP_CALLBACK_KEY); } catch { /* */ }
 }
 
 function isLoopbackUrl(raw: string): boolean {
@@ -86,6 +92,7 @@ function isLoopbackUrl(raw: string): boolean {
  * Returns true if redirect was performed.
  */
 function redirectTokenToDesktop(jwt: string): boolean {
+  if (Platform.OS !== "web" || typeof window === "undefined") return false;
   const callback = getDesktopCallback();
   if (!callback || !isLoopbackUrl(callback)) {
     clearDesktopCallback();
@@ -215,7 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           // If web page was opened with ?desktop_callback=…, send the
           // validated token to the desktop app's loopback server.
-          if (!isTauri()) {
+          if (Platform.OS === "web" && !isTauri()) {
             redirectTokenToDesktop(token);
           }
         }
@@ -237,10 +244,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [token]);
 
-  const login = useCallback((provider: "github" | "google") => {
+  const login = useCallback((provider?: "github" | "google") => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
 
     if (isTauri()) {
+      // Desktop: open web page which handles auth (reuses existing session
+      // or shows login). Provider selection happens on the web side.
       void tauriDesktopLogin(async (newToken) => {
         await storage.set(TOKEN_KEY, newToken);
         configure(getServerUrl(), newToken);
@@ -249,6 +258,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error("Desktop login failed:", err);
       });
     } else {
+      if (!provider) return;
       // desktop_callback is already persisted in sessionStorage by the
       // mount effect, so it survives the OAuth redirect round-trip.
       const base = getServerUrl();
