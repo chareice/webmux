@@ -6,6 +6,7 @@
     "core:default",
     "global-shortcut:default",
     "notification:default",
-    "updater:default"
+    "updater:default",
+    "shell:allow-open"
   ]
 }

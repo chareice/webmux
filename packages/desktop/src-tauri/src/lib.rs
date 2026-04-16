@@ -1,3 +1,4 @@
+mod oauth;
 mod tray;
 
 use tauri::Manager;
@@ -8,6 +9,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![oauth::start_oauth_listener])
         .plugin({
             let shortcut = Shortcut::new(
                 Some(Modifiers::CONTROL | Modifiers::SHIFT),

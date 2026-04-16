@@ -367,24 +367,81 @@ fn urlencoded(s: &str) -> String {
     out
 }
 
+/// OAuth state JWT claims — signed to prevent CSRF and tampering.
+#[derive(Debug, Serialize, Deserialize)]
+struct OAuthStateClaims {
+    nonce: String,
+    redirect_to: String,
+    exp: i64,
+}
+
+const OAUTH_STATE_EXPIRY_SECS: i64 = 600; // 10 minutes
+
+/// Encode an OAuth state as a signed JWT that optionally carries a desktop redirect URL.
+pub fn encode_oauth_state(redirect_to: Option<&str>, jwt_secret: &str) -> String {
+    let now = Utc::now().timestamp();
+    let claims = OAuthStateClaims {
+        nonce: uuid::Uuid::new_v4().to_string(),
+        redirect_to: redirect_to.unwrap_or("").to_string(),
+        exp: now + OAUTH_STATE_EXPIRY_SECS,
+    };
+    jsonwebtoken::encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(jwt_secret.as_bytes()),
+    )
+    .expect("OAuth state JWT encoding should not fail")
+}
+
+/// Decode a signed OAuth state JWT and extract the desktop redirect URL (if any).
+/// Returns None if the state is missing, malformed, expired, or the redirect_to is empty.
+pub fn decode_oauth_state_redirect(state: &str, jwt_secret: &str) -> Option<String> {
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.set_required_spec_claims(&["exp"]);
+
+    let data = jsonwebtoken::decode::<OAuthStateClaims>(
+        state,
+        &DecodingKey::from_secret(jwt_secret.as_bytes()),
+        &validation,
+    )
+    .ok()?;
+
+    let redirect_to = &data.claims.redirect_to;
+    if redirect_to.is_empty() {
+        return None;
+    }
+    // Only allow loopback addresses to prevent open redirect
+    if let Ok(url) = url::Url::parse(redirect_to) {
+        let host = url.host_str().unwrap_or("");
+        if host == "127.0.0.1" || host == "localhost" || host == "::1" {
+            return Some(redirect_to.to_string());
+        }
+    }
+    None
+}
+
 /// Build the GitHub OAuth authorization URL.
-pub fn github_oauth_url(client_id: &str, base_url: &str) -> String {
+pub fn github_oauth_url(client_id: &str, base_url: &str, redirect_to: Option<&str>, jwt_secret: &str) -> String {
     let redirect_uri = format!("{base_url}/api/auth/github/callback");
+    let state = encode_oauth_state(redirect_to, jwt_secret);
     let query = format!(
-        "client_id={}&redirect_uri={}&scope=read%3Auser",
+        "client_id={}&redirect_uri={}&scope=read%3Auser&state={}",
         urlencoded(client_id),
-        urlencoded(&redirect_uri)
+        urlencoded(&redirect_uri),
+        urlencoded(&state)
     );
     format!("https://github.com/login/oauth/authorize?{query}")
 }
 
 /// Build the Google OAuth authorization URL.
-pub fn google_oauth_url(client_id: &str, base_url: &str) -> String {
+pub fn google_oauth_url(client_id: &str, base_url: &str, redirect_to: Option<&str>, jwt_secret: &str) -> String {
     let redirect_uri = format!("{base_url}/api/auth/google/callback");
+    let state = encode_oauth_state(redirect_to, jwt_secret);
     let query = format!(
-        "client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile",
+        "client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}",
         urlencoded(client_id),
-        urlencoded(&redirect_uri)
+        urlencoded(&redirect_uri),
+        urlencoded(&state)
     );
     format!("https://accounts.google.com/o/oauth2/v2/auth?{query}")
 }
