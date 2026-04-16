@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-clipboard-manager": "^2",
     "@tauri-apps/plugin-shell": "^2",
     "@babel/core": "^7.25.0",
     "@babel/plugin-transform-react-jsx": "^7.28.6",
