@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { LayoutGrid, X, Plus } from "lucide-react";
 import { colors } from "@/lib/colors";
@@ -12,6 +12,7 @@ interface TitleBarProps {
   onSelectTab: (id: string | null) => void;
   onCloseTab: (terminal: TerminalInfo) => void;
   onNewTerminal?: () => void;
+  onReorderTabs?: (newOrder: string[]) => void;
 }
 
 function TitleBarComponent({
@@ -21,7 +22,9 @@ function TitleBarComponent({
   onSelectTab,
   onCloseTab,
   onNewTerminal,
+  onReorderTabs,
 }: TitleBarProps) {
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   if (terminals.length === 0 && !isTauri()) return null;
 
   const isDesktop = isTauri();
@@ -84,9 +87,41 @@ function TitleBarComponent({
         {/* Terminal tabs */}
         {terminals.map((terminal) => {
           const isActive = activeTabId === terminal.id;
+          const idx = terminals.findIndex((t) => t.id === terminal.id);
           return (
             <div
               key={terminal.id}
+              draggable={!isMobile}
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/plain", terminal.id);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                const rect = e.currentTarget.getBoundingClientRect();
+                const midX = rect.left + rect.width / 2;
+                setDragOverIndex(e.clientX < midX ? idx : idx + 1);
+              }}
+              onDragLeave={() => setDragOverIndex(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                const draggedId = e.dataTransfer.getData("text/plain");
+                if (!draggedId || !onReorderTabs) return;
+                const currentOrder = terminals.map((t) => t.id);
+                const fromIndex = currentOrder.indexOf(draggedId);
+                if (fromIndex === -1) return;
+                const newOrder = currentOrder.filter((id) => id !== draggedId);
+                const rect = e.currentTarget.getBoundingClientRect();
+                const midX = rect.left + rect.width / 2;
+                let toIndex = currentOrder.indexOf(terminal.id);
+                if (e.clientX >= midX) toIndex++;
+                if (fromIndex < toIndex) toIndex--;
+                newOrder.splice(toIndex, 0, draggedId);
+                onReorderTabs(newOrder);
+                setDragOverIndex(null);
+              }}
+              onDragEnd={() => setDragOverIndex(null)}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -96,6 +131,10 @@ function TitleBarComponent({
                 background: isActive ? colors.background : "transparent",
                 flexShrink: 0,
                 maxWidth: 280,
+                position: "relative",
+                ...(dragOverIndex === idx ? {
+                  borderLeft: `2px solid ${colors.accent}`,
+                } : {}),
               }}
             >
               <button
@@ -182,6 +221,16 @@ function TitleBarComponent({
             </div>
           );
         })}
+
+        {/* End-of-list drop indicator */}
+        {dragOverIndex === terminals.length && (
+          <div style={{
+            width: 2,
+            alignSelf: "stretch",
+            background: colors.accent,
+            flexShrink: 0,
+          }} />
+        )}
 
         {/* New terminal button */}
         {onNewTerminal && (

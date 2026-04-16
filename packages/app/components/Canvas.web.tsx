@@ -1,4 +1,4 @@
-import { memo, useRef } from "react";
+import { memo, useRef, useState, useMemo, useCallback } from "react";
 import type { MachineInfo, ResourceStats, TerminalInfo } from "@webmux/shared";
 import { TerminalCard } from "./TerminalCard.web";
 import type { TerminalCardRef } from "./TerminalCard.web";
@@ -40,6 +40,26 @@ function CanvasComponent({
   onReleaseControl,
   onNewTerminal,
 }: CanvasProps) {
+  // Local tab display order
+  const [tabOrder, setTabOrder] = useState<string[]>([]);
+
+  // Reconcile tabOrder when terminals change
+  const orderedTerminals = useMemo(() => {
+    const terminalIds = new Set(terminals.map((t) => t.id));
+    const kept = tabOrder.filter((id) => terminalIds.has(id));
+    const keptSet = new Set(kept);
+    const added = terminals.filter((t) => !keptSet.has(t.id)).map((t) => t.id);
+    const finalOrder = [...kept, ...added];
+    if (finalOrder.join(",") !== tabOrder.join(",")) {
+      setTabOrder(finalOrder);
+    }
+    return finalOrder.map((id) => terminals.find((t) => t.id === id)!).filter(Boolean);
+  }, [terminals, tabOrder]);
+
+  const handleReorderTabs = useCallback((newOrder: string[]) => {
+    setTabOrder(newOrder);
+  }, []);
+
   const activeMachine = activeMachineId
     ? machines.find((machine) => machine.id === activeMachineId) ?? null
     : machines[0] ?? null;
@@ -66,18 +86,19 @@ function CanvasComponent({
     >
       {/* Title bar with integrated tabs */}
       <TitleBar
-        terminals={terminals}
+        terminals={orderedTerminals}
         activeTabId={effectiveTabId}
         isMobile={isMobile}
         onSelectTab={onSelectTab}
         onCloseTab={onDestroy}
         onNewTerminal={onNewTerminal}
+        onReorderTabs={handleReorderTabs}
       />
 
       {/* Content area — all terminals stay mounted to preserve state (mouse tracking, scrollback) */}
 
       {/* Tab views — each terminal always mounted, hidden when not active */}
-      {terminals.map((terminal) => (
+      {orderedTerminals.map((terminal) => (
         <div
           key={terminal.id}
           style={
