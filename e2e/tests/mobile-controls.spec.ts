@@ -34,7 +34,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   // After creating, terminal auto-switches to tab (immersive) view
   await expect(getImmersiveTerminal(page)).toBeVisible();
   await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Stop Control");
-  await expect(page.getByTestId("terminal-fit-button")).toHaveText("Use This Size");
+  await expect(page.getByTestId("terminal-fit-button")).toHaveText("Fit to Window");
   await expect(page.getByTitle("Show command bar")).toBeVisible();
 
   await page.getByTitle("Show command bar").click();
