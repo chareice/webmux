@@ -572,7 +572,7 @@ function MachineSection({
                     paddingBottom: 4,
                   }}
                 >
-                  {quickCommands.map((cmd) => (
+                  {quickCommands.filter((c) => c.label && c.command).map((cmd) => (
                     <Pressable
                       key={cmd.label}
                       testID={`quick-cmd-${cmd.label}`}
@@ -1022,7 +1022,7 @@ function SettingsSection({
   );
 
   const handleBlurSave = useCallback(() => {
-    saveQuickCommands(quickCommands.filter((c) => c.label && c.command));
+    saveQuickCommands(quickCommands);
   }, [quickCommands, saveQuickCommands]);
 
   return (
