@@ -11,7 +11,7 @@ test("view-only sessions use simplified control copy", () => {
   assert.deepEqual(getTerminalControlCopy(false), {
     modeLabel: "Viewing",
     toggleLabel: "Control Here",
-    sizeActionLabel: "Fit to Window",
+    sizeActionLabel: "Use This Size",
   });
 });
 
@@ -19,7 +19,7 @@ test("controlled sessions use simplified control copy", () => {
   assert.deepEqual(getTerminalControlCopy(true), {
     modeLabel: "Controlling",
     toggleLabel: "Stop Control",
-    sizeActionLabel: "Fit to Window",
+    sizeActionLabel: "Use This Size",
   });
 });
 

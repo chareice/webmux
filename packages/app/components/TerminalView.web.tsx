@@ -6,8 +6,12 @@ import {
   forwardRef,
   useState,
 } from "react";
-import { WTerm } from "@wterm/dom";
-import "@wterm/dom/css";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
+import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
 import { createOrderedBinaryOutputQueue } from "@/lib/orderedBinaryOutput.mjs";
@@ -19,6 +23,56 @@ import {
 } from "@/lib/terminalViewModel";
 import { terminalTheme } from "@/lib/colors";
 
+const TERM_COLS = 120;
+const TERM_ROWS = 36;
+
+// Preferred monospace fonts in priority order.
+// Includes Nerd Font variants common on Linux.
+const PREFERRED_FONTS = [
+  "JetBrains Mono",
+  "JetBrainsMono Nerd Font",
+  "JetBrainsMono NF",
+  "JetBrainsMono Nerd Font Mono",
+  "JetBrainsMono NFM",
+  "Fira Code",
+  "FiraCode Nerd Font",
+  "FiraCode NF",
+  "Cascadia Code",
+  "CaskaydiaCove Nerd Font",
+  "CaskaydiaCove NF",
+  "Source Code Pro",
+  "SauceCodePro Nerd Font",
+  "Hack",
+  "Hack Nerd Font",
+  "Ubuntu Mono",
+  "UbuntuMono Nerd Font",
+  "Consolas",
+  "Menlo",
+  "Monaco",
+  "DejaVu Sans Mono",
+];
+
+// Detect which monospace font is actually available on the client
+// by comparing canvas text measurements against the generic fallback.
+function detectAvailableFont(): string {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "monospace";
+
+  const testStr = "mmmmmmmmmmlli";
+  ctx.font = "72px monospace";
+  const baseWidth = ctx.measureText(testStr).width;
+
+  for (const font of PREFERRED_FONTS) {
+    ctx.font = `72px '${font}', monospace`;
+    if (ctx.measureText(testStr).width !== baseWidth) {
+      return `'${font}', monospace`;
+    }
+  }
+
+  return "monospace";
+}
+
 function measureTerminalSurface(
   container: HTMLDivElement | null,
 ): { width: number; height: number } {
@@ -26,45 +80,22 @@ function measureTerminalSurface(
     return { width: 0, height: 0 };
   }
 
-  const grid = container.querySelector(".term-grid") as HTMLElement | null;
+  const screen = container.querySelector(".xterm-screen") as HTMLElement | null;
   const width = Math.max(
-    grid?.scrollWidth ?? 0,
-    grid?.clientWidth ?? 0,
+    screen?.scrollWidth ?? 0,
+    screen?.clientWidth ?? 0,
     container.scrollWidth,
     container.clientWidth,
   );
   const height = Math.max(
-    grid?.scrollHeight ?? 0,
-    grid?.clientHeight ?? 0,
+    screen?.scrollHeight ?? 0,
+    screen?.clientHeight ?? 0,
     container.scrollHeight,
     container.clientHeight,
   );
 
   return { width, height };
 }
-
-// Build inline CSS custom properties to apply the webmux theme to wterm
-const WTERM_THEME_STYLE: React.CSSProperties & Record<`--${string}`, string> = {
-  "--term-bg": terminalTheme.background,
-  "--term-fg": terminalTheme.foreground,
-  "--term-cursor": terminalTheme.cursor,
-  "--term-color-0": terminalTheme.black,
-  "--term-color-1": terminalTheme.red,
-  "--term-color-2": terminalTheme.green,
-  "--term-color-3": terminalTheme.yellow,
-  "--term-color-4": terminalTheme.blue,
-  "--term-color-5": terminalTheme.magenta,
-  "--term-color-6": terminalTheme.cyan,
-  "--term-color-7": terminalTheme.white,
-  "--term-color-8": terminalTheme.brightBlack,
-  "--term-color-9": terminalTheme.brightRed,
-  "--term-color-10": terminalTheme.brightGreen,
-  "--term-color-11": terminalTheme.brightYellow,
-  "--term-color-12": terminalTheme.brightBlue,
-  "--term-color-13": terminalTheme.brightMagenta,
-  "--term-color-14": terminalTheme.brightCyan,
-  "--term-color-15": terminalTheme.brightWhite,
-};
 
 export type { TerminalViewRef, TerminalViewProps };
 
@@ -83,8 +114,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
   }, ref) {
     const viewportRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const wtermRef = useRef<WTerm | null>(null);
+    const termRef = useRef<Terminal | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
+    const fitRef = useRef<FitAddon | null>(null);
     const isControllerRef = useRef(isController ?? true);
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
@@ -169,6 +201,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
         },
         fitToContainer() {
+          const fit = fitRef.current;
           const liveWs = wsRef.current;
           if (
             liveWs?.readyState !== WebSocket.OPEN ||
@@ -179,14 +212,21 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
 
           try {
-            const nextDims = getTerminalFitDimensions({
-              viewportWidth: viewportSizeRef.current.width,
-              viewportHeight: viewportSizeRef.current.height,
-              contentWidth: surfaceSizeRef.current.width,
-              contentHeight: surfaceSizeRef.current.height,
-              cols,
-              rows,
-            });
+            const nextDims =
+              displayMode === "immersive"
+                ? getTerminalFitDimensions({
+                    viewportWidth: viewportSizeRef.current.width,
+                    viewportHeight: viewportSizeRef.current.height,
+                    contentWidth: surfaceSizeRef.current.width,
+                    contentHeight: surfaceSizeRef.current.height,
+                    cols,
+                    rows,
+                  })
+                : (() => {
+                    if (!fit) return null;
+                    fit.fit();
+                    return fit.proposeDimensions();
+                  })();
 
             const resizeMessage = buildResizeMessage(nextDims);
             if (!resizeMessage) return;
@@ -196,10 +236,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
         },
         focus() {
-          wtermRef.current?.focus();
+          termRef.current?.focus();
         },
       }),
-      [cols, rows],
+      [cols, displayMode, rows],
     );
 
     // Create terminal once on mount — never recreated during reconnections
@@ -208,33 +248,61 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const container = containerRef.current;
       if (!container) return;
 
-      const wt = new WTerm(container, {
+      const fontFamily = detectAvailableFont();
+
+      const term = new Terminal({
         cols,
         rows,
-        autoResize: false,
+        fontSize: 14,
+        lineHeight: 1,
+        letterSpacing: 0,
+        fontFamily,
+        allowTransparency: false,
+        rescaleOverlappingGlyphs: true,
+        theme: terminalTheme,
         cursorBlink: true,
-        onData: (data) => {
-          const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN && isControllerRef.current) {
-            ws.send(JSON.stringify({ type: "input", data }));
-          }
-        },
-        onTitle: (title) => {
-          onTitleChange?.(title);
-        },
+        scrollback: 0,
       });
 
-      wtermRef.current = wt;
+      const fit = new FitAddon();
+      term.loadAddon(fit);
+      term.loadAddon(new ClipboardAddon());
+      term.loadAddon(new WebLinksAddon());
+      term.open(container);
+      scheduleMeasure();
 
-      wt.init()
-        .then(() => {
-          scheduleMeasure();
-        })
-        .catch((err) => {
-          console.error("wterm init failed:", err);
+      termRef.current = term;
+      fitRef.current = fit;
+
+      // Wait two frames so the browser fully resolves the detected font
+      // before WebGL builds its glyph texture atlas (avoids black-box glyphs).
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!container.isConnected || termRef.current !== term) return;
+
+          let webgl: WebglAddon | null = null;
+          try {
+            webgl = new WebglAddon();
+            webgl.onContextLoss(() => {
+              webgl?.dispose();
+            });
+            term.loadAddon(webgl);
+            scheduleMeasure();
+          } catch {
+            webgl?.dispose();
+          }
         });
+      });
 
-      // Intercept paste events for image detection
+      // Forward terminal input to the current WebSocket
+      term.onData((data) => {
+        const ws = wsRef.current;
+        if (ws?.readyState === WebSocket.OPEN && isControllerRef.current) {
+          ws.send(JSON.stringify({ type: "input", data }));
+        }
+      });
+
+      // Helper: send image data over the current WebSocket
       const sendImageToWs = (base64: string, mime: string) => {
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN) {
@@ -249,6 +317,70 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
       };
 
+      // Ctrl+C / Cmd+C copies selection to clipboard instead of sending SIGINT
+      // Ctrl+V / Cmd+V checks clipboard for images before letting xterm paste text
+      term.attachCustomKeyEventHandler((event) => {
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.key === "c" &&
+          event.type === "keydown"
+        ) {
+          const writeText = navigator.clipboard?.writeText?.bind(
+            navigator.clipboard,
+          );
+          if (writeText && term.hasSelection()) {
+            event.preventDefault();
+            void writeText(term.getSelection()).then(() => {
+              term.clearSelection();
+            }).catch(() => {
+              /* clipboard write failed — ignore */
+            });
+            return false;
+          }
+        }
+
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.key === "v" &&
+          event.type === "keydown"
+        ) {
+          event.preventDefault();
+          void (async () => {
+            try {
+              const items = await navigator.clipboard.read();
+              for (const item of items) {
+                const imageType = item.types.find((t) =>
+                  t.startsWith("image/"),
+                );
+                if (imageType) {
+                  const blob = await item.getType(imageType);
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const base64 = (reader.result as string).split(",")[1];
+                    sendImageToWs(base64, imageType);
+                  };
+                  reader.readAsDataURL(blob);
+                  return;
+                }
+              }
+              const text = await navigator.clipboard.readText();
+              if (text) term.paste(text);
+            } catch {
+              try {
+                const text = await navigator.clipboard.readText();
+                if (text) term.paste(text);
+              } catch {
+                /* clipboard read failed — ignore */
+              }
+            }
+          })();
+          return false;
+        }
+
+        return true;
+      });
+
+      // Intercept paste events for image detection
       const handlePaste = (e: ClipboardEvent) => {
         const items = e.clipboardData?.items;
         if (!items) return;
@@ -270,6 +402,46 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
       container.addEventListener("paste", handlePaste);
 
+      // Touch scroll handling for mobile
+      const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
+      let lastTouchY = 0;
+      let accumulatedDelta = 0;
+
+      const onTouchStart = (e: TouchEvent) => {
+        e.stopPropagation();
+        if (e.touches[0]) {
+          lastTouchY = e.touches[0].clientY;
+          accumulatedDelta = 0;
+        }
+      };
+      const onTouchMove = (e: TouchEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.touches[0]) {
+          const currentY = e.touches[0].clientY;
+          accumulatedDelta += lastTouchY - currentY;
+          lastTouchY = currentY;
+          const lines = Math.trunc(accumulatedDelta / lineHeight);
+          if (lines !== 0) {
+            const vp = container.querySelector(".xterm-viewport");
+            if (vp) {
+              for (let i = 0; i < Math.abs(lines); i++) {
+                vp.dispatchEvent(
+                  new WheelEvent("wheel", {
+                    deltaY: lines > 0 ? lineHeight : -lineHeight,
+                    bubbles: true,
+                    cancelable: true,
+                  }),
+                );
+              }
+            }
+            accumulatedDelta -= lines * lineHeight;
+          }
+        }
+      };
+      container.addEventListener("touchstart", onTouchStart, { passive: true });
+      container.addEventListener("touchmove", onTouchMove, { passive: false });
+
       const viewport = viewportRef.current;
       const resizeObserver = new ResizeObserver(() => {
         scheduleMeasure();
@@ -285,7 +457,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           measureRafRef.current = null;
         }
         container.removeEventListener("paste", handlePaste);
-        wt.destroy();
+        container.removeEventListener("touchstart", onTouchStart);
+        container.removeEventListener("touchmove", onTouchMove);
+        term.dispose();
       };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Terminal created once on mount
     }, []);
@@ -293,8 +467,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     // Manage WebSocket connection — reconnects without recreating Terminal.
     // This preserves terminal modes (mouse tracking, alternate screen) across reconnections.
     useEffect(() => {
-      const wt = wtermRef.current;
-      if (!wt || !wsUrl) return;
+      const term = termRef.current;
+      if (!term || !wsUrl) return;
       let disposed = false;
 
       const ws = new WebSocket(wsUrl);
@@ -326,7 +500,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             merged.set(chunk, offset);
             offset += chunk.length;
           }
-          wt.write(merged);
+          term.write(merged);
           pendingChunks = [];
           pendingBytes = 0;
         }
@@ -373,9 +547,14 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
       };
 
+      const refreshTerminalSurface = () => {
+        term.refresh(0, Math.max(term.rows - 1, 0));
+        scheduleMeasure();
+      };
+
       const handleVisibilityChange = () => {
         if (document.visibilityState === "visible") {
-          scheduleMeasure();
+          refreshTerminalSurface();
         }
         reconnectController.handleVisibilityChange(
           document.visibilityState,
@@ -384,7 +563,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
 
       const handlePageShow = () => {
-        scheduleMeasure();
+        refreshTerminalSurface();
         reconnectController.handleVisibilityChange("visible", ws.readyState);
       };
 
@@ -393,7 +572,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       ws.onopen = () => {
         reconnectController.handleSocketOpen();
-        scheduleMeasure();
+        refreshTerminalSurface();
       };
 
       ws.onclose = () => {
@@ -415,11 +594,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     }, [scheduleMeasure, sessionGeneration, wsUrl]);
 
     useEffect(() => {
-      const wt = wtermRef.current;
-      if (!wt || !wt.bridge) return;
-      if (wt.cols === cols && wt.rows === rows) return;
+      const term = termRef.current;
+      if (!term) return;
+      if (term.cols === cols && term.rows === rows) return;
       try {
-        wt.resize(cols, rows);
+        term.resize(cols, rows);
         scheduleMeasure();
       } catch {
         /* ignore */
@@ -434,16 +613,21 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     // Only triggers once — switching tabs on an already-sized terminal won't re-fit.
     useEffect(() => {
       if (displayMode !== "immersive" || !canResizeTerminal) return;
+      // Only auto-fit if terminal is at the server default size (newly created).
+      // Already-sized terminals keep their size when switching tabs.
       if (cols !== 80 || rows !== 24) return;
 
       const timerId = window.setTimeout(() => {
+        const fit = fitRef.current;
         const liveWs = wsRef.current;
         const viewport = viewportRef.current;
         if (
+          !fit ||
           !liveWs ||
           liveWs.readyState !== WebSocket.OPEN ||
           !isControllerRef.current ||
           !canResizeTerminalRef.current ||
+          // Skip auto-fit if the viewport is hidden (e.g. inactive tab kept alive)
           !viewport ||
           viewport.offsetParent === null
         ) {
@@ -532,7 +716,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
                 width: displayMode === "immersive" ? undefined : "100%",
                 height: displayMode === "immersive" ? undefined : "100%",
                 display: displayMode === "immersive" ? "inline-block" : "block",
-                ...WTERM_THEME_STYLE,
               }}
             />
           </div>
