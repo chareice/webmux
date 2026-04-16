@@ -12,14 +12,8 @@ use crate::db;
 use crate::AppState;
 
 #[derive(Deserialize)]
-pub struct OAuthRedirectQuery {
-    pub redirect_to: Option<String>,
-}
-
-#[derive(Deserialize)]
 pub struct OAuthCallbackQuery {
     pub code: Option<String>,
-    pub state: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -40,7 +34,6 @@ struct DevLoginResponse {
 
 async fn github_redirect(
     State(state): State<AppState>,
-    Query(query): Query<OAuthRedirectQuery>,
 ) -> Result<Redirect, (StatusCode, Json<serde_json::Value>)> {
     let client_id = state.github_client_id.as_deref().ok_or_else(|| {
         (
@@ -49,7 +42,7 @@ async fn github_redirect(
         )
     })?;
 
-    let url = auth::github_oauth_url(client_id, &state.base_url, query.redirect_to.as_deref(), &state.jwt_secret);
+    let url = auth::github_oauth_url(client_id, &state.base_url);
     Ok(Redirect::temporary(&url))
 }
 
@@ -95,7 +88,7 @@ async fn github_callback(
         gh_user.avatar_url.as_deref(),
     )?;
 
-    let redirect_url = build_token_redirect(&state.base_url, query.state.as_deref(), &state.jwt_secret, &jwt);
+    let redirect_url = format!("{}?token={}", state.base_url, jwt);
     Ok(Redirect::temporary(&redirect_url))
 }
 
@@ -103,7 +96,6 @@ async fn github_callback(
 
 async fn google_redirect(
     State(state): State<AppState>,
-    Query(query): Query<OAuthRedirectQuery>,
 ) -> Result<Redirect, (StatusCode, Json<serde_json::Value>)> {
     let client_id = state.google_client_id.as_deref().ok_or_else(|| {
         (
@@ -112,7 +104,7 @@ async fn google_redirect(
         )
     })?;
 
-    let url = auth::google_oauth_url(client_id, &state.base_url, query.redirect_to.as_deref(), &state.jwt_secret);
+    let url = auth::google_oauth_url(client_id, &state.base_url);
     Ok(Redirect::temporary(&url))
 }
 
@@ -161,7 +153,7 @@ async fn google_callback(
         g_user.picture.as_deref(),
     )?;
 
-    let redirect_url = build_token_redirect(&state.base_url, query.state.as_deref(), &state.jwt_secret, &jwt);
+    let redirect_url = format!("{}?token={}", state.base_url, jwt);
     Ok(Redirect::temporary(&redirect_url))
 }
 
@@ -235,22 +227,6 @@ async fn me(
 }
 
 // ── Helpers ──
-
-/// Build the final redirect URL with `?token=` after OAuth.
-/// Uses `url::Url` to correctly append the query parameter regardless of
-/// whether the base URL already contains a query string.
-fn build_token_redirect(base_url: &str, state: Option<&str>, jwt_secret: &str, token: &str) -> String {
-    let base = state
-        .and_then(|s| auth::decode_oauth_state_redirect(s, jwt_secret))
-        .unwrap_or_else(|| base_url.to_string());
-    match url::Url::parse(&base) {
-        Ok(mut url) => {
-            url.query_pairs_mut().append_pair("token", token);
-            url.to_string()
-        }
-        Err(_) => format!("{}?token={}", base, token),
-    }
-}
 
 fn upsert_oauth_user_and_sign(
     state: &AppState,

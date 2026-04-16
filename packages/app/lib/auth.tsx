@@ -19,6 +19,7 @@ export type { User };
 
 const TOKEN_KEY = "token";
 const GET_ME_TIMEOUT_MS = 10_000;
+const DESKTOP_CALLBACK_KEY = "webmux:desktop_callback";
 
 export interface AuthContextType {
   user: User | null;
@@ -39,40 +40,67 @@ export function useAuth(): AuthContextType {
   return ctx;
 }
 
-/**
- * Extract ?token=xxx from current URL (OAuth callback redirect).
- * Returns null if not present or not on web.
- */
-function extractTokenFromUrl(): string | null {
-  if (Platform.OS !== "web" || typeof window === "undefined") {
-    return null;
-  }
-  const params = new URLSearchParams(window.location.search);
-  return params.get("token");
+// ── URL & desktop callback helpers ──
+
+function getUrlParam(name: string): string | null {
+  if (Platform.OS !== "web" || typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get(name);
 }
 
-/**
- * Remove the ?token query param from URL without reloading the page.
- */
-function cleanTokenFromUrl(): void {
-  if (Platform.OS !== "web" || typeof window === "undefined") {
-    return;
-  }
+function removeUrlParams(...names: string[]): void {
+  if (Platform.OS !== "web" || typeof window === "undefined") return;
   const url = new URL(window.location.href);
-  url.searchParams.delete("token");
-  window.history.replaceState(
-    {},
-    "",
-    url.pathname + url.search + url.hash,
-  );
+  for (const n of names) url.searchParams.delete(n);
+  window.history.replaceState({}, "", url.pathname + url.search + url.hash);
 }
 
 /**
- * Tauri desktop OAuth: start loopback listener, open system browser,
- * wait for token via Tauri event.
+ * Get the desktop callback URL — from URL param or sessionStorage
+ * (persisted across the OAuth redirect round-trip).
  */
-async function tauriOAuthLogin(
-  provider: "github" | "google",
+function getDesktopCallback(): string | null {
+  const fromUrl = getUrlParam("desktop_callback");
+  if (fromUrl) {
+    sessionStorage.setItem(DESKTOP_CALLBACK_KEY, fromUrl);
+    removeUrlParams("desktop_callback");
+    return fromUrl;
+  }
+  return sessionStorage.getItem(DESKTOP_CALLBACK_KEY);
+}
+
+function clearDesktopCallback(): void {
+  sessionStorage.removeItem(DESKTOP_CALLBACK_KEY);
+}
+
+function isLoopbackUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Redirect the token to the desktop app's loopback server.
+ * Returns true if redirect was performed.
+ */
+function redirectTokenToDesktop(jwt: string): boolean {
+  const callback = getDesktopCallback();
+  if (!callback || !isLoopbackUrl(callback)) {
+    clearDesktopCallback();
+    return false;
+  }
+  clearDesktopCallback();
+  const url = new URL(callback);
+  url.searchParams.set("token", jwt);
+  window.location.href = url.toString();
+  return true;
+}
+
+// ── Tauri desktop login ──
+
+async function tauriDesktopLogin(
   onToken: (token: string) => void,
 ): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -80,17 +108,19 @@ async function tauriOAuthLogin(
   const { listen } = await import("@tauri-apps/api/event");
 
   const port: number = await invoke("start_oauth_listener");
-  const redirectTo = `http://127.0.0.1:${port}/callback`;
+  const callback = `http://127.0.0.1:${port}/callback`;
   const serverUrl = getServerUrl();
-  const authUrl = `${serverUrl}/api/auth/${provider}?redirect_to=${encodeURIComponent(redirectTo)}`;
+  const connectUrl = `${serverUrl}?desktop_callback=${encodeURIComponent(callback)}`;
 
-  const unlisten = await listen<string>("oauth-token", (event) => {
+  const unlisten = await listen("oauth-token", (event: { payload: string }) => {
     unlisten();
     onToken(event.payload);
   });
 
-  await open(authUrl);
+  await open(connectUrl);
 }
+
+// ── Provider ──
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
@@ -99,16 +129,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAuthenticated = !!user && !!token;
 
-  // Restore session on mount: check URL callback, then storage, then dev login
+  // On mount: persist desktop_callback from URL to sessionStorage so it
+  // survives the OAuth redirect round-trip.
+  useEffect(() => {
+    if (Platform.OS === "web" && !isTauri()) {
+      getDesktopCallback();
+    }
+  }, []);
+
+  // Restore session on mount
   useEffect(() => {
     let cancelled = false;
 
     const restore = async () => {
       try {
-        // 1. Check URL for OAuth callback token
-        const urlToken = extractTokenFromUrl();
+        // 1. Check URL for OAuth callback token (?token=xxx)
+        const urlToken = getUrlParam("token");
         if (urlToken) {
-          cleanTokenFromUrl();
+          removeUrlParams("token");
           await storage.set(TOKEN_KEY, urlToken);
           if (!cancelled) {
             configure(getServerUrl(), urlToken);
@@ -140,11 +178,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return;
             }
           } catch {
-            // Dev login not available (production mode) — fall through to show login screen
+            // Dev login not available (production mode)
           }
         }
       } catch {
-        // Something failed during restore — clear state
         await storage.remove(TOKEN_KEY);
       }
 
@@ -154,17 +191,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     void restore();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  // When token changes, validate it by calling getMe()
+  // When token changes, validate via getMe(), then handle desktop callback
   useEffect(() => {
-    if (token === null) {
-      return;
-    }
+    if (token === null) return;
 
     let cancelled = false;
 
@@ -175,15 +207,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           () => controller.abort(),
           GET_ME_TIMEOUT_MS,
         );
-
         const me = await getMe();
         clearTimeout(timeoutId);
 
         if (!cancelled) {
           setUser(me);
+
+          // If web page was opened with ?desktop_callback=…, send the
+          // validated token to the desktop app's loopback server.
+          if (!isTauri()) {
+            redirectTokenToDesktop(token);
+          }
         }
       } catch {
-        // Token invalid or expired — clear session
         await storage.remove(TOKEN_KEY);
         if (!cancelled) {
           configure(getServerUrl(), null);
@@ -198,24 +234,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     void loadUser();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [token]);
 
   const login = useCallback((provider: "github" | "google") => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
 
     if (isTauri()) {
-      void tauriOAuthLogin(provider, async (newToken) => {
+      void tauriDesktopLogin(async (newToken) => {
         await storage.set(TOKEN_KEY, newToken);
         configure(getServerUrl(), newToken);
         setToken(newToken);
       }).catch((err) => {
-        console.error("OAuth flow failed:", err);
+        console.error("Desktop login failed:", err);
       });
     } else {
+      // desktop_callback is already persisted in sessionStorage by the
+      // mount effect, so it survives the OAuth redirect round-trip.
       const base = getServerUrl();
       window.location.href = `${base}/api/auth/${provider}`;
     }
