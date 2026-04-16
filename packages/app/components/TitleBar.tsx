@@ -51,6 +51,13 @@ function TitleBarComponent({
       {/* Scrollable tabs area — drag region for empty space */}
       <div
         data-tauri-drag-region={isDesktop ? "" : undefined}
+        className="scrollbar-hidden"
+        onWheel={(e) => {
+          // Convert vertical wheel to horizontal scroll for mice without horizontal wheel
+          if (e.deltaY !== 0 && e.deltaX === 0) {
+            e.currentTarget.scrollLeft += e.deltaY;
+          }
+        }}
         style={{
           display: "flex",
           alignItems: "stretch",
