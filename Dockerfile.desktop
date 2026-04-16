@@ -1,0 +1,54 @@
+# Stage 1: Build frontend
+FROM node:22-slim AS frontend
+RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared packages/shared
+COPY packages/app packages/app
+RUN pnpm install --frozen-lockfile
+RUN pnpm build
+
+# Stage 2: Build Tauri desktop binary
+FROM rust:bookworm AS builder
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libwebkit2gtk-4.1-dev \
+    libjavascriptcoregtk-4.1-dev \
+    libsoup-3.0-dev \
+    libgtk-3-dev \
+    libappindicator3-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY packages/desktop/src-tauri/Cargo.toml packages/desktop/src-tauri/Cargo.lock packages/desktop/src-tauri/
+COPY packages/desktop/src-tauri/src packages/desktop/src-tauri/src
+COPY packages/desktop/src-tauri/build.rs packages/desktop/src-tauri/build.rs
+COPY packages/desktop/src-tauri/capabilities packages/desktop/src-tauri/capabilities
+COPY packages/desktop/src-tauri/tauri.conf.json packages/desktop/src-tauri/tauri.conf.json
+# Tauri needs the frontend dist at build time
+COPY --from=frontend /app/packages/app/dist packages/app/dist
+COPY packages/desktop/src-tauri/icons packages/desktop/src-tauri/icons
+RUN cd packages/desktop/src-tauri && cargo build --release
+
+# Stage 3: Runtime with Xvfb
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    xvfb \
+    libwebkit2gtk-4.1-0 \
+    libjavascriptcoregtk-4.1-0 \
+    libsoup-3.0-0 \
+    libgtk-3-0 \
+    libappindicator3-1 \
+    dbus-x11 \
+    xdg-utils \
+    # Fonts for rendering
+    fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/packages/desktop/src-tauri/target/release/webmux-desktop /usr/local/bin/
+
+ENV DISPLAY=:99
+
+# Start Xvfb, dbus, then the app
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x800x24 & sleep 1 && dbus-launch webmux-desktop"]
