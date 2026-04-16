@@ -34,9 +34,13 @@ function ResizeHandle({ direction, splitNode, onDrag }: ResizeHandleProps) {
     startPos: number;
     startRatio: number;
     parentSize: number;
-    node: PaneSplit;
   } | null>(null);
   const handleRef = useRef<HTMLDivElement>(null);
+  // Always track the latest splitNode so mousemove uses the current reference
+  const splitNodeRef = useRef(splitNode);
+  splitNodeRef.current = splitNode;
+  const onDragRef = useRef(onDrag);
+  onDragRef.current = onDrag;
 
   const isVerticalSplit = direction === "vertical";
 
@@ -50,7 +54,7 @@ function ResizeHandle({ direction, splitNode, onDrag }: ResizeHandleProps) {
       const delta = pos - state.startPos;
       const ratioDelta = delta / state.parentSize;
       const newRatio = state.startRatio + ratioDelta;
-      onDrag(state.node, newRatio);
+      onDragRef.current(splitNodeRef.current, newRatio);
     };
 
     const handleMouseUp = () => {
@@ -67,7 +71,7 @@ function ResizeHandle({ direction, splitNode, onDrag }: ResizeHandleProps) {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragging, isVerticalSplit, onDrag]);
+  }, [dragging, isVerticalSplit]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -83,7 +87,6 @@ function ResizeHandle({ direction, splitNode, onDrag }: ResizeHandleProps) {
         startPos,
         startRatio: splitNode.ratio,
         parentSize,
-        node: splitNode,
       };
 
       setDragging(true);
