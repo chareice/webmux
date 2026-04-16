@@ -48,8 +48,9 @@ function TitleBarComponent({
       {/* macOS: window controls on the left */}
       {isMac && <WindowControls position="left" />}
 
-      {/* Scrollable tabs area */}
+      {/* Scrollable tabs area — drag region for empty space */}
       <div
+        data-tauri-drag-region={isDesktop ? "" : undefined}
         style={{
           display: "flex",
           alignItems: "stretch",
@@ -57,8 +58,7 @@ function TitleBarComponent({
           minWidth: 0,
           overflowX: "auto",
           overflowY: "hidden",
-          WebkitAppRegion: "no-drag",
-        } as React.CSSProperties}
+        }}
       >
         {/* All tab */}
         <button
