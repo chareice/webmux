@@ -117,6 +117,16 @@ function CanvasComponent({
     }
   }, [effectiveTabId, paneLayouts]);
 
+  // Focus the active terminal after tab switch (needed for keyboard shortcuts)
+  useEffect(() => {
+    if (!effectiveTabId) return;
+    const targetId = activePaneId || effectiveTabId;
+    const rafId = requestAnimationFrame(() => {
+      terminalCardRefs.current[targetId]?.focus();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [effectiveTabId, activePaneId]);
+
   // Clean up pane tree when terminals are destroyed
   useEffect(() => {
     const terminalIds = new Set(terminals.map((t) => t.id));

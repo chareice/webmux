@@ -20,70 +20,103 @@ export function WindowControls() {
     await getCurrentWindow().close();
   }, []);
 
+  const buttonBase: React.CSSProperties = {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    padding: "0 16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100%",
+  };
+
   return (
-    <div style={{ display: "flex", alignItems: "stretch", flexShrink: 0 }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "stretch",
+        flexShrink: 0,
+        WebkitAppRegion: "no-drag",
+      } as React.CSSProperties}
+    >
       <button
         onClick={handleMinimize}
-        style={{
-          background: "none",
-          border: "none",
-          color: colors.foregroundSecondary,
-          cursor: "pointer",
-          padding: "0 14px",
-          fontSize: 16,
-          display: "flex",
-          alignItems: "center",
-          lineHeight: 1,
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = colors.surface; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
-        aria-label="Minimize"
-      >
-        &#x2014;
-      </button>
-      <button
-        onClick={handleMaximize}
-        style={{
-          background: "none",
-          border: "none",
-          color: colors.foregroundSecondary,
-          cursor: "pointer",
-          padding: "0 14px",
-          fontSize: 12,
-          display: "flex",
-          alignItems: "center",
-          lineHeight: 1,
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = colors.surface; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
-        aria-label="Maximize"
-      >
-        &#x25A1;
-      </button>
-      <button
-        onClick={handleClose}
-        style={{
-          background: "none",
-          border: "none",
-          color: colors.foregroundSecondary,
-          cursor: "pointer",
-          padding: "0 14px",
-          fontSize: 14,
-          display: "flex",
-          alignItems: "center",
-          lineHeight: 1,
-        }}
+        style={buttonBase}
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = colors.danger;
-          e.currentTarget.style.color = "#fff";
+          e.currentTarget.style.background = colors.surface;
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.background = "none";
-          e.currentTarget.style.color = colors.foregroundSecondary;
+        }}
+        aria-label="Minimize"
+      >
+        <svg width="10" height="1" viewBox="0 0 10 1">
+          <rect width="10" height="1" fill={colors.foregroundSecondary} />
+        </svg>
+      </button>
+      <button
+        onClick={handleMaximize}
+        style={buttonBase}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = colors.surface;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "none";
+        }}
+        aria-label="Maximize"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <rect
+            x="0.5"
+            y="0.5"
+            width="9"
+            height="9"
+            fill="none"
+            stroke={colors.foregroundSecondary}
+            strokeWidth="1"
+          />
+        </svg>
+      </button>
+      <button
+        onClick={handleClose}
+        style={buttonBase}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = colors.danger;
+          const svg = e.currentTarget.querySelector("svg");
+          if (svg) {
+            svg.querySelectorAll("line").forEach((l) => l.setAttribute("stroke", "#fff"));
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "none";
+          const svg = e.currentTarget.querySelector("svg");
+          if (svg) {
+            svg.querySelectorAll("line").forEach((l) =>
+              l.setAttribute("stroke", colors.foregroundSecondary),
+            );
+          }
         }}
         aria-label="Close"
       >
-        &#x2715;
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <line
+            x1="0"
+            y1="0"
+            x2="10"
+            y2="10"
+            stroke={colors.foregroundSecondary}
+            strokeWidth="1.2"
+          />
+          <line
+            x1="10"
+            y1="0"
+            x2="0"
+            y2="10"
+            stroke={colors.foregroundSecondary}
+            strokeWidth="1.2"
+          />
+        </svg>
       </button>
     </div>
   );

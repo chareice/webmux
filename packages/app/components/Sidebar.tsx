@@ -7,7 +7,6 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
-import { Sun, Moon, Monitor } from "lucide-react";
 import type { MachineInfo, Bookmark } from "@webmux/shared";
 import {
   listDirectory,
@@ -16,9 +15,8 @@ import {
   deleteBookmark,
   createRegistrationToken,
   getSettings,
-  updateSettings,
 } from "@/lib/api";
-import { useTheme, useColors, useColorAlpha } from "@/lib/theme";
+import { useColors, useColorAlpha } from "@/lib/theme";
 import {
   buildDirectorySuggestions,
   createDirectoryCache,
@@ -35,8 +33,7 @@ import {
   getTokenActionLabel,
   shouldGenerateRegistrationToken,
 } from "@/lib/onboardingFlow";
-import { isTauri, getDesktopReleasesUrl } from "@/lib/platform";
-import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
+import { isTauri } from "@/lib/platform";
 import { shouldLoadMachineBookmarks } from "@/lib/sidebarSections";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
@@ -50,6 +47,7 @@ interface SidebarProps {
   onCreateTerminal: (machineId: string, cwd: string, startupCommand?: string) => void;
   canCreateTerminal?: (machineId: string) => boolean;
   onRequestControl?: (machineId: string) => void;
+  onOpenSettings?: () => void;
 }
 
 const directoryCache = createDirectoryCache();
@@ -965,385 +963,13 @@ function AddMachinePanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SettingsSection({
-  onQuickCommandsChange,
-}: {
-  onQuickCommandsChange: (cmds: QuickCommand[]) => void;
-}) {
-  const colors = useColors();
-  const colorAlpha = useColorAlpha();
-  const [expanded, setExpanded] = useState(false);
-  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [terminalFont, setTerminalFont] = useState("");
-  const [terminalFontSize, setTerminalFontSize] = useState("");
-
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      const savedFont = localStorage.getItem("webmux:terminal-font-family") || "";
-      const savedSize = localStorage.getItem("webmux:terminal-font-size") || "";
-      setTerminalFont(savedFont);
-      setTerminalFontSize(savedSize);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (expanded && !loaded) {
-      getSettings()
-        .then((res) => {
-          try {
-            const cmds = JSON.parse(res.settings.quick_commands || "[]");
-            setQuickCommands(cmds);
-            onQuickCommandsChange(cmds);
-          } catch {
-            /* ignore */
-          }
-          setLoaded(true);
-        })
-        .catch(() => setLoaded(true));
-    }
-  }, [expanded, loaded, onQuickCommandsChange]);
-
-  const saveQuickCommands = useCallback(
-    (cmds: QuickCommand[]) => {
-      setQuickCommands(cmds);
-      onQuickCommandsChange(cmds);
-      updateSettings({ quick_commands: JSON.stringify(cmds) });
-    },
-    [onQuickCommandsChange],
-  );
-
-  const handleAddCommand = useCallback(() => {
-    saveQuickCommands([...quickCommands, { label: "", command: "" }]);
-  }, [quickCommands, saveQuickCommands]);
-
-  const handleRemoveCommand = useCallback(
-    (index: number) => {
-      saveQuickCommands(quickCommands.filter((_, i) => i !== index));
-    },
-    [quickCommands, saveQuickCommands],
-  );
-
-  const handleUpdateCommand = useCallback(
-    (index: number, field: "label" | "command", value: string) => {
-      const updated = quickCommands.map((cmd, i) =>
-        i === index ? { ...cmd, [field]: value } : cmd,
-      );
-      setQuickCommands(updated);
-    },
-    [quickCommands],
-  );
-
-  const handleBlurSave = useCallback(() => {
-    saveQuickCommands(quickCommands);
-  }, [quickCommands, saveQuickCommands]);
-
-  return (
-    <View
-      style={{
-        borderTopWidth: 1,
-        borderTopColor: colors.border,
-      }}
-    >
-      <Pressable
-        onPress={() => setExpanded((prev) => !prev)}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          paddingVertical: 10,
-          paddingHorizontal: 12,
-        }}
-      >
-        <Text
-          style={{
-            fontSize: 13,
-            fontWeight: "600",
-            color: colors.foregroundSecondary,
-            textTransform: "uppercase",
-            letterSpacing: 1,
-          }}
-        >
-          Settings
-        </Text>
-        <Text
-          style={{
-            fontSize: 10,
-            color: colors.foregroundSecondary,
-            transform: [{ rotate: expanded ? "90deg" : "0deg" }],
-          }}
-        >
-          {"\u25B6"}
-        </Text>
-      </Pressable>
-
-      {expanded && (
-        <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
-          {isTauri() && (
-            <View style={{ marginBottom: 12 }}>
-              <Text
-                style={{
-                  fontSize: 11,
-                  color: colors.foregroundSecondary,
-                  marginBottom: 6,
-                }}
-              >
-                Server URL
-              </Text>
-              <TextInput
-                defaultValue={getServerUrl()}
-                onBlur={(e: any) => {
-                  const value = e.nativeEvent?.text || e.target?.value || "";
-                  setServerUrl(value);
-                  window.location.reload();
-                }}
-                onKeyPress={(e: any) => {
-                  if (e.nativeEvent?.key === "Enter") {
-                    const value = e.target?.value || "";
-                    setServerUrl(value);
-                    window.location.reload();
-                  }
-                }}
-                placeholder="https://your-server:4317"
-                placeholderTextColor={colors.foregroundMuted}
-                style={{
-                  backgroundColor: colors.surface,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 4,
-                  color: colors.foreground,
-                  paddingVertical: 4,
-                  paddingHorizontal: 8,
-                  fontSize: 12,
-                }}
-              />
-            </View>
-          )}
-
-          {Platform.OS === "web" && (
-            <>
-              <Text style={{ fontSize: 11, color: colors.foregroundSecondary, marginBottom: 6 }}>
-                Terminal Font
-              </Text>
-              <TextInput
-                value={terminalFont}
-                onChangeText={setTerminalFont}
-                onBlur={() => {
-                  if (terminalFont) {
-                    localStorage.setItem("webmux:terminal-font-family", terminalFont);
-                  } else {
-                    localStorage.removeItem("webmux:terminal-font-family");
-                  }
-                }}
-                placeholder="JetBrains Mono (auto-detect)"
-                placeholderTextColor={colors.foregroundMuted}
-                style={{
-                  backgroundColor: colors.surface,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 4,
-                  color: colors.foreground,
-                  paddingVertical: 4,
-                  paddingHorizontal: 8,
-                  fontSize: 12,
-                  marginBottom: 12,
-                }}
-              />
-              <Text style={{ fontSize: 11, color: colors.foregroundSecondary, marginBottom: 6 }}>
-                Font Size
-              </Text>
-              <TextInput
-                value={terminalFontSize}
-                onChangeText={setTerminalFontSize}
-                onBlur={() => {
-                  const size = parseInt(terminalFontSize, 10);
-                  if (size >= 10 && size <= 24) {
-                    localStorage.setItem("webmux:terminal-font-size", String(size));
-                  } else if (!terminalFontSize) {
-                    localStorage.removeItem("webmux:terminal-font-size");
-                  }
-                }}
-                placeholder="14"
-                placeholderTextColor={colors.foregroundMuted}
-                keyboardType="numeric"
-                style={{
-                  backgroundColor: colors.surface,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 4,
-                  color: colors.foreground,
-                  paddingVertical: 4,
-                  paddingHorizontal: 8,
-                  fontSize: 12,
-                  width: 80,
-                  marginBottom: 12,
-                }}
-              />
-            </>
-          )}
-
-          <Text
-            style={{
-              fontSize: 11,
-              color: colors.foregroundSecondary,
-              marginBottom: 6,
-            }}
-          >
-            Quick Commands
-          </Text>
-          {quickCommands.map((cmd, i) => (
-            <View
-              key={i}
-              testID={`quick-cmd-row-${i}`}
-              style={{
-                flexDirection: "row",
-                gap: 4,
-                marginBottom: 4,
-                alignItems: "center",
-              }}
-            >
-              <TextInput
-                testID={`quick-cmd-label-${i}`}
-                value={cmd.label}
-                onChangeText={(v) => handleUpdateCommand(i, "label", v)}
-                onBlur={handleBlurSave}
-                placeholder="label"
-                placeholderTextColor={colors.foregroundMuted}
-                style={{
-                  width: 50,
-                  backgroundColor: colors.surface,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 4,
-                  color: colors.foreground,
-                  paddingVertical: 2,
-                  paddingHorizontal: 6,
-                  fontSize: 11,
-                }}
-              />
-              <TextInput
-                testID={`quick-cmd-command-${i}`}
-                value={cmd.command}
-                onChangeText={(v) => handleUpdateCommand(i, "command", v)}
-                onBlur={handleBlurSave}
-                placeholder="command"
-                placeholderTextColor={colors.foregroundMuted}
-                style={{
-                  flex: 1,
-                  backgroundColor: colors.surface,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 4,
-                  color: colors.foreground,
-                  paddingVertical: 2,
-                  paddingHorizontal: 6,
-                  fontSize: 11,
-                }}
-              />
-              <Pressable
-                testID={`quick-cmd-remove-${i}`}
-                onPress={() => handleRemoveCommand(i)}
-                hitSlop={4}
-              >
-                <Text
-                  style={{
-                    fontSize: 10,
-                    color: colors.foregroundMuted,
-                    paddingHorizontal: 2,
-                  }}
-                >
-                  &#x2715;
-                </Text>
-              </Pressable>
-            </View>
-          ))}
-          <Pressable
-            testID="quick-cmd-add"
-            onPress={handleAddCommand}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 4,
-              paddingVertical: 4,
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Text style={{ fontSize: 12, color: colors.foregroundMuted }}>+</Text>
-            <Text style={{ fontSize: 11, color: colors.foregroundMuted }}>
-              Add command
-            </Text>
-          </Pressable>
-
-          {!isTauri() && Platform.OS === "web" && (
-            <Pressable
-              onPress={() => {
-                const url = getDesktopReleasesUrl("chareice/webmux");
-                if (typeof window !== "undefined") {
-                  window.open(url, "_blank");
-                }
-              }}
-              style={({ pressed }) => ({
-                marginTop: 12,
-                paddingVertical: 8,
-                paddingHorizontal: 10,
-                borderRadius: 6,
-                backgroundColor: pressed
-                  ? colorAlpha.mutedMedium
-                  : colorAlpha.mutedLight,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-              })}
-            >
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.foregroundSecondary,
-                }}
-              >
-                {"\u2193"} Download Desktop App
-              </Text>
-            </Pressable>
-          )}
-        </View>
-      )}
-    </View>
-  );
-}
-
-function ThemeToggle() {
-  const colors = useColors();
-  const { theme, setTheme } = useTheme();
-  const next = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
-  const Icon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
-  const label = theme === "light" ? "Light" : theme === "dark" ? "Dark" : "System";
-
-  return (
-    <Pressable
-      onPress={() => setTheme(next)}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 8,
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        borderTopWidth: 1,
-        borderTopColor: colors.border,
-      }}
-    >
-      <Icon size={14} color={colors.foregroundSecondary} />
-      <Text style={{ fontSize: 12, color: colors.foregroundSecondary }}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
 
 function SidebarComponent({
   machines,
   onCreateTerminal,
   canCreateTerminal,
   onRequestControl,
+  onOpenSettings,
 }: SidebarProps) {
   const colors = useColors();
   const [showAddMachine, setShowAddMachine] = useState(false);
@@ -1363,10 +989,6 @@ function SidebarComponent({
       .catch(() => {
         /* ignore */
       });
-  }, []);
-
-  const handleQuickCommandsChange = useCallback((cmds: QuickCommand[]) => {
-    setQuickCommands(cmds);
   }, []);
 
   return (
@@ -1450,8 +1072,27 @@ function SidebarComponent({
       {showAddMachine && (
         <AddMachinePanel onClose={() => setShowAddMachine(false)} />
       )}
-      <SettingsSection onQuickCommandsChange={handleQuickCommandsChange} />
-      {Platform.OS === "web" && <ThemeToggle />}
+      {Platform.OS === "web" && onOpenSettings && (
+        <Pressable
+          onPress={onOpenSettings}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+          }}
+        >
+          <Text style={{ fontSize: 14, color: colors.foregroundSecondary }}>
+            {"\u2699"}
+          </Text>
+          <Text style={{ fontSize: 12, color: colors.foregroundSecondary }}>
+            Settings
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }

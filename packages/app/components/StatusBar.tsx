@@ -66,43 +66,6 @@ function formatStatValue(
   }
 }
 
-function getRenderer(): string {
-  try {
-    return localStorage.getItem("webmux:renderer") || "xterm";
-  } catch {
-    return "xterm";
-  }
-}
-
-function RendererSwitch() {
-  const current = getRenderer();
-  const next = current === "wterm" ? "xterm" : "wterm";
-
-  return (
-    <button
-      data-testid="statusbar-renderer-switch"
-      onClick={() => {
-        localStorage.setItem("webmux:renderer", next);
-        window.location.reload();
-      }}
-      title={`Switch to ${next} renderer`}
-      style={{
-        background: colorAlpha.foregroundOverlay,
-        border: "none",
-        borderRadius: 3,
-        color: colors.foreground,
-        cursor: "pointer",
-        padding: "2px 6px",
-        fontSize: 10,
-        fontFamily: "monospace",
-        lineHeight: "18px",
-        opacity: 0.7,
-      }}
-    >
-      {current}
-    </button>
-  );
-}
 
 function StatusBarComponent({
   machines,
@@ -336,7 +299,6 @@ function StatusBarComponent({
       {/* Right side — renderer switch + mode toggle */}
       <div style={{ display: "flex", alignItems: "center", gap: layout.sectionGap, flexShrink: 0, marginLeft: 8 }}>
         <UpdateNotification />
-        <RendererSwitch />
         <span
           style={{
             width: 7,
