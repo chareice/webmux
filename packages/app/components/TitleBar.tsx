@@ -2,7 +2,7 @@ import { memo, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { LayoutGrid, X, Plus } from "lucide-react";
 import { colors } from "@/lib/colors";
-import { isTauri } from "@/lib/platform";
+import { isTauri, detectOS } from "@/lib/platform";
 import { WindowControls } from "./WindowControls";
 
 interface TitleBarProps {
@@ -28,6 +28,7 @@ function TitleBarComponent({
   if (terminals.length === 0 && !isTauri()) return null;
 
   const isDesktop = isTauri();
+  const isMac = isDesktop && detectOS() === "macos";
 
   return (
     <div
@@ -44,6 +45,9 @@ function TitleBarComponent({
         WebkitAppRegion: isDesktop ? "drag" : undefined,
       } as React.CSSProperties}
     >
+      {/* macOS: window controls on the left */}
+      {isMac && <WindowControls position="left" />}
+
       {/* Scrollable tabs area */}
       <div
         style={{
@@ -254,8 +258,8 @@ function TitleBarComponent({
         )}
       </div>
 
-      {/* Window controls */}
-      <WindowControls />
+      {/* Window controls — right side (Windows/Linux only) */}
+      <WindowControls position="right" />
     </div>
   );
 }

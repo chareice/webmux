@@ -175,17 +175,25 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
     const clipboardWrite = useCallback(async (text: string) => {
       if (isTauri()) {
-        const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
-        await writeText(text);
-      } else {
-        await navigator.clipboard.writeText(text);
+        try {
+          const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+          await writeText(text);
+          return;
+        } catch {
+          // Tauri plugin failed — fall through to browser API
+        }
       }
+      await navigator.clipboard.writeText(text);
     }, []);
 
     const clipboardRead = useCallback(async (): Promise<string> => {
       if (isTauri()) {
-        const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
-        return await readText();
+        try {
+          const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+          return await readText();
+        } catch {
+          // Tauri plugin failed — fall through to browser API
+        }
       }
       return await navigator.clipboard.readText();
     }, []);
