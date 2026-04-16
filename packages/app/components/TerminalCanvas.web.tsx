@@ -404,12 +404,39 @@ export function TerminalCanvas() {
     }
   }, [terminals, handleSelectTab]);
 
+  const splitPaneRef = useRef<{
+    splitVertical: () => void;
+    splitHorizontal: () => void;
+    focusPrevPane: () => void;
+    focusNextPane: () => void;
+  } | null>(null);
+
+  const handleSplitVertical = useCallback(() => {
+    splitPaneRef.current?.splitVertical();
+  }, []);
+
+  const handleSplitHorizontal = useCallback(() => {
+    splitPaneRef.current?.splitHorizontal();
+  }, []);
+
+  const handleFocusPrevPane = useCallback(() => {
+    splitPaneRef.current?.focusPrevPane();
+  }, []);
+
+  const handleFocusNextPane = useCallback(() => {
+    splitPaneRef.current?.focusNextPane();
+  }, []);
+
   useShortcuts({
     newTerminal: isActiveController ? handleNewTerminalFromTitleBar : undefined,
     closeTab: handleCloseActiveTab,
     nextTab: handleNextTab,
     prevTab: handlePrevTab,
     selectTab: handleSelectTabByIndex,
+    splitVertical: isActiveController ? handleSplitVertical : undefined,
+    splitHorizontal: isActiveController ? handleSplitHorizontal : undefined,
+    focusPrevPane: handleFocusPrevPane,
+    focusNextPane: handleFocusNextPane,
   });
 
   return (
@@ -515,6 +542,7 @@ export function TerminalCanvas() {
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
             onNewTerminal={isActiveController ? handleNewTerminalFromTitleBar : undefined}
+            splitPaneRef={splitPaneRef}
           />
         )}
       </div>

@@ -1,4 +1,4 @@
-import { memo, useRef, useState, useMemo, useCallback } from "react";
+import { memo, useRef, useState, useMemo, useCallback, useEffect } from "react";
 import type { MachineInfo, ResourceStats, TerminalInfo } from "@webmux/shared";
 import { TerminalCard } from "./TerminalCard.web";
 import type { TerminalCardRef } from "./TerminalCard.web";
@@ -6,6 +6,17 @@ import { colors, colorAlpha } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 import { TitleBar } from "./TitleBar";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
+import { SplitPaneContainer } from "./SplitPaneContainer";
+import {
+  createLeaf,
+  splitPane,
+  removePane,
+  updateRatio,
+  getLeaves,
+  type PaneNode,
+  type PaneSplit,
+} from "@/lib/paneLayout";
+import { createTerminal } from "@/lib/api";
 
 interface CanvasProps {
   machines: MachineInfo[];
@@ -22,6 +33,12 @@ interface CanvasProps {
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
   onNewTerminal?: () => void;
+  splitPaneRef?: React.MutableRefObject<{
+    splitVertical: () => void;
+    splitHorizontal: () => void;
+    focusPrevPane: () => void;
+    focusNextPane: () => void;
+  } | null>;
 }
 
 
@@ -40,9 +57,14 @@ function CanvasComponent({
   onRequestControl,
   onReleaseControl,
   onNewTerminal,
+  splitPaneRef,
 }: CanvasProps) {
   // Local tab display order
   const [tabOrder, setTabOrder] = useState<string[]>([]);
+
+  // Pane layout state: maps tab id -> pane tree
+  const [paneLayouts, setPaneLayouts] = useState<Record<string, PaneNode>>({});
+  const [activePaneId, setActivePaneId] = useState<string | null>(null);
 
   // Reconcile tabOrder when terminals change
   const orderedTerminals = useMemo(() => {
@@ -84,6 +106,118 @@ function CanvasComponent({
   // If activeTabId points to a terminal that no longer exists, fall back to grid
   const effectiveTabId = activeTerminal ? activeTabId : null;
 
+  // Initialize pane layout for newly selected tab
+  useEffect(() => {
+    if (effectiveTabId && !paneLayouts[effectiveTabId]) {
+      setPaneLayouts((prev) => ({
+        ...prev,
+        [effectiveTabId]: createLeaf(effectiveTabId),
+      }));
+      setActivePaneId(effectiveTabId);
+    }
+  }, [effectiveTabId, paneLayouts]);
+
+  // Clean up pane tree when terminals are destroyed
+  useEffect(() => {
+    const terminalIds = new Set(terminals.map((t) => t.id));
+    setPaneLayouts((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const [tabId, layout] of Object.entries(next)) {
+        const leaves = getLeaves(layout);
+        for (const leaf of leaves) {
+          if (!terminalIds.has(leaf.terminalId)) {
+            const updated = removePane(layout, leaf.terminalId);
+            if (updated) {
+              next[tabId] = updated;
+            } else {
+              delete next[tabId];
+            }
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [terminals]);
+
+  // Split pane handlers
+  const handleSplitPane = useCallback(
+    async (direction: "horizontal" | "vertical") => {
+      if (!effectiveTabId || !activePaneId || !activeMachine || !deviceId) return;
+      if (!isMachineController(activeMachine.id)) return;
+
+      const activeTerminalForSplit = terminals.find((t) => t.id === activePaneId);
+      const cwd = activeTerminalForSplit?.cwd || "~";
+      const newTerminal = await createTerminal(activeMachine.id, cwd, deviceId);
+
+      setPaneLayouts((prev) => {
+        const current = prev[effectiveTabId] || createLeaf(effectiveTabId);
+        return {
+          ...prev,
+          [effectiveTabId]: splitPane(current, activePaneId, newTerminal.id, direction),
+        };
+      });
+      setActivePaneId(newTerminal.id);
+    },
+    [effectiveTabId, activePaneId, activeMachine, deviceId, isMachineController, terminals],
+  );
+
+  const handleUpdateRatio = useCallback(
+    (splitNode: PaneSplit, newRatio: number) => {
+      if (!effectiveTabId) return;
+      setPaneLayouts((prev) => {
+        const current = prev[effectiveTabId];
+        if (!current) return prev;
+        return { ...prev, [effectiveTabId]: updateRatio(current, splitNode, newRatio) };
+      });
+    },
+    [effectiveTabId],
+  );
+
+  const handleActivatePane = useCallback((terminalId: string) => {
+    setActivePaneId(terminalId);
+  }, []);
+
+  const handleFocusPrevPane = useCallback(() => {
+    if (!effectiveTabId) return;
+    const layout = paneLayouts[effectiveTabId];
+    if (!layout) return;
+    const leaves = getLeaves(layout);
+    const idx = leaves.findIndex((l) => l.terminalId === activePaneId);
+    const prevIdx = (idx - 1 + leaves.length) % leaves.length;
+    setActivePaneId(leaves[prevIdx].terminalId);
+    terminalCardRefs.current[leaves[prevIdx].terminalId]?.focus();
+  }, [effectiveTabId, paneLayouts, activePaneId]);
+
+  const handleFocusNextPane = useCallback(() => {
+    if (!effectiveTabId) return;
+    const layout = paneLayouts[effectiveTabId];
+    if (!layout) return;
+    const leaves = getLeaves(layout);
+    const idx = leaves.findIndex((l) => l.terminalId === activePaneId);
+    const nextIdx = (idx + 1) % leaves.length;
+    setActivePaneId(leaves[nextIdx].terminalId);
+    terminalCardRefs.current[leaves[nextIdx].terminalId]?.focus();
+  }, [effectiveTabId, paneLayouts, activePaneId]);
+
+  // Expose split pane handlers via ref for TerminalCanvas to wire shortcuts
+  useEffect(() => {
+    if (splitPaneRef) {
+      splitPaneRef.current = {
+        splitVertical: () => handleSplitPane("vertical"),
+        splitHorizontal: () => handleSplitPane("horizontal"),
+        focusPrevPane: handleFocusPrevPane,
+        focusNextPane: handleFocusNextPane,
+      };
+    }
+    return () => {
+      if (splitPaneRef) {
+        splitPaneRef.current = null;
+      }
+    };
+  }, [splitPaneRef, handleSplitPane, handleFocusPrevPane, handleFocusNextPane]);
+
   return (
     <main
       style={{
@@ -105,34 +239,60 @@ function CanvasComponent({
         onReorderTabs={handleReorderTabs}
       />
 
-      {/* Content area — all terminals stay mounted to preserve state (mouse tracking, scrollback) */}
+      {/* Content area */}
 
-      {/* Tab views — each terminal always mounted, hidden when not active */}
-      {orderedTerminals.map((terminal) => (
+      {/* Active tab with split pane layout */}
+      {effectiveTabId && paneLayouts[effectiveTabId] && (
         <div
-          key={terminal.id}
-          style={
-            effectiveTabId === terminal.id
-              ? { flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }
-              : { display: "none" }
-          }
-          onContextMenu={(e) => handleTerminalContextMenu(e, terminal.id)}
+          style={{ flex: 1, overflow: "hidden", display: "flex" }}
+          onContextMenu={(e) => handleTerminalContextMenu(e, activePaneId || effectiveTabId)}
         >
-          <TerminalCard
-            ref={(el) => { terminalCardRefs.current[terminal.id] = el; }}
-            terminal={terminal}
-            displayMode="tab"
+          <SplitPaneContainer
+            node={paneLayouts[effectiveTabId]}
+            terminals={terminals}
+            activePaneId={activePaneId}
             isMobile={isMobile}
-            isController={isMachineController(terminal.machine_id)}
+            isMachineController={isMachineController}
             deviceId={deviceId}
-            desktopPanelOpen={false}
+            terminalCardRefs={terminalCardRefs}
             onSelectTab={onSelectTab}
             onDestroy={onDestroy}
             onRequestControl={onRequestControl}
             onReleaseControl={onReleaseControl}
+            onActivatePane={handleActivatePane}
+            onUpdateRatio={handleUpdateRatio}
           />
         </div>
-      ))}
+      )}
+
+      {/* Hidden terminals: keep non-active tabs' terminals mounted to preserve state */}
+      {orderedTerminals
+        .filter((terminal) => {
+          // Skip terminals rendered by the active pane layout
+          if (effectiveTabId && paneLayouts[effectiveTabId]) {
+            const activeLeaves = getLeaves(paneLayouts[effectiveTabId]);
+            if (activeLeaves.some((l) => l.terminalId === terminal.id)) return false;
+          }
+          // Only render hidden terminals that aren't in ANY active pane layout display
+          return true;
+        })
+        .map((terminal) => (
+          <div key={terminal.id} style={{ display: "none" }}>
+            <TerminalCard
+              ref={(el) => { terminalCardRefs.current[terminal.id] = el; }}
+              terminal={terminal}
+              displayMode="tab"
+              isMobile={isMobile}
+              isController={isMachineController(terminal.machine_id)}
+              deviceId={deviceId}
+              desktopPanelOpen={false}
+              onSelectTab={onSelectTab}
+              onDestroy={onDestroy}
+              onRequestControl={onRequestControl}
+              onReleaseControl={onReleaseControl}
+            />
+          </div>
+        ))}
 
       {/* Grid overview — only rendered when no tab is active */}
       {!effectiveTabId && (
@@ -369,14 +529,14 @@ function CanvasComponent({
               label: "Split Vertically",
               shortcut: "Ctrl+\\",
               onClick: () => {
-                // Will be wired in Task 7 (Split Panes)
+                handleSplitPane("vertical");
               },
             },
             {
               label: "Split Horizontally",
               shortcut: "Ctrl+Shift+\\",
               onClick: () => {
-                // Will be wired in Task 7 (Split Panes)
+                handleSplitPane("horizontal");
               },
             },
             { type: "separator" as const },
