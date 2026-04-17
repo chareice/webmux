@@ -323,6 +323,20 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       termRef.current = term;
       fitRef.current = fit;
 
+      // Expose the Terminal instance for Playwright E2E tests. xterm's WebGL
+      // renderer paints text to canvas, so `.xterm-rows` in the DOM is empty.
+      // Tests read content via `term.buffer.active.getLine(i).translateToString`
+      // through this map. Keyed by terminalId; cleaned up on dispose.
+      if (typeof window !== "undefined") {
+        const winAny = window as unknown as {
+          __webmuxTerminals?: Map<string, Terminal>;
+        };
+        if (!winAny.__webmuxTerminals) {
+          winAny.__webmuxTerminals = new Map();
+        }
+        winAny.__webmuxTerminals.set(terminalId, term);
+      }
+
       // Wait two frames so the browser fully resolves the detected font
       // before WebGL builds its glyph texture atlas (avoids black-box glyphs).
       requestAnimationFrame(() => {
@@ -521,6 +535,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         container.removeEventListener("contextmenu", handleContextMenu);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
+        if (typeof window !== "undefined") {
+          const winAny = window as unknown as {
+            __webmuxTerminals?: Map<string, Terminal>;
+          };
+          winAny.__webmuxTerminals?.delete(terminalId);
+        }
         term.dispose();
       };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Terminal created once on mount

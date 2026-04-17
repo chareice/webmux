@@ -6,6 +6,7 @@ import {
   getImmersiveTerminal,
   listTerminals,
   openApp,
+  requestMachineControl,
   resetMachineState,
 } from "./helpers";
 
@@ -29,6 +30,8 @@ test("WS reconnect does not duplicate terminal content", async ({ browser }) => 
 
   await openApp(page);
   await resetMachineState(page);
+  // resetMachineState releases control; retake it so we can create a terminal.
+  await requestMachineControl(page);
 
   const headers = await getAuthHeaders(page);
   const deviceId = await getDeviceId(page);
@@ -59,23 +62,40 @@ test("WS reconnect does not duplicate terminal content", async ({ browser }) => 
   await page.getByTestId(`tab-${terminalId}`).click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
-  // Wait for the initial shell output to settle in xterm.
-  await expect
-    .poll(
-      async () =>
-        await getImmersiveTerminal(page)
-          .locator(".xterm-rows")
-          .first()
-          .innerText(),
-    )
-    .toContain(marker);
+  // Read content via the window.__webmuxTerminals hook exposed by
+  // TerminalView.xterm — xterm's WebGL renderer paints to canvas, so
+  // `.xterm-rows` in the DOM has no text.
+  const readBuffer = async (): Promise<string> =>
+    page.evaluate((id) => {
+      const map = (
+        window as unknown as { __webmuxTerminals?: Map<string, unknown> }
+      ).__webmuxTerminals;
+      const term = map?.get(id) as
+        | {
+            buffer: {
+              active: {
+                length: number;
+                getLine: (
+                  i: number,
+                ) => { translateToString: (trim: boolean) => string } | undefined;
+              };
+            };
+          }
+        | undefined;
+      if (!term) return "";
+      const buf = term.buffer.active;
+      const lines: string[] = [];
+      for (let i = 0; i < buf.length; i++) {
+        lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+      }
+      return lines.join("\n");
+    }, terminalId);
+
+  // Wait for the initial shell output to settle.
+  await expect.poll(readBuffer).toContain(marker);
 
   const countMarker = async (): Promise<number> => {
-    const text =
-      (await getImmersiveTerminal(page)
-        .locator(".xterm-rows")
-        .first()
-        .innerText()) ?? "";
+    const text = await readBuffer();
     const pattern = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return (text.match(new RegExp(pattern, "g")) ?? []).length;
   };

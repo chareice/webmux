@@ -6,6 +6,7 @@ import {
   getImmersiveTerminal,
   listTerminals,
   openApp,
+  requestMachineControl,
   resetMachineState,
 } from "./helpers";
 
@@ -27,6 +28,9 @@ test("switching tabs does not bleed content from the previous terminal", async (
 
   await openApp(page);
   await resetMachineState(page);
+  // resetMachineState releases control as its final step; creating terminals
+  // requires being the controller, so re-take it here.
+  await requestMachineControl(page);
 
   const headers = await getAuthHeaders(page);
   const deviceId = await getDeviceId(page);
@@ -60,31 +64,52 @@ test("switching tabs does not bleed content from the previous terminal", async (
     .poll(async () => (await listTerminals(page)).length)
     .toBe(2);
 
-  const readVisibleText = async (): Promise<string> => {
-    // xterm renders visible rows into .xterm-rows; scrollback is disabled so
-    // this is the complete client-side content. Wait briefly for the new tab
-    // to paint before sampling.
-    await page.waitForTimeout(300);
-    return (await getImmersiveTerminal(page)
-      .locator(".xterm-rows")
-      .first()
-      .innerText()) ?? "";
+  // xterm with the WebGL renderer paints to canvas, so reading `.xterm-rows`
+  // from the DOM returns nothing. TerminalView.xterm exposes live Terminal
+  // instances on `window.__webmuxTerminals` (keyed by terminal id); we read
+  // the authoritative active-buffer contents through that hook.
+  const readTerminalBuffer = async (terminalId: string): Promise<string> => {
+    await page.waitForTimeout(400);
+    return page.evaluate((id) => {
+      const map = (
+        window as unknown as { __webmuxTerminals?: Map<string, unknown> }
+      ).__webmuxTerminals;
+      const term = map?.get(id) as
+        | {
+            buffer: {
+              active: {
+                length: number;
+                getLine: (
+                  i: number,
+                ) => { translateToString: (trim: boolean) => string } | undefined;
+              };
+            };
+          }
+        | undefined;
+      if (!term) return "";
+      const buf = term.buffer.active;
+      const lines: string[] = [];
+      for (let i = 0; i < buf.length; i++) {
+        lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+      }
+      return lines.join("\n");
+    }, terminalId);
   };
 
   await page.getByTestId(`tab-${idA}`).click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
-  const termAText = await readVisibleText();
+  const termAText = await readTerminalBuffer(idA);
   expect(termAText).toContain(markerA);
   expect(termAText).not.toContain(markerB);
 
   await page.getByTestId(`tab-${idB}`).click();
-  const termBText = await readVisibleText();
+  const termBText = await readTerminalBuffer(idB);
   expect(termBText).toContain(markerB);
   expect(termBText).not.toContain(markerA);
 
   // Switch back to A — the bug surfaced here most often: old B content stuck.
   await page.getByTestId(`tab-${idA}`).click();
-  const termAText2 = await readVisibleText();
+  const termAText2 = await readTerminalBuffer(idA);
   expect(termAText2).toContain(markerA);
   expect(termAText2).not.toContain(markerB);
 
