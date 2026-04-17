@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { LayoutGrid, X, Plus } from "lucide-react";
 import { colors } from "@/lib/colors";
@@ -25,6 +25,27 @@ function TitleBarComponent({
   onReorderTabs,
 }: TitleBarProps) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Convert vertical wheel to horizontal scroll on the tab bar.
+  // Needs a non-passive listener so preventDefault actually stops the page
+  // from also scrolling vertically.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      if (e.deltaY === 0) return;
+      // If the user used a horizontal wheel/trackpad, leave native behavior alone.
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      // If there's nothing to scroll horizontally, let the page take the event.
+      if (el.scrollWidth <= el.clientWidth) return;
+      el.scrollLeft += e.deltaY;
+      e.preventDefault();
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
+
   if (terminals.length === 0 && !isTauri()) return null;
 
   const isDesktop = isTauri();
@@ -50,14 +71,9 @@ function TitleBarComponent({
 
       {/* Scrollable tabs area — drag region for empty space */}
       <div
+        ref={scrollRef}
         data-tauri-drag-region={isDesktop ? "" : undefined}
         className="scrollbar-hidden"
-        onWheel={(e) => {
-          // Convert vertical wheel to horizontal scroll for mice without horizontal wheel
-          if (e.deltaY !== 0 && e.deltaX === 0) {
-            e.currentTarget.scrollLeft += e.deltaY;
-          }
-        }}
         style={{
           display: "flex",
           alignItems: "stretch",
