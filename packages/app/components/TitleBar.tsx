@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { LayoutGrid, X, Plus } from "lucide-react";
 import { colors } from "@/lib/colors";
@@ -25,25 +25,32 @@ function TitleBarComponent({
   onReorderTabs,
 }: TitleBarProps) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollElRef = useRef<HTMLDivElement | null>(null);
+  const wheelHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
 
-  // Convert vertical wheel to horizontal scroll on the tab bar.
-  // Needs a non-passive listener so preventDefault actually stops the page
-  // from also scrolling vertically.
-  useEffect(() => {
-    const el = scrollRef.current;
+  // Attach a non-passive native wheel listener via ref callback so the
+  // listener is wired the moment React mounts the div, regardless of
+  // useEffect timing or parent re-renders.
+  const attachScrollRef = useCallback((el: HTMLDivElement | null) => {
+    if (scrollElRef.current && wheelHandlerRef.current) {
+      scrollElRef.current.removeEventListener(
+        "wheel",
+        wheelHandlerRef.current,
+      );
+      wheelHandlerRef.current = null;
+    }
+    scrollElRef.current = el;
     if (!el) return;
     const handler = (e: WheelEvent) => {
       if (e.deltaY === 0) return;
-      // If the user used a horizontal wheel/trackpad, leave native behavior alone.
+      // When the user moves a horizontal trackpad gesture, delta X dominates
+      // and native horizontal scroll already handles it.
       if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
-      // If there's nothing to scroll horizontally, let the page take the event.
-      if (el.scrollWidth <= el.clientWidth) return;
       el.scrollLeft += e.deltaY;
       e.preventDefault();
     };
+    wheelHandlerRef.current = handler;
     el.addEventListener("wheel", handler, { passive: false });
-    return () => el.removeEventListener("wheel", handler);
   }, []);
 
   if (terminals.length === 0 && !isTauri()) return null;
@@ -71,9 +78,16 @@ function TitleBarComponent({
 
       {/* Scrollable tabs area — drag region for empty space */}
       <div
-        ref={scrollRef}
+        ref={attachScrollRef}
         data-tauri-drag-region={isDesktop ? "" : undefined}
         className="scrollbar-hidden"
+        onWheel={(e) => {
+          // React synchronous fallback — runs even if the native listener
+          // was ever not attached for some reason.
+          if (e.deltaY === 0) return;
+          if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+          e.currentTarget.scrollLeft += e.deltaY;
+        }}
         style={{
           display: "flex",
           alignItems: "stretch",
