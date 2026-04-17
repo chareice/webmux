@@ -4,7 +4,7 @@ import {
   openApp,
   getAuthHeaders,
   resetMachineState,
-  expandMachineSection,
+  expandNavColumn,
   expectTerminalCount,
   getImmersiveTerminal,
 } from "./helpers";
@@ -32,25 +32,26 @@ test("quick command tags appear under bookmarks and launch terminals with the co
   await page.getByTestId("statusbar-mode-toggle").click();
   await expect(page.getByTestId("statusbar-mode-toggle")).toHaveText("Stop Control");
 
-  // Reload so sidebar picks up the new quick commands
+  // Reload so the overlay picks up the new quick commands
   await page.reload();
   await page.getByTestId("statusbar-mode-toggle").waitFor({ state: "visible", timeout: 10_000 });
 
-  // Expand machine section to see bookmarks
-  await expandMachineSection(page);
+  // Expand nav column to see bookmarks and their quick-command chips
+  await expandNavColumn(page);
 
-  // The quick command tag should appear under the bookmark
-  const probeTag = page.getByTestId("quick-cmd-probe");
+  // The quick command tag should appear under the "~" bookmark (id: local-home)
+  const probeTag = page.getByTestId("overlay-quick-cmd-local-home-probe");
   await expect(probeTag).toBeVisible();
 
   // Click the tag to create a terminal with the command
   await probeTag.click();
 
-  // Terminal should open in immersive view
+  // Terminal should open in immersive (zoomed) view
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
-  // Verify a terminal was created
-  await page.getByTestId("tab-all").click();
+  // Verify a terminal was created — back to the overview grid via breadcrumb
+  await page.getByTestId("breadcrumb-back").click();
+  await expect(page.getByTestId("overview-header")).toBeVisible();
   await expectTerminalCount(page, 1);
 
   // Clean up quick commands
@@ -80,10 +81,10 @@ test("quick command tags are hidden when no commands are configured", async ({ p
   await page.reload();
   await page.getByTestId("statusbar-mode-toggle").waitFor({ state: "visible", timeout: 10_000 });
 
-  // Expand machine section
-  await expandMachineSection(page);
+  // Expand the nav column overlay
+  await expandNavColumn(page);
 
   // Bookmark should be visible but no quick command tags
-  await expect(page.getByTestId("machine-bookmark-local-home")).toBeVisible();
-  await expect(page.getByTestId("quick-cmd-probe")).toBeHidden();
+  await expect(page.getByTestId("overlay-bookmark-local-home")).toBeVisible();
+  await expect(page.getByTestId("overlay-quick-cmd-local-home-probe")).toBeHidden();
 });

@@ -3,7 +3,7 @@ import { expect, test, devices } from "@playwright/test";
 import {
   expectGlobalModeToggleLabel,
   expectTerminalCount,
-  expandMachineSection,
+  expandNavColumn,
   getAuthHeaders,
   getDeviceId,
   getImmersiveTerminal,
@@ -30,10 +30,10 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await expandMachineSection(desktopPage);
-  await desktopPage.getByTestId("machine-request-control-e2e-node").click();
+  await expandNavColumn(desktopPage);
+  await desktopPage.getByTestId("overlay-request-control-e2e-node").click();
   await openRootBookmark(desktopPage);
-  // Terminal auto-switches to tab view after creation
+  // Terminal auto-zooms after creation
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
   await desktopPage.getByTestId("terminal-fit-button").click();
 
@@ -43,10 +43,12 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   await openApp(mobilePage);
   // Wait for terminal to sync
   await expect.poll(async () => (await listTerminals(mobilePage)).length).toBe(1);
-  // On mobile, click the terminal's tab directly to enter immersive view
-  // (the hamburger button overlaps tab-all on mobile, so avoid going through grid)
-  const mobileTerminals = await listTerminals(mobilePage);
-  await mobilePage.getByTestId(`tab-${mobileTerminals[0].id}`).click();
+  // On mobile the Overview grid is already visible — click the card to zoom.
+  const mobileCard = mobilePage
+    .locator("[data-testid^='terminal-card-']:visible")
+    .first();
+  await expect(mobileCard).toBeVisible();
+  await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
   await expectGlobalModeToggleLabel(mobilePage, "Control Here");
@@ -79,10 +81,10 @@ test("explicit terminal sizing can round-trip between desktop and mobile without
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await expandMachineSection(desktopPage);
-  await desktopPage.getByTestId("machine-request-control-e2e-node").click();
+  await expandNavColumn(desktopPage);
+  await desktopPage.getByTestId("overlay-request-control-e2e-node").click();
   await openRootBookmark(desktopPage);
-  // Terminal auto-switches to tab view after creation
+  // Terminal auto-zooms after creation
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
   await desktopPage.getByTestId("terminal-fit-button").click();
 
@@ -117,15 +119,16 @@ test("explicit terminal sizing can round-trip between desktop and mobile without
     .poll(async () => getTerminalViewScale(desktopPage))
     .toBe(1);
 
-  // Switch desktop back to "All" grid view, then take control
-  await desktopPage.getByTestId("tab-all").click();
+  // Switch desktop back to Overview grid via the breadcrumb, then take control
+  await desktopPage.getByTestId("breadcrumb-back").click();
+  await expect(desktopPage.getByTestId("overview-header")).toBeVisible();
   await expectGlobalModeToggleLabel(desktopPage, "Control Here");
   await desktopPage.getByTestId("canvas-mode-toggle").click();
   await expectGlobalModeToggleLabel(desktopPage, "Stop Control");
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
     "Control Here",
   );
-  // Click the terminal card in grid to open tab view
+  // Click the terminal card in grid to zoom into it
   await getTerminalCards(desktopPage).first().click();
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
   await expect
@@ -161,10 +164,18 @@ test("multiple shared terminals stay in sync across mobile handoff and selective
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await expandMachineSection(desktopPage);
-  await desktopPage.getByTestId("machine-request-control-e2e-node").click();
+  await expandNavColumn(desktopPage);
+  await desktopPage.getByTestId("overlay-request-control-e2e-node").click();
+  // First terminal: click the ~ bookmark — creates + auto-zooms.
   await openRootBookmark(desktopPage);
-  await openRootBookmark(desktopPage);
+  await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
+  // Go back to Overview so we can create another terminal via the header.
+  await desktopPage.getByTestId("breadcrumb-back").click();
+  await expect(desktopPage.getByTestId("overview-header")).toBeVisible();
+  // Second terminal: the "~" bookmark already has count=1, so the overlay
+  // would just filter. Use the Overview header's "New terminal" action
+  // instead, which creates in the current workpath (currently "All" → home).
+  await desktopPage.getByTestId("overview-new-terminal").click();
   await expect
     .poll(async () => (await listTerminals(desktopPage)).length)
     .toBe(2);
@@ -173,8 +184,9 @@ test("multiple shared terminals stay in sync across mobile handoff and selective
     .map((terminal) => terminal.id)
     .sort();
 
-  // Switch to grid view to see all terminals
-  await desktopPage.getByTestId("tab-all").click();
+  // Back to the Overview grid to see all terminals
+  await desktopPage.getByTestId("breadcrumb-back").click();
+  await expect(desktopPage.getByTestId("overview-header")).toBeVisible();
   await expectTerminalCount(desktopPage, 2);
   await openApp(mobilePage);
   // Wait for terminals to sync

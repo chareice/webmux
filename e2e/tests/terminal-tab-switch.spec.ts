@@ -96,19 +96,22 @@ test("switching tabs does not bleed content from the previous terminal", async (
     }, terminalId);
   };
 
-  await page.getByTestId(`tab-${idA}`).click();
+  // Enter immersive mode for terminal A via the Overview card.
+  // (The same testid also matches a hidden-mount copy; scope to visible.)
+  await page.locator(`[data-testid='terminal-card-${idA}']:visible`).click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
   const termAText = await readTerminalBuffer(idA);
   expect(termAText).toContain(markerA);
   expect(termAText).not.toContain(markerB);
 
-  await page.getByTestId(`tab-${idB}`).click();
+  // Switch to terminal B via the breadcrumb sibling chip.
+  await page.getByTestId(`breadcrumb-sibling-${idB}`).click();
   const termBText = await readTerminalBuffer(idB);
   expect(termBText).toContain(markerB);
   expect(termBText).not.toContain(markerA);
 
   // Switch back to A — the bug surfaced here most often: old B content stuck.
-  await page.getByTestId(`tab-${idA}`).click();
+  await page.getByTestId(`breadcrumb-sibling-${idA}`).click();
   const termAText2 = await readTerminalBuffer(idA);
   expect(termAText2).toContain(markerA);
   expect(termAText2).not.toContain(markerB);

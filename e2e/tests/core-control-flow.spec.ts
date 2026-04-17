@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 import {
   expectSingleTerminalCard,
-  expandMachineSection,
+  expandNavColumn,
   openApp,
   resetMachineState,
 } from "./helpers";
@@ -15,21 +15,25 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
 
   await openApp(pageA);
   await resetMachineState(pageA);
-  await expandMachineSection(pageA);
+  await expandNavColumn(pageA);
 
   await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
-  await pageA.getByTestId("machine-request-control-e2e-node").click();
+  await pageA.getByTestId("overlay-request-control-e2e-node").click();
   await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Stop Control");
 
-  await pageA.getByTestId("machine-bookmark-local-home").click();
-  // Terminal auto-switches to tab view; go back to grid to verify card state
-  await pageA.getByTestId("tab-all").click();
+  // Create a terminal from the "~" bookmark — auto-zooms.
+  await expandNavColumn(pageA);
+  await pageA.getByTestId("overlay-bookmark-local-home").click();
+  // Back to Overview grid so we can verify the card state.
+  await pageA.getByTestId("breadcrumb-back").click();
+  await expect(pageA.getByTestId("overview-header")).toBeVisible();
   const cardA = await expectSingleTerminalCard(pageA);
   await expect(cardA.getByLabel("Close terminal")).toBeVisible();
 
   await openApp(pageB);
-  // Session B starts in grid view (didn't create the terminal)
-  await pageB.getByTestId("tab-all").click();
+  // Session B starts on the Overview grid (did not create the terminal),
+  // so the shared card is already visible.
+  await expect(pageB.getByTestId("overview-header")).toBeVisible();
   const cardB = await expectSingleTerminalCard(pageB);
   await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
   await expect(cardB.getByLabel("View only - cannot close")).toBeVisible();
@@ -44,16 +48,17 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await cardB.getByLabel("Close terminal").click();
   await expect(pageA.locator("[data-testid^='terminal-card-']:visible")).toHaveCount(0);
   await expect(pageB.locator("[data-testid^='terminal-card-']:visible")).toHaveCount(0);
-  await expect(pageA.getByText("Select a directory to open a terminal")).toBeVisible();
-  await expect(pageB.getByText("Select a directory to open a terminal")).toBeVisible();
+  // No terminals → empty-state inside Overview body.
+  await expect(pageA.getByText(/No terminals/)).toBeVisible();
+  await expect(pageB.getByText(/No terminals/)).toBeVisible();
 
   await pageA.reload();
   await pageB.reload();
 
   await openApp(pageA);
   await openApp(pageB);
-  await expect(pageA.getByText("Select a directory to open a terminal")).toBeVisible();
-  await expect(pageB.getByText("Select a directory to open a terminal")).toBeVisible();
+  await expect(pageA.getByText(/No terminals/)).toBeVisible();
+  await expect(pageB.getByText(/No terminals/)).toBeVisible();
   // pageA had no control before reload → stays without control
   await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
   // pageB had control before reload → auto-restored on reload

@@ -2,7 +2,7 @@ import { expect, test, devices } from "@playwright/test";
 
 import {
   expectSingleTerminalCard,
-  expandMachineSection,
+  expandNavColumn,
   getImmersiveTerminal,
   listTerminals,
   openApp,
@@ -22,9 +22,10 @@ test("terminal size stays stable across tab view and cross-device handoff until 
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await expandMachineSection(desktopPage);
-  await desktopPage.getByTestId("machine-request-control-e2e-node").click();
-  await desktopPage.getByTestId("machine-bookmark-local-home").click();
+  await expandNavColumn(desktopPage);
+  await desktopPage.getByTestId("overlay-request-control-e2e-node").click();
+  await expandNavColumn(desktopPage);
+  await desktopPage.getByTestId("overlay-bookmark-local-home").click();
 
   // After creating a terminal, it auto-switches to tab (immersive) view
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
@@ -85,6 +86,10 @@ test("terminal size stays stable across tab view and cross-device handoff until 
     )
     .toBe(1);
 
+  // Leave the zoomed view first — the card's "Close terminal" button is only
+  // exposed in the Overview grid.
+  await mobilePage.getByTestId("breadcrumb-back").click();
+  await expect(mobilePage.getByTestId("overview-header")).toBeVisible();
   await mobilePage.getByLabel("Close terminal").first().click();
   await expect
     .poll(async () => listTerminals(mobilePage))

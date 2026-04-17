@@ -1,16 +1,31 @@
-import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
-import type { TerminalInfo } from "@webmux/shared";
-import { Canvas } from "./Canvas.web";
 import {
+  lazy,
+  Suspense,
+  useState,
+  useCallback,
+  useEffect,
+  useReducer,
+  useRef,
+} from "react";
+import type { Bookmark, TerminalInfo } from "@webmux/shared";
+import { Canvas } from "./Canvas.web";
+import { NavColumn } from "./NavColumn.web";
+import { AppTitleBar } from "./AppTitleBar.web";
+import {
+  createBookmark,
   createTerminal,
+  deleteBookmark,
   destroyTerminal,
   checkForegroundProcess,
   eventsWsUrl,
   getBootstrap,
+  getSettings,
+  listBookmarks,
   requestControl,
   releaseControl,
   releaseControlKeepalive,
 } from "@/lib/api";
+import type { QuickCommand } from "./WorkpathOverlay.web";
 import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,
@@ -22,13 +37,14 @@ import { colors } from "@/lib/colors";
 import { useIsMobile, useVisualViewportHeight } from "@/lib/hooks";
 import { useShortcuts } from "@/lib/shortcuts";
 import {
+  createInitialMainLayout,
+  mainLayoutReducer,
+} from "@/lib/mainLayoutReducer";
+import {
   storePendingControlRelease,
   takePendingControlRelease,
 } from "@/lib/unloadControlRelease";
 
-const Sidebar = lazy(() =>
-  import("./Sidebar").then((module) => ({ default: module.Sidebar })),
-);
 const OnboardingView = lazy(() =>
   import("./OnboardingView.web").then((module) => ({
     default: module.OnboardingView,
@@ -46,21 +62,47 @@ const ConfirmDialog = lazy(() =>
 
 export function TerminalCanvas() {
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
-  // null = grid overview ("All" tab), terminal id = single terminal tab
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [layout, dispatchLayout] = useReducer(
+    mainLayoutReducer,
+    undefined,
+    createInitialMainLayout,
+  );
   const isMobile = useIsMobile();
   const viewportHeight = useVisualViewportHeight();
   // Track the real visual viewport so the layout shrinks when the mobile soft
   // keyboard opens. xterm's existing ResizeObserver handles the refit.
   const rootHeight: string = viewportHeight !== null ? `${viewportHeight}px` : "100dvh";
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
-  const activeTabRef = useRef<string | null>(null);
   const lastSeqRef = useRef(0);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
+  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
+
+  // Fetch quick-command settings once per session — the overlay used to
+  // do this on its own mount, but it mounts/unmounts every time the rail
+  // hover toggles. Lifted here so it's a single fetch shared by all
+  // overlay instances.
+  useEffect(() => {
+    let cancelled = false;
+    void getSettings()
+      .then((res) => {
+        if (cancelled) return;
+        try {
+          setQuickCommands(JSON.parse(res.settings.quick_commands || "[]"));
+        } catch {
+          /* malformed setting — leave empty */
+        }
+      })
+      .catch(() => { /* settings unreachable — leave empty */ });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [closeConfirmation, setCloseConfirmation] = useState<
     | { terminal: TerminalInfo; processName: string }
     | null
@@ -99,10 +141,6 @@ export function TerminalCanvas() {
     lastSeqRef.current = browserState.lastSeq;
   }, [browserState.lastSeq]);
 
-  useEffect(() => {
-    activeTabRef.current = activeTabId;
-  }, [activeTabId]);
-
   // Auto-select first machine as active, reset if selected machine goes offline
   useEffect(() => {
     if (machines.length === 0) {
@@ -115,23 +153,58 @@ export function TerminalCanvas() {
     }
   }, [machines, activeMachineId]);
 
-  // Restore active tab from URL hash
+  // Load bookmarks for the active machine. Re-fetch when terminals count
+  // changes so counts in the rail stay fresh after add/delete.
+  // When the API returns no bookmarks (or fails), inject a synthetic
+  // `local-home` entry pointing at the machine's home dir so the rail and
+  // overlay always have at least one workpath the user can open. Without
+  // this fallback, a fresh machine would render an empty rail and break
+  // workpath matching for terminals created from the prompt.
+  useEffect(() => {
+    if (!activeMachineId) {
+      setBookmarks([]);
+      return;
+    }
+    const machine = machines.find((m) => m.id === activeMachineId);
+    const fallback: Bookmark[] = [
+      {
+        id: "local-home",
+        machineId: activeMachineId,
+        path: machine?.home_dir || "/",
+        label: "~",
+        sortOrder: 0,
+      },
+    ];
+    let cancelled = false;
+    listBookmarks(activeMachineId)
+      .then((bms) => {
+        if (!cancelled) setBookmarks(bms.length > 0 ? bms : fallback);
+      })
+      .catch(() => {
+        if (!cancelled) setBookmarks(fallback);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMachineId, terminals.length, machines]);
+
+  // Restore zoomed terminal from URL hash on first mount.
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.startsWith("#/t/")) {
       const id = hash.slice(4);
-      if (id) setActiveTabId(id);
+      if (id) dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: id });
     }
   }, []);
 
-  // Handle browser back button
+  // Handle browser back/forward.
   useEffect(() => {
     const onPopState = () => {
       const hash = window.location.hash;
       if (hash.startsWith("#/t/")) {
-        setActiveTabId(hash.slice(4));
+        dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: hash.slice(4) });
       } else {
-        setActiveTabId(null);
+        dispatchLayout({ type: "UNZOOM" });
       }
     };
     window.addEventListener("popstate", onPopState);
@@ -223,7 +296,17 @@ export function TerminalCanvas() {
     };
   }, [controlLeases, deviceId]);
 
-  // Events WebSocket for live updates
+  // Events WebSocket for live updates.
+  // Track the current zoomed terminal in a ref so the WS effect doesn't
+  // need it as a dependency — without this the WS gets torn down and
+  // reopened on every zoom/unzoom (and during reconnect flapping the
+  // browser may miss events). Reading via ref keeps the effect's
+  // identity stable while still seeing the latest value at message time.
+  const zoomedTerminalIdRef = useRef<string | null>(layout.zoomedTerminalId);
+  useEffect(() => {
+    zoomedTerminalIdRef.current = layout.zoomedTerminalId;
+  }, [layout.zoomedTerminalId]);
+
   useEffect(() => {
     if (!bootstrapReady || !deviceId) return;
 
@@ -242,11 +325,15 @@ export function TerminalCanvas() {
           const next = applyBrowserEventEnvelope(prev, envelope);
           if (
             next !== prev &&
-            envelope.event?.type === "terminal_destroyed" &&
-            activeTabRef.current === envelope.event.terminal_id
+            envelope.event?.type === "terminal_destroyed"
           ) {
-            setActiveTabId(null);
-            window.history.pushState(null, "", window.location.pathname);
+            dispatchLayout({
+              type: "TERMINAL_DESTROYED",
+              terminalId: envelope.event.terminal_id,
+            });
+            if (zoomedTerminalIdRef.current === envelope.event.terminal_id) {
+              window.history.pushState(null, "", window.location.pathname);
+            }
           }
           return next;
         });
@@ -297,13 +384,24 @@ export function TerminalCanvas() {
     async (machineId: string, cwd: string, startupCommand?: string) => {
       if (!deviceId) return;
       if (!isMachineController(machineId)) return;
-      const newTerminal = await createTerminal(machineId, cwd, deviceId, startupCommand);
-      // Auto-switch to the new terminal's tab
-      setActiveTabId(newTerminal.id);
+      const newTerminal = await createTerminal(
+        machineId,
+        cwd,
+        deviceId,
+        startupCommand,
+      );
+      const match = bookmarks.find(
+        (b) => b.machineId === machineId && b.path === cwd,
+      );
+      dispatchLayout({
+        type: "TERMINAL_CREATED",
+        terminalId: newTerminal.id,
+        workpathId: match?.id ?? "all",
+      });
       window.history.pushState(null, "", `#/t/${newTerminal.id}`);
       if (isMobile) setSidebarOpen(false);
     },
-    [deviceId, isMachineController, isMobile],
+    [deviceId, isMachineController, isMobile, bookmarks],
   );
 
   const handleRequestControl = useCallback(async (machineId: string) => {
@@ -370,58 +468,53 @@ export function TerminalCanvas() {
     await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
   }, [closeConfirmation, deviceId]);
 
-  const handleSelectTab = useCallback((id: string | null) => {
-    setActiveTabId(id);
-    if (id) {
-      window.history.pushState(null, "", `#/t/${id}`);
-    } else {
-      window.history.pushState(null, "", window.location.pathname);
-    }
+  const handleZoomTerminal = useCallback((id: string) => {
+    dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: id });
+    window.history.pushState(null, "", `#/t/${id}`);
+  }, []);
+
+  const handleUnzoom = useCallback(() => {
+    dispatchLayout({ type: "UNZOOM" });
+    window.history.pushState(null, "", window.location.pathname);
   }, []);
 
   const activeMachine = activeMachineId
     ? machines.find((machine) => machine.id === activeMachineId) ?? null
     : machines[0] ?? null;
-  const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
 
-  const handleNewTerminalFromTitleBar = useCallback(async () => {
-    if (!activeMachine || !deviceId || !isMachineController(activeMachine.id)) return;
-    await handleCreateTerminal(activeMachine.id, "~");
-  }, [activeMachine, deviceId, isMachineController, handleCreateTerminal]);
+  const handleNewTerminalFromOverview = useCallback(async () => {
+    if (!activeMachine || !deviceId) return;
+    if (!isMachineController(activeMachine.id)) return;
+    if (layout.selectedWorkpathId === "all") {
+      // Per spec §6 ("In `All`, open directory picker"): don't silently
+      // pick home_dir — surface the workpath rail + add-directory picker
+      // so the user actively chooses where the new terminal lands.
+      if (!layout.columnForceExpanded) {
+        dispatchLayout({ type: "TOGGLE_NAV_FORCE_EXPANDED" });
+      }
+      setAddDirectoryOpen(true);
+      return;
+    }
+    const bookmark = bookmarks.find((b) => b.id === layout.selectedWorkpathId);
+    if (!bookmark) {
+      await handleCreateTerminal(activeMachine.id, activeMachine.home_dir || "~");
+      return;
+    }
+    await handleCreateTerminal(bookmark.machineId, bookmark.path);
+  }, [
+    activeMachine,
+    deviceId,
+    isMachineController,
+    handleCreateTerminal,
+    layout.selectedWorkpathId,
+    bookmarks,
+  ]);
 
-  const handleCloseActiveTab = useCallback(async () => {
-    if (!activeTabId) return;
-    const terminal = terminals.find((t) => t.id === activeTabId);
+  const handleCloseZoomedTerminal = useCallback(async () => {
+    if (!layout.zoomedTerminalId) return;
+    const terminal = terminals.find((t) => t.id === layout.zoomedTerminalId);
     if (terminal) await handleDestroyTerminal(terminal);
-  }, [activeTabId, terminals, handleDestroyTerminal]);
-
-  const handleNextTab = useCallback(() => {
-    if (terminals.length === 0) return;
-    if (!activeTabId) {
-      handleSelectTab(terminals[0].id);
-      return;
-    }
-    const idx = terminals.findIndex((t) => t.id === activeTabId);
-    const nextIdx = (idx + 1) % terminals.length;
-    handleSelectTab(terminals[nextIdx].id);
-  }, [activeTabId, terminals, handleSelectTab]);
-
-  const handlePrevTab = useCallback(() => {
-    if (terminals.length === 0) return;
-    if (!activeTabId) {
-      handleSelectTab(terminals[terminals.length - 1].id);
-      return;
-    }
-    const idx = terminals.findIndex((t) => t.id === activeTabId);
-    const prevIdx = (idx - 1 + terminals.length) % terminals.length;
-    handleSelectTab(terminals[prevIdx].id);
-  }, [activeTabId, terminals, handleSelectTab]);
-
-  const handleSelectTabByIndex = useCallback((index: number) => {
-    if (index < terminals.length) {
-      handleSelectTab(terminals[index].id);
-    }
-  }, [terminals, handleSelectTab]);
+  }, [layout.zoomedTerminalId, terminals, handleDestroyTerminal]);
 
   const splitPaneRef = useRef<{
     splitVertical: () => void;
@@ -451,18 +544,127 @@ export function TerminalCanvas() {
     splitPaneRef.current?.closePane();
   }, []);
 
+  const handleSelectWorkpathByIndex = useCallback(
+    (index: number) => {
+      if (index === 0) {
+        dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
+        return;
+      }
+      const list = bookmarks.filter((b) => b.machineId === activeMachineId);
+      const target = list[index - 1];
+      if (target) {
+        dispatchLayout({ type: "SELECT_WORKPATH", workpathId: target.id });
+      }
+    },
+    [bookmarks, activeMachineId],
+  );
+
   useShortcuts({
-    newTerminal: isActiveController ? handleNewTerminalFromTitleBar : undefined,
-    closeTab: handleCloseActiveTab,
+    newTerminal: isActiveController ? handleNewTerminalFromOverview : undefined,
+    closeTab: handleCloseZoomedTerminal,
     closePane: isActiveController ? handleClosePane : undefined,
-    nextTab: handleNextTab,
-    prevTab: handlePrevTab,
-    selectTab: handleSelectTabByIndex,
+    nextTab: undefined, // deprecated with workpath-based navigation
+    prevTab: undefined,
+    selectTab: handleSelectWorkpathByIndex,
     splitVertical: isActiveController ? handleSplitVertical : undefined,
     splitHorizontal: isActiveController ? handleSplitHorizontal : undefined,
     focusPrevPane: handleFocusPrevPane,
     focusNextPane: handleFocusNextPane,
+    toggleNav: () => dispatchLayout({ type: "TOGGLE_NAV_FORCE_EXPANDED" }),
   });
+
+  // Esc unzooms the immersive terminal view, as long as focus is not inside
+  // a terminal (which needs Esc for its own purposes).
+  useEffect(() => {
+    if (!layout.zoomedTerminalId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        e.key === "Escape" &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.shiftKey &&
+        !e.altKey
+      ) {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest(".xterm")) return;
+        dispatchLayout({ type: "UNZOOM" });
+        window.history.pushState(null, "", window.location.pathname);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [layout.zoomedTerminalId]);
+
+  const navColumnProps = {
+    machines,
+    activeMachineId,
+    bookmarks,
+    terminals,
+    selectedWorkpathId: layout.selectedWorkpathId,
+    forceExpanded: layout.columnForceExpanded,
+    canCreateTerminalForActiveMachine: isActiveController,
+    quickCommands,
+    addDirectoryOpen,
+    onSelectMachine: (id: string) => setActiveMachineId(id),
+    onSelectAll: () =>
+      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" }),
+    onSelectWorkpath: (id: string) =>
+      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: id }),
+    onCreateTerminal: handleCreateTerminal,
+    onRequestControl: handleRequestControl,
+    // Rail "+" button: surface the overlay (force-expand if collapsed)
+    // and pop the existing add-directory PathInput. No more silent no-op.
+    onAddBookmark: () => {
+      setAddDirectoryOpen(true);
+      if (!layout.columnForceExpanded) {
+        dispatchLayout({ type: "TOGGLE_NAV_FORCE_EXPANDED" });
+      }
+    },
+    onConfirmAddDirectory: async (machineId: string, path: string) => {
+      const label = (() => {
+        const parts = path.replace(/\/+$/, "").split("/");
+        return parts[parts.length - 1] || path;
+      })();
+      try {
+        const bm = await createBookmark(machineId, path, label);
+        setBookmarks((prev) => [...prev, bm]);
+      } catch {
+        // Fall back to a local-only bookmark so the user still sees their
+        // entry in the rail. Sync will pick it up on the next reload if
+        // the API was just transiently down.
+        setBookmarks((prev) => [
+          ...prev,
+          {
+            id: `local-${Date.now()}`,
+            machineId,
+            path,
+            label,
+            sortOrder: prev.length,
+          },
+        ]);
+      } finally {
+        setAddDirectoryOpen(false);
+      }
+    },
+    onCancelAddDirectory: () => setAddDirectoryOpen(false),
+    onRemoveBookmark: async (id: string) => {
+      setBookmarks((prev) => prev.filter((b) => b.id !== id));
+      // Reset the layout if the deleted bookmark was the selected workpath,
+      // otherwise selectedWorkpathId points at a now-nonexistent id and the
+      // grid renders empty with no obvious recovery for the user.
+      dispatchLayout({ type: "WORKPATH_DELETED", workpathId: id });
+      // Synthetic local-* bookmarks (the home fallback or local-only adds
+      // from a failed createBookmark) don't exist server-side; skip the API
+      // call so we don't get a misleading 404 in the network tab.
+      if (id.startsWith("local-")) return;
+      try {
+        await deleteBookmark(id);
+      } catch {
+        /* leave optimistic removal in place */
+      }
+    },
+    onOpenSettings: () => setShowSettings(true),
+  };
 
   return (
     <div
@@ -474,6 +676,7 @@ export function TerminalCanvas() {
         overflow: "hidden",
       }}
     >
+      <AppTitleBar isMobile={isMobile} />
       <div
         style={{
           display: "flex",
@@ -483,7 +686,7 @@ export function TerminalCanvas() {
         }}
       >
         {/* Mobile hamburger button */}
-        {isMobile && !activeTabId && (
+        {isMobile && !layout.zoomedTerminalId && (
           <button
             onClick={() => setSidebarOpen((prev) => !prev)}
             aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
@@ -520,30 +723,20 @@ export function TerminalCanvas() {
           />
         )}
 
-        {/* Sidebar */}
-        {(sidebarOpen || !isMobile) && (
+        {/* Nav column (desktop renders inline; mobile renders in drawer) */}
+        {!isMobile && <NavColumn {...navColumnProps} />}
+        {isMobile && sidebarOpen && (
           <div
-            style={
-              isMobile
-                ? {
-                    position: "fixed",
-                    top: 0,
-                    left: 0,
-                    height: rootHeight,
-                    zIndex: 85,
-                  }
-                : {}
-            }
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              height: rootHeight,
+              zIndex: 85,
+            }}
           >
-            <Suspense fallback={null}>
-              <Sidebar
-                machines={machines}
-                onCreateTerminal={handleCreateTerminal}
-                canCreateTerminal={isMachineController}
-                onRequestControl={handleRequestControl}
-                onOpenSettings={() => setShowSettings(true)}
-              />
-            </Suspense>
+            {/* NavColumn isn't lazy-loaded, so no Suspense boundary needed. */}
+            <NavColumn {...navColumnProps} />
           </div>
         )}
 
@@ -560,18 +753,23 @@ export function TerminalCanvas() {
           <Canvas
             machines={machines}
             terminals={terminals}
-            activeTabId={activeTabId}
+            bookmarks={bookmarks}
+            selectedWorkpathId={layout.selectedWorkpathId}
+            zoomedTerminalId={layout.zoomedTerminalId}
             activeMachineId={activeMachine?.id ?? null}
             machineStats={machineStats}
             isMobile={isMobile}
             isActiveController={isActiveController}
             isMachineController={isMachineController}
             deviceId={deviceId ?? ""}
-            onSelectTab={handleSelectTab}
+            onZoomTerminal={handleZoomTerminal}
+            onUnzoom={handleUnzoom}
             onDestroy={handleDestroyTerminal}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
-            onNewTerminal={isActiveController ? handleNewTerminalFromTitleBar : undefined}
+            onNewTerminal={
+              isActiveController ? handleNewTerminalFromOverview : undefined
+            }
             splitPaneRef={splitPaneRef}
           />
         )}

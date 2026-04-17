@@ -46,7 +46,10 @@ test("WS reconnect rebuilds the attach via a fresh tmux client", async ({
   const tid = ((await resp.json()) as { id: string }).id;
 
   await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
-  await page.getByTestId(`tab-${tid}`).click();
+  // Vertical-workpath UI: click the overview card to enter immersive mode.
+  await page
+    .locator(`[data-testid='terminal-card-${tid}']:visible`)
+    .click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
   const readBuffer = async (): Promise<string> =>
