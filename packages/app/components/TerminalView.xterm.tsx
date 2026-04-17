@@ -676,13 +676,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       scheduleMeasure();
     }, [displayMode, scheduleMeasure]);
 
-    // Auto-fit terminal when first created at default size (80x24).
-    // Only triggers once — switching tabs on an already-sized terminal won't re-fit.
+    // Auto-fit terminal whenever the controller's viewport changes, debounced
+    // 200ms. Replaces the previous create-time-only behaviour and the manual
+    // "Fit to Window" button — controllers now expect the terminal to track
+    // their window size continuously. Non-controllers never reach this path
+    // (canResizeTerminal is false).
     useEffect(() => {
       if (displayMode !== "immersive" || !canResizeTerminal) return;
-      // Only auto-fit if terminal is at the server default size (newly created).
-      // Already-sized terminals keep their size when switching tabs.
-      if (cols !== 80 || rows !== 24) return;
 
       const timerId = window.setTimeout(() => {
         const fit = fitRef.current;
@@ -709,6 +709,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             cols,
             rows,
           });
+          if (!nextDims) return;
+          // No-op if the fit didn't actually change cols/rows. Avoids spamming
+          // resize messages on small viewport jitter (sub-cell pixel changes).
+          if (nextDims.cols === cols && nextDims.rows === rows) return;
           const resizeMessage = buildResizeMessage(nextDims);
           if (!resizeMessage) return;
           liveWs.send(JSON.stringify(resizeMessage));
@@ -718,7 +722,14 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       }, 200);
 
       return () => window.clearTimeout(timerId);
-    }, [displayMode, canResizeTerminal, cols, rows]);
+    }, [
+      displayMode,
+      canResizeTerminal,
+      cols,
+      rows,
+      viewportSize.width,
+      viewportSize.height,
+    ]);
 
     const viewportLayout = getTerminalViewportLayout({
       displayMode,

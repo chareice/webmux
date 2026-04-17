@@ -169,10 +169,10 @@ export function TerminalCanvas() {
     const fallback: Bookmark[] = [
       {
         id: "local-home",
-        machineId: activeMachineId,
+        machine_id: activeMachineId,
         path: machine?.home_dir || "/",
         label: "~",
-        sortOrder: 0,
+        sort_order: 0,
       },
     ];
     let cancelled = false;
@@ -391,7 +391,7 @@ export function TerminalCanvas() {
         startupCommand,
       );
       const match = bookmarks.find(
-        (b) => b.machineId === machineId && b.path === cwd,
+        (b) => b.machine_id === machineId && b.path === cwd,
       );
       dispatchLayout({
         type: "TERMINAL_CREATED",
@@ -489,9 +489,8 @@ export function TerminalCanvas() {
       // Per spec §6 ("In `All`, open directory picker"): don't silently
       // pick home_dir — surface the workpath rail + add-directory picker
       // so the user actively chooses where the new terminal lands.
-      if (!layout.columnForceExpanded) {
-        dispatchLayout({ type: "TOGGLE_NAV_FORCE_EXPANDED" });
-      }
+      // `addDirectoryOpen=true` opens the overlay via NavColumn's expanded
+      // derivation; it auto-collapses when the action resolves.
       setAddDirectoryOpen(true);
       return;
     }
@@ -500,7 +499,7 @@ export function TerminalCanvas() {
       await handleCreateTerminal(activeMachine.id, activeMachine.home_dir || "~");
       return;
     }
-    await handleCreateTerminal(bookmark.machineId, bookmark.path);
+    await handleCreateTerminal(bookmark.machine_id, bookmark.path);
   }, [
     activeMachine,
     deviceId,
@@ -550,7 +549,7 @@ export function TerminalCanvas() {
         dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
         return;
       }
-      const list = bookmarks.filter((b) => b.machineId === activeMachineId);
+      const list = bookmarks.filter((b) => b.machine_id === activeMachineId);
       const target = list[index - 1];
       if (target) {
         dispatchLayout({ type: "SELECT_WORKPATH", workpathId: target.id });
@@ -612,13 +611,14 @@ export function TerminalCanvas() {
       dispatchLayout({ type: "SELECT_WORKPATH", workpathId: id }),
     onCreateTerminal: handleCreateTerminal,
     onRequestControl: handleRequestControl,
-    // Rail "+" button: surface the overlay (force-expand if collapsed)
-    // and pop the existing add-directory PathInput. No more silent no-op.
+    // Rail "+" button: surface the overlay's add-directory PathInput.
+    // `addDirectoryOpen=true` is enough — NavColumn's `expanded` derivation
+    // includes it, so the overlay opens and stays open until confirm/cancel.
+    // We deliberately do NOT toggle force-expanded here: the previous code
+    // turned it on but never off, leaving the overlay stuck open after the
+    // user finished adding a directory.
     onAddBookmark: () => {
       setAddDirectoryOpen(true);
-      if (!layout.columnForceExpanded) {
-        dispatchLayout({ type: "TOGGLE_NAV_FORCE_EXPANDED" });
-      }
     },
     onConfirmAddDirectory: async (machineId: string, path: string) => {
       const label = (() => {
@@ -636,10 +636,10 @@ export function TerminalCanvas() {
           ...prev,
           {
             id: `local-${Date.now()}`,
-            machineId,
+            machine_id: machineId,
             path,
             label,
-            sortOrder: prev.length,
+            sort_order: prev.length,
           },
         ]);
       } finally {

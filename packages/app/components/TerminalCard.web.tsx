@@ -134,36 +134,9 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         </div>
       )}
 
-      {/* Desktop fit button in tab mode */}
-      {isTab && !isMobile && isController && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            padding: "2px 12px",
-            borderBottom: `1px solid ${colors.border}`,
-          }}
-        >
-          <button
-            data-testid="terminal-fit-button"
-            onClick={() => {
-              termViewRef.current?.fitToContainer();
-              termViewRef.current?.focus();
-            }}
-            style={{
-              background: "none",
-              border: "none",
-              color: colors.accent,
-              cursor: "pointer",
-              fontSize: 11,
-              padding: "4px 8px",
-            }}
-          >
-            {controlCopy.sizeActionLabel}
-          </button>
-        </div>
-      )}
+      {/* Desktop: no manual fit button. The terminal auto-fits to the
+          container whenever the viewport changes while the user is the
+          controller — see the auto-fit effect in TerminalView.{xterm,wterm}. */}
 
       {/* Mobile controls bar in tab mode */}
       {isTab && isMobile && onRequestControl && onReleaseControl && (

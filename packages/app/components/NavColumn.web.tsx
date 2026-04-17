@@ -1,4 +1,4 @@
-import { memo, useRef, useState, useMemo } from "react";
+import { memo, useEffect, useRef, useState, useMemo } from "react";
 import type { Bookmark, MachineInfo, TerminalInfo } from "@webmux/shared";
 import { WorkpathRail, type RailWorkpath } from "./WorkpathRail.web";
 import { WorkpathOverlay, type QuickCommand } from "./WorkpathOverlay.web";
@@ -27,7 +27,7 @@ interface NavColumnProps {
 }
 
 function matchBookmark(bm: Bookmark, terminal: TerminalInfo): boolean {
-  return terminal.machine_id === bm.machineId && terminal.cwd === bm.path;
+  return terminal.machine_id === bm.machine_id && terminal.cwd === bm.path;
 }
 
 function NavColumnComponent(props: NavColumnProps) {
@@ -62,7 +62,7 @@ function NavColumnComponent(props: NavColumnProps) {
   );
 
   const activeMachineBookmarks = useMemo(
-    () => bookmarks.filter((b) => b.machineId === activeMachine?.id),
+    () => bookmarks.filter((b) => b.machine_id === activeMachine?.id),
     [bookmarks, activeMachine],
   );
 
@@ -102,14 +102,14 @@ function NavColumnComponent(props: NavColumnProps) {
     [activeMachineBookmarks, tags, counts, live],
   );
 
-  // 400ms grace period covers a deliberate human traversal from rail into
-  // overlay (Copilot review noted this could otherwise dismiss the overlay
-  // mid-interaction). We deliberately do NOT add `onPointerEnter` on the
-  // overlay to cancel-on-arrival: Playwright's auto-wait for click
-  // intercepts brushes the overlay edge while polling, which would
-  // re-fire onPointerEnter and keep the timer reset indefinitely,
-  // permanently blocking subsequent clicks (regression in 4 e2e tests).
-  // The grace window covers both humans and tests.
+  // Document-level pointer tracking: when the overlay is open, watch the
+  // cursor against rail+overlay refs and only collapse when it truly leaves
+  // both. We use document pointermove + DOM `contains` (not bounding-box
+  // math) so absolutely-positioned overlays still register as "inside" the
+  // hover region. Tracking transitions (was-inside → outside) means we
+  // schedule collapse exactly once per real exit, instead of resetting the
+  // timer on every move — which fixes the Playwright auto-wait edge case
+  // that bit the previous onPointerEnter-on-overlay attempt.
   const scheduleCollapse = () => {
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
     collapseTimer.current = setTimeout(() => setHoverExpanded(false), 400);
@@ -121,7 +121,61 @@ function NavColumnComponent(props: NavColumnProps) {
     }
   };
 
-  const expanded = hoverExpanded || forceExpanded;
+  // Clear any pending collapse timer on unmount so the deferred
+  // setHoverExpanded never fires after the component is gone (React would
+  // warn in dev, and the ref state would lie about the timer being null).
+  useEffect(
+    () => () => {
+      if (collapseTimer.current) {
+        clearTimeout(collapseTimer.current);
+        collapseTimer.current = null;
+      }
+    },
+    [],
+  );
+
+  // While the user is mid-action (typing in the add-directory PathInput),
+  // the overlay must stay open even if the cursor wanders off — otherwise
+  // the input unmounts under their hands. Including `addDirectoryOpen` in
+  // the expanded derivation keeps it open until the action resolves; on
+  // resolution the overlay collapses naturally based on hover state.
+  const expanded = hoverExpanded || forceExpanded || addDirectoryOpen;
+
+  // Collapse after an explicit overlay action (e.g. choosing a bookmark)
+  // unless the user pinned the overlay open with Cmd/Ctrl-B. Add-directory
+  // sets addDirectoryOpen which keeps the overlay alive on its own.
+  const collapseAfterAction = () => {
+    if (forceExpanded) return;
+    cancelCollapse();
+    setHoverExpanded(false);
+  };
+
+  useEffect(() => {
+    if (!expanded) return;
+    // Start at false so the very first pointermove inside rail/overlay
+    // registers as a transition-in (cancels any pending rail-leave timer
+    // and re-asserts hoverExpanded). Without this the timer scheduled by
+    // the rail's onPointerLeave during a fast traversal can fire before
+    // the user reaches the overlay.
+    const wasInside = { current: false };
+    const onMove = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      if (!target?.closest) return;
+      const inside = !!target.closest(
+        '[data-testid="workpath-rail"], [data-testid="workpath-overlay"]',
+      );
+      if (inside === wasInside.current) return;
+      wasInside.current = inside;
+      if (inside) {
+        cancelCollapse();
+        setHoverExpanded(true);
+      } else {
+        scheduleCollapse();
+      }
+    };
+    document.addEventListener("pointermove", onMove);
+    return () => document.removeEventListener("pointermove", onMove);
+  }, [expanded]);
 
   return (
     <div
@@ -155,18 +209,31 @@ function NavColumnComponent(props: NavColumnProps) {
           canCreateTerminal={canCreateTerminalForActiveMachine}
           addDirectoryOpen={addDirectoryOpen}
           quickCommands={quickCommands}
-          onSelectAll={onSelectAll}
-          onSelectWorkpath={onSelectWorkpath}
-          onCreateTerminal={onCreateTerminal}
+          // Wrap navigation actions so the overlay collapses after an
+          // explicit choice (selecting a bookmark, opening a quick-cmd
+          // terminal, jumping to "All"). Without this the overlay sits
+          // over the canvas occluding breadcrumb / overview controls,
+          // because Playwright (and a stationary human cursor) never
+          // generates a pointermove that would tell our document listener
+          // the user has left. Force-expanded and addDirectoryOpen flows
+          // are unaffected — they have their own dismissal triggers.
+          onSelectAll={() => {
+            onSelectAll();
+            collapseAfterAction();
+          }}
+          onSelectWorkpath={(id) => {
+            onSelectWorkpath(id);
+            collapseAfterAction();
+          }}
+          onCreateTerminal={(machineId, cwd, startupCommand) => {
+            onCreateTerminal(machineId, cwd, startupCommand);
+            collapseAfterAction();
+          }}
           onRequestControl={onRequestControl}
           onShowAddDirectory={onAddBookmark}
           onConfirmAddDirectory={onConfirmAddDirectory}
           onCancelAddDirectory={onCancelAddDirectory}
           onRemoveBookmark={onRemoveBookmark}
-          onPointerEnter={cancelCollapse}
-          onPointerLeave={() => {
-            if (!forceExpanded) scheduleCollapse();
-          }}
         />
       )}
     </div>

@@ -260,10 +260,10 @@ export interface User {
 
 export interface Bookmark {
   id: string
-  machineId: string
+  machine_id: string
   path: string
   label: string
-  sortOrder: number
+  sort_order: number
 }
 
 export interface LoginResponse {

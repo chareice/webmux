@@ -410,9 +410,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       scheduleMeasure();
     }, [displayMode, scheduleMeasure]);
 
+    // Auto-fit on every viewport change while the user is the controller —
+    // see the matching effect in TerminalView.xterm.tsx for context.
     useEffect(() => {
       if (displayMode !== "immersive" || !canResizeTerminal) return;
-      if (cols !== 80 || rows !== 24) return;
 
       const timerId = window.setTimeout(() => {
         const liveWs = wsRef.current;
@@ -436,6 +437,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             cols,
             rows,
           });
+          if (!nextDims) return;
+          if (nextDims.cols === cols && nextDims.rows === rows) return;
           const resizeMessage = buildResizeMessage(nextDims);
           if (!resizeMessage) return;
           liveWs.send(JSON.stringify(resizeMessage));
@@ -445,7 +448,14 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       }, 200);
 
       return () => window.clearTimeout(timerId);
-    }, [displayMode, canResizeTerminal, cols, rows]);
+    }, [
+      displayMode,
+      canResizeTerminal,
+      cols,
+      rows,
+      viewportSize.width,
+      viewportSize.height,
+    ]);
 
     const viewportLayout = getTerminalViewportLayout({
       displayMode,

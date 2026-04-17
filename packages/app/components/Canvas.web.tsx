@@ -47,7 +47,7 @@ interface CanvasProps {
 }
 
 function matchBookmark(bm: Bookmark, t: TerminalInfo): boolean {
-  return t.machine_id === bm.machineId && t.cwd === bm.path;
+  return t.machine_id === bm.machine_id && t.cwd === bm.path;
 }
 
 function CanvasComponent(props: CanvasProps) {

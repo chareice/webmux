@@ -35,8 +35,6 @@ interface WorkpathOverlayProps {
   onConfirmAddDirectory: (machineId: string, path: string) => void;
   onCancelAddDirectory: () => void;
   onRemoveBookmark: (bookmarkId: string) => void;
-  onPointerEnter: () => void;
-  onPointerLeave: () => void;
 }
 
 function WorkpathOverlayComponent(props: WorkpathOverlayProps) {
@@ -57,8 +55,6 @@ function WorkpathOverlayComponent(props: WorkpathOverlayProps) {
     onConfirmAddDirectory,
     onCancelAddDirectory,
     onRemoveBookmark,
-    onPointerEnter,
-    onPointerLeave,
   } = props;
 
   const handleAdd = (path: string) => {
@@ -73,7 +69,6 @@ function WorkpathOverlayComponent(props: WorkpathOverlayProps) {
   return (
     <div
       data-testid="workpath-overlay"
-      onPointerLeave={onPointerLeave}
       style={{
         position: "absolute",
         left: 56,
