@@ -1,6 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-const MACHINE_SECTION_TEST_ID = "machine-section-e2e-node";
 const MACHINE_ID = "e2e-node";
 const TERMINAL_CARD_SELECTOR = "[data-testid^='terminal-card-']";
 
@@ -22,7 +21,7 @@ export async function openApp(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto("/");
   await Promise.race([
-    page.getByTestId(MACHINE_SECTION_TEST_ID).waitFor({
+    page.getByTestId("workpath-rail").waitFor({
       state: "visible",
       timeout: 20_000,
     }),
@@ -102,14 +101,25 @@ export async function resetMachineState(page: Page): Promise<void> {
   await expectGlobalModeToggleLabel(page, "Control Here");
 }
 
-export async function expandMachineSection(page: Page): Promise<void> {
-  const bookmark = page.getByTestId("machine-bookmark-local-home");
-  if (await bookmark.count()) {
+/**
+ * Expand the nav column by hovering the rail so the overlay becomes visible.
+ * The overlay is also force-expanded by `Cmd/Ctrl+B`, but hover is the
+ * stable path for tests (no keyboard focus races).
+ */
+export async function expandNavColumn(page: Page): Promise<void> {
+  const overlay = page.getByTestId("workpath-overlay");
+  if (await overlay.isVisible().catch(() => false)) {
     return;
   }
+  const rail = page.getByTestId("workpath-rail");
+  await rail.hover();
+  await expect(overlay).toBeVisible();
+}
 
-  await page.getByTestId(MACHINE_SECTION_TEST_ID).click();
-  await expect(bookmark).toBeVisible();
+// Backwards-compatible alias. The old helper was named after the sidebar's
+// per-machine section; the new nav column uses a single overlay.
+export async function expandMachineSection(page: Page): Promise<void> {
+  await expandNavColumn(page);
 }
 
 export async function expectSingleTerminalCard(page: Page): Promise<Locator> {
@@ -139,8 +149,8 @@ export async function openRootBookmark(page: Page): Promise<void> {
     await sidebarToggle.click();
   }
 
-  await expandMachineSection(page);
-  await page.getByTestId("machine-bookmark-local-home").click();
+  await expandNavColumn(page);
+  await page.getByTestId("overlay-bookmark-local-home").click();
 }
 
 export function getGlobalModeToggle(page: Page): Locator {
@@ -157,9 +167,9 @@ export async function expectGlobalModeToggleLabel(
 }
 
 export async function maximizeOnlyTerminal(page: Page): Promise<Locator> {
-  // After creating a terminal, it auto-switches to tab view (immersive mode).
-  // If already in tab view, just wait for the terminal card.
-  // If in grid view (e.g. navigated back), click the terminal's tab.
+  // After creating a terminal, it auto-zooms (immersive mode).
+  // If already zoomed, just wait for the terminal card.
+  // If in overview grid (e.g. navigated back), click the card.
   const immersive = getImmersiveTerminal(page);
   if (await immersive.isVisible().catch(() => false)) {
     const card = page.locator(TERMINAL_CARD_SELECTOR).first();
@@ -167,7 +177,7 @@ export async function maximizeOnlyTerminal(page: Page): Promise<Locator> {
     return card;
   }
 
-  // Click the first terminal tab to switch to it
+  // Click the first terminal card to zoom in
   const card = await expectSingleTerminalCard(page);
   await card.click();
   await expect(immersive).toBeVisible();
