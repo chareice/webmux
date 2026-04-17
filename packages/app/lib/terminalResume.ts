@@ -15,10 +15,23 @@ function isValidMode(value: unknown): value is AttachMode {
   return typeof value === "string" && VALID_MODES.has(value as AttachMode);
 }
 
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+  );
+}
+
 /**
  * Parse a WebSocket text frame as an attach control message.
  * Returns null when the frame is not an attach or is malformed — callers
  * should treat that as "this isn't for me" rather than an error.
+ *
+ * Defensive validation: seq and replay_bytes must be non-negative safe
+ * integers, and replay_bytes must not exceed seq. A malformed server frame
+ * that violates these would otherwise drive lastSeenSeq negative and silently
+ * disable resume on subsequent reconnects.
  */
 export function parseAttachFrame(text: string): AttachFrame | null {
   let parsed: unknown;
@@ -30,9 +43,10 @@ export function parseAttachFrame(text: string): AttachFrame | null {
   if (!parsed || typeof parsed !== "object") return null;
   const msg = parsed as Record<string, unknown>;
   if (msg.type !== "attach") return null;
-  if (typeof msg.seq !== "number" || !Number.isFinite(msg.seq)) return null;
-  if (typeof msg.replay_bytes !== "number" || !Number.isFinite(msg.replay_bytes)) return null;
+  if (!isNonNegativeSafeInteger(msg.seq)) return null;
+  if (!isNonNegativeSafeInteger(msg.replay_bytes)) return null;
   if (!isValidMode(msg.mode)) return null;
+  if (msg.replay_bytes > msg.seq) return null;
   return {
     seq: msg.seq,
     mode: msg.mode,

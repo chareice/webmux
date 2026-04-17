@@ -11,6 +11,10 @@ async function authenticate(page: Page): Promise<void> {
   const { token } = await response.json();
   await page.context().addInitScript((value) => {
     localStorage.setItem("webmux:token", value);
+    // Opt-in to test-only hooks (e.g. the window.__webmuxTerminals map that
+    // exposes live xterm instances for buffer inspection). Production builds
+    // never set this flag and therefore never expose internals globally.
+    localStorage.setItem("webmux:e2e", "1");
   }, token);
 }
 

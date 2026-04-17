@@ -51,6 +51,48 @@ describe("parseAttachFrame", () => {
       ),
     ).toBeNull();
   });
+
+  it("returns null when seq is negative", () => {
+    expect(
+      parseAttachFrame(
+        JSON.stringify({ type: "attach", seq: -1, mode: "full", replay_bytes: 0 }),
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null when replay_bytes is negative", () => {
+    expect(
+      parseAttachFrame(
+        JSON.stringify({ type: "attach", seq: 10, mode: "full", replay_bytes: -5 }),
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null when replay_bytes exceeds seq", () => {
+    expect(
+      parseAttachFrame(
+        JSON.stringify({ type: "attach", seq: 10, mode: "reset", replay_bytes: 20 }),
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null on non-integer seq", () => {
+    expect(
+      parseAttachFrame(
+        JSON.stringify({ type: "attach", seq: 1.5, mode: "full", replay_bytes: 0 }),
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null on unsafe integer seq", () => {
+    // Number.MAX_SAFE_INTEGER + 1 loses precision as a double
+    const unsafe = Number.MAX_SAFE_INTEGER + 2;
+    expect(
+      parseAttachFrame(
+        JSON.stringify({ type: "attach", seq: unsafe, mode: "full", replay_bytes: 0 }),
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("appendResumeSeq", () => {

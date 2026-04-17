@@ -694,8 +694,12 @@ impl MachineManager {
             Some(n) if n == seq => (AttachMode::Delta, Vec::new()),
             Some(n) if n > seq => (AttachMode::Reset, buffer),
             Some(n) => {
-                let delta = (seq - n) as usize;
-                if delta <= buffer.len() {
+                // Keep the delta in u64 until we've verified it fits: on 32-bit
+                // targets `seq - n` can be large enough to truncate when cast to
+                // usize and slip through the bound check.
+                let delta = seq - n;
+                if delta <= buffer.len() as u64 {
+                    let delta = delta as usize;
                     let start = buffer.len() - delta;
                     (AttachMode::Delta, buffer[start..].to_vec())
                 } else {
