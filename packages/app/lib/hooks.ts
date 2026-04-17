@@ -32,3 +32,46 @@ export function useIsMobile(breakpoint = 768): boolean {
 
   return isMobile;
 }
+
+/**
+ * Web-only. Tracks `window.visualViewport.height` so layouts can shrink when
+ * the mobile soft keyboard opens (dvh/vh units don't react to it). Returns
+ * `null` if `visualViewport` is unavailable — callers should fall back to
+ * `100dvh` or similar in that case.
+ */
+export function useVisualViewportHeight(): number | null {
+  const [height, setHeight] = useState<number | null>(() => {
+    if (
+      Platform.OS !== "web" ||
+      typeof window === "undefined" ||
+      !window.visualViewport
+    ) {
+      return null;
+    }
+    return window.visualViewport.height;
+  });
+
+  useEffect(() => {
+    if (
+      Platform.OS !== "web" ||
+      typeof window === "undefined" ||
+      !window.visualViewport
+    ) {
+      return;
+    }
+    const vv = window.visualViewport;
+    const update = () => setHeight(vv.height);
+    update();
+    vv.addEventListener("resize", update);
+    // iOS Safari fires `scroll` — not `resize` — when the keyboard shifts.
+    vv.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  return height;
+}

@@ -358,7 +358,6 @@ function CanvasComponent({
               isMobile={isMobile}
               isController={isMachineController(terminal.machine_id)}
               deviceId={deviceId}
-              desktopPanelOpen={false}
               onSelectTab={onSelectTab}
               onDestroy={onDestroy}
               onRequestControl={onRequestControl}

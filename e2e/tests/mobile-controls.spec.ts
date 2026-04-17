@@ -13,8 +13,6 @@ test.use({
 });
 
 test("mobile terminal flow works inside the responsive web shell", async ({ page }) => {
-  const proofFile = `e2e-mobile-${Date.now().toString(36)}.txt`;
-
   await openApp(page);
   await resetMachineState(page);
 
@@ -35,37 +33,8 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await expect(getImmersiveTerminal(page)).toBeVisible();
   await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Stop Control");
   await expect(page.getByTestId("terminal-fit-button")).toHaveText("Fit to Window");
-  await expect(page.getByTitle("Show command bar")).toBeVisible();
-
-  await page.getByTitle("Show command bar").click();
-  const commandInput = page.getByTestId("command-bar-input");
-  await expect(commandInput).toBeVisible();
-  await commandInput.fill(`: >/tmp/${proofFile}`);
-  await page.getByTestId("command-bar-send").click();
-  const token = await page.evaluate(() => localStorage.getItem("webmux:token"));
-  expect(token).toBeTruthy();
-
-  await expect
-    .poll(async () => {
-      const response = await page.request.get(
-        "/api/machines/e2e-node/fs/list?path=%2Ftmp",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-      if (!response.ok()) {
-        return [];
-      }
-
-      const entries = await response.json();
-      return entries.map((entry: { name: string }) => entry.name);
-    })
-    .toContain(proofFile);
-
-  await page.getByTitle("Hide command bar").click();
-  await expect(commandInput).toBeHidden();
+  // Mobile extended key bar keeps the keyboard toggle available in control mode
+  await expect(page.getByTitle("Show keyboard")).toBeVisible();
 
   await page.getByTestId("terminal-mode-toggle").click();
   await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Control Here");

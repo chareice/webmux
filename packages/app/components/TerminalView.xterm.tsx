@@ -225,19 +225,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             ws.send(JSON.stringify({ type: "command_input", data }));
           }
         },
-        sendImagePaste(base64: string, mime: string) {
-          const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) {
-            ws.send(
-              JSON.stringify({
-                type: "image_paste",
-                data: base64,
-                mime,
-                filename: `tc-paste-${Date.now()}.png`,
-              }),
-            );
-          }
-        },
         fitToContainer() {
           const fit = fitRef.current;
           const liveWs = wsRef.current;

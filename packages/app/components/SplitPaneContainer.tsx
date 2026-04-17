@@ -207,7 +207,6 @@ export function SplitPaneContainer({
           isMobile={isMobile}
           isController={isController}
           deviceId={deviceId}
-          desktopPanelOpen={false}
           onSelectTab={onSelectTab}
           onDestroy={onDestroy}
           onRequestControl={onRequestControl}

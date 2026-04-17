@@ -9,7 +9,7 @@
    **eval:** Mobile remains in viewing mode. The terminal still reflects the desktop-sized authoritative dimensions, but the local mobile view scales down so the full width stays readable.
 
 3. **action:** Inspect the mobile controls while still viewing
-   **eval:** The terminal shows `Control Here`, does not expose `Use This Size`, and does not allow command bar or keyboard input.
+   **eval:** The terminal shows `Control Here`, does not expose `Use This Size`, and does not allow keyboard input.
 
 ## Scenario 2: Explicit sizing round-trips cleanly between desktop and mobile
 

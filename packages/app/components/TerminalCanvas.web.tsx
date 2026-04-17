@@ -19,7 +19,7 @@ import {
 } from "@/lib/bootstrapState";
 import { getPersistentDeviceId } from "@/lib/deviceId";
 import { colors } from "@/lib/colors";
-import { useIsMobile } from "@/lib/hooks";
+import { useIsMobile, useVisualViewportHeight } from "@/lib/hooks";
 import { useShortcuts } from "@/lib/shortcuts";
 import {
   storePendingControlRelease,
@@ -40,12 +40,19 @@ const StatusBar = lazy(() =>
 const SettingsPage = lazy(() =>
   import("./SettingsPage").then((module) => ({ default: module.SettingsPage })),
 );
+const ConfirmDialog = lazy(() =>
+  import("./ConfirmDialog").then((module) => ({ default: module.ConfirmDialog })),
+);
 
 export function TerminalCanvas() {
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
   // null = grid overview ("All" tab), terminal id = single terminal tab
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const isMobile = useIsMobile();
+  const viewportHeight = useVisualViewportHeight();
+  // Track the real visual viewport so the layout shrinks when the mobile soft
+  // keyboard opens. xterm's existing ResizeObserver handles the refit.
+  const rootHeight: string = viewportHeight !== null ? `${viewportHeight}px` : "100dvh";
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const activeTabRef = useRef<string | null>(null);
   const lastSeqRef = useRef(0);
@@ -54,6 +61,10 @@ export function TerminalCanvas() {
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [closeConfirmation, setCloseConfirmation] = useState<
+    | { terminal: TerminalInfo; processName: string }
+    | null
+  >(null);
   const machines = browserState.machines;
   const terminals = browserState.terminals;
   const machineStats = browserState.machineStats;
@@ -338,22 +349,26 @@ export function TerminalCanvas() {
           terminal.id,
         );
         if (result.has_foreground_process) {
-          const name = result.process_name ?? "unknown";
-          if (
-            !window.confirm(
-              `"${name}" is still running. Close this terminal?`,
-            )
-          ) {
-            return;
-          }
+          setCloseConfirmation({
+            terminal,
+            processName: result.process_name ?? "unknown",
+          });
+          return;
         }
       } catch {
-        // If check fails, allow closing without confirmation
+        // If the foreground-process check fails, fall through and close.
       }
       await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
     },
     [deviceId, isMachineController],
   );
+
+  const confirmClosePending = useCallback(async () => {
+    if (!closeConfirmation || !deviceId) return;
+    const { terminal } = closeConfirmation;
+    setCloseConfirmation(null);
+    await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
+  }, [closeConfirmation, deviceId]);
 
   const handleSelectTab = useCallback((id: string | null) => {
     setActiveTabId(id);
@@ -454,7 +469,7 @@ export function TerminalCanvas() {
       style={{
         display: "flex",
         flexDirection: "column",
-        height: "100dvh",
+        height: rootHeight,
         width: "100vw",
         overflow: "hidden",
       }}
@@ -514,7 +529,7 @@ export function TerminalCanvas() {
                     position: "fixed",
                     top: 0,
                     left: 0,
-                    height: "100dvh",
+                    height: rootHeight,
                     zIndex: 85,
                   }
                 : {}
@@ -574,6 +589,21 @@ export function TerminalCanvas() {
           onReleaseControl={handleReleaseControl}
         />
       </Suspense>
+
+      {closeConfirmation && (
+        <Suspense fallback={null}>
+          <ConfirmDialog
+            open
+            title="Close terminal?"
+            message={`"${closeConfirmation.processName}" is still running in this terminal. Closing the terminal will terminate it.`}
+            confirmLabel="Close terminal"
+            cancelLabel="Cancel"
+            variant="danger"
+            onConfirm={confirmClosePending}
+            onCancel={() => setCloseConfirmation(null)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
