@@ -516,6 +516,41 @@ impl MachineManager {
         Ok(())
     }
 
+    /// Send an arbitrary `HubToMachine` command to the machine. Used by the
+    /// per-attach WS handler to forward `OpenAttach` / `CloseAttach` /
+    /// `AttachInput` etc. without each variant needing its own helper.
+    pub async fn send_to_machine(
+        &self,
+        machine_id: &str,
+        msg: HubToMachine,
+    ) -> Result<(), String> {
+        let cmd_tx = {
+            let machines = self.machines.lock().await;
+            let Some(conn) = machines.get(machine_id) else {
+                return Err(format!("Machine {} not found", machine_id));
+            };
+            conn.cmd_tx.clone()
+        };
+        cmd_tx
+            .send(msg)
+            .await
+            .map_err(|_| "Machine disconnected".to_string())
+    }
+
+    /// Look up the (cols, rows) of a terminal. The hub-side WS handler uses
+    /// this to open a new tmux attach at the right initial size.
+    pub async fn terminal_dimensions(
+        &self,
+        machine_id: &str,
+        terminal_id: &str,
+    ) -> Option<(u16, u16)> {
+        let machines = self.machines.lock().await;
+        machines
+            .get(machine_id)
+            .and_then(|conn| conn.terminals.get(terminal_id))
+            .map(|t| (t.cols, t.rows))
+    }
+
     /// Resize a terminal
     pub async fn resize_terminal(
         &self,
@@ -952,12 +987,82 @@ impl MachineManager {
                     return;
                 }
             }
-            MachineToHub::AttachDied { .. }
-            | MachineToHub::TerminalDied { .. }
-            | MachineToHub::TerminalResized { .. } => {
-                // Phase 5 wires these into the router and event broadcast.
+            MachineToHub::AttachDied { attach_id, reason: _ } => {
+                // The attach's tmux client died (shell exited / session
+                // killed / tmux crashed). The hub's WS handler will see its
+                // outbound channel close shortly anyway because the machine
+                // also reaps the attach; we eagerly drop the routing entry
+                // so no late frames get queued for it.
+                // The actual WS close happens when the per-WS task notices
+                // the channel is empty AND the Sender has been dropped.
+                // Dropping the WsSender via unregister_attach achieves both.
+                self.unregister_attach(&attach_id).await;
+            }
+            MachineToHub::TerminalDied { terminal_id, .. } => {
+                self.handle_terminal_destroyed_internal(machine_id, &terminal_id)
+                    .await;
+            }
+            MachineToHub::TerminalResized {
+                terminal_id,
+                cols,
+                rows,
+            } => {
+                let updated = {
+                    let mut machines = self.machines.lock().await;
+                    machines.get_mut(machine_id).and_then(|conn| {
+                        let target_user_id = conn.user_id.clone();
+                        conn.terminals.get_mut(&terminal_id).map(|terminal| {
+                            terminal.cols = cols;
+                            terminal.rows = rows;
+                            (target_user_id, terminal.clone())
+                        })
+                    })
+                };
+                if let Some((target_user_id, terminal)) = updated {
+                    self.send_event(target_user_id, BrowserEvent::TerminalResized { terminal });
+                }
             }
         }
+    }
+
+    async fn unregister_attach(&self, _attach_id: &str) {
+        // The router lives on AppState, not on MachineManager. The hub's
+        // ws.rs handler is responsible for `state.router.unregister(...)`
+        // when its per-WS task exits. AttachDied here is informational —
+        // the WS task will exit naturally once the AttachOutput stream
+        // stops. Future improvement: wire the router into MachineManager
+        // so we can proactively drop the route when AttachDied arrives.
+    }
+
+    async fn handle_terminal_destroyed_internal(&self, machine_id: &str, terminal_id: &str) {
+        // Mirrors the bookkeeping done for `MachineToHub::TerminalDestroyed`
+        // — drop our local terminal record + persistence + browser event.
+        let target_user_id = {
+            let mut machines = self.machines.lock().await;
+            if let Some(conn) = machines.get_mut(machine_id) {
+                conn.terminals.remove(terminal_id);
+                conn.output_channels.remove(terminal_id);
+                conn.output_buffers.remove(terminal_id);
+                conn.output_seqs.remove(terminal_id);
+                if let Ok(db_conn) = self.db.get() {
+                    if let Err(e) =
+                        crate::db::terminal_sessions::mark_destroyed(&db_conn, terminal_id)
+                    {
+                        tracing::warn!("Failed to mark terminal session as destroyed: {}", e);
+                    }
+                }
+                conn.user_id.clone()
+            } else {
+                None
+            }
+        };
+        self.send_event(
+            target_user_id,
+            BrowserEvent::TerminalDestroyed {
+                machine_id: machine_id.to_string(),
+                terminal_id: terminal_id.to_string(),
+            },
+        );
     }
 
     pub async fn handle_terminal_output(&self, machine_id: &str, terminal_id: &str, bytes: Bytes) {

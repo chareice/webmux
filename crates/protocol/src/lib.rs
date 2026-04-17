@@ -276,6 +276,12 @@ pub fn decode_terminal_output_frame(frame: &[u8]) -> Result<(String, Bytes), Str
     Ok((terminal_id, Bytes::copy_from_slice(&frame[2 + terminal_id_len..])))
 }
 
+/// Magic byte distinguishing attach-output binary frames from the legacy
+/// terminal-output frames. Inserted as the first byte of every attach
+/// output frame; legacy terminal output starts with the high byte of a
+/// u16 length, which for sub-32KB ids is 0x00 (always different from 0x01).
+const ATTACH_FRAME_MAGIC: u8 = 0x01;
+
 pub fn encode_attach_output_frame(attach_id: &str, data: &[u8]) -> Vec<u8> {
     let attach_id_bytes = attach_id.as_bytes();
     let attach_id_len: u16 = attach_id_bytes
@@ -283,7 +289,8 @@ pub fn encode_attach_output_frame(attach_id: &str, data: &[u8]) -> Vec<u8> {
         .try_into()
         .expect("attach_id is too long to encode");
 
-    let mut frame = Vec::with_capacity(2 + attach_id_bytes.len() + data.len());
+    let mut frame = Vec::with_capacity(1 + 2 + attach_id_bytes.len() + data.len());
+    frame.push(ATTACH_FRAME_MAGIC);
     frame.extend_from_slice(&attach_id_len.to_be_bytes());
     frame.extend_from_slice(attach_id_bytes);
     frame.extend_from_slice(data);
@@ -291,17 +298,31 @@ pub fn encode_attach_output_frame(attach_id: &str, data: &[u8]) -> Vec<u8> {
 }
 
 pub fn decode_attach_output_frame(frame: &[u8]) -> Result<(String, Bytes), String> {
-    if frame.len() < 2 {
+    if frame.is_empty() {
+        return Err("frame is empty".to_string());
+    }
+    if frame[0] != ATTACH_FRAME_MAGIC {
+        return Err(format!("frame magic is 0x{:02x}, expected attach", frame[0]));
+    }
+    let body = &frame[1..];
+    if body.len() < 2 {
         return Err("frame is missing attach id length".to_string());
     }
-    let attach_id_len = u16::from_be_bytes([frame[0], frame[1]]) as usize;
-    if frame.len() < 2 + attach_id_len {
+    let attach_id_len = u16::from_be_bytes([body[0], body[1]]) as usize;
+    if body.len() < 2 + attach_id_len {
         return Err("frame is truncated".to_string());
     }
-    let attach_id = std::str::from_utf8(&frame[2..2 + attach_id_len])
+    let attach_id = std::str::from_utf8(&body[2..2 + attach_id_len])
         .map_err(|error| format!("attach id is not valid utf-8: {error}"))?
         .to_string();
-    Ok((attach_id, Bytes::copy_from_slice(&frame[2 + attach_id_len..])))
+    Ok((attach_id, Bytes::copy_from_slice(&body[2 + attach_id_len..])))
+}
+
+/// Returns true if a binary WS frame is an attach output frame (vs the
+/// legacy terminal-output frame). Used by the hub's machine-WS dispatch
+/// during the migration window where both formats coexist.
+pub fn is_attach_output_frame(frame: &[u8]) -> bool {
+    !frame.is_empty() && frame[0] == ATTACH_FRAME_MAGIC
 }
 
 #[cfg(test)]
@@ -336,7 +357,24 @@ mod tests {
 
     #[test]
     fn attach_output_frame_rejects_truncated_payloads() {
-        let error = decode_attach_output_frame(&[0, 10, b't']).unwrap_err();
+        // 0x01 magic + truncated body
+        let error = decode_attach_output_frame(&[0x01, 0, 10, b't']).unwrap_err();
         assert!(error.contains("truncated"));
+    }
+
+    #[test]
+    fn attach_output_frame_rejects_wrong_magic() {
+        // Legacy terminal-output frame should NOT be parsed as attach.
+        let legacy = super::encode_terminal_output_frame("term", b"data");
+        assert!(decode_attach_output_frame(&legacy).is_err());
+    }
+
+    #[test]
+    fn is_attach_output_frame_distinguishes_formats() {
+        let attach = encode_attach_output_frame("a", b"d");
+        let legacy = encode_terminal_output_frame("t", b"d");
+        assert!(super::is_attach_output_frame(&attach));
+        assert!(!super::is_attach_output_frame(&legacy));
+        assert!(!super::is_attach_output_frame(&[]));
     }
 }

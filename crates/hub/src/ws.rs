@@ -7,12 +7,18 @@ use axum::{
     routing::get,
     Router,
 };
+use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use tc_protocol::{decode_terminal_output_frame, BrowserEventEnvelope, HubToMachine, MachineToHub};
+use tc_protocol::{
+    decode_attach_output_frame, decode_terminal_output_frame, is_attach_output_frame,
+    BrowserEventEnvelope, HubToMachine, MachineToHub,
+};
+use tokio::sync::mpsc;
 
+use crate::attach_router::WsSender;
 use crate::auth;
 use crate::db;
 use crate::machine_manager::AttachMode;
@@ -142,95 +148,72 @@ async fn handle_terminal_ws(
     terminal_id: String,
     device_id: String,
     user_id: Option<String>,
-    after_seq: Option<u64>,
+    _after_seq: Option<u64>,
     state: AppState,
 ) {
     let (mut sender, mut receiver) = socket.split();
+    let attach_id = uuid::Uuid::new_v4().to_string();
 
-    // Subscribe to terminal output from the machine with resume awareness.
-    let sub = match state
+    // Look up the terminal's intended dimensions so the new tmux attach
+    // opens at the right size from the start.
+    let (cols, rows) = state
         .manager
-        .subscribe_terminal_output_from(&machine_id, &terminal_id, after_seq)
+        .terminal_dimensions(&machine_id, &terminal_id)
+        .await
+        .unwrap_or((120, 36));
+
+    // Register the attach in the router BEFORE asking the machine to open
+    // it, so any AttachOutput that arrives can be routed immediately.
+    let (out_tx, mut out_rx) = mpsc::channel::<Bytes>(64);
+    state
+        .router
+        .register(
+            attach_id.clone(),
+            machine_id.clone(),
+            terminal_id.clone(),
+            WsSender(out_tx),
+        )
+        .await;
+
+    if let Err(e) = state
+        .manager
+        .send_to_machine(
+            &machine_id,
+            HubToMachine::OpenAttach {
+                attach_id: attach_id.clone(),
+                terminal_id: terminal_id.clone(),
+                cols,
+                rows,
+            },
+        )
         .await
     {
-        Ok(s) => s,
-        Err(e) => {
-            let msg = serde_json::to_string(&ServerMessage::Error { message: e }).unwrap();
-            let _ = sender.send(Message::Text(msg.into())).await;
-            return;
-        }
-    };
-    let mut output_rx = sub.output_rx;
-
-    // Announce the attach contract to the client: current seq, replay semantics,
-    // and exactly how many bytes of replay will follow before live output resumes.
-    // The client uses this to (re)align its own lastSeenSeq counter and, for
-    // `reset`, clear its terminal before writing the replay.
-    {
-        let msg = serde_json::to_string(&ServerMessage::Attach {
-            seq: sub.seq,
-            mode: sub.mode,
-            replay_bytes: sub.replay.len() as u64,
-        })
-        .unwrap();
-        if sender.send(Message::Text(msg.into())).await.is_err() {
-            return;
-        }
+        let msg = serde_json::to_string(&ServerMessage::Error { message: e }).unwrap();
+        let _ = sender.send(Message::Text(msg.into())).await;
+        state.router.unregister(&attach_id).await;
+        return;
     }
 
-    // Send replay bytes (empty for caught-up delta).
-    if !sub.replay.is_empty() {
-        if sender.send(Message::Binary(sub.replay.into())).await.is_err() {
-            return;
-        }
-    }
-    // Mouse-enable escape sequences used to be sent here as a server-generated
-    // binary frame. That broke the resume protocol: those bytes weren't counted
-    // in output_seq on the hub, but the client happily incremented lastSeenSeq
-    // for every binary byte, so after_seq would always run ahead of the hub
-    // and every reconnect would fall into AttachMode::Reset. Mouse mode is
-    // now enabled locally by the browser once per xterm instance in
-    // TerminalView.xterm.tsx, keeping the byte stream to pure PTY history.
-
-    // Task: forward terminal output to browser (coalesced in 8ms windows)
+    // Outbound: forward bytes from out_rx to the WS as binary frames.
+    // No coalescing needed — bytes are already chunked at PTY read size.
     let send_task = tokio::spawn(async move {
-        let mut batch = Vec::<u8>::new();
-        let mut tick = tokio::time::interval(std::time::Duration::from_millis(8));
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-        loop {
-            tokio::select! {
-                result = output_rx.recv() => {
-                    match result {
-                        Ok(data) => batch.extend_from_slice(&data),
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            // Flush remaining
-                            if !batch.is_empty() {
-                                let frame = std::mem::take(&mut batch);
-                                let _ = sender.send(Message::Binary(frame.into())).await;
-                            }
-                            break;
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    }
-                }
-
-                _ = tick.tick(), if !batch.is_empty() => {
-                    let frame = std::mem::take(&mut batch);
-                    if sender.send(Message::Binary(frame.into())).await.is_err() {
-                        break;
-                    }
-                }
+        while let Some(chunk) = out_rx.recv().await {
+            if sender
+                .send(Message::Binary(chunk.to_vec().into()))
+                .await
+                .is_err()
+            {
+                break;
             }
         }
     });
 
-    // Task: forward browser input to machine
+    // Inbound: forward browser input to the machine, routed by attach_id.
     let manager = state.manager.clone();
     let mid = machine_id.clone();
-    let tid = terminal_id.clone();
-    let did = device_id;
-    let uid = user_id;
+    let did = device_id.clone();
+    let uid = user_id.clone();
+    let aid_for_in = attach_id.clone();
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
@@ -245,23 +228,34 @@ async fn handle_terminal_ws(
                             continue;
                         }
 
-                        match client_msg {
+                        let to_send = match client_msg {
                             ClientMessage::Input { data }
                             | ClientMessage::CommandInput { data } => {
-                                let _ = manager.send_input(&mid, &tid, &data).await;
+                                Some(HubToMachine::AttachInput {
+                                    attach_id: aid_for_in.clone(),
+                                    data,
+                                })
                             }
                             ClientMessage::Resize { cols, rows } => {
-                                let _ = manager.resize_terminal(&mid, &tid, cols, rows).await;
+                                Some(HubToMachine::AttachResize {
+                                    attach_id: aid_for_in.clone(),
+                                    cols,
+                                    rows,
+                                })
                             }
                             ClientMessage::ImagePaste {
                                 data,
                                 mime,
                                 filename,
-                            } => {
-                                let _ = manager
-                                    .send_image_paste(&mid, &tid, &data, &mime, &filename)
-                                    .await;
-                            }
+                            } => Some(HubToMachine::AttachImagePaste {
+                                attach_id: aid_for_in.clone(),
+                                data,
+                                mime,
+                                filename,
+                            }),
+                        };
+                        if let Some(msg) = to_send {
+                            let _ = manager.send_to_machine(&mid, msg).await;
                         }
                     }
                     Err(e) => {
@@ -278,6 +272,18 @@ async fn handle_terminal_ws(
         _ = send_task => {},
         _ = recv_task => {},
     }
+
+    // Cleanup: tell the machine to close the attach + drop our routing entry.
+    let _ = state
+        .manager
+        .send_to_machine(
+            &machine_id,
+            HubToMachine::CloseAttach {
+                attach_id: attach_id.clone(),
+            },
+        )
+        .await;
+    state.router.unregister(&attach_id).await;
 }
 
 // ── Machine → Hub registration WebSocket ──
@@ -357,6 +363,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
 
                     // Handle incoming messages from machine
                     let manager = state.manager.clone();
+                    let router = state.router.clone();
                     let mid = machine_id.clone();
                     let recv_task = tokio::spawn(async move {
                         while let Some(Ok(msg)) = receiver.next().await {
@@ -369,17 +376,39 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                                     }
                                 }
                                 Message::Binary(data) => {
-                                    match decode_terminal_output_frame(&data) {
-                                        Ok((terminal_id, payload)) => {
-                                            manager
-                                                .handle_terminal_output(&mid, &terminal_id, payload)
-                                                .await;
+                                    if is_attach_output_frame(&data) {
+                                        match decode_attach_output_frame(&data) {
+                                            Ok((attach_id, payload)) => {
+                                                if let Some(sender) =
+                                                    router.lookup_sender(&attach_id).await
+                                                {
+                                                    // Best-effort delivery; if the WS task is gone
+                                                    // (browser disconnected), the channel will be
+                                                    // closed and the send fails — that's fine, the
+                                                    // upcoming CloseAttach will tell the machine.
+                                                    let _ = sender.0.send(payload).await;
+                                                }
+                                            }
+                                            Err(error) => {
+                                                tracing::warn!(
+                                                    "Failed to decode attach output frame: {}",
+                                                    error
+                                                );
+                                            }
                                         }
-                                        Err(error) => {
-                                            tracing::warn!(
-                                                "Failed to decode terminal output frame: {}",
-                                                error
-                                            );
+                                    } else {
+                                        match decode_terminal_output_frame(&data) {
+                                            Ok((terminal_id, payload)) => {
+                                                manager
+                                                    .handle_terminal_output(&mid, &terminal_id, payload)
+                                                    .await;
+                                            }
+                                            Err(error) => {
+                                                tracing::warn!(
+                                                    "Failed to decode terminal output frame: {}",
+                                                    error
+                                                );
+                                            }
                                         }
                                     }
                                 }
@@ -410,6 +439,14 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
         .manager
         .unregister_machine(&machine_id, &conn_id)
         .await;
+    let dropped = state.router.drop_machine(&machine_id).await;
+    if !dropped.is_empty() {
+        tracing::info!(
+            "dropped {} attach routing entries for offline machine {}",
+            dropped.len(),
+            machine_id
+        );
+    }
     tracing::info!(
         "Machine {} disconnected (conn={})",
         machine_id,

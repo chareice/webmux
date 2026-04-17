@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 
+use crate::attach_router::HubRouter;
 use crate::db::DbPool;
 use crate::machine_manager::MachineManager;
 
@@ -32,6 +33,7 @@ struct Args {
 #[derive(Clone)]
 pub struct AppState {
     pub manager: Arc<MachineManager>,
+    pub router: Arc<HubRouter>,
     pub db: DbPool,
     pub jwt_secret: String,
     pub base_url: String,
@@ -66,6 +68,7 @@ async fn main() {
 
     let state = AppState {
         manager: Arc::new(MachineManager::new(pool.clone())),
+        router: Arc::new(HubRouter::new()),
         db: pool,
         jwt_secret: env_or("JWT_SECRET", "dev-secret-change-me"),
         base_url: env_or("WEBMUX_BASE_URL", "http://localhost:4317"),

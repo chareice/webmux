@@ -179,6 +179,7 @@ mod tests {
 
         AppState {
             manager,
+            router: Arc::new(crate::attach_router::HubRouter::new()),
             db: pool,
             jwt_secret: "test-secret".to_string(),
             base_url: "http://localhost:4317".to_string(),
