@@ -348,6 +348,10 @@ function CanvasComponent({
         .map((terminal) => (
           <div key={terminal.id} style={{ display: "none" }}>
             <TerminalCard
+              // Redundant with the wrapper div's key, but keeps the React tree
+              // unambiguous if this structure ever changes. See
+              // docs/superpowers/specs/2026-04-17-terminal-resume-protocol-design.md.
+              key={terminal.id}
               ref={(el) => { terminalCardRefs.current[terminal.id] = el; }}
               terminal={terminal}
               displayMode="tab"

@@ -15,6 +15,7 @@ use tc_protocol::{decode_terminal_output_frame, BrowserEventEnvelope, HubToMachi
 
 use crate::auth;
 use crate::db;
+use crate::machine_manager::AttachMode;
 use crate::AppState;
 
 const DEVICE_DISCONNECT_GRACE_PERIOD: Duration = Duration::from_secs(10);
@@ -57,6 +58,12 @@ enum ClientMessage {
 enum ServerMessage {
     #[serde(rename = "error")]
     Error { message: String },
+    #[serde(rename = "attach")]
+    Attach {
+        seq: u64,
+        mode: AttachMode,
+        replay_bytes: u64,
+    },
 }
 
 fn client_message_allowed(
@@ -112,8 +119,20 @@ async fn terminal_ws_handler(
     }
 
     let device_id = params.get("device_id").cloned().unwrap_or_default();
+    // Optional resume protocol: client tells the hub the last byte-seq it has seen
+    // so the hub can send only a delta (or signal a reset if too far behind).
+    // Absent / unparseable → treated as a fresh attach.
+    let after_seq = params.get("after_seq").and_then(|s| s.parse::<u64>().ok());
     ws.on_upgrade(move |socket| {
-        handle_terminal_ws(socket, machine_id, terminal_id, device_id, user_id, state)
+        handle_terminal_ws(
+            socket,
+            machine_id,
+            terminal_id,
+            device_id,
+            user_id,
+            after_seq,
+            state,
+        )
     })
 }
 
@@ -123,42 +142,55 @@ async fn handle_terminal_ws(
     terminal_id: String,
     device_id: String,
     user_id: Option<String>,
+    after_seq: Option<u64>,
     state: AppState,
 ) {
     let (mut sender, mut receiver) = socket.split();
 
-    // Subscribe to terminal output from the machine
-    let (buffer, mut output_rx) = match state
+    // Subscribe to terminal output from the machine with resume awareness.
+    let sub = match state
         .manager
-        .subscribe_terminal_output(&machine_id, &terminal_id)
+        .subscribe_terminal_output_from(&machine_id, &terminal_id, after_seq)
         .await
     {
-        Ok(r) => r,
+        Ok(s) => s,
         Err(e) => {
             let msg = serde_json::to_string(&ServerMessage::Error { message: e }).unwrap();
             let _ = sender.send(Message::Text(msg.into())).await;
             return;
         }
     };
+    let mut output_rx = sub.output_rx;
 
-    // Send buffered output for replay
-    if !buffer.is_empty() {
-        if sender.send(Message::Binary(buffer.into())).await.is_err() {
+    // Announce the attach contract to the client: current seq, replay semantics,
+    // and exactly how many bytes of replay will follow before live output resumes.
+    // The client uses this to (re)align its own lastSeenSeq counter and, for
+    // `reset`, clear its terminal before writing the replay.
+    {
+        let msg = serde_json::to_string(&ServerMessage::Attach {
+            seq: sub.seq,
+            mode: sub.mode,
+            replay_bytes: sub.replay.len() as u64,
+        })
+        .unwrap();
+        if sender.send(Message::Text(msg.into())).await.is_err() {
             return;
         }
     }
 
-    // Re-enable mouse tracking for the new client.  tmux always runs with
-    // `mouse on`, but the enable escape sequences may have been pushed out
-    // of the 64 KB output buffer by subsequent terminal output.  Sending
-    // them again is idempotent — a no-op if already active.
-    {
-        // SGR mouse mode (1006) + all-motion tracking (1003)
-        const MOUSE_ENABLE: &[u8] = b"\x1b[?1003h\x1b[?1006h";
-        let _ = sender
-            .send(Message::Binary(MOUSE_ENABLE.to_vec().into()))
-            .await;
+    // Send replay bytes (empty for caught-up delta).
+    if !sub.replay.is_empty() {
+        if sender.send(Message::Binary(sub.replay.into())).await.is_err() {
+            return;
+        }
     }
+    // Mouse-enable escape sequences used to be sent here as a server-generated
+    // binary frame. That broke the resume protocol: those bytes weren't counted
+    // in output_seq on the hub, but the client happily incremented lastSeenSeq
+    // for every binary byte, so after_seq would always run ahead of the hub
+    // and every reconnect would fall into AttachMode::Reset. Mouse mode is
+    // now enabled locally by the browser once per xterm instance in
+    // TerminalView.xterm.tsx, keeping the byte stream to pure PTY history.
 
     // Task: forward terminal output to browser (coalesced in 8ms windows)
     let send_task = tokio::spawn(async move {
