@@ -194,6 +194,11 @@ export function SplitPaneContainer({
         onMouseDown={() => onActivatePane(node.terminalId)}
       >
         <TerminalCard
+          // Key by terminal.id so switching tabs remounts with a fresh xterm +
+          // WS. Without this, React reuses the component instance and the new
+          // tab's replay is written on top of the previous tab's content. See
+          // docs/superpowers/specs/2026-04-17-terminal-resume-protocol-design.md.
+          key={terminal.id}
           ref={(el) => {
             terminalCardRefs.current[terminal.id] = el;
           }}
