@@ -3,6 +3,7 @@ import { useEffect } from "react";
 interface ShortcutActions {
   newTerminal?: () => void;
   closeTab?: () => void;
+  closePane?: () => void;
   nextTab?: () => void;
   prevTab?: () => void;
   selectTab?: (index: number) => void;
@@ -18,6 +19,7 @@ export function isAppShortcut(event: KeyboardEvent): boolean {
 
   if (event.shiftKey && event.code === "KeyT") return true;
   if (!event.shiftKey && event.code === "KeyW") return true;
+  if (event.shiftKey && event.code === "KeyW") return true;
   if (!event.shiftKey && event.code === "Backslash") return true;
   if (event.shiftKey && event.code === "Backslash") return true;
   if (event.shiftKey && event.code === "BracketLeft") return true;
@@ -45,6 +47,12 @@ export function useShortcuts(actions: ShortcutActions) {
       if (!event.shiftKey && event.code === "KeyW") {
         event.preventDefault();
         actions.closeTab?.();
+        return;
+      }
+
+      if (event.shiftKey && event.code === "KeyW") {
+        event.preventDefault();
+        actions.closePane?.();
         return;
       }
 

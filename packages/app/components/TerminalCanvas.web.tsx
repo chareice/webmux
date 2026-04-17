@@ -413,6 +413,7 @@ export function TerminalCanvas() {
     splitHorizontal: () => void;
     focusPrevPane: () => void;
     focusNextPane: () => void;
+    closePane: () => void;
   } | null>(null);
 
   const handleSplitVertical = useCallback(() => {
@@ -431,9 +432,14 @@ export function TerminalCanvas() {
     splitPaneRef.current?.focusNextPane();
   }, []);
 
+  const handleClosePane = useCallback(() => {
+    splitPaneRef.current?.closePane();
+  }, []);
+
   useShortcuts({
     newTerminal: isActiveController ? handleNewTerminalFromTitleBar : undefined,
     closeTab: handleCloseActiveTab,
+    closePane: isActiveController ? handleClosePane : undefined,
     nextTab: handleNextTab,
     prevTab: handlePrevTab,
     selectTab: handleSelectTabByIndex,

@@ -2,7 +2,7 @@ import { memo, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { LayoutGrid, X, Plus } from "lucide-react";
 import { colors } from "@/lib/colors";
-import { isTauri } from "@/lib/platform";
+import { isTauri, detectOS } from "@/lib/platform";
 import { WindowControls } from "./WindowControls";
 
 interface TitleBarProps {
@@ -28,6 +28,7 @@ function TitleBarComponent({
   if (terminals.length === 0 && !isTauri()) return null;
 
   const isDesktop = isTauri();
+  const isMac = isDesktop && detectOS() === "macos";
 
   return (
     <div
@@ -44,8 +45,19 @@ function TitleBarComponent({
         WebkitAppRegion: isDesktop ? "drag" : undefined,
       } as React.CSSProperties}
     >
-      {/* Scrollable tabs area */}
+      {/* macOS: window controls on the left */}
+      {isMac && <WindowControls position="left" />}
+
+      {/* Scrollable tabs area — drag region for empty space */}
       <div
+        data-tauri-drag-region={isDesktop ? "" : undefined}
+        className="scrollbar-hidden"
+        onWheel={(e) => {
+          // Convert vertical wheel to horizontal scroll for mice without horizontal wheel
+          if (e.deltaY !== 0 && e.deltaX === 0) {
+            e.currentTarget.scrollLeft += e.deltaY;
+          }
+        }}
         style={{
           display: "flex",
           alignItems: "stretch",
@@ -53,8 +65,7 @@ function TitleBarComponent({
           minWidth: 0,
           overflowX: "auto",
           overflowY: "hidden",
-          WebkitAppRegion: "no-drag",
-        } as React.CSSProperties}
+        }}
       >
         {/* All tab */}
         <button
@@ -254,8 +265,8 @@ function TitleBarComponent({
         )}
       </div>
 
-      {/* Window controls */}
-      <WindowControls />
+      {/* Window controls — right side (Windows/Linux only) */}
+      <WindowControls position="right" />
     </div>
   );
 }

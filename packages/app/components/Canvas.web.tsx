@@ -38,6 +38,7 @@ interface CanvasProps {
     splitHorizontal: () => void;
     focusPrevPane: () => void;
     focusNextPane: () => void;
+    closePane: () => void;
   } | null>;
 }
 
@@ -66,18 +67,33 @@ function CanvasComponent({
   const [paneLayouts, setPaneLayouts] = useState<Record<string, PaneNode>>({});
   const [activePaneId, setActivePaneId] = useState<string | null>(null);
 
+  // Terminals that live inside a split pane (non-root leaves) — they should
+  // not appear as tabs.
+  const childPaneTerminalIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [tabId, layout] of Object.entries(paneLayouts)) {
+      for (const leaf of getLeaves(layout)) {
+        if (leaf.terminalId !== tabId) ids.add(leaf.terminalId);
+      }
+    }
+    return ids;
+  }, [paneLayouts]);
+
   // Reconcile tabOrder when terminals change
   const orderedTerminals = useMemo(() => {
-    const terminalIds = new Set(terminals.map((t) => t.id));
+    const tabTerminals = terminals.filter(
+      (t) => !childPaneTerminalIds.has(t.id),
+    );
+    const terminalIds = new Set(tabTerminals.map((t) => t.id));
     const kept = tabOrder.filter((id) => terminalIds.has(id));
     const keptSet = new Set(kept);
-    const added = terminals.filter((t) => !keptSet.has(t.id)).map((t) => t.id);
+    const added = tabTerminals.filter((t) => !keptSet.has(t.id)).map((t) => t.id);
     const finalOrder = [...kept, ...added];
     if (finalOrder.join(",") !== tabOrder.join(",")) {
       setTabOrder(finalOrder);
     }
-    return finalOrder.map((id) => terminals.find((t) => t.id === id)!).filter(Boolean);
-  }, [terminals, tabOrder]);
+    return finalOrder.map((id) => tabTerminals.find((t) => t.id === id)!).filter(Boolean);
+  }, [terminals, tabOrder, childPaneTerminalIds]);
 
   const handleReorderTabs = useCallback((newOrder: string[]) => {
     setTabOrder(newOrder);
@@ -212,6 +228,46 @@ function CanvasComponent({
     terminalCardRefs.current[leaves[nextIdx].terminalId]?.focus();
   }, [effectiveTabId, paneLayouts, activePaneId]);
 
+  const closePaneById = useCallback(
+    (terminalId: string) => {
+      if (!effectiveTabId) return;
+      const terminal = terminals.find((t) => t.id === terminalId);
+      if (!terminal) return;
+
+      // If closing the tab's root terminal but the tab still has other panes,
+      // re-key the layout to a surviving leaf and switch activeTabId to it,
+      // so the tab doesn't disappear from the bar.
+      const layout = paneLayouts[effectiveTabId];
+      if (
+        terminalId === effectiveTabId &&
+        layout &&
+        layout.type === "split"
+      ) {
+        const remaining = removePane(layout, terminalId);
+        if (remaining) {
+          const newRoot = getLeaves(remaining)[0]?.terminalId;
+          if (newRoot) {
+            setPaneLayouts((prev) => {
+              const copy = { ...prev };
+              delete copy[effectiveTabId];
+              copy[newRoot] = remaining;
+              return copy;
+            });
+            setActivePaneId(newRoot);
+            onSelectTab(newRoot);
+          }
+        }
+      }
+
+      onDestroy(terminal);
+    },
+    [effectiveTabId, paneLayouts, terminals, onDestroy, onSelectTab],
+  );
+
+  const handleClosePane = useCallback(() => {
+    if (activePaneId) closePaneById(activePaneId);
+  }, [activePaneId, closePaneById]);
+
   // Expose split pane handlers via ref for TerminalCanvas to wire shortcuts
   useEffect(() => {
     if (splitPaneRef) {
@@ -220,6 +276,7 @@ function CanvasComponent({
         splitHorizontal: () => handleSplitPane("horizontal"),
         focusPrevPane: handleFocusPrevPane,
         focusNextPane: handleFocusNextPane,
+        closePane: handleClosePane,
       };
     }
     return () => {
@@ -227,7 +284,7 @@ function CanvasComponent({
         splitPaneRef.current = null;
       }
     };
-  }, [splitPaneRef, handleSplitPane, handleFocusPrevPane, handleFocusNextPane]);
+  }, [splitPaneRef, handleSplitPane, handleFocusPrevPane, handleFocusNextPane, handleClosePane]);
 
   return (
     <main
@@ -268,6 +325,7 @@ function CanvasComponent({
             terminalCardRefs={terminalCardRefs}
             onSelectTab={onSelectTab}
             onDestroy={onDestroy}
+            onClosePane={closePaneById}
             onRequestControl={onRequestControl}
             onReleaseControl={onReleaseControl}
             onActivatePane={handleActivatePane}
@@ -556,6 +614,14 @@ function CanvasComponent({
               onClick: () => {
                 const ref = terminalCardRefs.current[contextMenu.terminalId];
                 ref?.sendInput("\x0c");
+              },
+            },
+            { type: "separator" as const },
+            {
+              label: "Close Pane",
+              shortcut: "Ctrl+Shift+W",
+              onClick: () => {
+                closePaneById(contextMenu.terminalId);
               },
             },
           ] as ContextMenuEntry[]}

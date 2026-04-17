@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import type { TerminalInfo } from "@webmux/shared";
 import type { PaneNode, PaneSplit } from "@/lib/paneLayout";
 import { TerminalCard } from "./TerminalCard.web";
@@ -15,10 +16,50 @@ interface SplitPaneContainerProps {
   terminalCardRefs: React.MutableRefObject<Record<string, TerminalCardRef | null>>;
   onSelectTab: (id: string | null) => void;
   onDestroy: (terminal: TerminalInfo) => void;
+  onClosePane: (terminalId: string) => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
   onActivatePane: (terminalId: string) => void;
   onUpdateRatio: (splitNode: PaneSplit, newRatio: number) => void;
+  // True when this node lives inside a split — controls the per-pane close affordance
+  inSplit?: boolean;
+}
+
+function PaneCloseButton({ onClose }: { onClose: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      title="Close pane (Ctrl+Shift+W)"
+      aria-label="Close pane"
+      style={{
+        position: "absolute",
+        top: 4,
+        right: 4,
+        width: 20,
+        height: 20,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: hovered ? colors.danger : "rgba(0,0,0,0.35)",
+        color: hovered ? "#fff" : colors.foregroundSecondary,
+        border: "none",
+        borderRadius: 4,
+        cursor: "pointer",
+        opacity: hovered ? 1 : 0.6,
+        transition: "opacity 0.15s, background 0.15s, color 0.15s",
+        zIndex: 2,
+      }}
+    >
+      <X size={12} />
+    </button>
+  );
 }
 
 interface ResizeHandleProps {
@@ -123,16 +164,20 @@ export function SplitPaneContainer({
   terminalCardRefs,
   onSelectTab,
   onDestroy,
+  onClosePane,
   onRequestControl,
   onReleaseControl,
   onActivatePane,
   onUpdateRatio,
+  inSplit,
 }: SplitPaneContainerProps) {
   if (node.type === "leaf") {
     const terminal = terminals.find((t) => t.id === node.terminalId);
     if (!terminal) return null;
 
     const isActive = activePaneId === node.terminalId;
+    const isController = isMachineController(terminal.machine_id);
+    const showPaneClose = !!inSplit && isController;
 
     return (
       <div
@@ -144,6 +189,7 @@ export function SplitPaneContainer({
           border: isActive ? `1px solid ${colors.accent}` : "1px solid transparent",
           borderRadius: 2,
           transition: "border-color 0.15s ease",
+          position: "relative",
         }}
         onMouseDown={() => onActivatePane(node.terminalId)}
       >
@@ -154,7 +200,7 @@ export function SplitPaneContainer({
           terminal={terminal}
           displayMode="tab"
           isMobile={isMobile}
-          isController={isMachineController(terminal.machine_id)}
+          isController={isController}
           deviceId={deviceId}
           desktopPanelOpen={false}
           onSelectTab={onSelectTab}
@@ -162,6 +208,9 @@ export function SplitPaneContainer({
           onRequestControl={onRequestControl}
           onReleaseControl={onReleaseControl}
         />
+        {showPaneClose && (
+          <PaneCloseButton onClose={() => onClosePane(terminal.id)} />
+        )}
       </div>
     );
   }
@@ -199,10 +248,12 @@ export function SplitPaneContainer({
           terminalCardRefs={terminalCardRefs}
           onSelectTab={onSelectTab}
           onDestroy={onDestroy}
+          onClosePane={onClosePane}
           onRequestControl={onRequestControl}
           onReleaseControl={onReleaseControl}
           onActivatePane={onActivatePane}
           onUpdateRatio={onUpdateRatio}
+          inSplit
         />
       </div>
       <ResizeHandle
@@ -227,10 +278,12 @@ export function SplitPaneContainer({
           terminalCardRefs={terminalCardRefs}
           onSelectTab={onSelectTab}
           onDestroy={onDestroy}
+          onClosePane={onClosePane}
           onRequestControl={onRequestControl}
           onReleaseControl={onReleaseControl}
           onActivatePane={onActivatePane}
           onUpdateRatio={onUpdateRatio}
+          inSplit
         />
       </div>
     </div>

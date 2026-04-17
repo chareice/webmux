@@ -175,17 +175,25 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
     const clipboardWrite = useCallback(async (text: string) => {
       if (isTauri()) {
-        const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
-        await writeText(text);
-      } else {
-        await navigator.clipboard.writeText(text);
+        try {
+          const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+          await writeText(text);
+          return;
+        } catch {
+          // Tauri plugin failed — fall through to browser API
+        }
       }
+      await navigator.clipboard.writeText(text);
     }, []);
 
     const clipboardRead = useCallback(async (): Promise<string> => {
       if (isTauri()) {
-        const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
-        return await readText();
+        try {
+          const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+          return await readText();
+        } catch {
+          // Tauri plugin failed — fall through to browser API
+        }
       }
       return await navigator.clipboard.readText();
     }, []);
@@ -378,32 +386,27 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         ) {
           event.preventDefault();
           void (async () => {
+            // Try navigator.clipboard.read() first — it works in Tauri WebView
+            // and supports images. Fall back to text-only if it throws.
             try {
-              if (isTauri()) {
-                // On Tauri, use native clipboard (text only — no image read API)
-                const text = await clipboardRead();
-                if (text) term.paste(text);
-              } else {
-                // On web, read full clipboard including images
-                const items = await navigator.clipboard.read();
-                for (const item of items) {
-                  const imageType = item.types.find((t) =>
-                    t.startsWith("image/"),
-                  );
-                  if (imageType) {
-                    const blob = await item.getType(imageType);
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      const base64 = (reader.result as string).split(",")[1];
-                      sendImageToWs(base64, imageType);
-                    };
-                    reader.readAsDataURL(blob);
-                    return;
-                  }
+              const items = await navigator.clipboard.read();
+              for (const item of items) {
+                const imageType = item.types.find((t) =>
+                  t.startsWith("image/"),
+                );
+                if (imageType) {
+                  const blob = await item.getType(imageType);
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const base64 = (reader.result as string).split(",")[1];
+                    sendImageToWs(base64, imageType);
+                  };
+                  reader.readAsDataURL(blob);
+                  return;
                 }
-                const text = await navigator.clipboard.readText();
-                if (text) term.paste(text);
               }
+              const text = await navigator.clipboard.readText();
+              if (text) term.paste(text);
             } catch {
               try {
                 const text = await clipboardRead();
