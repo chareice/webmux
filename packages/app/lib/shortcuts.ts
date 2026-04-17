@@ -7,6 +7,7 @@ interface ShortcutActions {
   nextTab?: () => void;
   prevTab?: () => void;
   selectTab?: (index: number) => void;
+  selectAll?: () => void;
   splitVertical?: () => void;
   splitHorizontal?: () => void;
   focusPrevPane?: () => void;
@@ -25,6 +26,7 @@ export function isAppShortcut(event: KeyboardEvent): boolean {
   if (event.shiftKey && event.code === "Backslash") return true;
   if (event.shiftKey && event.code === "BracketLeft") return true;
   if (event.shiftKey && event.code === "BracketRight") return true;
+  if (!event.shiftKey && event.code === "Digit0") return true;
   if (!event.shiftKey && event.code >= "Digit1" && event.code <= "Digit9") return true;
   if (event.key === "Tab") return true;
   if (!event.shiftKey && event.code === "KeyB") return true;
@@ -72,6 +74,12 @@ export function useShortcuts(actions: ShortcutActions) {
         event.preventDefault();
         if (event.shiftKey) a.prevTab?.();
         else a.nextTab?.();
+        return;
+      }
+
+      if (!event.shiftKey && event.code === "Digit0") {
+        event.preventDefault();
+        a.selectAll?.();
         return;
       }
 
