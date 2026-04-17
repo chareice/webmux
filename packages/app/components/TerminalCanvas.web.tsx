@@ -19,11 +19,13 @@ import {
   checkForegroundProcess,
   eventsWsUrl,
   getBootstrap,
+  getSettings,
   listBookmarks,
   requestControl,
   releaseControl,
   releaseControlKeepalive,
 } from "@/lib/api";
+import type { QuickCommand } from "./WorkpathOverlay.web";
 import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,
@@ -79,6 +81,28 @@ export function TerminalCanvas() {
   const [showSettings, setShowSettings] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
+  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
+
+  // Fetch quick-command settings once per session — the overlay used to
+  // do this on its own mount, but it mounts/unmounts every time the rail
+  // hover toggles. Lifted here so it's a single fetch shared by all
+  // overlay instances.
+  useEffect(() => {
+    let cancelled = false;
+    void getSettings()
+      .then((res) => {
+        if (cancelled) return;
+        try {
+          setQuickCommands(JSON.parse(res.settings.quick_commands || "[]"));
+        } catch {
+          /* malformed setting — leave empty */
+        }
+      })
+      .catch(() => { /* settings unreachable — leave empty */ });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [closeConfirmation, setCloseConfirmation] = useState<
     | { terminal: TerminalInfo; processName: string }
     | null
@@ -462,8 +486,13 @@ export function TerminalCanvas() {
     if (!activeMachine || !deviceId) return;
     if (!isMachineController(activeMachine.id)) return;
     if (layout.selectedWorkpathId === "all") {
-      const cwd = activeMachine.home_dir || "~";
-      await handleCreateTerminal(activeMachine.id, cwd);
+      // Per spec §6 ("In `All`, open directory picker"): don't silently
+      // pick home_dir — surface the workpath rail + add-directory picker
+      // so the user actively chooses where the new terminal lands.
+      if (!layout.columnForceExpanded) {
+        dispatchLayout({ type: "TOGGLE_NAV_FORCE_EXPANDED" });
+      }
+      setAddDirectoryOpen(true);
       return;
     }
     const bookmark = bookmarks.find((b) => b.id === layout.selectedWorkpathId);
@@ -574,6 +603,7 @@ export function TerminalCanvas() {
     selectedWorkpathId: layout.selectedWorkpathId,
     forceExpanded: layout.columnForceExpanded,
     canCreateTerminalForActiveMachine: isActiveController,
+    quickCommands,
     addDirectoryOpen,
     onSelectMachine: (id: string) => setActiveMachineId(id),
     onSelectAll: () =>
@@ -705,9 +735,8 @@ export function TerminalCanvas() {
               zIndex: 85,
             }}
           >
-            <Suspense fallback={null}>
-              <NavColumn {...navColumnProps} />
-            </Suspense>
+            {/* NavColumn isn't lazy-loaded, so no Suspense boundary needed. */}
+            <NavColumn {...navColumnProps} />
           </div>
         )}
 

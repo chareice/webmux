@@ -1,10 +1,9 @@
-import { memo, useEffect, useState } from "react";
+import { memo } from "react";
 import type { Bookmark, MachineInfo } from "@webmux/shared";
-import { getSettings } from "@/lib/api";
 import { colors } from "@/lib/colors";
 import { PathInput } from "./PathInput.web";
 
-interface QuickCommand {
+export interface QuickCommand {
   label: string;
   command: string;
 }
@@ -24,6 +23,10 @@ interface WorkpathOverlayProps {
   // so the rail's "+" button can open it (along with force-expanding the
   // overlay) and so a successful add can close it from any source.
   addDirectoryOpen: boolean;
+  // Quick-command suggestions, owned by the parent (TerminalCanvas) and
+  // fetched once per session — the overlay used to fetch on every mount
+  // even though it mounts/unmounts on every rail-hover.
+  quickCommands: QuickCommand[];
   onSelectAll: () => void;
   onSelectWorkpath: (id: string) => void;
   onCreateTerminal: (machineId: string, cwd: string, startupCommand?: string) => void;
@@ -45,6 +48,7 @@ function WorkpathOverlayComponent(props: WorkpathOverlayProps) {
     liveByBookmarkId,
     canCreateTerminal,
     addDirectoryOpen,
+    quickCommands,
     onSelectAll,
     onSelectWorkpath,
     onCreateTerminal,
@@ -56,20 +60,6 @@ function WorkpathOverlayComponent(props: WorkpathOverlayProps) {
     onPointerEnter,
     onPointerLeave,
   } = props;
-
-  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
-
-  useEffect(() => {
-    getSettings()
-      .then((res) => {
-        try {
-          setQuickCommands(JSON.parse(res.settings.quick_commands || "[]"));
-        } catch {
-          /* ignore */
-        }
-      })
-      .catch(() => { /* ignore */ });
-  }, []);
 
   const handleAdd = (path: string) => {
     if (!path) return;

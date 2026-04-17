@@ -84,7 +84,7 @@ function TerminalBreadcrumbComponent({
                   background: colors.accent,
                 }}
               />
-              {t.id.slice(0, 8)}
+              {(t.title || t.id.slice(0, 8)).slice(0, 16)}
             </button>
           ))}
       </div>

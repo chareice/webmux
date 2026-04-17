@@ -1,7 +1,7 @@
 import { memo, useRef, useState, useMemo } from "react";
 import type { Bookmark, MachineInfo, TerminalInfo } from "@webmux/shared";
 import { WorkpathRail, type RailWorkpath } from "./WorkpathRail.web";
-import { WorkpathOverlay } from "./WorkpathOverlay.web";
+import { WorkpathOverlay, type QuickCommand } from "./WorkpathOverlay.web";
 import { computeWorkpathTags } from "@/lib/workpathTag";
 
 interface NavColumnProps {
@@ -13,6 +13,7 @@ interface NavColumnProps {
   forceExpanded: boolean;
   canCreateTerminalForActiveMachine: boolean;
   addDirectoryOpen: boolean;
+  quickCommands: QuickCommand[];
   onSelectMachine: (id: string) => void;
   onSelectAll: () => void;
   onSelectWorkpath: (id: string) => void;
@@ -39,6 +40,7 @@ function NavColumnComponent(props: NavColumnProps) {
     forceExpanded,
     canCreateTerminalForActiveMachine,
     addDirectoryOpen,
+    quickCommands,
     onSelectMachine,
     onSelectAll,
     onSelectWorkpath,
@@ -152,6 +154,7 @@ function NavColumnComponent(props: NavColumnProps) {
           liveByBookmarkId={live}
           canCreateTerminal={canCreateTerminalForActiveMachine}
           addDirectoryOpen={addDirectoryOpen}
+          quickCommands={quickCommands}
           onSelectAll={onSelectAll}
           onSelectWorkpath={onSelectWorkpath}
           onCreateTerminal={onCreateTerminal}
