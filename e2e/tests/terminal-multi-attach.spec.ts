@@ -53,13 +53,18 @@ test("two simultaneous attaches both render the same terminal content", async ({
   await expect.poll(async () => (await listTerminals(pageA)).length).toBe(1);
 
   // Open in A first (drives initial tmux attach + repaint via the WS).
-  await pageA.getByTestId(`tab-${tid}`).click();
+  // Vertical-workpath UI: click the overview card to enter immersive mode.
+  await pageA
+    .locator(`[data-testid='terminal-card-${tid}']:visible`)
+    .click();
   await expect(getImmersiveTerminal(pageA)).toBeVisible();
 
   // Open the SAME terminal in browser B — it gets its own independent
   // tmux attach on the machine, hence its own fresh repaint.
   await openApp(pageB);
-  await pageB.getByTestId(`tab-${tid}`).click();
+  await pageB
+    .locator(`[data-testid='terminal-card-${tid}']:visible`)
+    .click();
   await expect(getImmersiveTerminal(pageB)).toBeVisible();
 
   const readBuffer =
