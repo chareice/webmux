@@ -38,12 +38,12 @@ The left column replaces **both** the current 260 px sidebar **and** the horizon
 
 **Collapsed state (default)** — 56 px wide, always visible:
 
-- Top: machine badge. Single-machine shows an abbreviation (`next`); multi-machine stacks badges vertically.
+- Top: machine badge. Shows the machine name if it fits in the rail (≤ 5 chars), otherwise a 2-char abbreviation. Multi-machine stacks badges vertically; the selected machine's badge is highlighted.
 - Separator.
 - `All` pill — always present, not removable.
 - One pill per bookmarked workpath (ordered by `sortOrder` from `listBookmarks`).
 - Each pill shows:
-  - Two-letter abbreviation derived from the bookmark label (`webmux` → `wm`, `z1` → `z1`, `tag-tracing` → `tt`). Collisions resolved by walking further into the label.
+  - Short tag (2 chars by default, up to 3 if needed to resolve collisions) derived deterministically from the bookmark label. `webmux` → `wm`, `z1` → `z1`, `tag-tracing` → `tt`. Full label shown in native tooltip on hover.
   - Small circle indicator when the workpath has at least one live terminal (terracotta `#d97757` when live, muted when all idle, hidden when no terminals).
   - Terminal count below the indicator when > 0.
 - Selected pill: left edge gets a 2 px terracotta bar and a subtle highlight background.
@@ -51,9 +51,10 @@ The left column replaces **both** the current 260 px sidebar **and** the horizon
 
 **Expanded state** — 240 px overlay:
 
-- Triggered by pointer entering the column or by `Cmd/Ctrl+B`.
+- Triggered by pointer entering the column (hover-expanded) or by `Cmd/Ctrl+B` (force-expanded).
 - Overlays the content area with a shadow; **does not** reflow the grid.
-- Collapses back on pointer leave after a short debounce, or on `Cmd/Ctrl+B`.
+- Hover-expanded collapses on pointer leave after a ~200 ms grace period.
+- Force-expanded ignores hover; stays expanded until `Cmd/Ctrl+B` is pressed again. Useful when you want to browse bookmarks without a timer watching you.
 - Shows machine name + OS header, the `All` row, and each bookmark with full label, full path, and quick-command chips (`c`, `cx`, user-defined).
 - Per-bookmark `×` button deletes the bookmark (same API as today).
 
@@ -87,13 +88,15 @@ Rendered when a card is clicked.
 |---|---|
 | `All` pill | Select `All`; show grid of every terminal across every workpath. |
 | Workpath pill with ≥ 1 terminal | Select workpath; show its Overview grid. |
-| Workpath pill with 0 terminals | Open a new terminal in that workpath (no startup command). Selection moves to the workpath. |
-| Quick-command chip (expanded state) | Open a new terminal in that workpath with the chip's command. |
+| Workpath pill with 0 terminals | Open a new terminal in that workpath (no startup command); select the workpath **and** zoom to the new terminal. |
+| Quick-command chip (expanded state) | Open a new terminal in that workpath with the chip's command; select and zoom. |
 | Card in grid | Enter zoomed view for that terminal. |
 | Sibling chip in breadcrumb | Swap zoomed terminal to the sibling. |
-| `+` at column bottom | Open directory picker to add a bookmark. |
-| `+ New terminal` in grid info bar | New terminal in the current workpath (or directory picker when `All`). |
+| `+` at column bottom | Open directory picker to add a bookmark (no terminal created). |
+| `+ New terminal` in grid info bar | New terminal in the current workpath (or directory picker when `All`); auto-zoom to it. |
 | Card `×` / breadcrumb `⋯` → Close | Destroy that terminal. |
+
+**Create-then-zoom rule.** Any action that creates a new terminal (empty pill click, quick-command chip, `+ New terminal`, `Cmd/Ctrl+T`) lands the user in the zoomed view for the new terminal. Rationale: the user just asked for a terminal, so put them in it.
 
 ## 6. Keyboard shortcuts
 
@@ -155,9 +158,10 @@ Files that are **not** changing materially: `SplitPaneContainer.tsx`, `TerminalC
 - **Keyboard shortcut conflicts** with platform defaults (`Cmd+T` for new tab in browsers). Web build already traps these for the terminal app; confirm no regression.
 - **Per-terminal switching is slightly slower** in the monitoring case (must zoom → chip → zoom). Acceptable because the common path is staying in Overview.
 
-## 11. Open questions
+## 11. Decisions deferred to implementation
 
-None blocking. The implementation plan will need to decide:
+None blocking design. The plan will resolve:
 
-- Whether the new state lives in an existing store (if there is one) or a new lightweight context.
+- Whether the new state lives in an existing store or a new lightweight context.
 - Whether `TitleBar.tsx` is kept as a thin window-chrome wrapper or merged into a parent component.
+- Exact collision-resolution algorithm for workpath tag abbreviation.
