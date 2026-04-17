@@ -7,10 +7,10 @@ import {
 describe("mainLayoutReducer", () => {
   const initial = createInitialMainLayout();
 
-  it("starts with All selected and no zoomed terminal", () => {
+  it("starts with All selected and no zoomed terminal, panel open", () => {
     expect(initial.selectedWorkpathId).toBe("all");
     expect(initial.zoomedTerminalId).toBeNull();
-    expect(initial.columnForceExpanded).toBe(false);
+    expect(initial.panelOpen).toBe(true);
   });
 
   it("SELECT_WORKPATH sets workpath and clears zoom", () => {
@@ -81,10 +81,10 @@ describe("mainLayoutReducer", () => {
     expect(next.selectedWorkpathId).toBe("wp-webmux");
   });
 
-  it("TOGGLE_NAV_FORCE_EXPANDED flips the flag", () => {
-    const once = mainLayoutReducer(initial, { type: "TOGGLE_NAV_FORCE_EXPANDED" });
-    expect(once.columnForceExpanded).toBe(true);
-    const twice = mainLayoutReducer(once, { type: "TOGGLE_NAV_FORCE_EXPANDED" });
-    expect(twice.columnForceExpanded).toBe(false);
+  it("TOGGLE_PANEL flips panelOpen", () => {
+    const closed = mainLayoutReducer(initial, { type: "TOGGLE_PANEL" });
+    expect(closed.panelOpen).toBe(false);
+    const open = mainLayoutReducer(closed, { type: "TOGGLE_PANEL" });
+    expect(open.panelOpen).toBe(true);
   });
 });

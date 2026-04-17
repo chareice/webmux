@@ -10,7 +10,7 @@ interface NavColumnProps {
   bookmarks: Bookmark[];
   terminals: TerminalInfo[];
   selectedWorkpathId: string | "all";
-  forceExpanded: boolean;
+  panelOpen: boolean;
   canCreateTerminalForActiveMachine: boolean;
   addDirectoryOpen: boolean;
   quickCommands: QuickCommand[];
@@ -37,7 +37,7 @@ function NavColumnComponent(props: NavColumnProps) {
     bookmarks,
     terminals,
     selectedWorkpathId,
-    forceExpanded,
+    panelOpen,
     canCreateTerminalForActiveMachine,
     addDirectoryOpen,
     quickCommands,
@@ -139,13 +139,13 @@ function NavColumnComponent(props: NavColumnProps) {
   // the input unmounts under their hands. Including `addDirectoryOpen` in
   // the expanded derivation keeps it open until the action resolves; on
   // resolution the overlay collapses naturally based on hover state.
-  const expanded = hoverExpanded || forceExpanded || addDirectoryOpen;
+  const expanded = hoverExpanded || panelOpen || addDirectoryOpen;
 
   // Collapse after an explicit overlay action (e.g. choosing a bookmark)
   // unless the user pinned the overlay open with Cmd/Ctrl-B. Add-directory
   // sets addDirectoryOpen which keeps the overlay alive on its own.
   const collapseAfterAction = () => {
-    if (forceExpanded) return;
+    if (panelOpen) return;
     cancelCollapse();
     setHoverExpanded(false);
   };

@@ -3,7 +3,7 @@ export type WorkpathSelection = "all" | string;
 export interface MainLayoutState {
   selectedWorkpathId: WorkpathSelection;
   zoomedTerminalId: string | null;
-  columnForceExpanded: boolean;
+  panelOpen: boolean;
 }
 
 export type MainLayoutAction =
@@ -13,13 +13,13 @@ export type MainLayoutAction =
   | { type: "TERMINAL_CREATED"; terminalId: string; workpathId: WorkpathSelection }
   | { type: "TERMINAL_DESTROYED"; terminalId: string }
   | { type: "WORKPATH_DELETED"; workpathId: string }
-  | { type: "TOGGLE_NAV_FORCE_EXPANDED" };
+  | { type: "TOGGLE_PANEL" };
 
 export function createInitialMainLayout(): MainLayoutState {
   return {
     selectedWorkpathId: "all",
     zoomedTerminalId: null,
-    columnForceExpanded: false,
+    panelOpen: true,
   };
 }
 
@@ -54,8 +54,8 @@ export function mainLayoutReducer(
         return { ...state, selectedWorkpathId: "all", zoomedTerminalId: null };
       }
       return state;
-    case "TOGGLE_NAV_FORCE_EXPANDED":
-      return { ...state, columnForceExpanded: !state.columnForceExpanded };
+    case "TOGGLE_PANEL":
+      return { ...state, panelOpen: !state.panelOpen };
     default: {
       // Exhaustiveness check: TS errors here if a new MainLayoutAction
       // variant is added without a matching case above. At runtime we

@@ -569,7 +569,7 @@ export function TerminalCanvas() {
     splitHorizontal: isActiveController ? handleSplitHorizontal : undefined,
     focusPrevPane: handleFocusPrevPane,
     focusNextPane: handleFocusNextPane,
-    toggleNav: () => dispatchLayout({ type: "TOGGLE_NAV_FORCE_EXPANDED" }),
+    toggleNav: () => dispatchLayout({ type: "TOGGLE_PANEL" }),
   });
 
   // Esc unzooms the immersive terminal view, as long as focus is not inside
@@ -600,7 +600,7 @@ export function TerminalCanvas() {
     bookmarks,
     terminals,
     selectedWorkpathId: layout.selectedWorkpathId,
-    forceExpanded: layout.columnForceExpanded,
+    panelOpen: layout.panelOpen,
     canCreateTerminalForActiveMachine: isActiveController,
     quickCommands,
     addDirectoryOpen,
