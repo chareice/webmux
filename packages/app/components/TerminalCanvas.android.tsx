@@ -7,8 +7,7 @@ import {
   BackHandler,
   StatusBar,
 } from "react-native";
-import type { TerminalInfo } from "@webmux/shared";
-import { Sidebar } from "./Sidebar";
+import type { MachineInfo, TerminalInfo } from "@webmux/shared";
 import { Canvas } from "./Canvas.android";
 import {
   createTerminal,
@@ -197,7 +196,9 @@ export function TerminalCanvas() {
         </Pressable>
       )}
 
-      {/* Sidebar overlay */}
+      {/* Sidebar overlay: lightweight machine picker for Android while the
+          web nav redesign bakes. Replace with a dedicated mobile nav once
+          ready. */}
       {sidebarOpen && (
         <>
           <Pressable
@@ -205,10 +206,10 @@ export function TerminalCanvas() {
             style={styles.backdrop}
           />
           <View style={styles.sidebarContainer}>
-            <Sidebar
+            <AndroidMachineList
               machines={machines}
+              isMachineController={isMachineController}
               onCreateTerminal={handleCreateTerminal}
-              canCreateTerminal={isMachineController}
               onRequestControl={(machineId) => {
                 if (!deviceId) return;
                 void requestControl(machineId, deviceId).then((next) => {
@@ -243,10 +244,80 @@ export function TerminalCanvas() {
   );
 }
 
+function AndroidMachineList({
+  machines,
+  isMachineController,
+  onCreateTerminal,
+  onRequestControl,
+}: {
+  machines: MachineInfo[];
+  isMachineController: (machineId: string) => boolean;
+  onCreateTerminal: (machineId: string, cwd: string) => void;
+  onRequestControl: (machineId: string) => void;
+}) {
+  return (
+    <View style={styles.androidMachineList}>
+      {machines.map((machine) => {
+        const canControl = isMachineController(machine.id);
+        return (
+          <View key={machine.id} style={styles.androidMachineRow}>
+            <Text style={styles.androidMachineName}>{machine.name}</Text>
+            {canControl ? (
+              <Pressable
+                onPress={() => onCreateTerminal(machine.id, machine.home_dir || "~")}
+                style={styles.androidActionButton}
+              >
+                <Text style={styles.androidActionText}>New terminal</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => onRequestControl(machine.id)}
+                style={styles.androidActionButton}
+              >
+                <Text style={styles.androidActionText}>Take control</Text>
+              </Pressable>
+            )}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  androidMachineList: {
+    width: 280,
+    height: "100%",
+    backgroundColor: colors.surface,
+    paddingTop: 48,
+    paddingHorizontal: 12,
+  },
+  androidMachineRow: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  androidMachineName: {
+    color: colors.foreground,
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  androidActionButton: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.accent,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  androidActionText: {
+    color: colors.background,
+    fontSize: 12,
+    fontWeight: "600",
   },
   hamburger: {
     position: "absolute",
