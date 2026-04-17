@@ -491,6 +491,44 @@ impl MachineManager {
             .map(|t| (t.cols, t.rows))
     }
 
+    /// Update the hub's terminal record + emit TerminalResized immediately,
+    /// without waiting for the machine to acknowledge. Used by the WS handler
+    /// when forwarding a controller's Resize so listTerminals callers right
+    /// after a resize see the new size; the machine's eventual TerminalResized
+    /// will re-affirm (and may correct, if tmux clamped).
+    pub async fn apply_optimistic_resize(
+        &self,
+        machine_id: &str,
+        terminal_id: &str,
+        cols: u16,
+        rows: u16,
+    ) {
+        let updated = {
+            let mut machines = self.machines.lock().await;
+            machines.get_mut(machine_id).and_then(|conn| {
+                let target_user_id = conn.user_id.clone();
+                conn.terminals.get_mut(terminal_id).map(|terminal| {
+                    terminal.cols = cols;
+                    terminal.rows = rows;
+                    (target_user_id, terminal.clone())
+                })
+            })
+        };
+        if let Some((target_user_id, terminal)) = updated {
+            if let Ok(db_conn) = self.db.get() {
+                if let Err(e) = crate::db::terminal_sessions::update_size(
+                    &db_conn,
+                    terminal_id,
+                    cols,
+                    rows,
+                ) {
+                    tracing::warn!("Failed to persist terminal size update: {}", e);
+                }
+            }
+            self.send_event(target_user_id, BrowserEvent::TerminalResized { terminal });
+        }
+    }
+
     /// Request directory listing from a machine
     pub async fn list_directory(
         &self,

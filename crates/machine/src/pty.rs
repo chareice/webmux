@@ -85,6 +85,27 @@ impl PtyManager {
             return Err(format!("tmux new-session failed (exit {})", status));
         }
 
+        // Pin the window size to "manual" *after* the session exists, so
+        // browser attaches with different viewport sizes don't tug the
+        // window. The session's size is whatever new-session set it to;
+        // controller-driven `tmux resize-window` calls from AttachResize
+        // are the only thing that changes it from now on.
+        //
+        // (We can't put `set -g window-size manual` in the config file —
+        // tmux 3.3a's server crashes during startup if window-size is
+        // manual but no client has yet established a base size.)
+        let _ = tmux_cmd()
+            .args([
+                "-L",
+                TMUX_SOCKET,
+                "set-option",
+                "-t",
+                &tmux_name,
+                "window-size",
+                "manual",
+            ])
+            .status();
+
         // Forward selected environment variables into the tmux session.
         for var in &["CLAUDE_CODE_NO_FLICKER"] {
             if let Ok(val) = std::env::var(var) {
@@ -341,7 +362,6 @@ set -s set-clipboard on
 set -g allow-passthrough on
 set -g focus-events on
 set -g history-limit 10000
-set -g window-size manual
 bind -n WheelUpPane if -Ft= '#{mouse_any_flag}' 'send -M' 'if -Ft= \"#{pane_in_mode}\" \"send -M\" \"copy-mode -e\"'
 ",
     );
@@ -604,9 +624,13 @@ mod tests {
             content.contains("WheelUpPane") && content.contains("copy-mode -e"),
             "missing scroll-to-copy-mode binding"
         );
+        // window-size is set per-session in create_terminal (after new-session)
+        // rather than via the global config, because tmux 3.3a's server
+        // crashes during startup if `set -g window-size manual` is in the
+        // config before any client has established a base size.
         assert!(
-            content.contains("set -g window-size manual"),
-            "missing window-size manual (controller-driven sizing)"
+            !content.contains("window-size manual"),
+            "window-size manual should NOT be in the global config"
         );
         assert!(
             content.contains("source-file -q \"/tmp/tmux.user.conf\""),

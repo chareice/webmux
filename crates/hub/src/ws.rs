@@ -190,6 +190,7 @@ async fn handle_terminal_ws(
     // Inbound: forward browser input to the machine, routed by attach_id.
     let manager = state.manager.clone();
     let mid = machine_id.clone();
+    let tid_for_in = terminal_id.clone();
     let did = device_id.clone();
     let uid = user_id.clone();
     let aid_for_in = attach_id.clone();
@@ -216,6 +217,16 @@ async fn handle_terminal_ws(
                                 })
                             }
                             ClientMessage::Resize { cols, rows } => {
+                                // Optimistically update the hub-side terminal
+                                // record + emit TerminalResized so any
+                                // listTerminals call right after a resize
+                                // sees the new size without waiting for the
+                                // machine round-trip. The machine's actual
+                                // TerminalResized reply (after tmux applies
+                                // it) will reaffirm or correct this.
+                                manager
+                                    .apply_optimistic_resize(&mid, &tid_for_in, cols, rows)
+                                    .await;
                                 Some(HubToMachine::AttachResize {
                                     attach_id: aid_for_in.clone(),
                                     cols,
