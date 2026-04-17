@@ -66,8 +66,10 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
     "Control Here",
   );
-  // The desktop "Fit to Window" button was removed (auto-fit is continuous
-  // when the user has control), so it should never appear on mobile.
+  // The mobile control bar still surfaces a fit button — but only when
+  // the user has control. The mobile page here is view-only (desktop
+  // holds the lease), so the button should be absent.
+  await expect(mobilePage.getByTestId("terminal-fit-button")).toHaveCount(0);
   await expect(mobilePage.getByTitle("Show keyboard")).toHaveCount(0);
   await expect
     .poll(async () => getTerminalViewScale(mobilePage))

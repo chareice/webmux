@@ -121,6 +121,19 @@ function NavColumnComponent(props: NavColumnProps) {
     }
   };
 
+  // Clear any pending collapse timer on unmount so the deferred
+  // setHoverExpanded never fires after the component is gone (React would
+  // warn in dev, and the ref state would lie about the timer being null).
+  useEffect(
+    () => () => {
+      if (collapseTimer.current) {
+        clearTimeout(collapseTimer.current);
+        collapseTimer.current = null;
+      }
+    },
+    [],
+  );
+
   // While the user is mid-action (typing in the add-directory PathInput),
   // the overlay must stay open even if the cursor wanders off — otherwise
   // the input unmounts under their hands. Including `addDirectoryOpen` in

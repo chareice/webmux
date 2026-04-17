@@ -9,14 +9,16 @@ import type { Bookmark } from "@webmux/shared";
 // sortOrder: undefined }`, which the NavColumn machine filter then dropped.
 describe("Bookmark wire contract", () => {
   it("accepts a snake_case payload from the API", () => {
+    // The Rust handler also emits `created_at`, but `Bookmark` deliberately
+    // doesn't surface it (no consumer reads it) — extra wire fields are
+    // safely ignored by JSON.parse, so we don't include it in the sample.
     const wire = JSON.parse(
       `{
         "id": "bm-1",
         "machine_id": "m-1",
         "path": "/tmp",
         "label": "tmp",
-        "sort_order": 0,
-        "created_at": 1700000000000
+        "sort_order": 0
       }`,
     ) as Bookmark;
 
