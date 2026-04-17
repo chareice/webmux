@@ -9,7 +9,7 @@ use tokio::sync::{broadcast, mpsc};
 
 const OUTPUT_BUFFER_SIZE: usize = 64 * 1024;
 const BROADCAST_CAPACITY: usize = 256;
-const TMUX_SOCKET: &str = "webmux";
+pub const TMUX_SOCKET: &str = "webmux";
 const TMUX_PREFIX: &str = "wmx_";
 const AUTO_REATTACH_MIN_UPTIME: Duration = Duration::from_secs(2);
 
@@ -240,6 +240,16 @@ impl PtyManager {
             .values()
             .map(|s| s.info.clone())
             .collect()
+    }
+
+    /// Cheap "is this id still alive on the machine" check used by the
+    /// session watcher's reconciliation loop. Returns just the ids without
+    /// cloning the full SessionInfo.
+    pub fn list_terminal_ids(&self) -> Vec<String> {
+        self.sessions
+            .lock()
+            .map(|s| s.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Capture the tmux scrollback buffer for a terminal.
@@ -960,7 +970,7 @@ fn check_tmux_available() -> bool {
         .unwrap_or(false)
 }
 
-fn tmux_session_name(id: &str) -> String {
+pub fn tmux_session_name(id: &str) -> String {
     format!("{}{}", TMUX_PREFIX, id)
 }
 
@@ -979,7 +989,7 @@ fn load_sessions_file() -> HashMap<String, PersistedSession> {
         .unwrap_or_default()
 }
 
-fn tmux_list_sessions() -> Vec<String> {
+pub fn tmux_list_sessions() -> Vec<String> {
     tmux_cmd()
         .args(["-L", TMUX_SOCKET, "list-sessions", "-F", "#{session_name}"])
         .output()
@@ -1003,6 +1013,78 @@ fn tmux_kill_session(id: &str) {
     let name = tmux_session_name(id);
     let _ = tmux_cmd()
         .args(["-L", TMUX_SOCKET, "kill-session", "-t", &name])
+        .status();
+}
+
+/// Spawn a fresh `tmux attach` for the given session id.
+///
+/// Returns the attach's PTY writer, reader, and the child process handle.
+/// Caller owns the lifecycle: drop / kill the child to detach. Used by
+/// `AttachManager` to give each browser its own tmux client view of the
+/// session.
+pub fn spawn_tmux_attach(
+    session_id: &str,
+    cols: u16,
+    rows: u16,
+) -> Result<
+    (
+        Box<dyn Write + Send>,
+        Box<dyn Read + Send>,
+        Box<dyn Child + Send + Sync>,
+    ),
+    String,
+> {
+    let tmux_name = tmux_session_name(session_id);
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("Failed to open pty: {}", e))?;
+
+    let mut cmd = CommandBuilder::new("tmux");
+    cmd.args(["-L", TMUX_SOCKET, "attach-session", "-t", &tmux_name]);
+    let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
+    cmd.env("TERM", term);
+
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("Failed to spawn tmux attach: {}", e))?;
+    drop(pair.slave);
+
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| format!("Failed to get writer: {}", e))?;
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("Failed to get reader: {}", e))?;
+
+    Ok((writer, reader, child))
+}
+
+/// Resize the tmux window for a session. With `window-size manual` set in
+/// tmux.conf, this is the only thing that changes the window size — clients
+/// attaching/detaching no longer auto-resize.
+pub fn tmux_resize_window(session_id: &str, cols: u16, rows: u16) {
+    let name = tmux_session_name(session_id);
+    let _ = tmux_cmd()
+        .args([
+            "-L",
+            TMUX_SOCKET,
+            "resize-window",
+            "-t",
+            &name,
+            "-x",
+            &cols.to_string(),
+            "-y",
+            &rows.to_string(),
+        ])
         .status();
 }
 

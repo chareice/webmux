@@ -1,3 +1,4 @@
+mod attach;
 mod config;
 mod hub_conn;
 mod pty;
