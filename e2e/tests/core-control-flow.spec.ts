@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 import {
   expectSingleTerminalCard,
-  expandNavColumn,
+  openPanel,
   openApp,
   resetMachineState,
 } from "./helpers";
@@ -15,17 +15,17 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
 
   await openApp(pageA);
   await resetMachineState(pageA);
-  await expandNavColumn(pageA);
+  await openPanel(pageA);
 
   await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
-  await pageA.getByTestId("overlay-request-control-e2e-node").click();
+  await pageA.getByTestId("panel-request-control-e2e-node").click();
   await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Stop Control");
 
   // Create a terminal from the "~" bookmark — auto-zooms.
-  await expandNavColumn(pageA);
-  await pageA.getByTestId("overlay-bookmark-local-home").click();
+  await openPanel(pageA);
+  await pageA.getByTestId("panel-bookmark-local-home").click();
   // Back to Overview grid so we can verify the card state.
-  await pageA.getByTestId("breadcrumb-back").click();
+  await pageA.getByTestId("panel-select-all").click();
   await expect(pageA.getByTestId("overview-header")).toBeVisible();
   const cardA = await expectSingleTerminalCard(pageA);
   await expect(cardA.getByLabel("Close terminal")).toBeVisible();
@@ -46,8 +46,8 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await expect(cardA.getByLabel("View only - cannot close")).toBeVisible();
 
   await cardB.getByLabel("Close terminal").click();
-  await expect(pageA.locator("[data-testid^='terminal-card-']:visible")).toHaveCount(0);
-  await expect(pageB.locator("[data-testid^='terminal-card-']:visible")).toHaveCount(0);
+  await expect(pageA.locator("[data-testid^='terminal-card-']:not([data-testid='terminal-card-workpath-label']):visible")).toHaveCount(0);
+  await expect(pageB.locator("[data-testid^='terminal-card-']:not([data-testid='terminal-card-workpath-label']):visible")).toHaveCount(0);
   // No terminals → empty-state inside Overview body.
   await expect(pageA.getByText(/No terminals/)).toBeVisible();
   await expect(pageB.getByText(/No terminals/)).toBeVisible();

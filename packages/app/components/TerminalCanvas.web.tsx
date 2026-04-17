@@ -650,8 +650,12 @@ export function TerminalCanvas() {
     panelOpen: layout.panelOpen,
     canCreateTerminalForActiveMachine: isActiveController,
     onSelectMachine: (id: string) => setActiveMachineId(id),
-    onSelectAll: () =>
-      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" }),
+    onSelectAll: () => {
+      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
+      if (window.location.hash.startsWith("#/t/")) {
+        window.history.pushState(null, "", window.location.pathname);
+      }
+    },
     onSelectWorkpath: handleSelectWorkpath,
     onCreateTerminal: handleCreateTerminal,
     onRequestControl: handleRequestControl,

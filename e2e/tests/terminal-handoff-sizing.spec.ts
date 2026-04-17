@@ -2,11 +2,13 @@ import { expect, test, devices } from "@playwright/test";
 
 import {
   expectSingleTerminalCard,
-  expandNavColumn,
+  openPanel,
   getImmersiveTerminal,
   listTerminals,
   openApp,
   resetMachineState,
+  getAuthHeaders,
+  getDeviceId,
 } from "./helpers";
 
 test("terminal size stays stable across tab view and cross-device handoff until fit is requested", async ({
@@ -22,10 +24,10 @@ test("terminal size stays stable across tab view and cross-device handoff until 
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await expandNavColumn(desktopPage);
-  await desktopPage.getByTestId("overlay-request-control-e2e-node").click();
-  await expandNavColumn(desktopPage);
-  await desktopPage.getByTestId("overlay-bookmark-local-home").click();
+  await openPanel(desktopPage);
+  await desktopPage.getByTestId("panel-request-control-e2e-node").click();
+  await openPanel(desktopPage);
+  await desktopPage.getByTestId("panel-bookmark-local-home").click();
 
   // After creating a terminal, it auto-switches to tab (immersive) view
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
@@ -86,11 +88,17 @@ test("terminal size stays stable across tab view and cross-device handoff until 
     )
     .toBe(1);
 
-  // Leave the zoomed view first — the card's "Close terminal" button is only
-  // exposed in the Overview grid.
-  await mobilePage.getByTestId("breadcrumb-back").click();
-  await expect(mobilePage.getByTestId("overview-header")).toBeVisible();
-  await mobilePage.getByLabel("Close terminal").first().click();
+  // Clean up via API — the mobile controller holds control and there is no
+  // accessible close button while the terminal is in immersive tab mode.
+  const mobileHeaders = await getAuthHeaders(mobilePage);
+  const mobileDeviceId = await getDeviceId(mobilePage);
+  const terminalsToClose = await listTerminals(mobilePage);
+  for (const t of terminalsToClose) {
+    await mobilePage.request.delete(
+      `/api/machines/${t.machine_id}/terminals/${t.id}?device_id=${encodeURIComponent(mobileDeviceId)}`,
+      { headers: mobileHeaders },
+    );
+  }
   await expect
     .poll(async () => listTerminals(mobilePage))
     .toEqual([]);

@@ -6,6 +6,7 @@ import {
   getImmersiveTerminal,
   listTerminals,
   openApp,
+  openPanel,
   requestMachineControl,
   resetMachineState,
 } from "./helpers";
@@ -42,7 +43,9 @@ test("switching tabs does not bleed content from the previous terminal", async (
       {
         headers,
         data: {
-          cwd: "/tmp",
+          // Use the home dir so terminals fall under the local-home bookmark,
+          // making them visible in the workpath tab strip (State 4).
+          cwd: "/root",
           device_id: deviceId,
           startup_command: `printf '%s\\n' '${marker}'`,
         },
@@ -96,22 +99,28 @@ test("switching tabs does not bleed content from the previous terminal", async (
     }, terminalId);
   };
 
-  // Enter immersive mode for terminal A via the Overview card.
-  // (The same testid also matches a hidden-mount copy; scope to visible.)
-  await page.locator(`[data-testid='terminal-card-${idA}']:visible`).click();
+  // Navigate into the local-home workpath via the panel. With 2 terminals
+  // matching the bookmark, this enters State 4 (tab strip + immersive) and
+  // auto-zooms the first terminal.
+  await openPanel(page);
+  await page.getByTestId("panel-bookmark-local-home").click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
+  await expect(page.getByTestId("tab-strip")).toBeVisible();
+
+  // Make sure we are on terminal A — click its tab explicitly.
+  await page.getByTestId(`tab-${idA}`).click();
   const termAText = await readTerminalBuffer(idA);
   expect(termAText).toContain(markerA);
   expect(termAText).not.toContain(markerB);
 
-  // Switch to terminal B via the breadcrumb sibling chip.
-  await page.getByTestId(`breadcrumb-sibling-${idB}`).click();
+  // Switch to terminal B via the tab strip.
+  await page.getByTestId(`tab-${idB}`).click();
   const termBText = await readTerminalBuffer(idB);
   expect(termBText).toContain(markerB);
   expect(termBText).not.toContain(markerA);
 
   // Switch back to A — the bug surfaced here most often: old B content stuck.
-  await page.getByTestId(`breadcrumb-sibling-${idA}`).click();
+  await page.getByTestId(`tab-${idA}`).click();
   const termAText2 = await readTerminalBuffer(idA);
   expect(termAText2).toContain(markerA);
   expect(termAText2).not.toContain(markerB);

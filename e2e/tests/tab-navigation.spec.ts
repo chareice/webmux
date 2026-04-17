@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 import {
-  expandNavColumn,
+  openPanel,
   expectTerminalCount,
   getImmersiveTerminal,
   getTerminalCards,
@@ -22,27 +22,27 @@ test("workpath navigation: create, zoom, back, filter", async ({ browser }) => {
   await expect(page.getByTestId("overview-header")).toBeVisible();
 
   // Take control and open a terminal from the "~" bookmark.
-  await expandNavColumn(page);
+  await openPanel(page);
   await page
-    .getByTestId("overlay-request-control-e2e-node")
+    .getByTestId("panel-request-control-e2e-node")
     .click()
     .catch(() => {
-      /* already controlled — overlay hides the button */
+      /* already controlled — panel hides the button once control is taken */
     });
-  await expandNavColumn(page);
-  await page.getByTestId("overlay-bookmark-local-home").click();
+  await openPanel(page);
+  await page.getByTestId("panel-bookmark-local-home").click();
 
-  // After create → zoomed view
+  // After create → zoomed view with tab strip visible
   await expect(getImmersiveTerminal(page)).toBeVisible();
-  await expect(page.getByTestId("terminal-breadcrumb")).toBeVisible();
+  await expect(page.getByTestId("tab-strip")).toBeVisible();
 
   const terminals1 = await listTerminals(page);
   expect(terminals1).toHaveLength(1);
   const t1 = terminals1[0].id;
   expect(page.url()).toContain(`#/t/${t1}`);
 
-  // Back to Overview via breadcrumb
-  await page.getByTestId("breadcrumb-back").click();
+  // Back to Overview via panel select-all (mouse-driven navigation)
+  await page.getByTestId("panel-select-all").click();
   await expect(page.getByTestId("overview-header")).toBeVisible();
   await expectTerminalCount(page, 1);
   expect(page.url()).not.toContain("#/t/");
@@ -52,8 +52,8 @@ test("workpath navigation: create, zoom, back, filter", async ({ browser }) => {
   await expect(getImmersiveTerminal(page)).toBeVisible();
   expect(page.url()).toContain(`#/t/${t1}`);
 
-  // Back via breadcrumb (Esc is consumed by xterm when the terminal has focus)
-  await page.getByTestId("breadcrumb-back").click();
+  // Back via panel select-all (Esc is consumed by xterm when terminal has focus)
+  await page.getByTestId("panel-select-all").click();
   await expect(page.getByTestId("overview-header")).toBeVisible();
 
   // Create a second terminal in the current workpath via the Overview header

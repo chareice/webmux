@@ -1,7 +1,7 @@
 import { test, expect, devices } from "@playwright/test";
 
 import {
-  expandNavColumn,
+  openPanel,
   getImmersiveTerminal,
   openApp,
   resetMachineState,
@@ -26,11 +26,11 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await page.getByTestId("statusbar-mode-toggle").click();
   await expect(page.getByTestId("statusbar-mode-toggle")).toHaveText("Stop Control");
 
-  // Open the mobile drawer (which renders the full NavColumn), then expand
-  // its overlay so the bookmark row is interactive.
+  // Open the mobile drawer (which renders the full panel), then select
+  // the bookmark so the terminal is created.
   await page.getByTestId("mobile-sidebar-toggle").click();
-  await expandNavColumn(page);
-  await page.getByTestId("overlay-bookmark-local-home").click();
+  await openPanel(page);
+  await page.getByTestId("panel-bookmark-local-home").click();
 
   // After creating, terminal auto-zooms (immersive view)
   await expect(getImmersiveTerminal(page)).toBeVisible();
@@ -44,13 +44,13 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await page.getByTestId("terminal-mode-toggle").click();
   await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Stop Control");
 
-  // Leave the zoomed view via the breadcrumb back button, then close
-  // the terminal from its card in the Overview grid.
-  await page.getByTestId("breadcrumb-back").click();
-  await expect(page.getByTestId("overview-header")).toBeVisible();
-  const card = page.locator("[data-testid^='terminal-card-']:visible").first();
-  await expect(card).toBeVisible();
-  await card.getByLabel("Close terminal").click();
-  await expect(page.locator("[data-testid^='terminal-card-']:visible")).toHaveCount(0);
-  await expect(page.getByText(/No terminals/)).toBeVisible();
+  // Close the terminal directly from the tab strip's close button. The mobile
+  // sidebar toggle is hidden while a terminal is zoomed, so we can't navigate
+  // via the panel — close the active tab instead.
+  // The close button is visible for the active tab (isActive=true in TabStrip).
+  await page.locator("[data-testid^='tab-close-']").first().click();
+  // After closing the last terminal, the workpath has 0 terminals → State 3
+  // (WorkpathEmptyState). The immersive terminal is gone.
+  await expect(getImmersiveTerminal(page)).not.toBeVisible();
+  await expect(page.getByTestId("workpath-empty")).toBeVisible();
 });

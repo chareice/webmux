@@ -1,7 +1,9 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
 const MACHINE_ID = "e2e-node";
-const TERMINAL_CARD_SELECTOR = "[data-testid^='terminal-card-']";
+// Matches the root TerminalCard element but not sub-elements like
+// terminal-card-workpath-label that share the same testid prefix.
+const TERMINAL_CARD_SELECTOR = "[data-testid^='terminal-card-']:not([data-testid='terminal-card-workpath-label'])";
 
 async function authenticate(page: Page): Promise<void> {
   const response = await page.request.get("/api/auth/dev");
@@ -21,7 +23,7 @@ export async function openApp(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto("/");
   await Promise.race([
-    page.getByTestId("workpath-rail").waitFor({
+    page.getByTestId("workpath-panel").waitFor({
       state: "visible",
       timeout: 20_000,
     }),
@@ -102,24 +104,33 @@ export async function resetMachineState(page: Page): Promise<void> {
 }
 
 /**
- * Expand the nav column by hovering the rail so the overlay becomes visible.
- * The overlay is also force-expanded by `Cmd/Ctrl+B`, but hover is the
- * stable path for tests (no keyboard focus races).
+ * Open the workpath panel. The panel is visible by default; if a previous
+ * test state closed it (panelOpen=false removes it from the DOM), send
+ * Cmd+B to re-open, then assert it's visible.
+ *
+ * We wait up to 3 s for the panel to appear on its own (e.g. after a page
+ * reload while machines are still bootstrapping) before sending Cmd+B. This
+ * prevents accidentally toggling the panel closed when the element is
+ * temporarily absent during bootstrap.
  */
-export async function expandNavColumn(page: Page): Promise<void> {
-  const overlay = page.getByTestId("workpath-overlay");
-  if (await overlay.isVisible().catch(() => false)) {
-    return;
+export async function openPanel(page: Page): Promise<void> {
+  const panel = page.getByTestId("workpath-panel");
+  // Wait up to 3 s for the panel to appear naturally (bootstrap may take a moment)
+  const isVisible = await panel.waitFor({ state: "visible", timeout: 3_000 }).then(() => true).catch(() => false);
+  if (!isVisible) {
+    // Panel didn't appear — it must be toggled closed. Open it with Cmd+B.
+    await page.keyboard.press("Meta+B");
   }
-  const rail = page.getByTestId("workpath-rail");
-  await rail.hover();
-  await expect(overlay).toBeVisible();
+  await expect(panel).toBeVisible();
 }
 
-// Backwards-compatible alias. The old helper was named after the sidebar's
-// per-machine section; the new nav column uses a single overlay.
+// Keep the old names as aliases so call-sites can be updated incrementally.
+export async function expandNavColumn(page: Page): Promise<void> {
+  await openPanel(page);
+}
+
 export async function expandMachineSection(page: Page): Promise<void> {
-  await expandNavColumn(page);
+  await openPanel(page);
 }
 
 export async function expectSingleTerminalCard(page: Page): Promise<Locator> {
@@ -149,8 +160,8 @@ export async function openRootBookmark(page: Page): Promise<void> {
     await sidebarToggle.click();
   }
 
-  await expandNavColumn(page);
-  await page.getByTestId("overlay-bookmark-local-home").click();
+  await openPanel(page);
+  await page.getByTestId("panel-bookmark-local-home").click();
 }
 
 export function getGlobalModeToggle(page: Page): Locator {
