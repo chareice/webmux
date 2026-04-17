@@ -1,7 +1,6 @@
 export interface TerminalViewRef {
   sendInput: (data: string) => void;
   sendCommandInput: (data: string) => void;
-  sendImagePaste: (base64: string, mime: string) => void;
   fitToContainer: () => void;
   focus: () => void;
 }

@@ -3,7 +3,6 @@ import type { TerminalInfo } from "@webmux/shared";
 import { X } from "lucide-react";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
-import { CommandBar } from "./CommandBar";
 import { terminalWsUrl } from "@/lib/api";
 import { colors, terminalTheme } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
@@ -26,7 +25,6 @@ interface TerminalCardProps {
   isMobile: boolean;
   isController: boolean;
   deviceId: string;
-  desktopPanelOpen?: boolean;
   onSelectTab: (id: string | null) => void;
   onDestroy: (terminal: TerminalInfo) => void;
   onRequestControl?: (machineId: string) => void;
@@ -39,7 +37,6 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   isMobile,
   isController,
   deviceId,
-  desktopPanelOpen = false,
   onSelectTab,
   onDestroy,
   onRequestControl,
@@ -47,7 +44,6 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
 }, ref) {
   const termViewRef = useRef<TerminalViewRef>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [commandBarVisible, setCommandBarVisible] = useState(false);
   const controlCopy = getTerminalControlCopy(isController);
   const isTab = displayMode === "tab";
 
@@ -70,18 +66,12 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
       return;
     }
     setKeyboardVisible(false);
-    setCommandBarVisible(false);
   }, [isController]);
 
   const handleToolbarKey = useCallback((data: string) => {
     if (!isController) return;
     termViewRef.current?.sendCommandInput(data);
     termViewRef.current?.focus();
-  }, [isController]);
-
-  const handleImagePaste = useCallback((base64: string, mime: string) => {
-    if (!isController) return;
-    termViewRef.current?.sendImagePaste(base64, mime);
   }, [isController]);
 
   const handleCardClick = useCallback(() => {
@@ -380,11 +370,6 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
               </Suspense>
             ) : null}
           </div>
-          {isTab && !isMobile && desktopPanelOpen && (
-            <div style={{ width: 200, minWidth: 200, borderLeft: `1px solid ${colors.border}` }}>
-              <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
-            </div>
-          )}
         </div>
 
         {/* Mobile ExtendedKeyBar */}
@@ -392,25 +377,9 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
           <ExtendedKeyBar
             onKey={handleToolbarKey}
             onToggleKeyboard={() => setKeyboardVisible(v => !v)}
-            onToggleCommandBar={() => {
-              if (!isController) return;
-              setCommandBarVisible(v => !v);
-            }}
             keyboardVisible={keyboardVisible}
-            commandBarVisible={commandBarVisible}
             isController={isController}
           />
-        )}
-
-        {/* Mobile CommandBar bottom sheet */}
-        {isTab && isMobile && commandBarVisible && (
-          <div style={{
-            borderTop: `1px solid ${colors.border}`,
-            maxHeight: '40vh',
-            overflow: 'auto',
-          }}>
-            <CommandBar onSend={handleToolbarKey} onImagePaste={handleImagePaste} />
-          </div>
         )}
       </div>
 
@@ -444,7 +413,6 @@ function areTerminalCardPropsEqual(
     previous.isMobile === next.isMobile &&
     previous.isController === next.isController &&
     previous.deviceId === next.deviceId &&
-    previous.desktopPanelOpen === next.desktopPanelOpen &&
     previous.onSelectTab === next.onSelectTab &&
     previous.onDestroy === next.onDestroy &&
     previous.onRequestControl === next.onRequestControl &&

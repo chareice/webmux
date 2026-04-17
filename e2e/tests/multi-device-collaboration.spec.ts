@@ -54,7 +54,6 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
     "Control Here",
   );
   await expect(mobilePage.getByTestId("terminal-fit-button")).toHaveCount(0);
-  await expect(mobilePage.getByTitle("Show command bar")).toBeDisabled();
   await expect(mobilePage.getByTitle("Show keyboard")).toHaveCount(0);
   await expect
     .poll(async () => getTerminalViewScale(mobilePage))

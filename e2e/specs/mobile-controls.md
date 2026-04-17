@@ -18,25 +18,19 @@
    **eval:** Sidebar closes automatically. A terminal card appears in single-column layout with: title bar showing "Terminal [id]" with green dot, maximize button (⤢), and close button (✕). Terminal area shows `#` shell prompt. Footer shows "/root" path
 
 4. **action:** Tap the terminal card to maximize it
-   **eval:** Terminal goes fullscreen (no border radius). Title bar shows terminal name, minimize button (⤡), close button (✕), and a "Use This Size" action while controlling. Bottom shows ExtendedKeyBar toolbar (44px) with: keyboard toggle icon, "Esc", "Tab", "|", "~" keys, then arrow keys "↑", "↓", "←", "→" (scrollable to reveal more). Below toolbar: "/root" path. ">_" command bar button visible at far right of toolbar
+   **eval:** Terminal goes fullscreen (no border radius). Title bar shows terminal name, minimize button (⤡), close button (✕), and a "Use This Size" action while controlling. Bottom shows ExtendedKeyBar toolbar (44px) with: keyboard toggle icon, "Esc", "Tab", "|", "~" keys, then arrow keys "↑", "↓", "←", "→" (scrollable to reveal more). Below toolbar: "/root" path
 
 5. **action:** Tap the terminal input area, type "echo hello" and press Enter
    **eval:** Terminal displays "# echo hello" followed by "hello" output on next line, then a new `#` prompt with cursor
 
-6. **action:** Tap the ">_" button in the ExtendedKeyBar
-   **eval:** Command bar panel opens at bottom with: "CONTROL" heading, "Command..." text input, "Paste image or drag file" label with "IMG" and "Send" buttons, shortcut list including Ctrl+C (Interrupt), Ctrl+D (EOF), Ctrl+Z (Suspend), Ctrl+L (Clear), Ctrl+R (Search history), Ctrl+A (Line start), Ctrl+E (Line end), Tab (Autocomplete)
-
-7. **action:** Tap the ">_" button again to close the command bar
-   **eval:** Command bar panel closes, only the ExtendedKeyBar toolbar remains at bottom
-
-8. **action:** Tap the "Stop Control" button in the mode indicator
+6. **action:** Tap the "Stop Control" button in the mode indicator
    **eval:** Mode switches to viewing. The toggle changes to "Control Here", the keyboard button disappears from the toolbar, and terminal content remains visible but input is disabled
 
-9. **action:** Tap the "Control Here" button
+7. **action:** Tap the "Control Here" button
    **eval:** Mode switches back to controlling. The toggle changes to "Stop Control", the keyboard button reappears in the toolbar, and terminal input is re-enabled
 
-10. **action:** Tap the minimize button (⤡) in the maximized terminal title bar
-    **eval:** Terminal should return to card view (non-fullscreen), showing the terminal card in single-column grid layout with maximize button (⤢) available again
+8. **action:** Tap the minimize button (⤡) in the maximized terminal title bar
+   **eval:** Terminal should return to card view (non-fullscreen), showing the terminal card in single-column grid layout with maximize button (⤢) available again
 
-11. **action:** Tap the close button (✕) on the terminal card
-    **eval:** Terminal is destroyed and removed from the grid. Page returns to empty state with onboarding text "Tap ≡ to open a terminal"
+9. **action:** Tap the close button (✕) on the terminal card
+   **eval:** Terminal is destroyed and removed from the grid. Page returns to empty state with onboarding text "Tap ≡ to open a terminal"

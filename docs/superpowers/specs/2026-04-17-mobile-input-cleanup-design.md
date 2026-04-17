@@ -219,6 +219,35 @@ Delete the listed surfaces in a single sweep:
   by the tab-based terminal view in an earlier commit) and also embed
   `100dvh` strings. Delete both files as part of this change.
 
+## Problem 3 — Replace native `window.confirm` with in-app dialog
+
+The close-terminal flow uses `window.confirm(…)` when the terminal has a
+foreground process. On the desktop Tauri build this renders an OS-level
+alert with an `tauri.localhost 显示` origin banner, which is visually
+jarring and inconsistent with the app's design. Same on mobile web (the
+browser's native confirm UI).
+
+### Approach
+
+- Add `packages/app/components/ConfirmDialog.tsx` — a small reusable web
+  dialog with title + message, cancel/confirm buttons, `danger` variant,
+  focus-on-cancel-by-default, Escape cancels, Enter confirms,
+  `role="dialog"` + `aria-modal`.
+- In `TerminalCanvas.web.tsx`, replace the `window.confirm` branch with
+  state (`closeConfirmation: { terminal, processName } | null`) plus a
+  `<ConfirmDialog>` render. Confirm destroys the terminal via the same
+  `destroyTerminal` call; Cancel clears the state.
+
+### Acceptance
+
+- Closing a terminal whose foreground process is busy shows the in-app
+  dialog styled with app colors — no `tauri.localhost 显示` banner on the
+  desktop app, no browser-chrome alert on web.
+- Escape / Cancel dismisses without closing the terminal. Enter / Confirm
+  closes it.
+- When the foreground-process API check errors out, the original fallback
+  still applies (close without prompt).
+
 ## Follow-ups (out of scope for this spec)
 
 - Replacement quick-input / saved-commands feature. Separate design, after

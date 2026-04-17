@@ -3,9 +3,7 @@ import { colors, colorAlpha } from "@/lib/colors";
 interface ExtendedKeyBarProps {
   onKey: (data: string) => void;
   onToggleKeyboard: () => void;
-  onToggleCommandBar: () => void;
   keyboardVisible: boolean;
-  commandBarVisible: boolean;
   isController: boolean;
 }
 
@@ -43,8 +41,8 @@ const KEY_GROUPS = [
 ];
 
 export function ExtendedKeyBar({
-  onKey, onToggleKeyboard, onToggleCommandBar,
-  keyboardVisible, commandBarVisible, isController,
+  onKey, onToggleKeyboard,
+  keyboardVisible, isController,
 }: ExtendedKeyBarProps) {
   return (
     <div style={{
@@ -143,37 +141,6 @@ export function ExtendedKeyBar({
           </div>
         ))}
       </div>
-
-      {/* Right: CommandBar toggle */}
-      <button
-        onClick={() => {
-          if (!isController) return;
-          onToggleCommandBar();
-        }}
-        disabled={!isController}
-        style={{
-          width: 44,
-          height: 44,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: commandBarVisible ? colorAlpha.accentMedium15 : 'transparent',
-          border: 'none',
-          borderLeft: `1px solid ${colors.border}`,
-          color: !isController
-            ? colors.foregroundMuted
-            : commandBarVisible
-              ? colors.accent
-              : colors.foregroundSecondary,
-          fontSize: 14,
-          fontFamily: "'JetBrains Mono', monospace",
-          cursor: isController ? 'pointer' : 'not-allowed',
-          flexShrink: 0,
-        }}
-        title={commandBarVisible ? 'Hide command bar' : 'Show command bar'}
-      >
-        &gt;_
-      </button>
     </div>
   );
 }
