@@ -25,6 +25,7 @@ interface TerminalCardProps {
   isMobile: boolean;
   isController: boolean;
   deviceId: string;
+  workpathLabel?: string; // shown in the top-left of the card body when in card mode
   onSelectTab: (id: string | null) => void;
   onDestroy: (terminal: TerminalInfo) => void;
   onRequestControl?: (machineId: string) => void;
@@ -37,6 +38,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   isMobile,
   isController,
   deviceId,
+  workpathLabel,
   onSelectTab,
   onDestroy,
   onRequestControl,
@@ -282,6 +284,26 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         </div>
       )}
 
+      {/* Workpath label overlay — card mode only */}
+      {!isTab && workpathLabel && (
+        <div
+          data-testid="terminal-card-workpath-label"
+          style={{
+            position: "absolute",
+            top: 6,
+            left: 8,
+            fontSize: 9,
+            color: colors.foregroundMuted,
+            letterSpacing: 0.4,
+            textTransform: "uppercase",
+            pointerEvents: "none",
+            zIndex: 5,
+          }}
+        >
+          {workpathLabel}
+        </div>
+      )}
+
       {/* Terminal content */}
       <div
         style={isTab ? {
@@ -386,6 +408,7 @@ function areTerminalCardPropsEqual(
     previous.isMobile === next.isMobile &&
     previous.isController === next.isController &&
     previous.deviceId === next.deviceId &&
+    previous.workpathLabel === next.workpathLabel &&
     previous.onSelectTab === next.onSelectTab &&
     previous.onDestroy === next.onDestroy &&
     previous.onRequestControl === next.onRequestControl &&

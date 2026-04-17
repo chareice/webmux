@@ -785,6 +785,7 @@ export function TerminalCanvas() {
             isActiveController={isActiveController}
             isMachineController={isMachineController}
             deviceId={deviceId ?? ""}
+            quickCommands={quickCommands}
             onZoomTerminal={handleZoomTerminal}
             onUnzoom={handleUnzoom}
             onDestroy={handleDestroyTerminal}
