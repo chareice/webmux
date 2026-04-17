@@ -23,11 +23,26 @@ main() {
     URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARTIFACT}"
 
     echo "Installing ${BINARY} ${VERSION} (${OS}/${ARCH})..."
-    download "${URL}" "${INSTALL_DIR}/${BINARY}"
-    chmod +x "${INSTALL_DIR}/${BINARY}"
+    # Download to a sibling temp file, then atomic-rename over the existing
+    # binary. This avoids "text file busy" (curl errno 23) when the systemd
+    # service is currently running the old binary — `mv` replaces the
+    # directory entry, the running process keeps its open inode.
+    # PID-suffixed name + trap so a failed download (or two concurrent
+    # installer runs) don't leave a stale .new file behind or race on it.
+    TMP="${INSTALL_DIR}/${BINARY}.new.$$"
+    trap 'rm -f "${TMP}"' EXIT HUP INT TERM
+    download "${URL}" "${TMP}"
+    chmod +x "${TMP}"
+    mv -f "${TMP}" "${INSTALL_DIR}/${BINARY}"
+    trap - EXIT HUP INT TERM
 
     echo ""
     echo "Installed ${BINARY} to ${INSTALL_DIR}/${BINARY}"
+    if systemctl --user is-active webmux-node >/dev/null 2>&1; then
+        echo ""
+        echo "NOTE: webmux-node systemd service is running. Restart to pick up the new binary:"
+        echo "  systemctl --user restart webmux-node"
+    fi
 
     if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
         echo ""

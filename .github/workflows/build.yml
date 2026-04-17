@@ -7,7 +7,33 @@ on:
   workflow_dispatch:
 
 jobs:
+  create-release:
+    # Run once, before the matrix. Skipped on workflow_dispatch (no tag).
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.ref_name }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; skipping create."
+          else
+            gh release create "$tag" \
+              --title "Node ${tag}" \
+              --notes "Automated release for $tag. See commits since the previous release for details."
+          fi
+
   build:
+    needs: [create-release]
+    # `needs` makes this implicitly skipped when create-release is skipped
+    # (i.e., workflow_dispatch with no tag). Re-enable with always() so the
+    # binaries still get uploaded as run artifacts in that mode.
+    if: always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
