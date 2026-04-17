@@ -71,18 +71,30 @@ detect_platform() {
 }
 
 get_latest_version() {
+    # Pick the newest `vX.Y.Z` release, skipping `desktop-v*` which ships the
+    # desktop app and does not contain node binaries.
+    API_URL="https://api.github.com/repos/${REPO}/releases"
     if command -v curl >/dev/null 2>&1; then
-        curl -sSL -o /dev/null -w '%{url_effective}' \
-            "https://github.com/${REPO}/releases/latest" \
-            | rev | cut -d'/' -f1 | rev
+        RESPONSE=$(curl -sSL "${API_URL}")
     elif command -v wget >/dev/null 2>&1; then
-        wget --spider --max-redirect=0 \
-            "https://github.com/${REPO}/releases/latest" 2>&1 \
-            | grep -i 'Location:' | sed 's/.*\///' | tr -d '\r'
+        RESPONSE=$(wget -qO- "${API_URL}")
     else
         echo "Error: curl or wget is required" >&2
         exit 1
     fi
+
+    VERSION=$(echo "${RESPONSE}" \
+        | grep -oE '"tag_name":[[:space:]]*"v[0-9]+\.[0-9]+\.[0-9]+"' \
+        | sed -E 's/.*"(v[0-9]+\.[0-9]+\.[0-9]+)"/\1/' \
+        | sort -V \
+        | tail -n 1)
+
+    if [ -z "${VERSION}" ]; then
+        echo "Error: could not determine latest node release from ${API_URL}" >&2
+        exit 1
+    fi
+
+    echo "${VERSION}"
 }
 
 download() {
