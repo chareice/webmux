@@ -12,3 +12,4 @@ client/dist/
 *.db-wal
 .env
 *.tsbuildinfo
+.superpowers/
