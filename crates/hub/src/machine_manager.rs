@@ -52,7 +52,8 @@ pub struct EventSubscription {
 
 /// How the hub decided to respond to a terminal-output subscribe request.
 /// See docs/superpowers/specs/2026-04-17-terminal-resume-protocol-design.md.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum AttachMode {
     /// Initial attach — client had no prior state. Replay is the hub's buffer.
     Full,
