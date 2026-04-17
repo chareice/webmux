@@ -50,6 +50,28 @@ pub struct EventSubscription {
     pub requires_resync: bool,
 }
 
+/// How the hub decided to respond to a terminal-output subscribe request.
+/// See docs/superpowers/specs/2026-04-17-terminal-resume-protocol-design.md.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachMode {
+    /// Initial attach — client had no prior state. Replay is the hub's buffer.
+    Full,
+    /// Client's after_seq was in range. Replay is the bytes since that seq (possibly empty).
+    Delta,
+    /// Client's after_seq was outside the hub's buffer window (stale) or past current
+    /// (e.g. hub restarted). Replay is the full buffer; client must clear its terminal first.
+    Reset,
+}
+
+pub struct TerminalSubscription {
+    pub mode: AttachMode,
+    /// Hub's current output_seq for the terminal at subscribe time.
+    pub seq: u64,
+    /// Bytes the client should write. Semantics depend on `mode`.
+    pub replay: Vec<u8>,
+    pub output_rx: broadcast::Receiver<Bytes>,
+}
+
 const OUTPUT_BUFFER_SIZE: usize = 64 * 1024;
 const EVENT_HISTORY_LIMIT: usize = 1024;
 /// Safety offset added to persisted event sequence on recovery.
@@ -71,6 +93,10 @@ struct MachineConnection {
     pub output_channels: HashMap<String, broadcast::Sender<Bytes>>,
     /// Terminal output buffers for replay on new subscriber
     pub output_buffers: HashMap<String, Vec<u8>>,
+    /// Monotonically increasing total bytes emitted for each terminal. Used by the
+    /// resume protocol — clients can subscribe with an `after_seq` to receive only
+    /// bytes since their last seen offset.
+    pub output_seqs: HashMap<String, u64>,
     /// Latest resource stats from this machine
     pub latest_stats: Option<tc_protocol::ResourceStats>,
 }
@@ -169,6 +195,7 @@ impl MachineManager {
             terminals: HashMap::new(),
             output_channels: HashMap::new(),
             output_buffers: HashMap::new(),
+            output_seqs: HashMap::new(),
             latest_stats: None,
         };
 
@@ -626,6 +653,22 @@ impl MachineManager {
         machine_id: &str,
         terminal_id: &str,
     ) -> Result<(Vec<u8>, broadcast::Receiver<Bytes>), String> {
+        let sub = self
+            .subscribe_terminal_output_from(machine_id, terminal_id, None)
+            .await?;
+        Ok((sub.replay, sub.output_rx))
+    }
+
+    /// Resume-aware subscribe. When `after_seq` is provided the hub returns only the
+    /// bytes the client has not yet seen (`Delta`), or signals the client to clear
+    /// its terminal when the request falls outside the retained window (`Reset`).
+    /// Passing `None` is equivalent to an initial attach (`Full`).
+    pub async fn subscribe_terminal_output_from(
+        &self,
+        machine_id: &str,
+        terminal_id: &str,
+        after_seq: Option<u64>,
+    ) -> Result<TerminalSubscription, String> {
         let machines = self.machines.lock().await;
         let conn = machines
             .get(machine_id)
@@ -639,7 +682,33 @@ impl MachineManager {
             .get(terminal_id)
             .cloned()
             .unwrap_or_default();
-        Ok((buffer, tx.subscribe()))
+        let seq = conn
+            .output_seqs
+            .get(terminal_id)
+            .copied()
+            .unwrap_or(0);
+
+        let (mode, replay) = match after_seq {
+            None => (AttachMode::Full, buffer),
+            Some(n) if n == seq => (AttachMode::Delta, Vec::new()),
+            Some(n) if n > seq => (AttachMode::Reset, buffer),
+            Some(n) => {
+                let delta = (seq - n) as usize;
+                if delta <= buffer.len() {
+                    let start = buffer.len() - delta;
+                    (AttachMode::Delta, buffer[start..].to_vec())
+                } else {
+                    (AttachMode::Reset, buffer)
+                }
+            }
+        };
+
+        Ok(TerminalSubscription {
+            mode,
+            seq,
+            replay,
+            output_rx: tx.subscribe(),
+        })
     }
 
     /// Handle a message from a machine
@@ -716,6 +785,7 @@ impl MachineManager {
                     conn.terminals.remove(&terminal_id);
                     conn.output_channels.remove(&terminal_id);
                     conn.output_buffers.remove(&terminal_id);
+                    conn.output_seqs.remove(&terminal_id);
                     // Persist to DB before terminal_id is moved into the event
                     if let Ok(db_conn) = self.db.get() {
                         if let Err(e) = crate::db::terminal_sessions::mark_destroyed(&db_conn, &terminal_id) {
@@ -883,6 +953,7 @@ impl MachineManager {
     pub async fn handle_terminal_output(&self, machine_id: &str, terminal_id: &str, bytes: Bytes) {
         let mut machines = self.machines.lock().await;
         if let Some(conn) = machines.get_mut(machine_id) {
+            let byte_count = bytes.len() as u64;
             let buf = conn
                 .output_buffers
                 .entry(terminal_id.to_string())
@@ -892,6 +963,11 @@ impl MachineManager {
                 let drain_to = buf.len() - OUTPUT_BUFFER_SIZE;
                 buf.drain(..drain_to);
             }
+            let seq = conn
+                .output_seqs
+                .entry(terminal_id.to_string())
+                .or_insert(0);
+            *seq = seq.saturating_add(byte_count);
             if let Some(tx) = conn.output_channels.get(terminal_id) {
                 let _ = tx.send(bytes);
             }
@@ -2056,5 +2132,157 @@ mod tests {
             manager.get_controller("user-a", "machine-b"),
             Some("device-a".to_string())
         );
+    }
+
+    // ── Terminal output byte-sequence resume protocol ────────────────
+
+    async fn setup_terminal_for_output(manager: &MachineManager, machine_id: &str, terminal_id: &str) {
+        manager
+            .register_machine(machine(machine_id), None)
+            .await;
+        manager
+            .handle_machine_message(
+                machine_id,
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal(machine_id, terminal_id)],
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn subscribe_from_none_returns_full_replay_at_current_seq() {
+        let manager = MachineManager::new(test_db());
+        setup_terminal_for_output(&manager, "m", "t").await;
+        manager
+            .handle_terminal_output("m", "t", Bytes::from_static(b"hello"))
+            .await;
+
+        let sub = manager
+            .subscribe_terminal_output_from("m", "t", None)
+            .await
+            .expect("subscribe should succeed");
+        assert_eq!(sub.mode, AttachMode::Full);
+        assert_eq!(sub.seq, 5);
+        assert_eq!(sub.replay.as_slice(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn subscribe_from_current_seq_returns_empty_delta() {
+        let manager = MachineManager::new(test_db());
+        setup_terminal_for_output(&manager, "m", "t").await;
+        manager
+            .handle_terminal_output("m", "t", Bytes::from_static(b"hello"))
+            .await;
+
+        let sub = manager
+            .subscribe_terminal_output_from("m", "t", Some(5))
+            .await
+            .unwrap();
+        assert_eq!(sub.mode, AttachMode::Delta);
+        assert_eq!(sub.seq, 5);
+        assert!(sub.replay.is_empty());
+    }
+
+    #[tokio::test]
+    async fn subscribe_from_midpoint_returns_tail_delta() {
+        let manager = MachineManager::new(test_db());
+        setup_terminal_for_output(&manager, "m", "t").await;
+        manager
+            .handle_terminal_output("m", "t", Bytes::from_static(b"hello"))
+            .await;
+        manager
+            .handle_terminal_output("m", "t", Bytes::from_static(b"world"))
+            .await;
+
+        let sub = manager
+            .subscribe_terminal_output_from("m", "t", Some(5))
+            .await
+            .unwrap();
+        assert_eq!(sub.mode, AttachMode::Delta);
+        assert_eq!(sub.seq, 10);
+        assert_eq!(sub.replay.as_slice(), b"world");
+    }
+
+    #[tokio::test]
+    async fn subscribe_from_stale_seq_returns_reset() {
+        let manager = MachineManager::new(test_db());
+        setup_terminal_for_output(&manager, "m", "t").await;
+        // Write 128KB to overflow the 64KB buffer
+        let chunk = vec![b'a'; 128 * 1024];
+        manager
+            .handle_terminal_output("m", "t", Bytes::from(chunk))
+            .await;
+
+        let sub = manager
+            .subscribe_terminal_output_from("m", "t", Some(0))
+            .await
+            .unwrap();
+        assert_eq!(sub.mode, AttachMode::Reset);
+        assert_eq!(sub.seq, 128 * 1024);
+        // Reset delivers only what's still in the capped buffer
+        assert_eq!(sub.replay.len(), 64 * 1024);
+    }
+
+    #[tokio::test]
+    async fn subscribe_from_future_seq_returns_reset() {
+        let manager = MachineManager::new(test_db());
+        setup_terminal_for_output(&manager, "m", "t").await;
+        manager
+            .handle_terminal_output("m", "t", Bytes::from_static(b"hello"))
+            .await;
+
+        // Client claims it saw past the current seq — conservative recovery: reset.
+        let sub = manager
+            .subscribe_terminal_output_from("m", "t", Some(999))
+            .await
+            .unwrap();
+        assert_eq!(sub.mode, AttachMode::Reset);
+        assert_eq!(sub.seq, 5);
+        assert_eq!(sub.replay.as_slice(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn output_seq_increments_by_byte_count_across_chunks() {
+        let manager = MachineManager::new(test_db());
+        setup_terminal_for_output(&manager, "m", "t").await;
+        manager
+            .handle_terminal_output("m", "t", Bytes::from_static(b"abc"))
+            .await;
+        manager
+            .handle_terminal_output("m", "t", Bytes::from_static(b"defgh"))
+            .await;
+
+        let sub = manager
+            .subscribe_terminal_output_from("m", "t", None)
+            .await
+            .unwrap();
+        assert_eq!(sub.seq, 8);
+    }
+
+    #[tokio::test]
+    async fn subscribe_from_unknown_terminal_returns_error() {
+        let manager = MachineManager::new(test_db());
+        manager
+            .register_machine(machine("m"), None)
+            .await;
+        let result = manager
+            .subscribe_terminal_output_from("m", "missing", None)
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn subscribe_from_none_returns_empty_replay_when_no_output_yet() {
+        let manager = MachineManager::new(test_db());
+        setup_terminal_for_output(&manager, "m", "t").await;
+        // No bytes written yet
+        let sub = manager
+            .subscribe_terminal_output_from("m", "t", None)
+            .await
+            .unwrap();
+        assert_eq!(sub.mode, AttachMode::Full);
+        assert_eq!(sub.seq, 0);
+        assert!(sub.replay.is_empty());
     }
 }
