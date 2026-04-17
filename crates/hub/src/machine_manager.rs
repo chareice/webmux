@@ -800,16 +800,15 @@ impl MachineManager {
                     return;
                 }
             }
-            MachineToHub::AttachDied { attach_id, reason: _ } => {
-                // The attach's tmux client died (shell exited / session
-                // killed / tmux crashed). The hub's WS handler will see its
-                // outbound channel close shortly anyway because the machine
-                // also reaps the attach; we eagerly drop the routing entry
-                // so no late frames get queued for it.
-                // The actual WS close happens when the per-WS task notices
-                // the channel is empty AND the Sender has been dropped.
-                // Dropping the WsSender via unregister_attach achieves both.
-                self.unregister_attach(&attach_id).await;
+            MachineToHub::AttachDied { attach_id, reason } => {
+                // Routing teardown happens in `ws.rs`'s machine recv loop
+                // (the router lives on AppState, not on MachineManager).
+                // Here we only log so an attach death is visible in traces.
+                tracing::info!(
+                    attach_id = %attach_id,
+                    reason = %reason,
+                    "attach died on machine"
+                );
             }
             MachineToHub::TerminalDied { terminal_id, .. } => {
                 self.handle_terminal_destroyed_internal(machine_id, &terminal_id)
@@ -846,15 +845,6 @@ impl MachineManager {
                 }
             }
         }
-    }
-
-    async fn unregister_attach(&self, _attach_id: &str) {
-        // The router lives on AppState, not on MachineManager. The hub's
-        // ws.rs handler is responsible for `state.router.unregister(...)`
-        // when its per-WS task exits. AttachDied here is informational —
-        // the WS task will exit naturally once the AttachOutput stream
-        // stops. Future improvement: wire the router into MachineManager
-        // so we can proactively drop the route when AttachDied arrives.
     }
 
     async fn handle_terminal_destroyed_internal(&self, machine_id: &str, terminal_id: &str) {

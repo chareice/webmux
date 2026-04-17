@@ -92,9 +92,15 @@ impl AttachManager {
     }
 
     pub async fn write_input(&self, attach_id: &str, data: Bytes) -> bool {
-        let inner = self.inner.lock().await;
-        if let Some(handle) = inner.get(attach_id) {
-            handle.input_tx.send(data).await.is_ok()
+        // Clone the sender out from under the lock; awaiting send() while
+        // holding the async Mutex would block close() / close_all() /
+        // session_of() if the writer thread is slow to drain input_rx.
+        let input_tx = {
+            let inner = self.inner.lock().await;
+            inner.get(attach_id).map(|handle| handle.input_tx.clone())
+        };
+        if let Some(input_tx) = input_tx {
+            input_tx.send(data).await.is_ok()
         } else {
             false
         }

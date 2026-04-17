@@ -175,7 +175,7 @@ async fn handle_terminal_ws(
 
     // Outbound: forward bytes from out_rx to the WS as binary frames.
     // No coalescing needed — bytes are already chunked at PTY read size.
-    let send_task = tokio::spawn(async move {
+    let mut send_task = tokio::spawn(async move {
         while let Some(chunk) = out_rx.recv().await {
             if sender
                 .send(Message::Binary(chunk.to_vec().into()))
@@ -194,7 +194,7 @@ async fn handle_terminal_ws(
     let did = device_id.clone();
     let uid = user_id.clone();
     let aid_for_in = attach_id.clone();
-    let recv_task = tokio::spawn(async move {
+    let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(text) => match serde_json::from_str::<ClientMessage>(&text) {
@@ -259,9 +259,13 @@ async fn handle_terminal_ws(
     });
 
     tokio::select! {
-        _ = send_task => {},
-        _ = recv_task => {},
+        _ = &mut send_task => {},
+        _ = &mut recv_task => {},
     }
+    // Dropping a JoinHandle does NOT cancel the spawned task. Abort the
+    // loser so it can't keep the WS half it owns alive after cleanup.
+    send_task.abort();
+    recv_task.abort();
 
     // Cleanup: tell the machine to close the attach + drop our routing entry.
     let _ = state
@@ -342,7 +346,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                     tracing::info!("Machine {} registered (conn={})", machine_id, &conn_id[..8]);
 
                     // Spawn task to forward commands from Hub to Machine
-                    let send_task = tokio::spawn(async move {
+                    let mut send_task = tokio::spawn(async move {
                         while let Some(cmd) = cmd_rx.recv().await {
                             let text = serde_json::to_string(&cmd).unwrap();
                             if sender.send(Message::Text(text.into())).await.is_err() {
@@ -355,15 +359,26 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                     let manager = state.manager.clone();
                     let router = state.router.clone();
                     let mid = machine_id.clone();
-                    let recv_task = tokio::spawn(async move {
+                    let mut recv_task = tokio::spawn(async move {
                         while let Some(Ok(msg)) = receiver.next().await {
                             match msg {
                                 Message::Text(text) => {
-                                    if let Ok(machine_msg) =
+                                    let Ok(machine_msg) =
                                         serde_json::from_str::<MachineToHub>(&text)
+                                    else {
+                                        continue;
+                                    };
+                                    // For AttachDied, also drop the per-attach
+                                    // route here — MachineManager has no
+                                    // access to the router, so without this
+                                    // step the browser WS would stay open
+                                    // with no more bytes flowing into it.
+                                    if let MachineToHub::AttachDied { attach_id, .. } =
+                                        &machine_msg
                                     {
-                                        manager.handle_machine_message(&mid, machine_msg).await;
+                                        router.unregister(attach_id).await;
                                     }
+                                    manager.handle_machine_message(&mid, machine_msg).await;
                                 }
                                 Message::Binary(data) => {
                                     match decode_attach_output_frame(&data) {
@@ -371,11 +386,28 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                                             if let Some(sender) =
                                                 router.lookup_sender(&attach_id).await
                                             {
-                                                // Best-effort delivery; if the WS task is gone
-                                                // (browser disconnected) the channel is closed and
-                                                // the send fails — fine, the upcoming CloseAttach
-                                                // will tell the machine.
-                                                let _ = sender.0.send(payload).await;
+                                                // Never let a single slow browser
+                                                // backpressure the entire machine→hub
+                                                // recv loop. Drop on Full; treat
+                                                // Closed as "browser is gone, the
+                                                // upcoming CloseAttach will reach
+                                                // the machine."
+                                                use tokio::sync::mpsc::error::TrySendError;
+                                                match sender.0.try_send(payload) {
+                                                    Ok(()) => {}
+                                                    Err(TrySendError::Full(_)) => {
+                                                        tracing::warn!(
+                                                            attach_id = %attach_id,
+                                                            "dropping attach output: browser channel full"
+                                                        );
+                                                    }
+                                                    Err(TrySendError::Closed(_)) => {
+                                                        tracing::debug!(
+                                                            attach_id = %attach_id,
+                                                            "dropping attach output: browser channel closed"
+                                                        );
+                                                    }
+                                                }
                                             }
                                         }
                                         Err(error) => {
@@ -393,9 +425,14 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                     });
 
                     tokio::select! {
-                        _ = send_task => {},
-                        _ = recv_task => {},
+                        _ = &mut send_task => {},
+                        _ = &mut recv_task => {},
                     }
+                    // JoinHandle drop doesn't cancel; abort the loser so it
+                    // doesn't keep half the WS alive after the other side
+                    // already gave up.
+                    send_task.abort();
+                    recv_task.abort();
 
                     (machine_id, conn_id)
                 }
