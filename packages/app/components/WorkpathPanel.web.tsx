@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo } from "react";
 import type { Bookmark, MachineInfo, TerminalInfo } from "@webmux/shared";
 import { Plus, Settings, X } from "lucide-react";
 import { colors } from "@/lib/colors";
@@ -14,6 +14,11 @@ interface WorkpathPanelProps {
   bookmarks: Bookmark[];
   selectedWorkpathId: string | "all";
   terminals: TerminalInfo[];
+  // Controlled add-directory state — owned by NavColumn so the ActivityBar
+  // "+" button (in the multi-machine bar) can open the inline PathInput.
+  addDirectoryOpen: boolean;
+  onOpenAddDirectory: () => void;
+  onCloseAddDirectory: () => void;
   onSelectAll: () => void;
   onSelectWorkpath: (id: string) => void;
   onCreateTerminal: (machineId: string, cwd: string, startupCommand?: string) => void;
@@ -35,6 +40,9 @@ function WorkpathPanelComponent(props: WorkpathPanelProps) {
     bookmarks,
     selectedWorkpathId,
     terminals,
+    addDirectoryOpen,
+    onOpenAddDirectory,
+    onCloseAddDirectory,
     onSelectAll,
     onSelectWorkpath,
     onCreateTerminal,
@@ -44,25 +52,20 @@ function WorkpathPanelComponent(props: WorkpathPanelProps) {
     onOpenSettings,
   } = props;
 
-  // Owned locally — opening / closing the inline PathInput is a panel
-  // concern, not a TerminalCanvas concern. Lifted before (PR #137) only to
-  // share with the rail "+", which no longer exists.
-  const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
-
   const machineBookmarks = bookmarks.filter((b) => b.machine_id === machine.id);
   const totalCount = terminals.filter((t) => t.machine_id === machine.id).length;
 
   const handleAdd = (path: string) => {
     if (!path) {
-      setAddDirectoryOpen(false);
+      onCloseAddDirectory();
       return;
     }
     if (machineBookmarks.some((b) => b.path === path)) {
-      setAddDirectoryOpen(false);
+      onCloseAddDirectory();
       return;
     }
     onConfirmAddDirectory(machine.id, path);
-    setAddDirectoryOpen(false);
+    onCloseAddDirectory();
   };
 
   return (
@@ -214,12 +217,12 @@ function WorkpathPanelComponent(props: WorkpathPanelProps) {
           <PathInput
             machineId={machine.id}
             onSubmit={handleAdd}
-            onCancel={() => setAddDirectoryOpen(false)}
+            onCancel={onCloseAddDirectory}
           />
         ) : (
           <button
             data-testid="panel-add-directory"
-            onClick={() => setAddDirectoryOpen(true)}
+            onClick={onOpenAddDirectory}
             style={{
               background: "none",
               border: "none",
@@ -249,7 +252,7 @@ function WorkpathPanelComponent(props: WorkpathPanelProps) {
         >
           <button
             data-testid="panel-add-bookmark"
-            onClick={() => setAddDirectoryOpen(true)}
+            onClick={onOpenAddDirectory}
             title="Add directory"
             style={iconBtn}
             aria-label="Add directory"

@@ -88,6 +88,7 @@ function TabStripComponent(props: TabStripProps) {
     >
       <div
         ref={scrollRef}
+        role="tablist"
         style={{
           flex: 1,
           display: "flex",
@@ -106,7 +107,16 @@ function TabStripComponent(props: TabStripProps) {
             <div
               key={t.id}
               data-testid={`tab-${t.id}`}
+              role="tab"
+              aria-selected={isActive}
+              tabIndex={isActive ? 0 : -1}
               onClick={() => onSelectTab(t.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelectTab(t.id);
+                }
+              }}
               onMouseEnter={() => setHoveredTabId(t.id)}
               onMouseLeave={() => setHoveredTabId((cur) => (cur === t.id ? null : cur))}
               style={{

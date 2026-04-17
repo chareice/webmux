@@ -153,40 +153,41 @@ export function TerminalCanvas() {
     }
   }, [machines, activeMachineId]);
 
-  // Load bookmarks for the active machine. Re-fetch when terminals count
-  // changes so counts in the rail stay fresh after add/delete.
-  // When the API returns no bookmarks (or fails), inject a synthetic
-  // `local-home` entry pointing at the machine's home dir so the rail and
-  // overlay always have at least one workpath the user can open. Without
-  // this fallback, a fresh machine would render an empty rail and break
-  // workpath matching for terminals created from the prompt.
+  // Load bookmarks for ALL machines. Re-fetch when terminals count changes
+  // so counts in the rail stay fresh after add/delete.
+  // When the API returns no bookmarks (or fails) for a machine, inject a
+  // synthetic `local-home` entry pointing at that machine's home dir so the
+  // rail and overlay always have at least one workpath the user can open.
+  // WorkpathPanel already filters by machine_id so two "local-home" entries
+  // with different machine_id coexist correctly.
   useEffect(() => {
-    if (!activeMachineId) {
+    if (machines.length === 0) {
       setBookmarks([]);
       return;
     }
-    const machine = machines.find((m) => m.id === activeMachineId);
-    const fallback: Bookmark[] = [
-      {
-        id: "local-home",
-        machine_id: activeMachineId,
-        path: machine?.home_dir || "/",
-        label: "~",
-        sort_order: 0,
-      },
-    ];
     let cancelled = false;
-    listBookmarks(activeMachineId)
-      .then((bms) => {
-        if (!cancelled) setBookmarks(bms.length > 0 ? bms : fallback);
-      })
-      .catch(() => {
-        if (!cancelled) setBookmarks(fallback);
-      });
+    void Promise.all(
+      machines.map((m) => {
+        const fallback: Bookmark[] = [
+          {
+            id: "local-home",
+            machine_id: m.id,
+            path: m.home_dir || "/",
+            label: "~",
+            sort_order: 0,
+          },
+        ];
+        return listBookmarks(m.id)
+          .then((bms) => (bms.length > 0 ? bms : fallback))
+          .catch(() => fallback);
+      }),
+    ).then((all) => {
+      if (!cancelled) setBookmarks(all.flat());
+    });
     return () => {
       cancelled = true;
     };
-  }, [activeMachineId, terminals.length, machines]);
+  }, [machines, terminals.length]);
 
   // Restore zoomed terminal from URL hash on first mount.
   useEffect(() => {
@@ -543,6 +544,9 @@ export function TerminalCanvas() {
     (id: string) => {
       if (id === "all") {
         dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
+        if (window.location.hash.startsWith("#/t/")) {
+          window.history.pushState(null, "", window.location.pathname);
+        }
         return;
       }
       const bookmark = bookmarks.find((b) => b.id === id);
@@ -553,10 +557,10 @@ export function TerminalCanvas() {
         : undefined;
       dispatchLayout({ type: "SELECT_WORKPATH", workpathId: id });
       if (firstTerminal) {
-        dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: firstTerminal.id });
+        handleZoomTerminal(firstTerminal.id);
       }
     },
-    [bookmarks, terminals],
+    [bookmarks, terminals, handleZoomTerminal],
   );
 
   const handleSelectWorkpathByIndex = useCallback(
@@ -592,14 +596,14 @@ export function TerminalCanvas() {
       if (scoped.length <= 1) return;
       const idx = scoped.findIndex((t) => t.id === layout.zoomedTerminalId);
       const nextIdx = (idx === -1 ? 0 : idx + 1) % scoped.length;
-      dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: scoped[nextIdx].id });
+      handleZoomTerminal(scoped[nextIdx].id);
     },
     prevTab: () => {
       const scoped = currentWorkpathTerminals();
       if (scoped.length <= 1) return;
       const idx = scoped.findIndex((t) => t.id === layout.zoomedTerminalId);
       const prevIdx = (idx === -1 ? 0 : (idx - 1 + scoped.length) % scoped.length);
-      dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: scoped[prevIdx].id });
+      handleZoomTerminal(scoped[prevIdx].id);
     },
     selectAll: () => {
       dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });

@@ -424,7 +424,8 @@ function CanvasComponent(props: CanvasProps) {
                   workpathLabel={(() => {
                     const wp = labelForTerminal(terminal);
                     if (!wp) return undefined;
-                    return `${wp} · ${terminal.title || ""}`;
+                    const title = terminal.title || terminal.id.slice(0, 8);
+                    return `${wp} · ${title}`;
                   })()}
                   onSelectTab={(id) => { if (id) onZoomTerminal(id); }}
                   onDestroy={onDestroy}

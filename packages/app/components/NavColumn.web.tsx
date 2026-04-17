@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState, useCallback } from "react";
 import type { Bookmark, MachineInfo, TerminalInfo } from "@webmux/shared";
 import { ActivityBar } from "./ActivityBar.web";
 import { WorkpathPanel } from "./WorkpathPanel.web";
@@ -40,6 +40,12 @@ function NavColumnComponent(props: NavColumnProps) {
     onOpenSettings,
   } = props;
 
+  const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
+
+  const openAddDirectory = useCallback(() => {
+    setAddDirectoryOpen(true);
+  }, []);
+
   const activeMachine =
     machines.find((m) => m.id === activeMachineId) ?? machines[0] ?? null;
 
@@ -59,7 +65,7 @@ function NavColumnComponent(props: NavColumnProps) {
         machines={machines}
         activeMachineId={activeMachineId}
         onSelectMachine={onSelectMachine}
-        onAddBookmark={() => {/* opening add-directory is handled by panel directly */}}
+        onAddBookmark={openAddDirectory}
         onOpenSettings={onOpenSettings}
       />
       {panelOpen && (
@@ -70,6 +76,9 @@ function NavColumnComponent(props: NavColumnProps) {
           bookmarks={bookmarks}
           selectedWorkpathId={selectedWorkpathId}
           terminals={terminals}
+          addDirectoryOpen={addDirectoryOpen}
+          onOpenAddDirectory={openAddDirectory}
+          onCloseAddDirectory={() => setAddDirectoryOpen(false)}
           onSelectAll={onSelectAll}
           onSelectWorkpath={onSelectWorkpath}
           onCreateTerminal={onCreateTerminal}
