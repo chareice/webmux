@@ -1,3 +1,4 @@
+mod attach_router;
 mod auth;
 pub mod db;
 mod machine_manager;
