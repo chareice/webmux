@@ -27,10 +27,14 @@ main() {
     # binary. This avoids "text file busy" (curl errno 23) when the systemd
     # service is currently running the old binary — `mv` replaces the
     # directory entry, the running process keeps its open inode.
-    TMP="${INSTALL_DIR}/${BINARY}.new"
+    # PID-suffixed name + trap so a failed download (or two concurrent
+    # installer runs) don't leave a stale .new file behind or race on it.
+    TMP="${INSTALL_DIR}/${BINARY}.new.$$"
+    trap 'rm -f "${TMP}"' EXIT HUP INT TERM
     download "${URL}" "${TMP}"
     chmod +x "${TMP}"
     mv -f "${TMP}" "${INSTALL_DIR}/${BINARY}"
+    trap - EXIT HUP INT TERM
 
     echo ""
     echo "Installed ${BINARY} to ${INSTALL_DIR}/${BINARY}"
