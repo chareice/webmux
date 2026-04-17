@@ -11,6 +11,7 @@ interface ShortcutActions {
   splitHorizontal?: () => void;
   focusPrevPane?: () => void;
   focusNextPane?: () => void;
+  toggleNav?: () => void;
 }
 
 export function isAppShortcut(event: KeyboardEvent): boolean {
@@ -26,6 +27,7 @@ export function isAppShortcut(event: KeyboardEvent): boolean {
   if (event.shiftKey && event.code === "BracketRight") return true;
   if (!event.shiftKey && event.code >= "Digit1" && event.code <= "Digit9") return true;
   if (event.key === "Tab") return true;
+  if (!event.shiftKey && event.code === "KeyB") return true;
 
   return false;
 }
@@ -58,11 +60,8 @@ export function useShortcuts(actions: ShortcutActions) {
 
       if (event.key === "Tab") {
         event.preventDefault();
-        if (event.shiftKey) {
-          actions.prevTab?.();
-        } else {
-          actions.nextTab?.();
-        }
+        if (event.shiftKey) actions.prevTab?.();
+        else actions.nextTab?.();
         return;
       }
 
@@ -94,6 +93,12 @@ export function useShortcuts(actions: ShortcutActions) {
       if (event.shiftKey && event.code === "BracketRight") {
         event.preventDefault();
         actions.focusNextPane?.();
+        return;
+      }
+
+      if (!event.shiftKey && event.code === "KeyB") {
+        event.preventDefault();
+        actions.toggleNav?.();
         return;
       }
     };
