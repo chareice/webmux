@@ -25,7 +25,7 @@ import {
   releaseControl,
   releaseControlKeepalive,
 } from "@/lib/api";
-import type { QuickCommand } from "./WorkpathOverlay.web";
+import type { QuickCommand } from "./TabStrip.web";
 import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,
@@ -40,6 +40,7 @@ import {
   createInitialMainLayout,
   mainLayoutReducer,
 } from "@/lib/mainLayoutReducer";
+import { writePanelOpen } from "@/lib/panelOpenStorage";
 import {
   storePendingControlRelease,
   takePendingControlRelease,
@@ -80,7 +81,6 @@ export function TerminalCanvas() {
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
-  const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
 
   // Fetch quick-command settings once per session — the overlay used to
@@ -153,40 +153,41 @@ export function TerminalCanvas() {
     }
   }, [machines, activeMachineId]);
 
-  // Load bookmarks for the active machine. Re-fetch when terminals count
-  // changes so counts in the rail stay fresh after add/delete.
-  // When the API returns no bookmarks (or fails), inject a synthetic
-  // `local-home` entry pointing at the machine's home dir so the rail and
-  // overlay always have at least one workpath the user can open. Without
-  // this fallback, a fresh machine would render an empty rail and break
-  // workpath matching for terminals created from the prompt.
+  // Load bookmarks for ALL machines. Re-fetch when terminals count changes
+  // so counts in the rail stay fresh after add/delete.
+  // When the API returns no bookmarks (or fails) for a machine, inject a
+  // synthetic `local-home` entry pointing at that machine's home dir so the
+  // rail and overlay always have at least one workpath the user can open.
+  // WorkpathPanel already filters by machine_id so two "local-home" entries
+  // with different machine_id coexist correctly.
   useEffect(() => {
-    if (!activeMachineId) {
+    if (machines.length === 0) {
       setBookmarks([]);
       return;
     }
-    const machine = machines.find((m) => m.id === activeMachineId);
-    const fallback: Bookmark[] = [
-      {
-        id: "local-home",
-        machine_id: activeMachineId,
-        path: machine?.home_dir || "/",
-        label: "~",
-        sort_order: 0,
-      },
-    ];
     let cancelled = false;
-    listBookmarks(activeMachineId)
-      .then((bms) => {
-        if (!cancelled) setBookmarks(bms.length > 0 ? bms : fallback);
-      })
-      .catch(() => {
-        if (!cancelled) setBookmarks(fallback);
-      });
+    void Promise.all(
+      machines.map((m) => {
+        const fallback: Bookmark[] = [
+          {
+            id: "local-home",
+            machine_id: m.id,
+            path: m.home_dir || "/",
+            label: "~",
+            sort_order: 0,
+          },
+        ];
+        return listBookmarks(m.id)
+          .then((bms) => (bms.length > 0 ? bms : fallback))
+          .catch(() => fallback);
+      }),
+    ).then((all) => {
+      if (!cancelled) setBookmarks(all.flat());
+    });
     return () => {
       cancelled = true;
     };
-  }, [activeMachineId, terminals.length, machines]);
+  }, [machines, terminals.length]);
 
   // Restore zoomed terminal from URL hash on first mount.
   useEffect(() => {
@@ -486,12 +487,8 @@ export function TerminalCanvas() {
     if (!activeMachine || !deviceId) return;
     if (!isMachineController(activeMachine.id)) return;
     if (layout.selectedWorkpathId === "all") {
-      // Per spec §6 ("In `All`, open directory picker"): don't silently
-      // pick home_dir — surface the workpath rail + add-directory picker
-      // so the user actively chooses where the new terminal lands.
-      // `addDirectoryOpen=true` opens the overlay via NavColumn's expanded
-      // derivation; it auto-collapses when the action resolves.
-      setAddDirectoryOpen(true);
+      // From All scope, new-terminal needs a target dir. Fall back to home.
+      await handleCreateTerminal(activeMachine.id, activeMachine.home_dir || "~");
       return;
     }
     const bookmark = bookmarks.find((b) => b.id === layout.selectedWorkpathId);
@@ -543,33 +540,87 @@ export function TerminalCanvas() {
     splitPaneRef.current?.closePane();
   }, []);
 
+  const handleSelectWorkpath = useCallback(
+    (id: string) => {
+      if (id === "all") {
+        dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
+        if (window.location.hash.startsWith("#/t/")) {
+          window.history.pushState(null, "", window.location.pathname);
+        }
+        return;
+      }
+      const bookmark = bookmarks.find((b) => b.id === id);
+      const firstTerminal = bookmark
+        ? terminals.find(
+            (t) => t.machine_id === bookmark.machine_id && t.cwd === bookmark.path,
+          )
+        : undefined;
+      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: id });
+      if (firstTerminal) {
+        handleZoomTerminal(firstTerminal.id);
+      }
+    },
+    [bookmarks, terminals, handleZoomTerminal],
+  );
+
   const handleSelectWorkpathByIndex = useCallback(
     (index: number) => {
       if (index === 0) {
-        dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
+        handleSelectWorkpath("all");
         return;
       }
       const list = bookmarks.filter((b) => b.machine_id === activeMachineId);
       const target = list[index - 1];
       if (target) {
-        dispatchLayout({ type: "SELECT_WORKPATH", workpathId: target.id });
+        handleSelectWorkpath(target.id);
       }
     },
-    [bookmarks, activeMachineId],
+    [bookmarks, activeMachineId, handleSelectWorkpath],
   );
+
+  const currentWorkpathTerminals = useCallback((): TerminalInfo[] => {
+    if (layout.selectedWorkpathId === "all") return terminals;
+    const bookmark = bookmarks.find((b) => b.id === layout.selectedWorkpathId);
+    if (!bookmark) return [];
+    return terminals.filter(
+      (t) => t.machine_id === bookmark.machine_id && t.cwd === bookmark.path,
+    );
+  }, [layout.selectedWorkpathId, terminals, bookmarks]);
 
   useShortcuts({
     newTerminal: isActiveController ? handleNewTerminalFromOverview : undefined,
     closeTab: handleCloseZoomedTerminal,
     closePane: isActiveController ? handleClosePane : undefined,
-    nextTab: undefined, // deprecated with workpath-based navigation
-    prevTab: undefined,
+    nextTab: () => {
+      const scoped = currentWorkpathTerminals();
+      if (scoped.length <= 1) return;
+      const idx = scoped.findIndex((t) => t.id === layout.zoomedTerminalId);
+      const nextIdx = (idx === -1 ? 0 : idx + 1) % scoped.length;
+      handleZoomTerminal(scoped[nextIdx].id);
+    },
+    prevTab: () => {
+      const scoped = currentWorkpathTerminals();
+      if (scoped.length <= 1) return;
+      const idx = scoped.findIndex((t) => t.id === layout.zoomedTerminalId);
+      const prevIdx = (idx === -1 ? 0 : (idx - 1 + scoped.length) % scoped.length);
+      handleZoomTerminal(scoped[prevIdx].id);
+    },
+    selectAll: () => {
+      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
+      if (window.location.hash.startsWith("#/t/")) {
+        window.history.pushState(null, "", window.location.pathname);
+      }
+    },
     selectTab: handleSelectWorkpathByIndex,
     splitVertical: isActiveController ? handleSplitVertical : undefined,
     splitHorizontal: isActiveController ? handleSplitHorizontal : undefined,
     focusPrevPane: handleFocusPrevPane,
     focusNextPane: handleFocusNextPane,
-    toggleNav: () => dispatchLayout({ type: "TOGGLE_NAV_FORCE_EXPANDED" }),
+    toggleNav: () => {
+      const next = !layout.panelOpen;
+      writePanelOpen(next);
+      dispatchLayout({ type: "TOGGLE_PANEL" });
+    },
   });
 
   // Esc unzooms the immersive terminal view, as long as focus is not inside
@@ -600,26 +651,18 @@ export function TerminalCanvas() {
     bookmarks,
     terminals,
     selectedWorkpathId: layout.selectedWorkpathId,
-    forceExpanded: layout.columnForceExpanded,
+    panelOpen: layout.panelOpen,
     canCreateTerminalForActiveMachine: isActiveController,
-    quickCommands,
-    addDirectoryOpen,
     onSelectMachine: (id: string) => setActiveMachineId(id),
-    onSelectAll: () =>
-      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" }),
-    onSelectWorkpath: (id: string) =>
-      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: id }),
+    onSelectAll: () => {
+      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
+      if (window.location.hash.startsWith("#/t/")) {
+        window.history.pushState(null, "", window.location.pathname);
+      }
+    },
+    onSelectWorkpath: handleSelectWorkpath,
     onCreateTerminal: handleCreateTerminal,
     onRequestControl: handleRequestControl,
-    // Rail "+" button: surface the overlay's add-directory PathInput.
-    // `addDirectoryOpen=true` is enough — NavColumn's `expanded` derivation
-    // includes it, so the overlay opens and stays open until confirm/cancel.
-    // We deliberately do NOT toggle force-expanded here: the previous code
-    // turned it on but never off, leaving the overlay stuck open after the
-    // user finished adding a directory.
-    onAddBookmark: () => {
-      setAddDirectoryOpen(true);
-    },
     onConfirmAddDirectory: async (machineId: string, path: string) => {
       const label = (() => {
         const parts = path.replace(/\/+$/, "").split("/");
@@ -629,9 +672,6 @@ export function TerminalCanvas() {
         const bm = await createBookmark(machineId, path, label);
         setBookmarks((prev) => [...prev, bm]);
       } catch {
-        // Fall back to a local-only bookmark so the user still sees their
-        // entry in the rail. Sync will pick it up on the next reload if
-        // the API was just transiently down.
         setBookmarks((prev) => [
           ...prev,
           {
@@ -642,20 +682,11 @@ export function TerminalCanvas() {
             sort_order: prev.length,
           },
         ]);
-      } finally {
-        setAddDirectoryOpen(false);
       }
     },
-    onCancelAddDirectory: () => setAddDirectoryOpen(false),
     onRemoveBookmark: async (id: string) => {
       setBookmarks((prev) => prev.filter((b) => b.id !== id));
-      // Reset the layout if the deleted bookmark was the selected workpath,
-      // otherwise selectedWorkpathId points at a now-nonexistent id and the
-      // grid renders empty with no obvious recovery for the user.
       dispatchLayout({ type: "WORKPATH_DELETED", workpathId: id });
-      // Synthetic local-* bookmarks (the home fallback or local-only adds
-      // from a failed createBookmark) don't exist server-side; skip the API
-      // call so we don't get a misleading 404 in the network tab.
       if (id.startsWith("local-")) return;
       try {
         await deleteBookmark(id);
@@ -762,6 +793,7 @@ export function TerminalCanvas() {
             isActiveController={isActiveController}
             isMachineController={isMachineController}
             deviceId={deviceId ?? ""}
+            quickCommands={quickCommands}
             onZoomTerminal={handleZoomTerminal}
             onUnzoom={handleUnzoom}
             onDestroy={handleDestroyTerminal}

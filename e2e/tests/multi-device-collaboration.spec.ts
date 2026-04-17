@@ -3,7 +3,7 @@ import { expect, test, devices } from "@playwright/test";
 import {
   expectGlobalModeToggleLabel,
   expectTerminalCount,
-  expandNavColumn,
+  openPanel,
   getAuthHeaders,
   getDeviceId,
   getImmersiveTerminal,
@@ -30,8 +30,8 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await expandNavColumn(desktopPage);
-  await desktopPage.getByTestId("overlay-request-control-e2e-node").click();
+  await openPanel(desktopPage);
+  await desktopPage.getByTestId("panel-request-control-e2e-node").click();
   await openRootBookmark(desktopPage);
   // Terminal auto-zooms after creation. The desktop controller auto-fits
   // it to the 1440x960 viewport — no manual fit click needed any more.
@@ -56,7 +56,7 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   await expect.poll(async () => (await listTerminals(mobilePage)).length).toBe(1);
   // On mobile the Overview grid is already visible — click the card to zoom.
   const mobileCard = mobilePage
-    .locator("[data-testid^='terminal-card-']:visible")
+    .locator("[data-testid^='terminal-card-']:not([data-testid='terminal-card-workpath-label']):visible")
     .first();
   await expect(mobileCard).toBeVisible();
   await mobileCard.click();
@@ -99,8 +99,8 @@ test("terminal auto-fits to whichever device currently holds control", async ({
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await expandNavColumn(desktopPage);
-  await desktopPage.getByTestId("overlay-request-control-e2e-node").click();
+  await openPanel(desktopPage);
+  await desktopPage.getByTestId("panel-request-control-e2e-node").click();
   await openRootBookmark(desktopPage);
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
 
@@ -142,7 +142,7 @@ test("terminal auto-fits to whichever device currently holds control", async ({
 
   // Hand control back to desktop. Switch desktop to Overview first, take
   // control, then re-zoom into the card.
-  await desktopPage.getByTestId("breadcrumb-back").click();
+  await desktopPage.getByTestId("panel-select-all").click();
   await expect(desktopPage.getByTestId("overview-header")).toBeVisible();
   await expectGlobalModeToggleLabel(desktopPage, "Control Here");
   await desktopPage.getByTestId("canvas-mode-toggle").click();
@@ -182,15 +182,15 @@ test("multiple shared terminals stay in sync across mobile handoff and selective
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await expandNavColumn(desktopPage);
-  await desktopPage.getByTestId("overlay-request-control-e2e-node").click();
+  await openPanel(desktopPage);
+  await desktopPage.getByTestId("panel-request-control-e2e-node").click();
   // First terminal: click the ~ bookmark — creates + auto-zooms.
   await openRootBookmark(desktopPage);
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
   // Go back to Overview so we can create another terminal via the header.
-  await desktopPage.getByTestId("breadcrumb-back").click();
+  await desktopPage.getByTestId("panel-select-all").click();
   await expect(desktopPage.getByTestId("overview-header")).toBeVisible();
-  // Second terminal: the "~" bookmark already has count=1, so the overlay
+  // Second terminal: the "~" bookmark already has count=1, so the panel
   // would just filter. Use the Overview header's "New terminal" action
   // instead, which creates in the current workpath (currently "All" → home).
   await desktopPage.getByTestId("overview-new-terminal").click();
@@ -203,7 +203,7 @@ test("multiple shared terminals stay in sync across mobile handoff and selective
     .sort();
 
   // Back to the Overview grid to see all terminals
-  await desktopPage.getByTestId("breadcrumb-back").click();
+  await desktopPage.getByTestId("panel-select-all").click();
   await expect(desktopPage.getByTestId("overview-header")).toBeVisible();
   await expectTerminalCount(desktopPage, 2);
   await openApp(mobilePage);

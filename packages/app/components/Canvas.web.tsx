@@ -4,7 +4,8 @@ import type { Bookmark, MachineInfo, ResourceStats, TerminalInfo } from "@webmux
 import { TerminalCard } from "./TerminalCard.web";
 import type { TerminalCardRef } from "./TerminalCard.web";
 import { OverviewHeader } from "./OverviewHeader.web";
-import { TerminalBreadcrumb } from "./TerminalBreadcrumb.web";
+import { TabStrip, type QuickCommand } from "./TabStrip.web";
+import { WorkpathEmptyState } from "./WorkpathEmptyState.web";
 import { colors } from "@/lib/colors";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { SplitPaneContainer } from "./SplitPaneContainer";
@@ -31,6 +32,7 @@ interface CanvasProps {
   isActiveController: boolean;
   isMachineController: (machineId: string) => boolean;
   deviceId: string;
+  quickCommands: QuickCommand[];
   onZoomTerminal: (id: string) => void;
   onUnzoom: () => void;
   onDestroy: (terminal: TerminalInfo) => void;
@@ -63,6 +65,7 @@ function CanvasComponent(props: CanvasProps) {
     isActiveController,
     isMachineController,
     deviceId,
+    quickCommands,
     onZoomTerminal,
     onUnzoom,
     onDestroy,
@@ -92,29 +95,52 @@ function CanvasComponent(props: CanvasProps) {
     ? "All"
     : scopeBookmark?.label ?? "Workpath";
 
+  // Four-state machine variables.
+  const isAll = selectedWorkpathId === "all";
+  const workpathBookmark = isAll
+    ? null
+    : bookmarks.find((b) => b.id === selectedWorkpathId) ?? null;
+  const inWorkpath = !isAll;
+  const workpathHasTerminals = inWorkpath && scopedTerminals.length > 0;
+
+  // Effective tab id when in workpath scope: explicit zoom or fallback to first.
+  const effectiveZoomId =
+    zoomedTerminalId
+    ?? (inWorkpath && workpathHasTerminals ? scopedTerminals[0].id : null);
+
   // Pane layout state keyed by terminal id (zoomed terminal).
   const [paneLayouts, setPaneLayouts] = useState<Record<string, PaneNode>>({});
   const [activePaneId, setActivePaneId] = useState<string | null>(null);
   const terminalCardRefs = useRef<Record<string, TerminalCardRef | null>>({});
 
-  useEffect(() => {
-    if (zoomedTerminalId && !paneLayouts[zoomedTerminalId]) {
-      setPaneLayouts((prev) => ({
-        ...prev,
-        [zoomedTerminalId]: createLeaf(zoomedTerminalId),
-      }));
-      setActivePaneId(zoomedTerminalId);
-    }
-  }, [zoomedTerminalId, paneLayouts]);
+  // Derive the effective layout synchronously — falls back to a fresh leaf so
+  // States 2 and 4 never show a blank frame on the first render after zoom.
+  const effectiveLayout: PaneNode | null = useMemo(() => {
+    if (!effectiveZoomId) return null;
+    return paneLayouts[effectiveZoomId] ?? createLeaf(effectiveZoomId);
+  }, [effectiveZoomId, paneLayouts]);
 
+  // Sync the derived leaf into paneLayouts after commit so subsequent
+  // split / ratio changes persist correctly.
   useEffect(() => {
-    if (!zoomedTerminalId) return;
-    const targetId = activePaneId || zoomedTerminalId;
+    if (!effectiveZoomId) return;
+    if (paneLayouts[effectiveZoomId]) return;
+    setPaneLayouts((prev) => {
+      if (prev[effectiveZoomId]) return prev; // raced with another setter
+      return { ...prev, [effectiveZoomId]: createLeaf(effectiveZoomId) };
+    });
+    setActivePaneId(effectiveZoomId);
+  }, [effectiveZoomId, paneLayouts]);
+
+  // Focus the active pane when effectiveZoomId changes.
+  useEffect(() => {
+    if (!effectiveZoomId) return;
+    const targetId = activePaneId || effectiveZoomId;
     const rafId = requestAnimationFrame(() => {
       terminalCardRefs.current[targetId]?.focus();
     });
     return () => cancelAnimationFrame(rafId);
-  }, [zoomedTerminalId, activePaneId]);
+  }, [effectiveZoomId, activePaneId]);
 
   useEffect(() => {
     const terminalIds = new Set(terminals.map((t) => t.id));
@@ -138,33 +164,33 @@ function CanvasComponent(props: CanvasProps) {
 
   const handleSplitPane = useCallback(
     async (direction: "horizontal" | "vertical") => {
-      if (!zoomedTerminalId || !activePaneId || !activeMachine || !deviceId) return;
+      if (!effectiveZoomId || !activePaneId || !activeMachine || !deviceId) return;
       if (!isMachineController(activeMachine.id)) return;
       const activeTerminalForSplit = terminals.find((t) => t.id === activePaneId);
       const cwd = activeTerminalForSplit?.cwd || "~";
       const newTerminal = await createTerminal(activeMachine.id, cwd, deviceId);
       setPaneLayouts((prev) => {
-        const current = prev[zoomedTerminalId] || createLeaf(zoomedTerminalId);
+        const current = prev[effectiveZoomId] || createLeaf(effectiveZoomId);
         return {
           ...prev,
-          [zoomedTerminalId]: splitPane(current, activePaneId, newTerminal.id, direction),
+          [effectiveZoomId]: splitPane(current, activePaneId, newTerminal.id, direction),
         };
       });
       setActivePaneId(newTerminal.id);
     },
-    [zoomedTerminalId, activePaneId, activeMachine, deviceId, isMachineController, terminals],
+    [effectiveZoomId, activePaneId, activeMachine, deviceId, isMachineController, terminals],
   );
 
   const handleUpdateRatio = useCallback(
     (splitNode: PaneSplit, newRatio: number) => {
-      if (!zoomedTerminalId) return;
+      if (!effectiveZoomId) return;
       setPaneLayouts((prev) => {
-        const current = prev[zoomedTerminalId];
+        const current = prev[effectiveZoomId];
         if (!current) return prev;
-        return { ...prev, [zoomedTerminalId]: updateRatio(current, splitNode, newRatio) };
+        return { ...prev, [effectiveZoomId]: updateRatio(current, splitNode, newRatio) };
       });
     },
-    [zoomedTerminalId],
+    [effectiveZoomId],
   );
 
   const handleActivatePane = useCallback((id: string) => {
@@ -172,41 +198,41 @@ function CanvasComponent(props: CanvasProps) {
   }, []);
 
   const handleFocusPrevPane = useCallback(() => {
-    if (!zoomedTerminalId) return;
-    const layout = paneLayouts[zoomedTerminalId];
+    if (!effectiveZoomId) return;
+    const layout = paneLayouts[effectiveZoomId];
     if (!layout) return;
     const leaves = getLeaves(layout);
     const idx = leaves.findIndex((l) => l.terminalId === activePaneId);
     const prevIdx = (idx - 1 + leaves.length) % leaves.length;
     setActivePaneId(leaves[prevIdx].terminalId);
     terminalCardRefs.current[leaves[prevIdx].terminalId]?.focus();
-  }, [zoomedTerminalId, paneLayouts, activePaneId]);
+  }, [effectiveZoomId, paneLayouts, activePaneId]);
 
   const handleFocusNextPane = useCallback(() => {
-    if (!zoomedTerminalId) return;
-    const layout = paneLayouts[zoomedTerminalId];
+    if (!effectiveZoomId) return;
+    const layout = paneLayouts[effectiveZoomId];
     if (!layout) return;
     const leaves = getLeaves(layout);
     const idx = leaves.findIndex((l) => l.terminalId === activePaneId);
     const nextIdx = (idx + 1) % leaves.length;
     setActivePaneId(leaves[nextIdx].terminalId);
     terminalCardRefs.current[leaves[nextIdx].terminalId]?.focus();
-  }, [zoomedTerminalId, paneLayouts, activePaneId]);
+  }, [effectiveZoomId, paneLayouts, activePaneId]);
 
   const closePaneById = useCallback(
     (terminalId: string) => {
-      if (!zoomedTerminalId) return;
+      if (!effectiveZoomId) return;
       const terminal = terminals.find((t) => t.id === terminalId);
       if (!terminal) return;
-      const layout = paneLayouts[zoomedTerminalId];
-      if (terminalId === zoomedTerminalId && layout && layout.type === "split") {
+      const layout = paneLayouts[effectiveZoomId];
+      if (terminalId === effectiveZoomId && layout && layout.type === "split") {
         const remaining = removePane(layout, terminalId);
         if (remaining) {
           const newRoot = getLeaves(remaining)[0]?.terminalId;
           if (newRoot) {
             setPaneLayouts((prev) => {
               const copy = { ...prev };
-              delete copy[zoomedTerminalId];
+              delete copy[effectiveZoomId];
               copy[newRoot] = remaining;
               return copy;
             });
@@ -217,7 +243,7 @@ function CanvasComponent(props: CanvasProps) {
       }
       onDestroy(terminal);
     },
-    [zoomedTerminalId, paneLayouts, terminals, onDestroy, onZoomTerminal],
+    [effectiveZoomId, paneLayouts, terminals, onDestroy, onZoomTerminal],
   );
 
   const handleClosePane = useCallback(() => {
@@ -245,12 +271,6 @@ function CanvasComponent(props: CanvasProps) {
     setContextMenu({ x: e.clientX, y: e.clientY, terminalId });
   }, []);
 
-  const openMenuFromBreadcrumb = useCallback((e: React.MouseEvent) => {
-    if (!zoomedTerminalId) return;
-    e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, terminalId: zoomedTerminalId });
-  }, [zoomedTerminalId]);
-
   // Track which terminals are mounted *visibly* — either the leaves of
   // the zoomed pane layout, or every visible card in the overview grid.
   // The hidden-mount loop below skips these so we don't double-mount
@@ -258,20 +278,27 @@ function CanvasComponent(props: CanvasProps) {
   // overview mode and every terminal already has a visible card.
   const renderedIds = useMemo(() => {
     const s = new Set<string>();
-    if (zoomedTerminalId && paneLayouts[zoomedTerminalId]) {
-      for (const leaf of getLeaves(paneLayouts[zoomedTerminalId])) s.add(leaf.terminalId);
+    if (effectiveZoomId && effectiveLayout) {
+      for (const leaf of getLeaves(effectiveLayout)) s.add(leaf.terminalId);
     } else {
       // Overview mode: every card in `scopedTerminals` is visible.
       for (const t of scopedTerminals) s.add(t.id);
     }
     return s;
-  }, [zoomedTerminalId, paneLayouts, scopedTerminals]);
+  }, [effectiveZoomId, paneLayouts, scopedTerminals]);
 
-  const siblingsForBreadcrumb = useMemo(() => {
-    if (!zoomedTerminalId) return [];
-    if (selectedWorkpathId === "all") return terminals;
-    return scopedTerminals;
-  }, [zoomedTerminalId, selectedWorkpathId, terminals, scopedTerminals]);
+  // Workpath label resolver for All-grid cards.
+  const workpathLabelByMachineAndCwd = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const bm of bookmarks) {
+      map.set(`${bm.machine_id}::${bm.path}`, bm.label);
+    }
+    return map;
+  }, [bookmarks]);
+
+  const labelForTerminal = useCallback((t: TerminalInfo): string | undefined => {
+    return workpathLabelByMachineAndCwd.get(`${t.machine_id}::${t.cwd}`);
+  }, [workpathLabelByMachineAndCwd]);
 
   return (
     <main
@@ -283,39 +310,36 @@ function CanvasComponent(props: CanvasProps) {
         background: colors.background,
       }}
     >
-      {zoomedTerminalId && paneLayouts[zoomedTerminalId] ? (
-        <>
-          <TerminalBreadcrumb
-            scopeLabel={scopeLabel}
-            zoomedTerminalId={zoomedTerminalId}
-            siblings={siblingsForBreadcrumb}
-            onBack={onUnzoom}
-            onSwitchSibling={(id) => onZoomTerminal(id)}
-            onOpenMenu={openMenuFromBreadcrumb}
-          />
-          <div
-            style={{ flex: 1, overflow: "hidden", display: "flex" }}
-            onContextMenu={(e) => handleTerminalContextMenu(e, activePaneId || zoomedTerminalId)}
-          >
-            <SplitPaneContainer
-              node={paneLayouts[zoomedTerminalId]}
-              terminals={terminals}
-              activePaneId={activePaneId}
-              isMobile={isMobile}
-              isMachineController={isMachineController}
-              deviceId={deviceId}
-              terminalCardRefs={terminalCardRefs}
-              onSelectTab={(id) => { if (id) onZoomTerminal(id); else onUnzoom(); }}
-              onDestroy={onDestroy}
-              onClosePane={closePaneById}
-              onRequestControl={onRequestControl}
-              onReleaseControl={onReleaseControl}
-              onActivatePane={handleActivatePane}
-              onUpdateRatio={handleUpdateRatio}
-            />
-          </div>
-        </>
-      ) : (
+      <style>{`
+        @keyframes webmuxCanvasFade {
+          from { opacity: 0.6; }
+          to   { opacity: 1; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [data-canvas-fade] { animation: none !important; }
+        }
+      `}</style>
+      <div
+        key={
+          isAll && !zoomedTerminalId
+            ? "all-grid"
+            : isAll
+              ? `all-zoom-${zoomedTerminalId}`
+              : !workpathHasTerminals
+                ? `wp-empty-${selectedWorkpathId}`
+                : `wp-${selectedWorkpathId}`
+        }
+        data-canvas-fade
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          animation: "webmuxCanvasFade 180ms ease-out",
+        }}
+      >
+      {/* State 1: All scope + no zoom → All grid */}
+      {isAll && !zoomedTerminalId && (
         <div
           style={{
             flex: 1,
@@ -397,6 +421,12 @@ function CanvasComponent(props: CanvasProps) {
                   isMobile={isMobile}
                   isController={isMachineController(terminal.machine_id)}
                   deviceId={deviceId}
+                  workpathLabel={(() => {
+                    const wp = labelForTerminal(terminal);
+                    if (!wp) return undefined;
+                    const title = terminal.title || terminal.id.slice(0, 8);
+                    return `${wp} · ${title}`;
+                  })()}
                   onSelectTab={(id) => { if (id) onZoomTerminal(id); }}
                   onDestroy={onDestroy}
                   onRequestControl={onRequestControl}
@@ -407,6 +437,91 @@ function CanvasComponent(props: CanvasProps) {
           )}
         </div>
       )}
+
+      {/* State 2: All scope + zoom → immersive terminal (no tab strip) */}
+      {isAll && zoomedTerminalId && effectiveLayout && (
+        <div
+          style={{ flex: 1, overflow: "hidden", display: "flex" }}
+          onContextMenu={(e) => handleTerminalContextMenu(e, activePaneId || zoomedTerminalId)}
+        >
+          <SplitPaneContainer
+            node={effectiveLayout}
+            terminals={terminals}
+            activePaneId={activePaneId}
+            isMobile={isMobile}
+            isMachineController={isMachineController}
+            deviceId={deviceId}
+            terminalCardRefs={terminalCardRefs}
+            onSelectTab={(id) => { if (id) onZoomTerminal(id); else onUnzoom(); }}
+            onDestroy={onDestroy}
+            onClosePane={closePaneById}
+            onRequestControl={onRequestControl}
+            onReleaseControl={onReleaseControl}
+            onActivatePane={handleActivatePane}
+            onUpdateRatio={handleUpdateRatio}
+          />
+        </div>
+      )}
+
+      {/* State 3: workpath + no terminals → WorkpathEmptyState */}
+      {inWorkpath && !workpathHasTerminals && workpathBookmark && (
+        <WorkpathEmptyState
+          bookmark={workpathBookmark}
+          canCreateTerminal={isActiveController}
+          quickCommands={quickCommands}
+          onNewTerminal={() => {
+            if (onNewTerminal) onNewTerminal();
+          }}
+          onQuickCommand={(command) => {
+            if (!activeMachine) return;
+            if (!isMachineController(activeMachine.id)) return;
+            void createTerminal(activeMachine.id, workpathBookmark.path, deviceId, command).catch(() => {});
+          }}
+        />
+      )}
+
+      {/* State 4: workpath + has terminals → TabStrip + immersive of effective tab */}
+      {inWorkpath && workpathHasTerminals && effectiveZoomId && effectiveLayout && (
+        <>
+          <TabStrip
+            tabs={scopedTerminals}
+            activeTabId={effectiveZoomId}
+            canCreateTerminal={isActiveController}
+            quickCommands={quickCommands}
+            onSelectTab={(id) => onZoomTerminal(id)}
+            onCloseTab={(t) => closePaneById(t.id)}
+            onNewTerminal={() => { if (onNewTerminal) onNewTerminal(); }}
+            onQuickCommand={(command) => {
+              if (!activeMachine || !workpathBookmark) return;
+              if (!isMachineController(activeMachine.id)) return;
+              void createTerminal(activeMachine.id, workpathBookmark.path, deviceId, command).catch(() => {});
+            }}
+          />
+          <div
+            style={{ flex: 1, overflow: "hidden", display: "flex" }}
+            onContextMenu={(e) => handleTerminalContextMenu(e, activePaneId || effectiveZoomId)}
+          >
+            <SplitPaneContainer
+              node={effectiveLayout}
+              terminals={terminals}
+              activePaneId={activePaneId}
+              isMobile={isMobile}
+              isMachineController={isMachineController}
+              deviceId={deviceId}
+              terminalCardRefs={terminalCardRefs}
+              onSelectTab={(id) => { if (id) onZoomTerminal(id); else onUnzoom(); }}
+              onDestroy={onDestroy}
+              onClosePane={closePaneById}
+              onRequestControl={onRequestControl}
+              onReleaseControl={onReleaseControl}
+              onActivatePane={handleActivatePane}
+              onUpdateRatio={handleUpdateRatio}
+            />
+          </div>
+        </>
+      )}
+
+      </div>
 
       {/* Hidden mount for terminals not currently in the zoomed pane */}
       {terminals
