@@ -899,6 +899,7 @@ set -s set-clipboard on
 set -g allow-passthrough on
 set -g focus-events on
 set -g history-limit 10000
+set -g window-size manual
 bind -n WheelUpPane if -Ft= '#{mouse_any_flag}' 'send -M' 'if -Ft= \"#{pane_in_mode}\" \"send -M\" \"copy-mode -e\"'
 ",
     );
@@ -1185,6 +1186,10 @@ mod tests {
         assert!(
             content.contains("WheelUpPane") && content.contains("copy-mode -e"),
             "missing scroll-to-copy-mode binding"
+        );
+        assert!(
+            content.contains("set -g window-size manual"),
+            "missing window-size manual (controller-driven sizing)"
         );
         assert!(
             content.contains("source-file -q \"/tmp/tmux.user.conf\""),
