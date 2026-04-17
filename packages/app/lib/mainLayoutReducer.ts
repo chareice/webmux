@@ -1,3 +1,5 @@
+import { readPanelOpen } from "./panelOpenStorage";
+
 export type WorkpathSelection = "all" | string;
 
 export interface MainLayoutState {
@@ -19,7 +21,7 @@ export function createInitialMainLayout(): MainLayoutState {
   return {
     selectedWorkpathId: "all",
     zoomedTerminalId: null,
-    panelOpen: true,
+    panelOpen: readPanelOpen(true),
   };
 }
 

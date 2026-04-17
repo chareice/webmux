@@ -40,6 +40,7 @@ import {
   createInitialMainLayout,
   mainLayoutReducer,
 } from "@/lib/mainLayoutReducer";
+import { writePanelOpen } from "@/lib/panelOpenStorage";
 import {
   storePendingControlRelease,
   takePendingControlRelease,
@@ -569,7 +570,11 @@ export function TerminalCanvas() {
     splitHorizontal: isActiveController ? handleSplitHorizontal : undefined,
     focusPrevPane: handleFocusPrevPane,
     focusNextPane: handleFocusNextPane,
-    toggleNav: () => dispatchLayout({ type: "TOGGLE_PANEL" }),
+    toggleNav: () => {
+      const next = !layout.panelOpen;
+      writePanelOpen(next);
+      dispatchLayout({ type: "TOGGLE_PANEL" });
+    },
   });
 
   // Esc unzooms the immersive terminal view, as long as focus is not inside
