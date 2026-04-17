@@ -3,6 +3,7 @@ mod config;
 mod hub_conn;
 mod pty;
 mod service;
+mod session_watcher;
 mod stats;
 
 use std::sync::Arc;
