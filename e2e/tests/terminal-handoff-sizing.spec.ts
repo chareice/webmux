@@ -55,6 +55,15 @@ test("terminal size stays stable across tab view and cross-device handoff until 
   await mobilePage.getByTestId("statusbar-mode-toggle").click();
   await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
+  // Verify the server-side pty size is still at desktop dims — checked here,
+  // before waiting for the viewport-layout to settle, to ensure the assertion
+  // runs inside the 200ms auto-fit debounce window (before any auto-fit
+  // message can reach the server).
+  await expect
+    .poll(async () => listTerminals(mobilePage))
+    .toEqual([initialTerminal]);
+  // Terminal at desktop dims is larger than the mobile viewport, so the client
+  // scales it down to fit — confirm the scale is < 1.
   await expect
     .poll(async () =>
       Number(
@@ -62,10 +71,6 @@ test("terminal size stays stable across tab view and cross-device handoff until 
       ),
     )
     .toBeLessThan(1);
-
-  await expect
-    .poll(async () => listTerminals(mobilePage))
-    .toEqual([initialTerminal]);
 
   await mobilePage.getByTestId("terminal-fit-button").click();
 
