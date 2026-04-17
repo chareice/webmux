@@ -619,6 +619,14 @@ export function TerminalCanvas() {
     onCancelAddDirectory: () => setAddDirectoryOpen(false),
     onRemoveBookmark: async (id: string) => {
       setBookmarks((prev) => prev.filter((b) => b.id !== id));
+      // Reset the layout if the deleted bookmark was the selected workpath,
+      // otherwise selectedWorkpathId points at a now-nonexistent id and the
+      // grid renders empty with no obvious recovery for the user.
+      dispatchLayout({ type: "WORKPATH_DELETED", workpathId: id });
+      // Synthetic local-* bookmarks (the home fallback or local-only adds
+      // from a failed createBookmark) don't exist server-side; skip the API
+      // call so we don't get a misleading 404 in the network tab.
+      if (id.startsWith("local-")) return;
       try {
         await deleteBookmark(id);
       } catch {

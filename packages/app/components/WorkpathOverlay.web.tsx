@@ -83,7 +83,6 @@ function WorkpathOverlayComponent(props: WorkpathOverlayProps) {
   return (
     <div
       data-testid="workpath-overlay"
-      onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       style={{
         position: "absolute",

@@ -251,14 +251,21 @@ function CanvasComponent(props: CanvasProps) {
     setContextMenu({ x: e.clientX, y: e.clientY, terminalId: zoomedTerminalId });
   }, [zoomedTerminalId]);
 
-  // Keep hidden terminal mounts for non-scope terminals so state is preserved
+  // Track which terminals are mounted *visibly* — either the leaves of
+  // the zoomed pane layout, or every visible card in the overview grid.
+  // The hidden-mount loop below skips these so we don't double-mount
+  // (and double-attach a tmux client per terminal) when the user is in
+  // overview mode and every terminal already has a visible card.
   const renderedIds = useMemo(() => {
     const s = new Set<string>();
     if (zoomedTerminalId && paneLayouts[zoomedTerminalId]) {
       for (const leaf of getLeaves(paneLayouts[zoomedTerminalId])) s.add(leaf.terminalId);
+    } else {
+      // Overview mode: every card in `scopedTerminals` is visible.
+      for (const t of scopedTerminals) s.add(t.id);
     }
     return s;
-  }, [zoomedTerminalId, paneLayouts]);
+  }, [zoomedTerminalId, paneLayouts, scopedTerminals]);
 
   const siblingsForBreadcrumb = useMemo(() => {
     if (!zoomedTerminalId) return [];

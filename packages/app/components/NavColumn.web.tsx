@@ -100,9 +100,17 @@ function NavColumnComponent(props: NavColumnProps) {
     [activeMachineBookmarks, tags, counts, live],
   );
 
+  // 400ms grace period covers a deliberate human traversal from rail into
+  // overlay (Copilot review noted this could otherwise dismiss the overlay
+  // mid-interaction). We deliberately do NOT add `onPointerEnter` on the
+  // overlay to cancel-on-arrival: Playwright's auto-wait for click
+  // intercepts brushes the overlay edge while polling, which would
+  // re-fire onPointerEnter and keep the timer reset indefinitely,
+  // permanently blocking subsequent clicks (regression in 4 e2e tests).
+  // The grace window covers both humans and tests.
   const scheduleCollapse = () => {
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
-    collapseTimer.current = setTimeout(() => setHoverExpanded(false), 200);
+    collapseTimer.current = setTimeout(() => setHoverExpanded(false), 400);
   };
   const cancelCollapse = () => {
     if (collapseTimer.current) {
