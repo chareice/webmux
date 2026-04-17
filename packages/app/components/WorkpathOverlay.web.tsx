@@ -1,11 +1,6 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { Bookmark, MachineInfo } from "@webmux/shared";
-import {
-  listBookmarks,
-  createBookmark,
-  deleteBookmark,
-  getSettings,
-} from "@/lib/api";
+import { getSettings } from "@/lib/api";
 import { colors } from "@/lib/colors";
 import { PathInput } from "./PathInput.web";
 
@@ -16,68 +11,53 @@ interface QuickCommand {
 
 interface WorkpathOverlayProps {
   machine: MachineInfo;
+  // Bookmarks are owned by the parent (TerminalCanvas) so the rail's
+  // counts and the overlay's list never drift. Add/remove go through the
+  // parent-supplied callbacks; this component is purely presentational
+  // for the bookmark list.
+  bookmarks: Bookmark[];
   selectedWorkpathId: string | "all";
   terminalCountsByBookmarkId: Record<string, number>;
   liveByBookmarkId: Record<string, boolean>;
   canCreateTerminal: boolean;
+  // Whether to show the "add directory" PathInput. Controlled by parent
+  // so the rail's "+" button can open it (along with force-expanding the
+  // overlay) and so a successful add can close it from any source.
+  addDirectoryOpen: boolean;
   onSelectAll: () => void;
   onSelectWorkpath: (id: string) => void;
   onCreateTerminal: (machineId: string, cwd: string, startupCommand?: string) => void;
   onRequestControl?: (machineId: string) => void;
-  onBookmarkDeleted?: (bookmarkId: string) => void;
+  onShowAddDirectory: () => void;
+  onConfirmAddDirectory: (machineId: string, path: string) => void;
+  onCancelAddDirectory: () => void;
+  onRemoveBookmark: (bookmarkId: string) => void;
+  onPointerEnter: () => void;
   onPointerLeave: () => void;
 }
 
 function WorkpathOverlayComponent(props: WorkpathOverlayProps) {
   const {
     machine,
+    bookmarks,
     selectedWorkpathId,
     terminalCountsByBookmarkId,
     liveByBookmarkId,
     canCreateTerminal,
+    addDirectoryOpen,
     onSelectAll,
     onSelectWorkpath,
     onCreateTerminal,
     onRequestControl,
-    onBookmarkDeleted,
+    onShowAddDirectory,
+    onConfirmAddDirectory,
+    onCancelAddDirectory,
+    onRemoveBookmark,
+    onPointerEnter,
     onPointerLeave,
   } = props;
 
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
-  const [showAdd, setShowAdd] = useState(false);
-  const loadedRef = useRef(false);
-
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-
-    listBookmarks(machine.id)
-      .then((bms) => {
-        if (bms.length === 0) {
-          const homeDir = machine.home_dir || "/home";
-          setBookmarks([{
-            id: "local-home",
-            machineId: machine.id,
-            path: homeDir,
-            label: "~",
-            sortOrder: 0,
-          }]);
-        } else {
-          setBookmarks(bms);
-        }
-      })
-      .catch(() => {
-        const homeDir = machine.home_dir || "/home";
-        setBookmarks([{
-          id: "local-home",
-          machineId: machine.id,
-          path: homeDir,
-          label: "~",
-          sortOrder: 0,
-        }]);
-      });
-  }, [machine.id, machine.home_dir]);
 
   useEffect(() => {
     getSettings()
@@ -91,38 +71,19 @@ function WorkpathOverlayComponent(props: WorkpathOverlayProps) {
       .catch(() => { /* ignore */ });
   }, []);
 
-  const handleAdd = async (path: string) => {
+  const handleAdd = (path: string) => {
     if (!path) return;
     if (bookmarks.some((b) => b.path === path)) {
-      setShowAdd(false);
+      onCancelAddDirectory();
       return;
     }
-    try {
-      const bm = await createBookmark(machine.id, path, pathLabel(path));
-      setBookmarks((prev) => [...prev, bm]);
-    } catch {
-      setBookmarks((prev) => [...prev, {
-        id: `local-${Date.now()}`,
-        machineId: machine.id,
-        path,
-        label: pathLabel(path),
-        sortOrder: prev.length,
-      }]);
-    }
-    setShowAdd(false);
-  };
-
-  const handleRemove = async (bm: Bookmark) => {
-    setBookmarks((prev) => prev.filter((b) => b.id !== bm.id));
-    try {
-      await deleteBookmark(bm.id);
-    } catch { /* ignore */ }
-    onBookmarkDeleted?.(bm.id);
+    onConfirmAddDirectory(machine.id, path);
   };
 
   return (
     <div
       data-testid="workpath-overlay"
+      onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       style={{
         position: "absolute",
@@ -266,7 +227,7 @@ function WorkpathOverlayComponent(props: WorkpathOverlayProps) {
                 data-testid={`overlay-remove-${bm.id}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleRemove(bm);
+                  onRemoveBookmark(bm.id);
                 }}
                 style={{
                   position: "absolute",
@@ -286,16 +247,16 @@ function WorkpathOverlayComponent(props: WorkpathOverlayProps) {
           );
         })}
 
-        {showAdd ? (
+        {addDirectoryOpen ? (
           <PathInput
             machineId={machine.id}
             onSubmit={handleAdd}
-            onCancel={() => setShowAdd(false)}
+            onCancel={onCancelAddDirectory}
           />
         ) : (
           <button
             data-testid="overlay-add-directory"
-            onClick={() => setShowAdd(true)}
+            onClick={onShowAddDirectory}
             style={{
               background: "none",
               border: "none",
@@ -327,11 +288,6 @@ function rowStyle(selected: boolean): React.CSSProperties {
     alignItems: "stretch",
     textAlign: "left",
   };
-}
-
-function pathLabel(p: string): string {
-  const parts = p.replace(/\/+$/, "").split("/");
-  return parts[parts.length - 1] || p;
 }
 
 export const WorkpathOverlay = memo(WorkpathOverlayComponent);

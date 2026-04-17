@@ -12,7 +12,9 @@ import { Canvas } from "./Canvas.web";
 import { NavColumn } from "./NavColumn.web";
 import { AppTitleBar } from "./AppTitleBar.web";
 import {
+  createBookmark,
   createTerminal,
+  deleteBookmark,
   destroyTerminal,
   checkForegroundProcess,
   eventsWsUrl,
@@ -76,6 +78,7 @@ export function TerminalCanvas() {
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
   const [closeConfirmation, setCloseConfirmation] = useState<
     | { terminal: TerminalInfo; processName: string }
     | null
@@ -128,23 +131,38 @@ export function TerminalCanvas() {
 
   // Load bookmarks for the active machine. Re-fetch when terminals count
   // changes so counts in the rail stay fresh after add/delete.
+  // When the API returns no bookmarks (or fails), inject a synthetic
+  // `local-home` entry pointing at the machine's home dir so the rail and
+  // overlay always have at least one workpath the user can open. Without
+  // this fallback, a fresh machine would render an empty rail and break
+  // workpath matching for terminals created from the prompt.
   useEffect(() => {
     if (!activeMachineId) {
       setBookmarks([]);
       return;
     }
+    const machine = machines.find((m) => m.id === activeMachineId);
+    const fallback: Bookmark[] = [
+      {
+        id: "local-home",
+        machineId: activeMachineId,
+        path: machine?.home_dir || "/",
+        label: "~",
+        sortOrder: 0,
+      },
+    ];
     let cancelled = false;
     listBookmarks(activeMachineId)
       .then((bms) => {
-        if (!cancelled) setBookmarks(bms);
+        if (!cancelled) setBookmarks(bms.length > 0 ? bms : fallback);
       })
       .catch(() => {
-        /* ignore */
+        if (!cancelled) setBookmarks(fallback);
       });
     return () => {
       cancelled = true;
     };
-  }, [activeMachineId, terminals.length]);
+  }, [activeMachineId, terminals.length, machines]);
 
   // Restore zoomed terminal from URL hash on first mount.
   useEffect(() => {
@@ -254,7 +272,17 @@ export function TerminalCanvas() {
     };
   }, [controlLeases, deviceId]);
 
-  // Events WebSocket for live updates
+  // Events WebSocket for live updates.
+  // Track the current zoomed terminal in a ref so the WS effect doesn't
+  // need it as a dependency — without this the WS gets torn down and
+  // reopened on every zoom/unzoom (and during reconnect flapping the
+  // browser may miss events). Reading via ref keeps the effect's
+  // identity stable while still seeing the latest value at message time.
+  const zoomedTerminalIdRef = useRef<string | null>(layout.zoomedTerminalId);
+  useEffect(() => {
+    zoomedTerminalIdRef.current = layout.zoomedTerminalId;
+  }, [layout.zoomedTerminalId]);
+
   useEffect(() => {
     if (!bootstrapReady || !deviceId) return;
 
@@ -279,7 +307,7 @@ export function TerminalCanvas() {
               type: "TERMINAL_DESTROYED",
               terminalId: envelope.event.terminal_id,
             });
-            if (layout.zoomedTerminalId === envelope.event.terminal_id) {
+            if (zoomedTerminalIdRef.current === envelope.event.terminal_id) {
               window.history.pushState(null, "", window.location.pathname);
             }
           }
@@ -326,7 +354,7 @@ export function TerminalCanvas() {
       ws.onclose = null;
       ws.close();
     };
-  }, [bootstrapReady, deviceId, layout.zoomedTerminalId]);
+  }, [bootstrapReady, deviceId]);
 
   const handleCreateTerminal = useCallback(
     async (machineId: string, cwd: string, startupCommand?: string) => {
@@ -546,6 +574,7 @@ export function TerminalCanvas() {
     selectedWorkpathId: layout.selectedWorkpathId,
     forceExpanded: layout.columnForceExpanded,
     canCreateTerminalForActiveMachine: isActiveController,
+    addDirectoryOpen,
     onSelectMachine: (id: string) => setActiveMachineId(id),
     onSelectAll: () =>
       dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" }),
@@ -553,13 +582,50 @@ export function TerminalCanvas() {
       dispatchLayout({ type: "SELECT_WORKPATH", workpathId: id }),
     onCreateTerminal: handleCreateTerminal,
     onRequestControl: handleRequestControl,
+    // Rail "+" button: surface the overlay (force-expand if collapsed)
+    // and pop the existing add-directory PathInput. No more silent no-op.
     onAddBookmark: () => {
-      // Inline bookmark creation lives in WorkpathOverlay today; the rail
-      // add button is a placeholder — no-op until dedicated UX lands.
+      setAddDirectoryOpen(true);
+      if (!layout.columnForceExpanded) {
+        dispatchLayout({ type: "TOGGLE_NAV_FORCE_EXPANDED" });
+      }
+    },
+    onConfirmAddDirectory: async (machineId: string, path: string) => {
+      const label = (() => {
+        const parts = path.replace(/\/+$/, "").split("/");
+        return parts[parts.length - 1] || path;
+      })();
+      try {
+        const bm = await createBookmark(machineId, path, label);
+        setBookmarks((prev) => [...prev, bm]);
+      } catch {
+        // Fall back to a local-only bookmark so the user still sees their
+        // entry in the rail. Sync will pick it up on the next reload if
+        // the API was just transiently down.
+        setBookmarks((prev) => [
+          ...prev,
+          {
+            id: `local-${Date.now()}`,
+            machineId,
+            path,
+            label,
+            sortOrder: prev.length,
+          },
+        ]);
+      } finally {
+        setAddDirectoryOpen(false);
+      }
+    },
+    onCancelAddDirectory: () => setAddDirectoryOpen(false),
+    onRemoveBookmark: async (id: string) => {
+      setBookmarks((prev) => prev.filter((b) => b.id !== id));
+      try {
+        await deleteBookmark(id);
+      } catch {
+        /* leave optimistic removal in place */
+      }
     },
     onOpenSettings: () => setShowSettings(true),
-    onBookmarkDeleted: (id: string) =>
-      setBookmarks((prev) => prev.filter((b) => b.id !== id)),
   };
 
   return (

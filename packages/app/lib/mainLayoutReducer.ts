@@ -56,5 +56,13 @@ export function mainLayoutReducer(
       return state;
     case "TOGGLE_NAV_FORCE_EXPANDED":
       return { ...state, columnForceExpanded: !state.columnForceExpanded };
+    default: {
+      // Exhaustiveness check: TS errors here if a new MainLayoutAction
+      // variant is added without a matching case above. At runtime we
+      // return state unchanged rather than yielding `undefined`.
+      const _exhaustive: never = action;
+      void _exhaustive;
+      return state;
+    }
   }
 }

@@ -1,5 +1,5 @@
 /**
- * Compute short display tags for a list of workpath labels.
+ * Compute short display tags for a list of workpaths.
  *
  * Base rule:
  *   - If the label splits into multiple alphanumeric parts (separators:
@@ -16,9 +16,20 @@
  *   - Anything still colliding gets an index-suffixed fallback
  *     (`a0`, `a1`, ...) to guarantee uniqueness.
  *
+ * Result is keyed by the caller-supplied stable `id` (not the label) so
+ * two workpaths sharing a label (e.g. two bookmarks both named `src`)
+ * still get distinct entries instead of one overwriting the other.
+ *
  * Deterministic: same input always produces the same output.
  */
-export function computeWorkpathTags(labels: string[]): Record<string, string> {
+export interface WorkpathTagInput {
+  id: string;
+  label: string;
+}
+
+export function computeWorkpathTags(
+  inputs: WorkpathTagInput[],
+): Record<string, string> {
   const alnum = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
   const splitParts = (s: string): string[] =>
@@ -58,42 +69,38 @@ export function computeWorkpathTags(labels: string[]): Record<string, string> {
   const used = new Set<string>();
 
   // Pass 1: 2-char tag
-  for (const label of labels) {
-    if (result[label] !== undefined) continue;
+  for (const { id, label } of inputs) {
+    if (result[id] !== undefined) continue;
     const tag = pick(label, 2);
-    if (!tag) {
-      continue;
-    }
+    if (!tag) continue;
     if (!used.has(tag)) {
-      result[label] = tag;
+      result[id] = tag;
       used.add(tag);
     }
   }
 
   // Pass 2: anything still missing, try 3-char
-  for (const label of labels) {
-    if (result[label] !== undefined) continue;
+  for (const { id, label } of inputs) {
+    if (result[id] !== undefined) continue;
     const tag = pick(label, 3);
-    if (!tag) {
-      continue;
-    }
+    if (!tag) continue;
     if (!used.has(tag)) {
-      result[label] = tag;
+      result[id] = tag;
       used.add(tag);
     }
   }
 
   // Pass 3: still missing — index suffix
   let idx = 0;
-  for (const label of labels) {
-    if (result[label] !== undefined) continue;
+  for (const { id, label } of inputs) {
+    if (result[id] !== undefined) continue;
     const base = alnum(label).slice(0, 1) || "w";
     let candidate = "";
     do {
       candidate = `${base}${idx}`;
       idx++;
     } while (used.has(candidate));
-    result[label] = candidate;
+    result[id] = candidate;
     used.add(candidate);
   }
 

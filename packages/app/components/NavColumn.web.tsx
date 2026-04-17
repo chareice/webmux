@@ -12,14 +12,17 @@ interface NavColumnProps {
   selectedWorkpathId: string | "all";
   forceExpanded: boolean;
   canCreateTerminalForActiveMachine: boolean;
+  addDirectoryOpen: boolean;
   onSelectMachine: (id: string) => void;
   onSelectAll: () => void;
   onSelectWorkpath: (id: string) => void;
   onCreateTerminal: (machineId: string, cwd: string, startupCommand?: string) => void;
   onRequestControl?: (machineId: string) => void;
   onAddBookmark: () => void;
+  onConfirmAddDirectory: (machineId: string, path: string) => void;
+  onCancelAddDirectory: () => void;
+  onRemoveBookmark: (bookmarkId: string) => void;
   onOpenSettings: () => void;
-  onBookmarkDeleted?: (bookmarkId: string) => void;
 }
 
 function matchBookmark(bm: Bookmark, terminal: TerminalInfo): boolean {
@@ -35,14 +38,17 @@ function NavColumnComponent(props: NavColumnProps) {
     selectedWorkpathId,
     forceExpanded,
     canCreateTerminalForActiveMachine,
+    addDirectoryOpen,
     onSelectMachine,
     onSelectAll,
     onSelectWorkpath,
     onCreateTerminal,
     onRequestControl,
     onAddBookmark,
+    onConfirmAddDirectory,
+    onCancelAddDirectory,
+    onRemoveBookmark,
     onOpenSettings,
-    onBookmarkDeleted,
   } = props;
 
   const [hoverExpanded, setHoverExpanded] = useState(false);
@@ -77,14 +83,17 @@ function NavColumnComponent(props: NavColumnProps) {
   }, [activeMachineBookmarks, counts]);
 
   const tags = useMemo(
-    () => computeWorkpathTags(activeMachineBookmarks.map((b) => b.label)),
+    () =>
+      computeWorkpathTags(
+        activeMachineBookmarks.map((b) => ({ id: b.id, label: b.label })),
+      ),
     [activeMachineBookmarks],
   );
 
   const rail: RailWorkpath[] = useMemo(
     () => activeMachineBookmarks.map((bm) => ({
       bookmark: bm,
-      tag: tags[bm.label] ?? bm.label.slice(0, 2).toLowerCase(),
+      tag: tags[bm.id] ?? bm.label.slice(0, 2).toLowerCase(),
       terminalCount: counts[bm.id] ?? 0,
       hasLive: live[bm.id] ?? false,
     })),
@@ -129,15 +138,21 @@ function NavColumnComponent(props: NavColumnProps) {
       {expanded && activeMachine && (
         <WorkpathOverlay
           machine={activeMachine}
+          bookmarks={activeMachineBookmarks}
           selectedWorkpathId={selectedWorkpathId}
           terminalCountsByBookmarkId={counts}
           liveByBookmarkId={live}
           canCreateTerminal={canCreateTerminalForActiveMachine}
+          addDirectoryOpen={addDirectoryOpen}
           onSelectAll={onSelectAll}
           onSelectWorkpath={onSelectWorkpath}
           onCreateTerminal={onCreateTerminal}
           onRequestControl={onRequestControl}
-          onBookmarkDeleted={onBookmarkDeleted}
+          onShowAddDirectory={onAddBookmark}
+          onConfirmAddDirectory={onConfirmAddDirectory}
+          onCancelAddDirectory={onCancelAddDirectory}
+          onRemoveBookmark={onRemoveBookmark}
+          onPointerEnter={cancelCollapse}
           onPointerLeave={() => {
             if (!forceExpanded) scheduleCollapse();
           }}
