@@ -16,11 +16,6 @@ import "@xterm/xterm/css/xterm.css";
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
 import { createOrderedBinaryOutputQueue } from "@/lib/orderedBinaryOutput.mjs";
 import { createTerminalReconnectController } from "@/lib/terminalReconnect";
-import {
-  appendResumeSeq,
-  initialSeqAfterAttach,
-  parseAttachFrame,
-} from "@/lib/terminalResume";
 import { buildResizeMessage } from "@/lib/terminalResize";
 import {
   getTerminalFitDimensions,
@@ -127,12 +122,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const isControllerRef = useRef(isController ?? true);
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
-    // Resume-protocol counter: monotonic count of PTY bytes the client has
-    // committed to xterm. Sent back to the hub as `after_seq` on reconnect so
-    // the hub only re-delivers what was missed. Survives WS effect re-runs;
-    // reset implicitly by a fresh component mount (TerminalCard is keyed by
-    // terminal.id in SplitPaneContainer / Canvas).
-    const lastSeenSeqRef = useRef(0);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
     const [sessionGeneration, setSessionGeneration] = useState(0);
@@ -555,10 +544,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       if (!term || !wsUrl) return;
       let disposed = false;
 
-      // Build the URL with resume info on reconnects. The hub uses `after_seq`
-      // to decide between sending a delta, a full replay, or a reset marker.
-      const resumeUrl = appendResumeSeq(wsUrl, lastSeenSeqRef.current);
-      const ws = new WebSocket(resumeUrl);
+      const ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
@@ -578,28 +564,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       let pendingBytes = 0;
       let rafId = 0;
       const MAX_PENDING = 128 * 1024;
-      // Set by an `attach(mode="reset")` control frame. The next flush clears
-      // the xterm screen before writing any binary replay so stale content from
-      // before the disconnect is not overlaid by the resynced buffer.
-      let needsReset = false;
 
       const flushPending = () => {
         if (pendingBytes > 0) {
-          if (needsReset) {
-            term.reset();
-            needsReset = false;
-          }
           const merged = new Uint8Array(pendingBytes);
           let offset = 0;
           for (const chunk of pendingChunks) {
             merged.set(chunk, offset);
             offset += chunk.length;
           }
-          // Commit the seq only for bytes that actually reach xterm. If the WS
-          // drops before this flush, the pending chunks are dropped too and
-          // lastSeenSeqRef stays at the last confirmed offset, so the hub will
-          // resend the dropped bytes on reconnect instead of skipping them.
-          lastSeenSeqRef.current += pendingBytes;
           term.write(merged);
           pendingChunks = [];
           pendingBytes = 0;
@@ -625,20 +598,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const orderedOutput = createOrderedBinaryOutputQueue(enqueueOutput);
 
       ws.onmessage = (event) => {
+        // Text frames are reserved for future control messages from the hub
+        // and ignored today. PTY bytes always arrive as binary.
         if (typeof event.data === "string") {
-          // The hub sends an `attach` control frame as the first message on
-          // every new WS: {type, seq, mode, replay_bytes}. We pre-set
-          // lastSeenSeqRef to (seq - replay_bytes); per-chunk accumulation in
-          // flushPending then carries it up to `seq` as replay bytes land.
-          const attach = parseAttachFrame(event.data);
-          if (attach) {
-            lastSeenSeqRef.current = initialSeqAfterAttach(attach);
-            if (attach.mode === "reset") {
-              needsReset = true;
-            }
-            return;
-          }
-          // Unknown / error text frame — ignore (legacy behavior).
           return;
         }
 
