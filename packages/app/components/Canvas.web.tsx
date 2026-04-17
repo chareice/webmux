@@ -310,6 +310,34 @@ function CanvasComponent(props: CanvasProps) {
         background: colors.background,
       }}
     >
+      <style>{`
+        @keyframes webmuxCanvasFade {
+          from { opacity: 0.6; }
+          to   { opacity: 1; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [data-canvas-fade] { animation: none !important; }
+        }
+      `}</style>
+      <div
+        key={
+          isAll && !zoomedTerminalId
+            ? "all-grid"
+            : isAll
+              ? `all-zoom-${zoomedTerminalId}`
+              : !workpathHasTerminals
+                ? `wp-empty-${selectedWorkpathId}`
+                : `wp-${selectedWorkpathId}`
+        }
+        data-canvas-fade
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          animation: "webmuxCanvasFade 180ms ease-out",
+        }}
+      >
       {/* State 1: All scope + no zoom → All grid */}
       {isAll && !zoomedTerminalId && (
         <div
@@ -491,6 +519,8 @@ function CanvasComponent(props: CanvasProps) {
           </div>
         </>
       )}
+
+      </div>
 
       {/* Hidden mount for terminals not currently in the zoomed pane */}
       {terminals
