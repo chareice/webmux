@@ -223,6 +223,21 @@ fn build_ws_url(hub_url: &str) -> String {
 }
 
 async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<String>) {
+    // Mandatory tmux check before doing any other work — fail fast with an
+    // actionable message instead of falling back / running half-broken.
+    if !pty::check_tmux_available() {
+        eprintln!(
+            "error: tmux is not installed or not in PATH.\n\
+             \n\
+             webmux-node requires tmux. Install it and re-run:\n\
+             \n\
+             Debian / Ubuntu:  sudo apt install tmux\n\
+             macOS (Homebrew): brew install tmux\n\
+             Arch:             sudo pacman -S tmux"
+        );
+        std::process::exit(1);
+    }
+
     // Try to load config
     let loaded_config = config::load_config().ok();
 
@@ -257,8 +272,7 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
         ws_url
     );
 
-    let (pty_manager, mut detach_rx) = pty::PtyManager::new();
-    let pty_manager = Arc::new(pty_manager);
+    let pty_manager = Arc::new(pty::PtyManager::new());
 
     // Recover tmux-backed terminals from previous run
     let recovered = pty_manager.recover_sessions();
@@ -269,78 +283,9 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
         );
     }
 
-    // Spawn background task to auto-reattach tmux sessions when attach process dies
-    let pty_for_reattach = pty_manager.clone();
-    tokio::spawn(async move {
-        while let Some(event) = detach_rx.recv().await {
-            match pty_for_reattach.handle_detach_event(&event) {
-                pty::DetachEventAction::Ignore => {
-                    tracing::debug!(
-                        "Ignoring stale tmux detach notification for terminal {} (generation {})",
-                        event.session_id,
-                        event.attach_generation
-                    );
-                }
-                pty::DetachEventAction::KeepDetached => {
-                    tracing::warn!(
-                        "tmux attach died for terminal {} shortly after connect; keeping it detached until terminal activity resumes",
-                        event.session_id
-                    );
-                }
-                pty::DetachEventAction::AutoReattach => {
-                    tracing::warn!(
-                        "tmux attach died for terminal {}, attempting re-attach",
-                        event.session_id
-                    );
-                    // Brief delay to let the old process fully exit
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-                    const MAX_RETRIES: u32 = 3;
-                    let mut reattached = false;
-                    for attempt in 1..=MAX_RETRIES {
-                        if !pty_for_reattach.should_reattach_detach(&event) {
-                            tracing::debug!(
-                                "Skipping stale tmux re-attach for terminal {} after generation advanced",
-                                event.session_id
-                            );
-                            break;
-                        }
-
-                        match pty_for_reattach.reattach_tmux(&event.session_id) {
-                            Ok(()) => {
-                                tracing::info!(
-                                    "Re-attached terminal {} (attempt {})",
-                                    event.session_id,
-                                    attempt
-                                );
-                                reattached = true;
-                                break;
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "Re-attach failed for terminal {} (attempt {}/{}): {}",
-                                    event.session_id,
-                                    attempt,
-                                    MAX_RETRIES,
-                                    e
-                                );
-                                if attempt < MAX_RETRIES {
-                                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                }
-                            }
-                        }
-                    }
-
-                    if !reattached {
-                        tracing::warn!(
-                            "Leaving terminal {} detached after failed re-attach attempts; it will reconnect on the next terminal activity",
-                            event.session_id
-                        );
-                    }
-                }
-            }
-        }
-    });
+    // Per-attach lifecycle (death detection + auto-replace) is handled by
+    // crate::attach::AttachManager + crate::session_watcher::SessionWatcher
+    // inside HubConnection. There is no machine-wide reattach loop anymore.
 
     let conn = hub_conn::HubConnection {
         machine_id,

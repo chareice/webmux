@@ -1,30 +1,11 @@
-use bytes::Bytes;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, mpsc};
 
-const OUTPUT_BUFFER_SIZE: usize = 64 * 1024;
-const BROADCAST_CAPACITY: usize = 256;
 pub const TMUX_SOCKET: &str = "webmux";
 const TMUX_PREFIX: &str = "wmx_";
-const AUTO_REATTACH_MIN_UPTIME: Duration = Duration::from_secs(2);
-
-struct PtySession {
-    #[allow(dead_code)]
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
-    info: SessionInfo,
-    output_tx: broadcast::Sender<Bytes>,
-    output_buffer: Arc<Mutex<Vec<u8>>>,
-    tmux_backed: bool,
-    attach_generation: u64,
-    attached: bool,
-    last_attach_started_at: Instant,
-}
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -43,471 +24,34 @@ struct PersistedSession {
     rows: u16,
 }
 
+/// Lightweight metadata holder for tmux-backed terminals.
+///
+/// The new architecture spawns one `tmux attach` subprocess per browser
+/// (see `crate::attach::AttachManager`). PtyManager is no longer in the
+/// byte-streaming path: it just creates / destroys tmux sessions, persists
+/// their metadata to disk, and answers metadata queries.
 pub struct PtyManager {
-    sessions: Arc<Mutex<HashMap<String, PtySession>>>,
-    use_tmux: bool,
-    detach_tx: mpsc::UnboundedSender<DetachEvent>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DetachEvent {
-    pub session_id: String,
-    pub attach_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DetachEventAction {
-    Ignore,
-    AutoReattach,
-    KeepDetached,
+    sessions: Arc<Mutex<HashMap<String, SessionInfo>>>,
 }
 
 impl PtyManager {
-    /// Create a new PtyManager. Returns the manager and a receiver for
-    /// detach notifications — when a tmux attach process dies, the
-    /// terminal ID is sent through this channel.
-    pub fn new() -> (Self, mpsc::UnboundedReceiver<DetachEvent>) {
-        let use_tmux = check_tmux_available();
-        if use_tmux {
-            tracing::info!("tmux available — terminal sessions will persist across restarts");
-            ensure_tmux_config();
-        } else {
-            tracing::warn!("tmux not found — terminal sessions will NOT persist across restarts");
+    /// Construct a new PtyManager. Panics if tmux is not available — see
+    /// `webmux-node start` for the user-facing check that fails fast on
+    /// missing tmux. tmux is mandatory in this build.
+    pub fn new() -> Self {
+        if !check_tmux_available() {
+            panic!(
+                "tmux not found in PATH. webmux-node requires tmux. \
+                 Install tmux via your package manager and try again."
+            );
         }
-        let (detach_tx, detach_rx) = mpsc::unbounded_channel();
-        let mgr = Self {
+        ensure_tmux_config();
+        Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
-            use_tmux,
-            detach_tx,
-        };
-        (mgr, detach_rx)
+        }
     }
-
-    // ── Public API ──────────────────────────────────────────────────
 
     pub fn create_terminal(
-        &self,
-        id: &str,
-        cwd: &str,
-        cols: u16,
-        rows: u16,
-    ) -> Result<SessionInfo, String> {
-        if self.use_tmux {
-            self.create_terminal_tmux(id, cwd, cols, rows)
-        } else {
-            self.create_terminal_direct(id, cwd, cols, rows)
-        }
-    }
-
-    pub fn destroy_terminal(&self, id: &str) -> Result<(), String> {
-        let session = self
-            .sessions
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {}", e))?
-            .remove(id)
-            .ok_or_else(|| format!("Terminal {} not found", id))?;
-
-        if session.tmux_backed {
-            tmux_kill_session(id);
-            self.persist();
-        }
-        Ok(())
-    }
-
-    pub fn resize_terminal(&self, id: &str, cols: u16, rows: u16) -> Result<(), String> {
-        self.ensure_attached(id)?;
-        let mut sessions = self
-            .sessions
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {}", e))?;
-        let session = sessions
-            .get_mut(id)
-            .ok_or_else(|| format!("Terminal {} not found", id))?;
-
-        session
-            .master
-            .resize(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| format!("Failed to resize: {}", e))?;
-
-        if session.tmux_backed {
-            tmux_resize(id, cols, rows);
-        }
-
-        session.info.cols = cols;
-        session.info.rows = rows;
-        Ok(())
-    }
-
-    pub fn write_to_terminal(&self, id: &str, data: &[u8]) -> Result<(), String> {
-        self.ensure_attached(id)?;
-        let mut sessions = self
-            .sessions
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {}", e))?;
-        let session = sessions
-            .get_mut(id)
-            .ok_or_else(|| format!("Terminal {} not found", id))?;
-        session
-            .writer
-            .write_all(data)
-            .map_err(|e| format!("Failed to write: {}", e))?;
-        session
-            .writer
-            .flush()
-            .map_err(|e| format!("Failed to flush: {}", e))?;
-        Ok(())
-    }
-
-    pub fn subscribe(&self, id: &str) -> Result<(Vec<u8>, broadcast::Receiver<Bytes>), String> {
-        self.ensure_attached(id)?;
-        let sessions = self
-            .sessions
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {}", e))?;
-        let session = sessions
-            .get(id)
-            .ok_or_else(|| format!("Terminal {} not found", id))?;
-        let buffer = session.output_buffer.lock().unwrap().clone();
-        let rx = session.output_tx.subscribe();
-        Ok((buffer, rx))
-    }
-
-    fn clear_output_buffer(&self, id: &str) {
-        if let Ok(sessions) = self.sessions.lock() {
-            if let Some(session) = sessions.get(id) {
-                session.output_buffer.lock().unwrap().clear();
-            }
-        }
-    }
-
-    /// Check if a terminal has a foreground process running (not just a shell).
-    /// Returns (has_foreground_process, process_name).
-    pub fn check_foreground_process(&self, id: &str) -> (bool, Option<String>) {
-        // Extract tmux_backed flag and drop the lock before running external command
-        let tmux_backed = {
-            let sessions = match self.sessions.lock() {
-                Ok(s) => s,
-                Err(_) => return (false, None),
-            };
-            match sessions.get(id) {
-                Some(s) => s.tmux_backed,
-                None => return (false, None),
-            }
-        };
-
-        if !tmux_backed {
-            return (false, None);
-        }
-
-        let tmux_name = tmux_session_name(id);
-        // Filter to active pane only to avoid multi-pane false positives
-        let output = tmux_cmd()
-            .args([
-                "-L",
-                TMUX_SOCKET,
-                "list-panes",
-                "-t",
-                &tmux_name,
-                "-f",
-                "#{pane_active}",
-                "-F",
-                "#{pane_current_command}",
-            ])
-            .output();
-
-        match output {
-            Ok(out) if out.status.success() => {
-                let cmd = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if cmd.is_empty() || is_shell_command(&cmd) {
-                    (false, None)
-                } else {
-                    (true, Some(cmd))
-                }
-            }
-            _ => (false, None),
-        }
-    }
-
-    pub fn list_terminals(&self) -> Vec<SessionInfo> {
-        self.sessions
-            .lock()
-            .unwrap()
-            .values()
-            .map(|s| s.info.clone())
-            .collect()
-    }
-
-    /// Cheap "is this id still alive on the machine" check used by the
-    /// session watcher's reconciliation loop. Returns just the ids without
-    /// cloning the full SessionInfo.
-    pub fn list_terminal_ids(&self) -> Vec<String> {
-        self.sessions
-            .lock()
-            .map(|s| s.keys().cloned().collect())
-            .unwrap_or_default()
-    }
-
-    /// Capture the tmux scrollback buffer for a terminal.
-    /// Returns up to 64KB of terminal output history.
-    pub fn capture_scrollback(&self, id: &str) -> Option<Vec<u8>> {
-        let sessions = self.sessions.lock().ok()?;
-        let session = sessions.get(id)?;
-        if !session.tmux_backed {
-            return None;
-        }
-        drop(sessions);
-
-        let tmux_name = tmux_session_name(id);
-        let output = tmux_cmd()
-            .args([
-                "-L",
-                TMUX_SOCKET,
-                "capture-pane",
-                "-p",    // print to stdout
-                "-S",
-                "-1000", // last 1000 lines
-                "-t",
-                &tmux_name,
-            ])
-            .output()
-            .ok()?;
-
-        if !output.status.success() {
-            return None;
-        }
-
-        let mut data = output.stdout;
-        if data.len() > OUTPUT_BUFFER_SIZE {
-            let start = data.len() - OUTPUT_BUFFER_SIZE;
-            data = data[start..].to_vec();
-        }
-
-        if data.is_empty() {
-            None
-        } else {
-            Some(data)
-        }
-    }
-
-    /// Recover existing tmux sessions from a previous run.
-    /// Returns recovered SessionInfo list for reporting to the hub.
-    pub fn recover_sessions(&self) -> Vec<SessionInfo> {
-        if !self.use_tmux {
-            return vec![];
-        }
-
-        let persisted = load_sessions_file();
-        if persisted.is_empty() {
-            return vec![];
-        }
-
-        let alive = tmux_list_sessions();
-        let mut recovered = vec![];
-
-        for (id, meta) in &persisted {
-            let tmux_name = tmux_session_name(id);
-            if !alive.contains(&tmux_name) {
-                tracing::info!(
-                    "tmux session {} gone (shell exited), cleaning up",
-                    tmux_name
-                );
-                continue;
-            }
-
-            match self.attach_to_tmux(id, &meta.title, &meta.cwd, meta.cols, meta.rows) {
-                Ok(info) => {
-                    tracing::info!("Recovered terminal {} (tmux {})", id, tmux_name);
-                    recovered.push(info);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to recover terminal {}: {}", id, e);
-                }
-            }
-        }
-
-        // Rewrite file to drop dead sessions
-        self.persist();
-        recovered
-    }
-
-    /// Re-attach to a tmux session after the attach process died.
-    /// Reuses the existing broadcast channel so hub forwarding stays intact.
-    pub fn reattach_tmux(&self, id: &str) -> Result<(), String> {
-        let tmux_name = tmux_session_name(id);
-
-        // Check if the tmux session is still alive
-        let alive = tmux_list_sessions();
-        if !alive.contains(&tmux_name) {
-            // tmux session is gone — remove from sessions and persist
-            let removed = self
-                .sessions
-                .lock()
-                .map_err(|e| format!("Lock poisoned: {}", e))?
-                .remove(id);
-            if removed.is_some() {
-                self.persist();
-                tracing::info!("tmux session {} gone, removed terminal {}", tmux_name, id);
-            }
-            return Err(format!("tmux session {} no longer exists", tmux_name));
-        }
-
-        // Get session info and existing broadcast channel from the current session
-        let (info, output_tx, output_buffer, next_generation) = {
-            let sessions = self
-                .sessions
-                .lock()
-                .map_err(|e| format!("Lock poisoned: {}", e))?;
-            let session = sessions
-                .get(id)
-                .ok_or_else(|| format!("Terminal {} not found", id))?;
-            if !session.tmux_backed {
-                return Err(format!("Terminal {} is not tmux-backed", id));
-            }
-            (
-                session.info.clone(),
-                session.output_tx.clone(),
-                session.output_buffer.clone(),
-                session.attach_generation.saturating_add(1),
-            )
-        };
-
-        // Detach any stale clients before re-attaching
-        let _ = tmux_cmd()
-            .args(["-L", TMUX_SOCKET, "detach-client", "-s", &tmux_name, "-a"])
-            .status();
-
-        // Open a new PTY and spawn a fresh tmux attach
-        let pty_system = native_pty_system();
-        let pair = pty_system
-            .openpty(PtySize {
-                rows: info.rows,
-                cols: info.cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| format!("Failed to open pty: {}", e))?;
-
-        let mut cmd = CommandBuilder::new("tmux");
-        cmd.args(["-L", TMUX_SOCKET, "attach-session", "-t", &tmux_name]);
-        let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
-        cmd.env("TERM", term);
-
-        let child = pair
-            .slave
-            .spawn_command(cmd)
-            .map_err(|e| format!("Failed to spawn tmux attach: {}", e))?;
-        drop(pair.slave);
-
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| format!("Failed to get writer: {}", e))?;
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get reader: {}", e))?;
-
-        // Spawn reader thread reusing the EXISTING broadcast channel
-        spawn_reader_thread(
-            reader,
-            output_tx.clone(),
-            output_buffer.clone(),
-            Some(DetachNotifier {
-                session_id: id.to_string(),
-                attach_generation: next_generation,
-                tx: self.detach_tx.clone(),
-            }),
-            Some(child),
-        );
-
-        let attached_at = Instant::now();
-
-        // Replace master and writer in the existing session (channel stays the same)
-        {
-            let mut sessions = self
-                .sessions
-                .lock()
-                .map_err(|e| format!("Lock poisoned: {}", e))?;
-            if let Some(session) = sessions.get_mut(id) {
-                session.master = pair.master;
-                session.writer = writer;
-                session.attach_generation = next_generation;
-                session.attached = true;
-                session.last_attach_started_at = attached_at;
-            }
-        }
-
-        // Refresh the terminal display
-        self.clear_output_buffer(id);
-        let _ = self.write_to_terminal(id, b"\x0c");
-
-        tracing::info!("Re-attached terminal {} (tmux {})", id, tmux_name);
-        Ok(())
-    }
-
-    pub fn should_reattach_detach(&self, event: &DetachEvent) -> bool {
-        let Ok(sessions) = self.sessions.lock() else {
-            return false;
-        };
-        let Some(session) = sessions.get(&event.session_id) else {
-            return false;
-        };
-
-        should_reattach_generation(
-            Some(session.attach_generation),
-            session.tmux_backed,
-            event.attach_generation,
-        )
-    }
-
-    pub fn handle_detach_event(&self, event: &DetachEvent) -> DetachEventAction {
-        let Ok(mut sessions) = self.sessions.lock() else {
-            return DetachEventAction::Ignore;
-        };
-        let Some(session) = sessions.get_mut(&event.session_id) else {
-            return DetachEventAction::Ignore;
-        };
-
-        let action = detach_event_action(
-            Some(session.attach_generation),
-            session.tmux_backed,
-            event.attach_generation,
-            session.last_attach_started_at.elapsed(),
-        );
-        if action == DetachEventAction::Ignore {
-            return action;
-        }
-        session.attached = false;
-        action
-    }
-
-    fn ensure_attached(&self, id: &str) -> Result<(), String> {
-        let should_reattach = {
-            let sessions = self
-                .sessions
-                .lock()
-                .map_err(|e| format!("Lock poisoned: {}", e))?;
-            let Some(session) = sessions.get(id) else {
-                return Err(format!("Terminal {} not found", id));
-            };
-            session.tmux_backed && !session.attached
-        };
-
-        if should_reattach {
-            self.reattach_tmux(id)?;
-        }
-
-        Ok(())
-    }
-
-    // ── tmux-backed terminal ────────────────────────────────────────
-
-    fn create_terminal_tmux(
         &self,
         id: &str,
         cwd: &str,
@@ -541,7 +85,7 @@ impl PtyManager {
             return Err(format!("tmux new-session failed (exit {})", status));
         }
 
-        // Forward selected environment variables into the tmux session
+        // Forward selected environment variables into the tmux session.
         for var in &["CLAUDE_CODE_NO_FLICKER"] {
             if let Ok(val) = std::env::var(var) {
                 let _ = tmux_cmd()
@@ -558,142 +102,6 @@ impl PtyManager {
             }
         }
 
-        let title = format!("Terminal {}", &id[..8.min(id.len())]);
-        let info = self.attach_to_tmux(id, &title, cwd, cols, rows)?;
-
-        // Discard initial tmux screen capture, then trigger a fresh prompt.
-        // The browser subscribes after create_terminal returns, so it will
-        // only see the clean Ctrl+L response via live forwarding.
-        std::thread::sleep(std::time::Duration::from_millis(150));
-        self.clear_output_buffer(&info.id);
-        let _ = self.write_to_terminal(&info.id, b"\x0c");
-
-        self.persist();
-        Ok(info)
-    }
-
-    /// Open a PTY running `tmux attach` and wire up I/O forwarding.
-    fn attach_to_tmux(
-        &self,
-        id: &str,
-        title: &str,
-        cwd: &str,
-        cols: u16,
-        rows: u16,
-    ) -> Result<SessionInfo, String> {
-        let tmux_name = tmux_session_name(id);
-
-        // Detach any stale clients from previous runs before attaching
-        let _ = tmux_cmd()
-            .args(["-L", TMUX_SOCKET, "detach-client", "-s", &tmux_name, "-a"])
-            .status();
-
-        let pty_system = native_pty_system();
-
-        let pair = pty_system
-            .openpty(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| format!("Failed to open pty: {}", e))?;
-
-        let mut cmd = CommandBuilder::new("tmux");
-        cmd.args(["-L", TMUX_SOCKET, "attach-session", "-t", &tmux_name]);
-        // Ensure TERM is set for the attach process
-        let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
-        cmd.env("TERM", term);
-
-        let child = pair
-            .slave
-            .spawn_command(cmd)
-            .map_err(|e| format!("Failed to spawn tmux attach: {}", e))?;
-        drop(pair.slave);
-
-        let info = SessionInfo {
-            id: id.to_string(),
-            title: title.to_string(),
-            cwd: cwd.to_string(),
-            cols,
-            rows,
-        };
-
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| format!("Failed to get writer: {}", e))?;
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get reader: {}", e))?;
-
-        let (output_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
-        let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
-
-        spawn_reader_thread(
-            reader,
-            output_tx.clone(),
-            output_buffer.clone(),
-            Some(DetachNotifier {
-                session_id: id.to_string(),
-                attach_generation: 1,
-                tx: self.detach_tx.clone(),
-            }),
-            Some(child),
-        );
-
-        let session = PtySession {
-            master: pair.master,
-            writer,
-            info: info.clone(),
-            output_tx,
-            output_buffer,
-            tmux_backed: true,
-            attach_generation: 1,
-            attached: true,
-            last_attach_started_at: Instant::now(),
-        };
-
-        self.sessions
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {}", e))?
-            .insert(id.to_string(), session);
-
-        Ok(info)
-    }
-
-    // ── Direct PTY (fallback when tmux unavailable) ─────────────────
-
-    fn create_terminal_direct(
-        &self,
-        id: &str,
-        cwd: &str,
-        cols: u16,
-        rows: u16,
-    ) -> Result<SessionInfo, String> {
-        let pty_system = native_pty_system();
-
-        let pair = pty_system
-            .openpty(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| format!("Failed to open pty: {}", e))?;
-
-        let resolved_cwd = resolve_cwd(cwd);
-        let shell = detect_login_shell();
-        let mut cmd = CommandBuilder::new(&shell);
-        cmd.cwd(&resolved_cwd);
-
-        let child = pair
-            .slave
-            .spawn_command(cmd)
-            .map_err(|e| format!("Failed to spawn command: {}", e))?;
-        drop(pair.slave);
-
         let info = SessionInfo {
             id: id.to_string(),
             title: format!("Terminal {}", &id[..8.min(id.len())]),
@@ -702,62 +110,175 @@ impl PtyManager {
             rows,
         };
 
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| format!("Failed to get writer: {}", e))?;
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to get reader: {}", e))?;
-
-        let (output_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
-        let output_buffer = Arc::new(Mutex::new(Vec::with_capacity(OUTPUT_BUFFER_SIZE)));
-
-        // Direct PTY sessions don't need detach notification (no tmux to re-attach to)
-        spawn_reader_thread(
-            reader,
-            output_tx.clone(),
-            output_buffer.clone(),
-            None,
-            Some(child),
-        );
-
-        let session = PtySession {
-            master: pair.master,
-            writer,
-            info: info.clone(),
-            output_tx,
-            output_buffer,
-            tmux_backed: false,
-            attach_generation: 0,
-            attached: true,
-            last_attach_started_at: Instant::now(),
-        };
-
         self.sessions
             .lock()
             .map_err(|e| format!("Lock poisoned: {}", e))?
-            .insert(id.to_string(), session);
+            .insert(id.to_string(), info.clone());
 
+        self.persist();
         Ok(info)
     }
 
-    // ── Persistence ─────────────────────────────────────────────────
+    pub fn destroy_terminal(&self, id: &str) -> Result<(), String> {
+        let removed = self
+            .sessions
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {}", e))?
+            .remove(id);
+        if removed.is_some() {
+            tmux_kill_session(id);
+            self.persist();
+            Ok(())
+        } else {
+            Err(format!("Terminal {} not found", id))
+        }
+    }
+
+    /// Send a string to the terminal as if the user typed it. Used to
+    /// replay startup_command after terminal creation. Goes through
+    /// `tmux send-keys`, so we don't need a long-lived PTY here.
+    pub fn write_to_terminal(&self, id: &str, data: &[u8]) -> Result<(), String> {
+        let text = std::str::from_utf8(data)
+            .map_err(|e| format!("write_to_terminal expects UTF-8 data: {}", e))?;
+
+        let name = tmux_session_name(id);
+        // Send literal text first (-l prevents key-name interpretation),
+        // then any embedded carriage returns become Enter via send-keys C-m.
+        // For startup_command the caller passes "<cmd>\r" — we split on \r
+        // so the trailing newline becomes a real Enter.
+        let mut parts = text.split('\r');
+        if let Some(first) = parts.next() {
+            if !first.is_empty() {
+                let status = tmux_cmd()
+                    .args(["-L", TMUX_SOCKET, "send-keys", "-l", "-t", &name, first])
+                    .status()
+                    .map_err(|e| format!("Failed to run tmux send-keys: {}", e))?;
+                if !status.success() {
+                    return Err(format!("tmux send-keys failed (exit {})", status));
+                }
+            }
+        }
+        for chunk in parts {
+            // Each split boundary represents one '\r' — press Enter.
+            let _ = tmux_cmd()
+                .args(["-L", TMUX_SOCKET, "send-keys", "-t", &name, "C-m"])
+                .status();
+            if !chunk.is_empty() {
+                let _ = tmux_cmd()
+                    .args(["-L", TMUX_SOCKET, "send-keys", "-l", "-t", &name, chunk])
+                    .status();
+            }
+        }
+        Ok(())
+    }
+
+    /// Check if a terminal has a foreground process running (not just a shell).
+    /// Returns (has_foreground_process, process_name).
+    pub fn check_foreground_process(&self, id: &str) -> (bool, Option<String>) {
+        if !self.sessions.lock().map(|s| s.contains_key(id)).unwrap_or(false) {
+            return (false, None);
+        }
+
+        let tmux_name = tmux_session_name(id);
+        let output = tmux_cmd()
+            .args([
+                "-L",
+                TMUX_SOCKET,
+                "list-panes",
+                "-t",
+                &tmux_name,
+                "-f",
+                "#{pane_active}",
+                "-F",
+                "#{pane_current_command}",
+            ])
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let cmd = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if cmd.is_empty() || is_shell_name(&cmd) {
+                    (false, None)
+                } else {
+                    (true, Some(cmd))
+                }
+            }
+            _ => (false, None),
+        }
+    }
+
+    pub fn list_terminals(&self) -> Vec<SessionInfo> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    /// Cheap "is this id still alive on the machine" check used by the
+    /// session watcher's reconciliation loop.
+    pub fn list_terminal_ids(&self) -> Vec<String> {
+        self.sessions
+            .lock()
+            .map(|s| s.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Recover existing tmux sessions from a previous webmux-node run.
+    /// Returns recovered SessionInfo list for reporting to the hub. The
+    /// per-attach byte streams are established on-demand when browsers
+    /// connect, so there is nothing more to wire up here than the metadata.
+    pub fn recover_sessions(&self) -> Vec<SessionInfo> {
+        let persisted = load_sessions_file();
+        if persisted.is_empty() {
+            return vec![];
+        }
+
+        let alive = tmux_list_sessions();
+        let mut recovered = vec![];
+
+        for (id, meta) in &persisted {
+            let tmux_name = tmux_session_name(id);
+            if !alive.contains(&tmux_name) {
+                tracing::info!(
+                    "tmux session {} gone (shell exited), cleaning up",
+                    tmux_name
+                );
+                continue;
+            }
+            let info = SessionInfo {
+                id: id.clone(),
+                title: meta.title.clone(),
+                cwd: meta.cwd.clone(),
+                cols: meta.cols,
+                rows: meta.rows,
+            };
+            self.sessions
+                .lock()
+                .unwrap()
+                .insert(id.clone(), info.clone());
+            recovered.push(info);
+            tracing::info!("Recovered terminal {} (tmux {})", id, tmux_name);
+        }
+
+        // Rewrite file to drop dead sessions
+        self.persist();
+        recovered
+    }
 
     fn persist(&self) {
         let sessions = self.sessions.lock().unwrap();
         let map: HashMap<String, PersistedSession> = sessions
             .iter()
-            .filter(|(_, s)| s.tmux_backed)
-            .map(|(id, s)| {
+            .map(|(id, info)| {
                 (
                     id.clone(),
                     PersistedSession {
-                        title: s.info.title.clone(),
-                        cwd: s.info.cwd.clone(),
-                        cols: s.info.cols,
-                        rows: s.info.rows,
+                        title: info.title.clone(),
+                        cwd: info.cwd.clone(),
+                        cols: info.cols,
+                        rows: info.rows,
                     },
                 )
             })
@@ -775,85 +296,6 @@ impl PtyManager {
 }
 
 // ── Free helpers ────────────────────────────────────────────────────
-
-/// Notifies PtyManager when a reader thread exits (tmux attach died).
-struct DetachNotifier {
-    session_id: String,
-    attach_generation: u64,
-    tx: mpsc::UnboundedSender<DetachEvent>,
-}
-
-fn should_reattach_generation(
-    current_generation: Option<u64>,
-    tmux_backed: bool,
-    event_generation: u64,
-) -> bool {
-    tmux_backed && current_generation == Some(event_generation)
-}
-
-fn detach_event_action(
-    current_generation: Option<u64>,
-    tmux_backed: bool,
-    event_generation: u64,
-    attached_for: Duration,
-) -> DetachEventAction {
-    if !should_reattach_generation(current_generation, tmux_backed, event_generation) {
-        return DetachEventAction::Ignore;
-    }
-    if should_auto_reattach(attached_for) {
-        DetachEventAction::AutoReattach
-    } else {
-        DetachEventAction::KeepDetached
-    }
-}
-
-fn should_auto_reattach(attached_for: Duration) -> bool {
-    attached_for >= AUTO_REATTACH_MIN_UPTIME
-}
-
-fn spawn_reader_thread(
-    reader: Box<dyn Read + Send>,
-    output_tx: broadcast::Sender<Bytes>,
-    output_buffer: Arc<Mutex<Vec<u8>>>,
-    detach: Option<DetachNotifier>,
-    child: Option<Box<dyn Child + Send + Sync>>,
-) {
-    std::thread::spawn(move || {
-        let mut reader = reader;
-        let mut buf = [0u8; 16384];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let data = Bytes::copy_from_slice(&buf[..n]);
-                    {
-                        let mut buffer = output_buffer.lock().unwrap();
-                        buffer.extend_from_slice(&data);
-                        if buffer.len() > OUTPUT_BUFFER_SIZE {
-                            let drain_to = buffer.len() - OUTPUT_BUFFER_SIZE;
-                            buffer.drain(..drain_to);
-                        }
-                    }
-                    let _ = output_tx.send(data);
-                }
-                Err(_) => break,
-            }
-        }
-
-        // Reap the child process to prevent zombies
-        if let Some(mut child) = child {
-            let _ = child.wait();
-        }
-
-        // Notify PtyManager that this tmux attach died
-        if let Some(notifier) = detach {
-            let _ = notifier.tx.send(DetachEvent {
-                session_id: notifier.session_id,
-                attach_generation: notifier.attach_generation,
-            });
-        }
-    });
-}
 
 /// Create a tmux Command with TERM set and our config file.
 fn tmux_cmd() -> std::process::Command {
@@ -903,10 +345,6 @@ set -g window-size manual
 bind -n WheelUpPane if -Ft= '#{mouse_any_flag}' 'send -M' 'if -Ft= \"#{pane_in_mode}\" \"send -M\" \"copy-mode -e\"'
 ",
     );
-    // Bind mouse drag-end to copy selection and emit OSC 52 via helper script.
-    // tmux's built-in OSC 52 emission is unreliable, so we pipe the selection
-    // through a script that writes the OSC 52 sequence to the pane's TTY.
-    // tmux expands #{pane_tty} at execution time and passes it as an argument.
     config.push_str(&format!(
         "bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel '{} #{{pane_tty}}'\n",
         osc52_script
@@ -920,9 +358,6 @@ bind -n WheelUpPane if -Ft= '#{mouse_any_flag}' 'send -M' 'if -Ft= \"#{pane_in_m
             config.push_str(&format!("set-environment -g {} \"{}\"\n", var, val));
         }
     }
-    // Source user overrides last — never overwritten by the node, so users can
-    // customize tmux settings without rebuilding the binary.
-    // The -q flag silently ignores the file if it doesn't exist.
     config.push_str(&format!("source-file -q \"{}\"\n", user_config));
     config
 }
@@ -963,7 +398,7 @@ fn ensure_tmux_config() {
         .status();
 }
 
-fn check_tmux_available() -> bool {
+pub fn check_tmux_available() -> bool {
     tmux_cmd()
         .arg("-V")
         .output()
@@ -1021,8 +456,8 @@ fn tmux_kill_session(id: &str) {
 ///
 /// Returns the attach's PTY writer, reader, and the child process handle.
 /// Caller owns the lifecycle: drop / kill the child to detach. Used by
-/// `AttachManager` to give each browser its own tmux client view of the
-/// session.
+/// `crate::attach::AttachManager` to give each browser its own tmux client
+/// view of the session.
 pub fn spawn_tmux_attach(
     session_id: &str,
     cols: u16,
@@ -1070,27 +505,10 @@ pub fn spawn_tmux_attach(
 }
 
 /// Resize the tmux window for a session. With `window-size manual` set in
-/// tmux.conf, this is the only thing that changes the window size — clients
-/// attaching/detaching no longer auto-resize.
+/// tmux.conf, this is the single source of truth for window sizing —
+/// clients attaching/detaching no longer auto-resize.
 pub fn tmux_resize_window(session_id: &str, cols: u16, rows: u16) {
     let name = tmux_session_name(session_id);
-    let _ = tmux_cmd()
-        .args([
-            "-L",
-            TMUX_SOCKET,
-            "resize-window",
-            "-t",
-            &name,
-            "-x",
-            &cols.to_string(),
-            "-y",
-            &rows.to_string(),
-        ])
-        .status();
-}
-
-fn tmux_resize(id: &str, cols: u16, rows: u16) {
-    let name = tmux_session_name(id);
     let _ = tmux_cmd()
         .args([
             "-L",
@@ -1125,7 +543,6 @@ fn detect_shell_for_user(user: &str) -> Option<String> {
             .args([".", "-read", &format!("/Users/{user}"), "UserShell"])
             .output()
             .ok()?;
-        // Output format: "UserShell: /bin/zsh"
         let line = String::from_utf8(output.stdout).ok()?;
         let shell = line.trim().strip_prefix("UserShell:")?.trim();
         if !shell.is_empty() && std::path::Path::new(shell).exists() {
@@ -1147,7 +564,7 @@ fn detect_shell_for_user(user: &str) -> Option<String> {
     None
 }
 
-fn is_shell_command(cmd: &str) -> bool {
+fn is_shell_name(cmd: &str) -> bool {
     matches!(
         cmd,
         "bash" | "zsh" | "fish" | "sh" | "dash" | "ksh" | "csh" | "tcsh" | "nu" | "nushell"
@@ -1198,44 +615,16 @@ mod tests {
     }
 
     #[test]
-    fn is_shell_command_recognizes_shells() {
-        assert!(is_shell_command("bash"));
-        assert!(is_shell_command("zsh"));
-        assert!(is_shell_command("fish"));
-        assert!(is_shell_command("sh"));
-        assert!(is_shell_command("dash"));
-        assert!(is_shell_command("nu"));
-        assert!(!is_shell_command("vim"));
-        assert!(!is_shell_command("python"));
-        assert!(!is_shell_command("cargo"));
-        assert!(!is_shell_command("node"));
-    }
-
-    #[test]
-    fn stale_detach_notifications_are_ignored() {
-        assert!(!should_reattach_generation(Some(2), true, 1));
-    }
-
-    #[test]
-    fn current_tmux_detach_notifications_trigger_reattach() {
-        assert!(should_reattach_generation(Some(3), true, 3));
-        assert!(!should_reattach_generation(Some(3), false, 3));
-        assert!(!should_reattach_generation(None, true, 3));
-    }
-
-    #[test]
-    fn short_lived_tmux_attach_stays_detached() {
-        assert_eq!(
-            detach_event_action(Some(3), true, 3, Duration::from_millis(500)),
-            DetachEventAction::KeepDetached
-        );
-    }
-
-    #[test]
-    fn stable_tmux_attach_auto_reattaches() {
-        assert_eq!(
-            detach_event_action(Some(3), true, 3, Duration::from_secs(3)),
-            DetachEventAction::AutoReattach
-        );
+    fn is_shell_name_recognizes_shells() {
+        assert!(is_shell_name("bash"));
+        assert!(is_shell_name("zsh"));
+        assert!(is_shell_name("fish"));
+        assert!(is_shell_name("sh"));
+        assert!(is_shell_name("dash"));
+        assert!(is_shell_name("nu"));
+        assert!(!is_shell_name("vim"));
+        assert!(!is_shell_name("python"));
+        assert!(!is_shell_name("cargo"));
+        assert!(!is_shell_name("node"));
     }
 }

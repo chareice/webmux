@@ -90,26 +90,8 @@ pub enum HubToMachine {
     },
     #[serde(rename = "destroy_terminal")]
     DestroyTerminal { terminal_id: String },
-    #[serde(rename = "terminal_input")]
-    TerminalInput { terminal_id: String, data: String },
-    #[serde(rename = "terminal_resize")]
-    TerminalResize {
-        terminal_id: String,
-        cols: u16,
-        rows: u16,
-    },
     #[serde(rename = "fs_list")]
     FsListDir { request_id: String, path: String },
-    #[serde(rename = "image_paste")]
-    ImagePaste {
-        terminal_id: String,
-        /// Base64-encoded image data
-        data: String,
-        /// MIME type (e.g. "image/png")
-        mime: String,
-        /// Suggested filename
-        filename: String,
-    },
     #[serde(rename = "auth_result")]
     AuthResult { ok: bool, message: Option<String> },
     #[serde(rename = "check_foreground_process")]
@@ -171,8 +153,6 @@ pub enum MachineToHub {
     TerminalCreateError { request_id: String, error: String },
     #[serde(rename = "terminal_destroyed")]
     TerminalDestroyed { terminal_id: String },
-    #[serde(rename = "terminal_output")]
-    TerminalOutput { terminal_id: String, data: String },
     #[serde(rename = "fs_list_result")]
     FsListResult {
         request_id: String,
@@ -246,40 +226,11 @@ pub struct BrowserEventEnvelope {
     pub event: BrowserEvent,
 }
 
-pub fn encode_terminal_output_frame(terminal_id: &str, data: &[u8]) -> Vec<u8> {
-    let terminal_id_bytes = terminal_id.as_bytes();
-    let terminal_id_len: u16 = terminal_id_bytes
-        .len()
-        .try_into()
-        .expect("terminal_id is too long to encode");
-
-    let mut frame = Vec::with_capacity(2 + terminal_id_bytes.len() + data.len());
-    frame.extend_from_slice(&terminal_id_len.to_be_bytes());
-    frame.extend_from_slice(terminal_id_bytes);
-    frame.extend_from_slice(data);
-    frame
-}
-
-pub fn decode_terminal_output_frame(frame: &[u8]) -> Result<(String, Bytes), String> {
-    if frame.len() < 2 {
-        return Err("frame is missing terminal id length".to_string());
-    }
-
-    let terminal_id_len = u16::from_be_bytes([frame[0], frame[1]]) as usize;
-    if frame.len() < 2 + terminal_id_len {
-        return Err("frame is truncated".to_string());
-    }
-
-    let terminal_id = std::str::from_utf8(&frame[2..2 + terminal_id_len])
-        .map_err(|error| format!("terminal id is not valid utf-8: {error}"))?
-        .to_string();
-    Ok((terminal_id, Bytes::copy_from_slice(&frame[2 + terminal_id_len..])))
-}
-
-/// Magic byte distinguishing attach-output binary frames from the legacy
-/// terminal-output frames. Inserted as the first byte of every attach
-/// output frame; legacy terminal output starts with the high byte of a
-/// u16 length, which for sub-32KB ids is 0x00 (always different from 0x01).
+/// Magic byte at the head of every per-attach binary frame. Originally
+/// added to disambiguate from the legacy `encode_terminal_output_frame`
+/// during the migration window; that codec is gone now, but the magic
+/// byte stays as a forward-compatible discriminator (any future binary
+/// frame variants get a different magic and dispatch trivially).
 const ATTACH_FRAME_MAGIC: u8 = 0x01;
 
 pub fn encode_attach_output_frame(attach_id: &str, data: &[u8]) -> Vec<u8> {
@@ -318,34 +269,9 @@ pub fn decode_attach_output_frame(frame: &[u8]) -> Result<(String, Bytes), Strin
     Ok((attach_id, Bytes::copy_from_slice(&body[2 + attach_id_len..])))
 }
 
-/// Returns true if a binary WS frame is an attach output frame (vs the
-/// legacy terminal-output frame). Used by the hub's machine-WS dispatch
-/// during the migration window where both formats coexist.
-pub fn is_attach_output_frame(frame: &[u8]) -> bool {
-    !frame.is_empty() && frame[0] == ATTACH_FRAME_MAGIC
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        decode_attach_output_frame, decode_terminal_output_frame,
-        encode_attach_output_frame, encode_terminal_output_frame,
-    };
-
-    #[test]
-    fn terminal_output_frame_round_trips_without_loss() {
-        let frame = encode_terminal_output_frame("term-a", b"\x1b[31mhello\x00world");
-        let (terminal_id, payload) = decode_terminal_output_frame(&frame).unwrap();
-
-        assert_eq!(terminal_id, "term-a");
-        assert_eq!(payload.as_ref(), b"\x1b[31mhello\x00world");
-    }
-
-    #[test]
-    fn terminal_output_frame_rejects_truncated_payloads() {
-        let error = decode_terminal_output_frame(&[0, 10, b't']).unwrap_err();
-        assert!(error.contains("truncated"));
-    }
+    use super::{decode_attach_output_frame, encode_attach_output_frame};
 
     #[test]
     fn attach_output_frame_round_trips_without_loss() {
@@ -364,17 +290,8 @@ mod tests {
 
     #[test]
     fn attach_output_frame_rejects_wrong_magic() {
-        // Legacy terminal-output frame should NOT be parsed as attach.
-        let legacy = super::encode_terminal_output_frame("term", b"data");
-        assert!(decode_attach_output_frame(&legacy).is_err());
-    }
-
-    #[test]
-    fn is_attach_output_frame_distinguishes_formats() {
-        let attach = encode_attach_output_frame("a", b"d");
-        let legacy = encode_terminal_output_frame("t", b"d");
-        assert!(super::is_attach_output_frame(&attach));
-        assert!(!super::is_attach_output_frame(&legacy));
-        assert!(!super::is_attach_output_frame(&[]));
+        // A frame starting with anything other than 0x01 isn't ours.
+        let bad = [0xff_u8, 0, 4, b't', b'e', b's', b't'];
+        assert!(decode_attach_output_frame(&bad).is_err());
     }
 }

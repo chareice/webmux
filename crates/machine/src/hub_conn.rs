@@ -2,10 +2,8 @@ use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use std::sync::Arc;
 use std::time::Duration;
-use tc_protocol::{
-    encode_attach_output_frame, encode_terminal_output_frame, DirEntry, HubToMachine, MachineToHub,
-};
-use tokio::sync::{broadcast, mpsc};
+use tc_protocol::{encode_attach_output_frame, DirEntry, HubToMachine, MachineToHub};
+use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::attach::{AttachEvent, AttachManager};
@@ -17,7 +15,6 @@ const HUB_OUTBOUND_CAPACITY: usize = 256;
 
 enum OutboundHubMessage {
     Json(MachineToHub),
-    TerminalOutput { terminal_id: String, data: Bytes },
     AttachOutput { attach_id: String, data: Bytes },
 }
 
@@ -127,7 +124,10 @@ impl HubConnection {
             }
         });
 
-        // Report existing terminals (recovered from tmux after restart)
+        // Report existing terminals (recovered from tmux after restart). The
+        // hub builds its terminal records from this list; per-attach byte
+        // streams are established on-demand when browsers connect, so there
+        // is no scrollback or background subscription to set up here.
         let existing = pty.list_terminals();
         if !existing.is_empty() {
             let terminals: Vec<tc_protocol::TerminalInfo> = existing
@@ -148,68 +148,6 @@ impl HubConnection {
                     terminals,
                 }))
                 .await;
-
-            // Send tmux scrollback for each recovered terminal
-            for info in &existing {
-                if let Some(scrollback) = pty.capture_scrollback(&info.id) {
-                    tracing::info!(
-                        "Sending {} bytes of scrollback for terminal {}",
-                        scrollback.len(),
-                        info.id
-                    );
-                    let _ = send_tx
-                        .send(OutboundHubMessage::TerminalOutput {
-                            terminal_id: info.id.clone(),
-                            data: scrollback.into(),
-                        })
-                        .await;
-                }
-            }
-
-            // Re-establish output forwarding for each existing terminal
-            for info in &existing {
-                if let Ok((buffer, mut rx)) = pty.subscribe(&info.id) {
-                    let tx = send_tx.clone();
-                    let tid = info.id.clone();
-
-                    if !buffer.is_empty() {
-                        let _ = tx
-                            .send(OutboundHubMessage::TerminalOutput {
-                                terminal_id: tid.clone(),
-                                data: buffer.into(),
-                            })
-                            .await;
-                    }
-
-                    tokio::spawn(async move {
-                        loop {
-                            match rx.recv().await {
-                                Ok(data) => {
-                                    if tx
-                                        .send(OutboundHubMessage::TerminalOutput {
-                                            terminal_id: tid.clone(),
-                                            data,
-                                        })
-                                        .await
-                                        .is_err()
-                                    {
-                                        break;
-                                    }
-                                }
-                                Err(broadcast::error::RecvError::Closed) => break,
-                                Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                                    tracing::warn!(
-                                        "Dropped {} buffered terminal output chunks for {} while reconnecting to hub",
-                                        skipped,
-                                        tid
-                                    );
-                                    continue;
-                                }
-                            }
-                        }
-                    });
-                }
-            }
         }
 
         // Task: periodically send resource stats
@@ -254,12 +192,6 @@ impl HubConnection {
                             Some(OutboundHubMessage::Json(msg)) => {
                                 let text = serde_json::to_string(&msg).unwrap();
                                 if ws_tx.send(Message::Text(text.into())).await.is_err() {
-                                    break;
-                                }
-                            }
-                            Some(OutboundHubMessage::TerminalOutput { terminal_id, data }) => {
-                                let frame = encode_terminal_output_frame(&terminal_id, &data);
-                                if ws_tx.send(Message::Binary(frame.into())).await.is_err() {
                                     break;
                                 }
                             }
@@ -356,7 +288,6 @@ async fn handle_hub_message(
             let terminal_id = uuid::Uuid::new_v4().to_string();
             match pty.create_terminal(&terminal_id, &cwd, cols, rows) {
                 Ok(info) => {
-                    // Send TerminalCreated FIRST so Hub creates output channel
                     let _ = send_tx
                         .send(OutboundHubMessage::Json(MachineToHub::TerminalCreated {
                             request_id,
@@ -368,50 +299,10 @@ async fn handle_hub_message(
                         }))
                         .await;
 
-                    // Then start output forwarding
-                    if let Ok((buffer, mut rx)) = pty.subscribe(&terminal_id) {
-                        let tx = send_tx.clone();
-                        let tid = terminal_id.clone();
-
-                        // Send buffered output
-                        if !buffer.is_empty() {
-                            let _ = tx
-                                .send(OutboundHubMessage::TerminalOutput {
-                                    terminal_id: tid.clone(),
-                                    data: buffer.into(),
-                                })
-                                .await;
-                        }
-
-                        // Forward live output
-                        tokio::spawn(async move {
-                            loop {
-                                match rx.recv().await {
-                                    Ok(data) => {
-                                        if tx
-                                            .send(OutboundHubMessage::TerminalOutput {
-                                                terminal_id: tid.clone(),
-                                                data,
-                                            })
-                                            .await
-                                            .is_err()
-                                        {
-                                            break;
-                                        }
-                                    }
-                                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                                        tracing::warn!(
-                                            "Dropped {} live terminal output chunks for {} before forwarding to hub",
-                                            skipped,
-                                            tid
-                                        );
-                                        continue
-                                    }
-                                }
-                            }
-                        });
-                    }
+                    // Output forwarding is now per-attach: nothing to wire
+                    // here. The first browser to attach drives an OpenAttach,
+                    // which spawns a fresh `tmux attach` whose bytes flow back
+                    // as AttachOutput.
 
                     // Execute startup command after shell is ready
                     if let Some(cmd) = startup_command {
@@ -446,16 +337,6 @@ async fn handle_hub_message(
                 }))
                 .await;
         }
-        HubToMachine::TerminalInput { terminal_id, data } => {
-            let _ = pty.write_to_terminal(&terminal_id, data.as_bytes());
-        }
-        HubToMachine::TerminalResize {
-            terminal_id,
-            cols,
-            rows,
-        } => {
-            let _ = pty.resize_terminal(&terminal_id, cols, rows);
-        }
         HubToMachine::FsListDir { request_id, path } => {
             let resolved = expand_tilde(&path);
             match read_directory(&resolved) {
@@ -477,19 +358,6 @@ async fn handle_hub_message(
                 }
             }
         }
-        HubToMachine::ImagePaste {
-            terminal_id,
-            data,
-            mime,
-            filename,
-        } => match handle_image_paste(pty, &terminal_id, &data, &mime, &filename) {
-            Ok(path) => tracing::info!(
-                "Image saved to {}, path injected to terminal {}",
-                path,
-                terminal_id
-            ),
-            Err(e) => tracing::error!("Image paste failed: {}", e),
-        },
         HubToMachine::AuthResult { ok, message } => {
             if ok {
                 tracing::info!("Machine authenticated successfully");

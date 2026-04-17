@@ -13,15 +13,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use tc_protocol::{
-    decode_attach_output_frame, decode_terminal_output_frame, is_attach_output_frame,
-    BrowserEventEnvelope, HubToMachine, MachineToHub,
+    decode_attach_output_frame, BrowserEventEnvelope, HubToMachine, MachineToHub,
 };
 use tokio::sync::mpsc;
 
 use crate::attach_router::WsSender;
 use crate::auth;
 use crate::db;
-use crate::machine_manager::AttachMode;
 use crate::AppState;
 
 const DEVICE_DISCONNECT_GRACE_PERIOD: Duration = Duration::from_secs(10);
@@ -64,12 +62,6 @@ enum ClientMessage {
 enum ServerMessage {
     #[serde(rename = "error")]
     Error { message: String },
-    #[serde(rename = "attach")]
-    Attach {
-        seq: u64,
-        mode: AttachMode,
-        replay_bytes: u64,
-    },
 }
 
 fn client_message_allowed(
@@ -125,20 +117,8 @@ async fn terminal_ws_handler(
     }
 
     let device_id = params.get("device_id").cloned().unwrap_or_default();
-    // Optional resume protocol: client tells the hub the last byte-seq it has seen
-    // so the hub can send only a delta (or signal a reset if too far behind).
-    // Absent / unparseable → treated as a fresh attach.
-    let after_seq = params.get("after_seq").and_then(|s| s.parse::<u64>().ok());
     ws.on_upgrade(move |socket| {
-        handle_terminal_ws(
-            socket,
-            machine_id,
-            terminal_id,
-            device_id,
-            user_id,
-            after_seq,
-            state,
-        )
+        handle_terminal_ws(socket, machine_id, terminal_id, device_id, user_id, state)
     })
 }
 
@@ -148,7 +128,6 @@ async fn handle_terminal_ws(
     terminal_id: String,
     device_id: String,
     user_id: Option<String>,
-    _after_seq: Option<u64>,
     state: AppState,
 ) {
     let (mut sender, mut receiver) = socket.split();
@@ -376,39 +355,23 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                                     }
                                 }
                                 Message::Binary(data) => {
-                                    if is_attach_output_frame(&data) {
-                                        match decode_attach_output_frame(&data) {
-                                            Ok((attach_id, payload)) => {
-                                                if let Some(sender) =
-                                                    router.lookup_sender(&attach_id).await
-                                                {
-                                                    // Best-effort delivery; if the WS task is gone
-                                                    // (browser disconnected), the channel will be
-                                                    // closed and the send fails — that's fine, the
-                                                    // upcoming CloseAttach will tell the machine.
-                                                    let _ = sender.0.send(payload).await;
-                                                }
-                                            }
-                                            Err(error) => {
-                                                tracing::warn!(
-                                                    "Failed to decode attach output frame: {}",
-                                                    error
-                                                );
+                                    match decode_attach_output_frame(&data) {
+                                        Ok((attach_id, payload)) => {
+                                            if let Some(sender) =
+                                                router.lookup_sender(&attach_id).await
+                                            {
+                                                // Best-effort delivery; if the WS task is gone
+                                                // (browser disconnected) the channel is closed and
+                                                // the send fails — fine, the upcoming CloseAttach
+                                                // will tell the machine.
+                                                let _ = sender.0.send(payload).await;
                                             }
                                         }
-                                    } else {
-                                        match decode_terminal_output_frame(&data) {
-                                            Ok((terminal_id, payload)) => {
-                                                manager
-                                                    .handle_terminal_output(&mid, &terminal_id, payload)
-                                                    .await;
-                                            }
-                                            Err(error) => {
-                                                tracing::warn!(
-                                                    "Failed to decode terminal output frame: {}",
-                                                    error
-                                                );
-                                            }
+                                        Err(error) => {
+                                            tracing::warn!(
+                                                "Failed to decode attach output frame: {}",
+                                                error
+                                            );
                                         }
                                     }
                                 }

@@ -9,6 +9,7 @@ BINARY="webmux-node"
 INSTALL_DIR="${WEBMUX_INSTALL_DIR:-$HOME/.local/bin}"
 
 main() {
+    require_tmux
     detect_platform
     ensure_install_dir
 
@@ -45,6 +46,24 @@ main() {
                 ;;
         esac
     fi
+}
+
+require_tmux() {
+    if command -v tmux >/dev/null 2>&1; then
+        return
+    fi
+    cat <<'EOF' >&2
+error: tmux is required by webmux but is not installed.
+
+Please install tmux first:
+
+  Debian / Ubuntu:  sudo apt install tmux
+  macOS (Homebrew): brew install tmux
+  Arch:             sudo pacman -S tmux
+
+Then re-run this installer.
+EOF
+    exit 1
 }
 
 detect_platform() {
