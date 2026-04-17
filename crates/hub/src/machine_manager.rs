@@ -952,6 +952,11 @@ impl MachineManager {
                     return;
                 }
             }
+            MachineToHub::AttachDied { .. }
+            | MachineToHub::TerminalDied { .. }
+            | MachineToHub::TerminalResized { .. } => {
+                // Phase 5 wires these into the router and event broadcast.
+            }
         }
     }
 

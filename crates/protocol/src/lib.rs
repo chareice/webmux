@@ -117,6 +117,30 @@ pub enum HubToMachine {
         request_id: String,
         terminal_id: String,
     },
+    #[serde(rename = "open_attach")]
+    OpenAttach {
+        attach_id: String,
+        terminal_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    #[serde(rename = "close_attach")]
+    CloseAttach { attach_id: String },
+    #[serde(rename = "attach_input")]
+    AttachInput { attach_id: String, data: String },
+    #[serde(rename = "attach_resize")]
+    AttachResize {
+        attach_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    #[serde(rename = "attach_image_paste")]
+    AttachImagePaste {
+        attach_id: String,
+        data: String,
+        mime: String,
+        filename: String,
+    },
     #[serde(rename = "ping")]
     Ping,
 }
@@ -165,6 +189,16 @@ pub enum MachineToHub {
         request_id: String,
         has_foreground_process: bool,
         process_name: Option<String>,
+    },
+    #[serde(rename = "attach_died")]
+    AttachDied { attach_id: String, reason: String },
+    #[serde(rename = "terminal_died")]
+    TerminalDied { terminal_id: String, reason: String },
+    #[serde(rename = "terminal_resized")]
+    TerminalResized {
+        terminal_id: String,
+        cols: u16,
+        rows: u16,
     },
     #[serde(rename = "pong")]
     Pong,
@@ -242,9 +276,40 @@ pub fn decode_terminal_output_frame(frame: &[u8]) -> Result<(String, Bytes), Str
     Ok((terminal_id, Bytes::copy_from_slice(&frame[2 + terminal_id_len..])))
 }
 
+pub fn encode_attach_output_frame(attach_id: &str, data: &[u8]) -> Vec<u8> {
+    let attach_id_bytes = attach_id.as_bytes();
+    let attach_id_len: u16 = attach_id_bytes
+        .len()
+        .try_into()
+        .expect("attach_id is too long to encode");
+
+    let mut frame = Vec::with_capacity(2 + attach_id_bytes.len() + data.len());
+    frame.extend_from_slice(&attach_id_len.to_be_bytes());
+    frame.extend_from_slice(attach_id_bytes);
+    frame.extend_from_slice(data);
+    frame
+}
+
+pub fn decode_attach_output_frame(frame: &[u8]) -> Result<(String, Bytes), String> {
+    if frame.len() < 2 {
+        return Err("frame is missing attach id length".to_string());
+    }
+    let attach_id_len = u16::from_be_bytes([frame[0], frame[1]]) as usize;
+    if frame.len() < 2 + attach_id_len {
+        return Err("frame is truncated".to_string());
+    }
+    let attach_id = std::str::from_utf8(&frame[2..2 + attach_id_len])
+        .map_err(|error| format!("attach id is not valid utf-8: {error}"))?
+        .to_string();
+    Ok((attach_id, Bytes::copy_from_slice(&frame[2 + attach_id_len..])))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{decode_terminal_output_frame, encode_terminal_output_frame};
+    use super::{
+        decode_attach_output_frame, decode_terminal_output_frame,
+        encode_attach_output_frame, encode_terminal_output_frame,
+    };
 
     #[test]
     fn terminal_output_frame_round_trips_without_loss() {
@@ -258,6 +323,20 @@ mod tests {
     #[test]
     fn terminal_output_frame_rejects_truncated_payloads() {
         let error = decode_terminal_output_frame(&[0, 10, b't']).unwrap_err();
+        assert!(error.contains("truncated"));
+    }
+
+    #[test]
+    fn attach_output_frame_round_trips_without_loss() {
+        let frame = encode_attach_output_frame("attach-x", b"\x1b[38;5;246mhello\x00\xff");
+        let (attach_id, payload) = decode_attach_output_frame(&frame).unwrap();
+        assert_eq!(attach_id, "attach-x");
+        assert_eq!(payload.as_ref(), b"\x1b[38;5;246mhello\x00\xff");
+    }
+
+    #[test]
+    fn attach_output_frame_rejects_truncated_payloads() {
+        let error = decode_attach_output_frame(&[0, 10, b't']).unwrap_err();
         assert!(error.contains("truncated"));
     }
 }

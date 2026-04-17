@@ -474,6 +474,13 @@ async fn handle_hub_message(
                 .send(OutboundHubMessage::Json(MachineToHub::Pong))
                 .await;
         }
+        HubToMachine::OpenAttach { .. }
+        | HubToMachine::CloseAttach { .. }
+        | HubToMachine::AttachInput { .. }
+        | HubToMachine::AttachResize { .. }
+        | HubToMachine::AttachImagePaste { .. } => {
+            // Phase 5 wires these through AttachManager.
+        }
     }
 }
 
