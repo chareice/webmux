@@ -1,9 +1,12 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
 const MACHINE_ID = "e2e-node";
-// Matches the root TerminalCard element but not sub-elements like
-// terminal-card-workpath-label that share the same testid prefix.
-const TERMINAL_CARD_SELECTOR = "[data-testid^='terminal-card-']:not([data-testid='terminal-card-workpath-label'])";
+// The workbench grid puts `grid-card-<id>` on each card. The mobile shell's
+// Terminals tab puts `mobile-term-card-<id>` instead. Both are "one card per
+// terminal" so tests can treat them as interchangeable for counting and
+// clicking.
+const TERMINAL_CARD_SELECTOR =
+  "[data-testid^='grid-card-'], [data-testid^='mobile-term-card-']";
 
 async function authenticate(page: Page): Promise<void> {
   const response = await page.request.get("/api/auth/dev");
@@ -19,19 +22,20 @@ async function authenticate(page: Page): Promise<void> {
   }, token);
 }
 
+/**
+ * Open the app, authenticate, and wait for the new workbench shell to be
+ * ready. Works for both desktop (Rail + WorkbenchHeader) and mobile
+ * (MobileWorkbench) layouts.
+ */
 export async function openApp(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto("/");
   await Promise.race([
-    page.getByTestId("workpath-panel").waitFor({
+    page.getByTestId("workbench-header").waitFor({
       state: "visible",
       timeout: 20_000,
     }),
-    page.getByTestId("canvas-mode-toggle").waitFor({
-      state: "visible",
-      timeout: 20_000,
-    }),
-    page.getByTestId("statusbar-mode-toggle").waitFor({
+    page.getByTestId("mobile-workbench").waitFor({
       state: "visible",
       timeout: 20_000,
     }),
@@ -79,6 +83,18 @@ export async function requestMachineControl(page: Page): Promise<void> {
   expect(response.ok()).toBeTruthy();
 }
 
+export async function releaseMachineControl(page: Page): Promise<void> {
+  const response = await page.request.post("/api/mode/release", {
+    headers: await getAuthHeaders(page),
+    data: {
+      machine_id: MACHINE_ID,
+      device_id: await getDeviceId(page),
+    },
+  });
+  // Server may respond with a 2xx regardless of whether a lease existed.
+  expect(response.ok()).toBeTruthy();
+}
+
 export async function destroyAllTerminals(page: Page): Promise<void> {
   const headers = await getAuthHeaders(page);
   const deviceId = await getDeviceId(page);
@@ -95,42 +111,80 @@ export async function resetMachineState(page: Page): Promise<void> {
   await requestMachineControl(page);
   await destroyAllTerminals(page);
   await expectTerminalCount(page, 0);
-  const toggle = getGlobalModeToggle(page);
-  const label = (await toggle.textContent())?.trim();
-  if (label === "Stop Control") {
-    await toggle.click();
+  // Release control via API (works on both desktop and mobile — mobile has no
+  // header toggle). Then wait for the UI to pick up the mode change so
+  // follow-up assertions on the Control Here / Request control button land
+  // reliably.
+  await releaseMachineControl(page);
+  const header = page.getByTestId("workbench-header");
+  if (await header.isVisible().catch(() => false)) {
+    await expect(page.getByTestId("workbench-request-control")).toBeVisible();
   }
-  await expectGlobalModeToggleLabel(page, "Control Here");
 }
 
 /**
- * Open the workpath panel. The panel is visible by default; if a previous
- * test state closed it (panelOpen=false removes it from the DOM), send
- * Cmd+B to re-open, then assert it's visible.
- *
- * We wait up to 3 s for the panel to appear on its own (e.g. after a page
- * reload while machines are still bootstrapping) before sending Cmd+B. This
- * prevents accidentally toggling the panel closed when the element is
- * temporarily absent during bootstrap.
+ * Return the header control toggle — either "workbench-request-control" (when
+ * viewing) or "workbench-stop-control" (when controlling). Only one is in the
+ * DOM at a time, and `.or()` short-circuits to the visible one.
  */
-export async function openPanel(page: Page): Promise<void> {
-  const panel = page.getByTestId("workpath-panel");
-  // Wait up to 3 s for the panel to appear naturally (bootstrap may take a moment)
-  const isVisible = await panel.waitFor({ state: "visible", timeout: 3_000 }).then(() => true).catch(() => false);
-  if (!isVisible) {
-    // Panel didn't appear — it must be toggled closed. Open it with Cmd+B.
-    await page.keyboard.press("Meta+B");
+export function getControlToggle(page: Page): Locator {
+  return page
+    .getByTestId("workbench-request-control")
+    .or(page.getByTestId("workbench-stop-control"));
+}
+
+export async function expectControlState(
+  page: Page,
+  state: "controlling" | "viewing",
+): Promise<void> {
+  if (state === "controlling") {
+    await expect(page.getByTestId("workbench-stop-control")).toBeVisible();
+  } else {
+    await expect(page.getByTestId("workbench-request-control")).toBeVisible();
   }
-  await expect(panel).toBeVisible();
 }
 
-// Keep the old names as aliases so call-sites can be updated incrementally.
-export async function expandNavColumn(page: Page): Promise<void> {
-  await openPanel(page);
+export async function takeControlFromHeader(page: Page): Promise<void> {
+  await page.getByTestId("workbench-request-control").click();
+  await expectControlState(page, "controlling");
 }
 
-export async function expandMachineSection(page: Page): Promise<void> {
-  await openPanel(page);
+export async function releaseControlFromHeader(page: Page): Promise<void> {
+  await page.getByTestId("workbench-stop-control").click();
+  await expectControlState(page, "viewing");
+}
+
+export async function selectAllWorkpath(page: Page): Promise<void> {
+  await page.getByTestId("rail-workpath-all").click();
+}
+
+export async function selectHomeWorkpath(page: Page): Promise<void> {
+  // The fallback bookmark id for every machine is "local-home".
+  await page.getByTestId("rail-workpath-local-home").click();
+}
+
+/**
+ * Create a terminal for the current machine in its home directory and return
+ * the terminal id. Uses the REST API directly — faster and more deterministic
+ * than the UI "New terminal" button, which auto-opens the expanded overlay.
+ */
+export async function createTerminalViaApi(
+  page: Page,
+  opts: { cwd?: string; startupCommand?: string } = {},
+): Promise<string> {
+  const headers = await getAuthHeaders(page);
+  const deviceId = await getDeviceId(page);
+  const cwd = opts.cwd ?? "/root";
+  const resp = await page.request.post(`/api/machines/${MACHINE_ID}/terminals`, {
+    headers,
+    data: {
+      cwd,
+      device_id: deviceId,
+      ...(opts.startupCommand ? { startup_command: opts.startupCommand } : {}),
+    },
+  });
+  expect(resp.ok()).toBeTruthy();
+  return ((await resp.json()) as { id: string }).id;
 }
 
 export async function expectSingleTerminalCard(page: Page): Promise<Locator> {
@@ -140,7 +194,7 @@ export async function expectSingleTerminalCard(page: Page): Promise<Locator> {
 }
 
 export function getTerminalCards(page: Page): Locator {
-  return page.locator(`${TERMINAL_CARD_SELECTOR}:visible`);
+  return page.locator(`${TERMINAL_CARD_SELECTOR}`).and(page.locator(":visible"));
 }
 
 export async function expectTerminalCount(
@@ -150,53 +204,45 @@ export async function expectTerminalCount(
   await expect(getTerminalCards(page)).toHaveCount(count);
 }
 
-export async function openRootBookmark(page: Page): Promise<void> {
-  const sidebarToggle = page.getByTestId("mobile-sidebar-toggle");
-  if (
-    await sidebarToggle
-      .isVisible()
-      .catch(() => false)
-  ) {
-    await sidebarToggle.click();
-  }
-
-  await openPanel(page);
-  await page.getByTestId("panel-bookmark-local-home").click();
-}
-
-export function getGlobalModeToggle(page: Page): Locator {
-  const statusToggle = page.getByTestId("statusbar-mode-toggle");
-  const canvasToggle = page.getByTestId("canvas-mode-toggle");
-  return statusToggle.or(canvasToggle).first();
-}
-
-export async function expectGlobalModeToggleLabel(
-  page: Page,
-  label: string,
-): Promise<void> {
-  await expect(getGlobalModeToggle(page)).toHaveText(label);
-}
-
-export async function maximizeOnlyTerminal(page: Page): Promise<Locator> {
-  // After creating a terminal, it auto-zooms (immersive mode).
-  // If already zoomed, just wait for the terminal card.
-  // If in overview grid (e.g. navigated back), click the card.
-  const immersive = getImmersiveTerminal(page);
-  if (await immersive.isVisible().catch(() => false)) {
-    const card = page.locator(TERMINAL_CARD_SELECTOR).first();
-    await expect(card).toBeVisible();
-    return card;
-  }
-
-  // Click the first terminal card to zoom in
-  const card = await expectSingleTerminalCard(page);
-  await card.click();
-  await expect(immersive).toBeVisible();
-  return page.locator(TERMINAL_CARD_SELECTOR).first();
+export function getExpandedOverlay(page: Page): Locator {
+  return page.getByTestId("expanded-terminal");
 }
 
 export function getImmersiveTerminal(page: Page): Locator {
+  // The TerminalCard in `tab` display mode (used inside the ExpandedTerminal
+  // overlay) carries a `data-terminal-display-mode="immersive"` marker via
+  // TerminalView.web.
   return page.locator("[data-terminal-display-mode='immersive']").first();
+}
+
+/**
+ * Open the expanded overlay for the only (or first) terminal in the current
+ * grid. If the overlay is already open, just return its immersive locator.
+ */
+export async function expandOnlyTerminal(page: Page): Promise<Locator> {
+  const immersive = getImmersiveTerminal(page);
+  if (await immersive.isVisible().catch(() => false)) {
+    return immersive;
+  }
+  const card = await expectSingleTerminalCard(page);
+  await card.click();
+  await expect(getExpandedOverlay(page)).toBeVisible();
+  await expect(immersive).toBeVisible();
+  return immersive;
+}
+
+export async function expandTerminalById(
+  page: Page,
+  terminalId: string,
+): Promise<Locator> {
+  await page.locator(`[data-testid='grid-card-${terminalId}']:visible`).click();
+  await expect(getExpandedOverlay(page)).toBeVisible();
+  return getImmersiveTerminal(page);
+}
+
+export async function closeExpandedOverlay(page: Page): Promise<void> {
+  await page.getByTestId("expanded-close").click();
+  await expect(getExpandedOverlay(page)).toHaveCount(0);
 }
 
 export async function getTerminalViewScale(page: Page): Promise<number> {
@@ -210,4 +256,29 @@ export async function getTerminalViewJustify(
   page: Page,
 ): Promise<string | null> {
   return getImmersiveTerminal(page).getAttribute("data-terminal-view-justify");
+}
+
+/**
+ * Mobile-specific: tap the "Stats" bottom tab and click Request/Stop control
+ * from the Actions panel.
+ */
+export async function mobileTakeControl(page: Page): Promise<void> {
+  await page.getByText("Stats", { exact: true }).click();
+  await page
+    .getByRole("button", { name: /Request control/i })
+    .click();
+}
+
+export async function mobileReleaseControl(page: Page): Promise<void> {
+  await page.getByText("Stats", { exact: true }).click();
+  await page
+    .getByRole("button", { name: /Release control/i })
+    .click();
+}
+
+export async function mobileSwitchTab(
+  page: Page,
+  label: "Hosts" | "Terminals" | "Stats",
+): Promise<void> {
+  await page.getByText(label, { exact: true }).click();
 }

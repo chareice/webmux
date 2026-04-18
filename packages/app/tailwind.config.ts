@@ -29,6 +29,7 @@ export default {
       },
       fontFamily: {
         sans: [
+          "Geist",
           "system-ui",
           "-apple-system",
           "BlinkMacSystemFont",
@@ -37,6 +38,7 @@ export default {
           "sans-serif",
         ],
         mono: [
+          "JetBrains Mono",
           "ui-monospace",
           "Cascadia Code",
           "Source Code Pro",

@@ -77,9 +77,8 @@ function applyBrowserEvent(
         machines: upsertMachine(state.machines, event.machine),
       };
     case "machine_offline": {
-      const { [event.machine_id]: _removedStats, ...nextStats } = state.machineStats;
-      const { [event.machine_id]: _removedLease, ...nextLeases } =
-        state.controlLeases;
+      const nextStats = omitKey(state.machineStats, event.machine_id);
+      const nextLeases = omitKey(state.controlLeases, event.machine_id);
       return {
         ...state,
         // Keep machines list unchanged — machine info needed for unreachable terminals
@@ -119,11 +118,9 @@ function applyBrowserEvent(
       };
     case "mode_changed":
       if (!event.controller_device_id) {
-        const { [event.machine_id]: _released, ...remainingLeases } =
-          state.controlLeases;
         return {
           ...state,
-          controlLeases: remainingLeases,
+          controlLeases: omitKey(state.controlLeases, event.machine_id),
         };
       }
       return {
@@ -134,6 +131,20 @@ function applyBrowserEvent(
         },
       };
   }
+}
+
+// Return a copy of `record` with `key` removed. Replaces the
+// `const { [key]: _, ...rest } = record` pattern, which the current Metro /
+// Babel toolchain mistranspiles for computed-key rest-spread in release
+// bundles (the key was retained in `rest`, leaving stale control leases
+// after a release). See design-refresh PR #141.
+function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const next: Record<string, T> = {};
+  for (const k of Object.keys(record)) {
+    if (k !== key) next[k] = record[k];
+  }
+  return next;
 }
 
 function upsertMachine(
