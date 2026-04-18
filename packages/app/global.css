@@ -4,47 +4,55 @@
 
 @layer base {
   :root {
-    /* Light mode — Claude/Anthropic warm parchment palette */
-    --color-background: 245 244 237;        /* #f5f4ed Parchment */
-    --color-background-secondary: 250 249 245; /* #faf9f5 Ivory */
-    --color-surface: 250 249 245;           /* #faf9f5 Ivory */
-    --color-surface-hover: 240 238 230;     /* #f0eee6 Border Cream */
-    --color-foreground: 20 20 19;           /* #141413 Anthropic Near Black */
-    --color-foreground-secondary: 94 93 89; /* #5e5d59 Olive Gray */
-    --color-foreground-muted: 135 134 127;  /* #87867f Stone Gray */
-    --color-accent: 201 100 66;            /* #c96442 Terracotta Brand */
-    --color-accent-dim: 217 119 87;        /* #d97757 Coral Accent */
-    --color-danger: 181 51 51;             /* #b53333 Error Crimson */
-    --color-warning: 201 100 66;           /* #c96442 Terracotta */
-    --color-success: 48 209 88;            /* #30d158 */
-    --color-border: 240 238 230;           /* #f0eee6 Border Cream */
-    --color-border-active: 201 100 66;     /* #c96442 Terracotta */
-  }
+    /* Design-refresh palette. Dark-only. Values are sRGB triplets converted
+       from the source oklch() tokens (neutrals at hue 260°, warm amber for
+       accent). Stored as space-separated triplets so
+       `rgb(var(--x) / <alpha>)` works with both Tailwind and inline styles. */
+    --color-bg-0: 11 12 15;              /* oklch(0.155 0.006 260) — canvas */
+    --color-bg-1: 17 19 22;              /* oklch(0.185 0.007 260) — elevated */
+    --color-bg-2: 23 26 29;              /* oklch(0.215 0.008 260) — surface */
+    --color-bg-3: 31 34 38;              /* oklch(0.25  0.008 260) — surface hover */
+    --color-line: 39 41 45;              /* oklch(0.28  0.008 260) — solid border */
+    --color-line-soft: 27 29 32;         /* oklch(0.23  0.007 260) — subtle divider */
 
-  .dark {
-    /* Dark mode — Claude/Anthropic warm dark palette */
-    --color-background: 20 20 19;           /* #141413 Deep Dark */
-    --color-background-secondary: 48 48 46; /* #30302e Dark Surface */
-    --color-surface: 48 48 46;             /* #30302e Dark Surface */
-    --color-surface-hover: 61 61 58;       /* #3d3d3a Dark Warm */
-    --color-foreground: 250 249 245;       /* #faf9f5 Ivory */
-    --color-foreground-secondary: 200 198 190; /* #c8c6be Warm Silver Bright */
-    --color-foreground-muted: 160 158 150;  /* #a09e96 Stone Gray Bright */
-    --color-accent: 217 119 87;            /* #d97757 Coral Accent */
-    --color-accent-dim: 201 100 66;        /* #c96442 Terracotta */
-    --color-danger: 181 51 51;             /* #b53333 Error Crimson */
-    --color-warning: 217 119 87;           /* #d97757 Coral */
-    --color-success: 48 209 88;            /* #30d158 */
-    --color-border: 61 61 58;             /* #3d3d3a Dark Warm border */
-    --color-border-active: 217 119 87;     /* #d97757 Coral */
+    --color-fg-0: 247 248 251;           /* oklch(0.98 0.004 260) */
+    --color-fg-1: 204 206 209;           /* oklch(0.85 0.005 260) */
+    --color-fg-2: 144 146 151;           /* oklch(0.66 0.007 260) */
+    --color-fg-3: 91 94 98;              /* oklch(0.48 0.008 260) */
+
+    --color-accent: 251 157 89;          /* oklch(0.78 0.14 55)  — warm amber */
+    --color-ok: 99 209 143;              /* oklch(0.78 0.14 155) */
+    --color-warn: 234 191 58;            /* oklch(0.82 0.15 90) */
+    --color-err: 250 104 99;             /* oklch(0.70 0.18 25) */
+    --color-info: 105 193 252;           /* oklch(0.78 0.12 240) */
+    --color-violet: 187 154 244;         /* oklch(0.75 0.13 300) */
+
+    /* Terminal body — slightly darker than bg-0 for card contrast. */
+    --color-term-bg: 5 6 10;
+
+    /* Legacy aliases — existing components reference these via colors.web.ts.
+       Forwarded to the new tokens so the refactor can land in stages. */
+    --color-background: var(--color-bg-0);
+    --color-background-secondary: var(--color-bg-1);
+    --color-surface: var(--color-bg-2);
+    --color-surface-hover: var(--color-bg-3);
+    --color-foreground: var(--color-fg-0);
+    --color-foreground-secondary: var(--color-fg-1);
+    --color-foreground-muted: var(--color-fg-2);
+    --color-accent-dim: var(--color-accent);
+    --color-danger: var(--color-err);
+    --color-warning: var(--color-warn);
+    --color-success: var(--color-ok);
+    --color-border: var(--color-line);
+    --color-border-active: var(--color-accent);
   }
 }
 
 html, body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background-color: rgb(var(--color-background) / 1);
-  color: rgb(var(--color-foreground) / 1);
+  background-color: rgb(var(--color-bg-0));
+  color: rgb(var(--color-fg-1));
   min-height: 100%;
 }
 
@@ -52,44 +60,58 @@ body {
   margin: 0;
 }
 
-/* Prevent mobile zoom on double tap */
 * {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
 
 :focus-visible {
-  outline: 2px solid #3898ec;
+  outline: 2px solid rgb(var(--color-info));
   outline-offset: 2px;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+::selection {
+  background: rgb(var(--color-accent) / 0.2);
+  color: rgb(var(--color-fg-0));
 }
 
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--color-border) / 1);
-  border-radius: 3px;
+  background: rgb(var(--color-bg-3));
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--color-foreground-muted) / 0.5);
+  background: rgb(var(--color-line));
+  background-clip: content-box;
+  border: 2px solid transparent;
 }
-
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-/* Hide scrollbar but keep scrolling functional */
-.scrollbar-hidden::-webkit-scrollbar {
-  display: none;
-}
+.scrollbar-hidden::-webkit-scrollbar { display: none; }
 .scrollbar-hidden {
   scrollbar-width: none;
   -ms-overflow-style: none;
+}
+
+@keyframes webmuxFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes webmuxSlideUp {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes webmuxBlink {
+  0%, 50%       { opacity: 1; }
+  50.01%, 100%  { opacity: 0; }
 }

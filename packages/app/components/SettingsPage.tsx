@@ -1,10 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
-import { colors, colorAlpha } from "@/lib/colors";
-import { useTheme } from "@/lib/theme";
+import { colors } from "@/lib/colors";
 import { isTauri } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import { getSettings, updateSettings } from "@/lib/api";
-import { ArrowLeft, Sun, Moon, Monitor } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 // Common UI (proportional) fonts
 const UI_FONTS = [
@@ -204,7 +203,26 @@ function SettingRow({
 }
 
 export function SettingsPage({ onClose }: SettingsPageProps) {
-  const { theme, setTheme } = useTheme();
+  // Status bar visibility (hidden by default — see TerminalCanvas.web).
+  const [showStatusBar, setShowStatusBar] = useState(
+    () => localStorage.getItem("webmux:show-status-bar") === "1",
+  );
+  const toggleStatusBar = useCallback(() => {
+    setShowStatusBar((prev) => {
+      const next = !prev;
+      localStorage.setItem("webmux:show-status-bar", next ? "1" : "0");
+      // Notify the orchestrator (listens for the same key via StorageEvent,
+      // which only fires cross-tab — dispatch one locally so this tab updates
+      // immediately).
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "webmux:show-status-bar",
+          newValue: next ? "1" : "0",
+        }),
+      );
+      return next;
+    });
+  }, []);
 
   // Terminal font settings
   const [terminalFont, setTerminalFont] = useState(
@@ -355,12 +373,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     window.location.reload();
   }, [serverUrl]);
 
-  const themeOptions: { value: "light" | "dark" | "system"; label: string; Icon: typeof Sun }[] = [
-    { value: "light", label: "Light", Icon: Sun },
-    { value: "dark", label: "Dark", Icon: Moon },
-    { value: "system", label: "System", Icon: Monitor },
-  ];
-
   const inputStyle: React.CSSProperties = {
     background: colors.surface,
     border: `1px solid ${colors.border}`,
@@ -444,40 +456,40 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         <section style={{ marginBottom: 32 }}>
           <SectionTitle>Appearance</SectionTitle>
 
-          <SettingRow label="Theme">
-            <div style={{ display: "flex", gap: 8 }}>
-              {themeOptions.map(({ value, label, Icon }) => (
-                <button
-                  key={value}
-                  onClick={() => setTheme(value)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "8px 16px",
-                    borderRadius: 6,
-                    border:
-                      theme === value
-                        ? `1px solid ${colors.accent}`
-                        : `1px solid ${colors.border}`,
-                    background:
-                      theme === value
-                        ? colorAlpha.accentLight
-                        : "transparent",
-                    color:
-                      theme === value
-                        ? colors.accent
-                        : colors.foregroundSecondary,
-                    cursor: "pointer",
-                    fontSize: 13,
-                    fontWeight: theme === value ? 600 : 400,
-                  }}
-                >
-                  <Icon size={14} />
-                  {label}
-                </button>
-              ))}
-            </div>
+          <SettingRow
+            label="Show status bar"
+            description="Adds a 24px monospace bar with CPU/MEM/DISK at the bottom."
+          >
+            <button
+              data-testid="toggle-status-bar"
+              onClick={toggleStatusBar}
+              role="switch"
+              aria-checked={showStatusBar}
+              style={{
+                width: 40,
+                height: 22,
+                borderRadius: 999,
+                border: `1px solid ${colors.border}`,
+                background: showStatusBar ? colors.accent : colors.surface,
+                position: "relative",
+                cursor: "pointer",
+                padding: 0,
+                transition: "background 120ms",
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  left: showStatusBar ? 20 : 2,
+                  width: 16,
+                  height: 16,
+                  borderRadius: 999,
+                  background: showStatusBar ? "#120904" : colors.foregroundMuted,
+                  transition: "left 120ms",
+                }}
+              />
+            </button>
           </SettingRow>
 
           <SettingRow

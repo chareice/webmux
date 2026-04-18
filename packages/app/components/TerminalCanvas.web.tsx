@@ -1,16 +1,21 @@
 import {
   lazy,
   Suspense,
-  useState,
   useCallback,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
+  useState,
 } from "react";
-import type { Bookmark, TerminalInfo } from "@webmux/shared";
-import { Canvas } from "./Canvas.web";
-import { NavColumn } from "./NavColumn.web";
+import type { TerminalInfo, Bookmark } from "@webmux/shared";
 import { AppTitleBar } from "./AppTitleBar.web";
+import { Rail } from "./Rail.web";
+import { WorkbenchHeader } from "./WorkbenchHeader.web";
+import { TerminalGridCard } from "./TerminalGridCard.web";
+import { ExpandedTerminal } from "./ExpandedTerminal.web";
+import { MobileWorkbench } from "./MobileWorkbench.web";
+import { Terminal as TerminalIcon } from "lucide-react";
 import {
   createBookmark,
   createTerminal,
@@ -19,13 +24,11 @@ import {
   checkForegroundProcess,
   eventsWsUrl,
   getBootstrap,
-  getSettings,
   listBookmarks,
   requestControl,
   releaseControl,
   releaseControlKeepalive,
 } from "@/lib/api";
-import type { QuickCommand } from "./TabStrip.web";
 import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,
@@ -40,7 +43,6 @@ import {
   createInitialMainLayout,
   mainLayoutReducer,
 } from "@/lib/mainLayoutReducer";
-import { writePanelOpen } from "@/lib/panelOpenStorage";
 import {
   storePendingControlRelease,
   takePendingControlRelease,
@@ -61,6 +63,35 @@ const ConfirmDialog = lazy(() =>
   import("./ConfirmDialog").then((module) => ({ default: module.ConfirmDialog })),
 );
 
+const STATUS_BAR_KEY = "webmux:show-status-bar";
+
+function useViewportWidth() {
+  const [w, setW] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1280,
+  );
+  useEffect(() => {
+    const onResize = () => setW(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return w;
+}
+
+function useStatusBarPref() {
+  const [visible, setVisible] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(STATUS_BAR_KEY) === "1";
+  });
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (e.key === STATUS_BAR_KEY) setVisible(e.newValue === "1");
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
+  return visible;
+}
+
 export function TerminalCanvas() {
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
   const [layout, dispatchLayout] = useReducer(
@@ -70,68 +101,55 @@ export function TerminalCanvas() {
   );
   const isMobile = useIsMobile();
   const viewportHeight = useVisualViewportHeight();
-  // Track the real visual viewport so the layout shrinks when the mobile soft
-  // keyboard opens. xterm's existing ResizeObserver handles the refit.
-  const rootHeight: string = viewportHeight !== null ? `${viewportHeight}px` : "100dvh";
-  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
-  const lastSeqRef = useRef(0);
+  const viewportWidth = useViewportWidth();
+  const rootHeight: string =
+    viewportHeight !== null ? `${viewportHeight}px` : "100dvh";
+
+  const tight = viewportWidth < 820;
+  // Desktop rail: open by default, auto-collapsed in tight mode so it doesn't
+  // steal content width. Tapping the open-rail chevron in the header reopens.
+  const [railOpen, setRailOpen] = useState(!tight);
+  useEffect(() => {
+    setRailOpen(!tight);
+  }, [tight]);
+
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
-  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
+  const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
+  const lastSeqRef = useRef(0);
 
-  // Fetch quick-command settings once per session — the overlay used to
-  // do this on its own mount, but it mounts/unmounts every time the rail
-  // hover toggles. Lifted here so it's a single fetch shared by all
-  // overlay instances.
-  useEffect(() => {
-    let cancelled = false;
-    void getSettings()
-      .then((res) => {
-        if (cancelled) return;
-        try {
-          setQuickCommands(JSON.parse(res.settings.quick_commands || "[]"));
-        } catch {
-          /* malformed setting — leave empty */
-        }
-      })
-      .catch(() => { /* settings unreachable — leave empty */ });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
   const [closeConfirmation, setCloseConfirmation] = useState<
     | { terminal: TerminalInfo; processName: string }
     | null
   >(null);
+
   const machines = browserState.machines;
   const terminals = browserState.terminals;
   const machineStats = browserState.machineStats;
   const controlLeases = browserState.controlLeases;
+
   const isMachineController = useCallback(
-    (machineId: string) => controlLeases[machineId] === deviceId,
+    (machineId: string) =>
+      deviceId !== null && controlLeases[machineId] === deviceId,
     [controlLeases, deviceId],
   );
   const isActiveController = activeMachineId
     ? isMachineController(activeMachineId)
     : false;
 
-  useEffect(() => {
-    setSidebarOpen(!isMobile);
-  }, [isMobile]);
+  const statusBarVisible = useStatusBarPref();
+
+  // ---- device id, bootstrap, events WS ----
 
   useEffect(() => {
     let cancelled = false;
-
     void getPersistentDeviceId().then((id) => {
-      if (!cancelled) {
-        setDeviceId(id);
-      }
+      if (!cancelled) setDeviceId(id);
     });
-
     return () => {
       cancelled = true;
     };
@@ -141,25 +159,19 @@ export function TerminalCanvas() {
     lastSeqRef.current = browserState.lastSeq;
   }, [browserState.lastSeq]);
 
-  // Auto-select first machine as active, reset if selected machine goes offline
   useEffect(() => {
     if (machines.length === 0) {
       if (activeMachineId !== null) setActiveMachineId(null);
       return;
     }
-    const stillExists = activeMachineId && machines.some((m) => m.id === activeMachineId);
-    if (!stillExists) {
-      setActiveMachineId(machines[0].id);
-    }
+    const stillExists =
+      activeMachineId && machines.some((m) => m.id === activeMachineId);
+    if (!stillExists) setActiveMachineId(machines[0].id);
   }, [machines, activeMachineId]);
 
-  // Load bookmarks for ALL machines. Re-fetch when terminals count changes
-  // so counts in the rail stay fresh after add/delete.
-  // When the API returns no bookmarks (or fails) for a machine, inject a
-  // synthetic `local-home` entry pointing at that machine's home dir so the
-  // rail and overlay always have at least one workpath the user can open.
-  // WorkpathPanel already filters by machine_id so two "local-home" entries
-  // with different machine_id coexist correctly.
+  // Load bookmarks per machine, with a synthetic ~ fallback so the rail is
+  // never empty when the server returns no workpaths. Matches the prior
+  // behaviour in WorkpathPanel.
   useEffect(() => {
     if (machines.length === 0) {
       setBookmarks([]);
@@ -189,7 +201,7 @@ export function TerminalCanvas() {
     };
   }, [machines, terminals.length]);
 
-  // Restore zoomed terminal from URL hash on first mount.
+  // URL hash <-> zoom-state sync.
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.startsWith("#/t/")) {
@@ -197,8 +209,6 @@ export function TerminalCanvas() {
       if (id) dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: id });
     }
   }, []);
-
-  // Handle browser back/forward.
   useEffect(() => {
     const onPopState = () => {
       const hash = window.location.hash;
@@ -212,7 +222,6 @@ export function TerminalCanvas() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  // Load initial data
   useEffect(() => {
     if (!deviceId) return;
 
@@ -240,28 +249,17 @@ export function TerminalCanvas() {
     };
   }, [deviceId, reconnectGeneration]);
 
-  // On page load, if sessionStorage contains pending control releases it means
-  // this is a same-tab reload (the beforeunload beacon already released on the
-  // server). Re-request control so the user doesn't have to click again.
+  // Re-request control after a same-tab reload clears pending releases.
   useEffect(() => {
     if (!deviceId) return;
-
+    const pending = takePendingControlRelease(window.sessionStorage);
+    if (pending.length === 0) return;
     let cancelled = false;
-    const pendingMachineIds = takePendingControlRelease(window.sessionStorage);
-    if (pendingMachineIds.length === 0) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
     void Promise.allSettled(
-      pendingMachineIds.map((machineId) => requestControl(machineId, deviceId)),
+      pending.map((machineId) => requestControl(machineId, deviceId)),
     ).finally(() => {
-      if (!cancelled) {
-        setReconnectGeneration((value) => value + 1);
-      }
+      if (!cancelled) setReconnectGeneration((value) => value + 1);
     });
-
     return () => {
       cancelled = true;
     };
@@ -269,40 +267,25 @@ export function TerminalCanvas() {
 
   useEffect(() => {
     if (!deviceId) return;
-
-    const releaseControlledMachines = () => {
-      const controlledMachineIds = Object.entries(controlLeases)
-        .filter(([, controllerDeviceId]) => controllerDeviceId === deviceId)
+    const releaseControlled = () => {
+      const ids = Object.entries(controlLeases)
+        .filter(([, cid]) => cid === deviceId)
         .map(([machineId]) => machineId);
-
-      storePendingControlRelease(window.sessionStorage, controlledMachineIds);
-
-      for (const machineId of controlledMachineIds) {
-        releaseControlKeepalive(machineId, deviceId);
-      }
+      storePendingControlRelease(window.sessionStorage, ids);
+      for (const machineId of ids) releaseControlKeepalive(machineId, deviceId);
     };
-
-    const handlePageHide = (event: PageTransitionEvent) => {
-      if (event.persisted) {
-        return;
-      }
-      releaseControlledMachines();
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      releaseControlled();
     };
-
-    window.addEventListener("beforeunload", releaseControlledMachines);
-    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("beforeunload", releaseControlled);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
-      window.removeEventListener("beforeunload", releaseControlledMachines);
-      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("beforeunload", releaseControlled);
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, [controlLeases, deviceId]);
 
-  // Events WebSocket for live updates.
-  // Track the current zoomed terminal in a ref so the WS effect doesn't
-  // need it as a dependency — without this the WS gets torn down and
-  // reopened on every zoom/unzoom (and during reconnect flapping the
-  // browser may miss events). Reading via ref keeps the effect's
-  // identity stable while still seeing the latest value at message time.
   const zoomedTerminalIdRef = useRef<string | null>(layout.zoomedTerminalId);
   useEffect(() => {
     zoomedTerminalIdRef.current = layout.zoomedTerminalId;
@@ -310,7 +293,6 @@ export function TerminalCanvas() {
 
   useEffect(() => {
     if (!bootstrapReady || !deviceId) return;
-
     const ws = new WebSocket(eventsWsUrl(deviceId, lastSeqRef.current));
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -338,11 +320,9 @@ export function TerminalCanvas() {
           }
           return next;
         });
-        if (needsResync) {
-          ws.close();
-        }
+        if (needsResync) ws.close();
       } catch {
-        /* ignore */
+        /* ignore malformed events */
       }
     };
 
@@ -353,11 +333,7 @@ export function TerminalCanvas() {
       }, 1000);
     };
 
-    // When the tab becomes visible, check if the events WS is still alive.
-    // Background tabs may have their WS silently closed by the browser or
-    // network intermediaries, and setTimeout is throttled, so the normal
-    // onclose reconnect timer may not have fired yet.
-    const handleVisibilityChange = () => {
+    const onVisibility = () => {
       if (
         document.visibilityState === "visible" &&
         ws.readyState !== WebSocket.OPEN &&
@@ -369,17 +345,47 @@ export function TerminalCanvas() {
         setReconnectGeneration((value) => value + 1);
       }
     };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("visibilitychange", onVisibility);
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      // Prevent the onclose handler from scheduling a spurious reconnect
-      // when the effect is torn down intentionally.
       ws.onclose = null;
       ws.close();
     };
   }, [bootstrapReady, deviceId]);
+
+  // ---- handlers ----
+
+  const activeMachine = activeMachineId
+    ? machines.find((m) => m.id === activeMachineId) ?? null
+    : machines[0] ?? null;
+  const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
+
+  const scopeBookmark =
+    layout.selectedWorkpathId === "all"
+      ? null
+      : bookmarks.find((b) => b.id === layout.selectedWorkpathId) ?? null;
+
+  const scopedTerminals = useMemo<TerminalInfo[]>(() => {
+    if (!activeMachine) return [];
+    const hostTerminals = terminals.filter(
+      (t) => t.machine_id === activeMachine.id,
+    );
+    if (layout.selectedWorkpathId === "all") return hostTerminals;
+    if (!scopeBookmark) return [];
+    return hostTerminals.filter((t) => t.cwd === scopeBookmark.path);
+  }, [terminals, activeMachine, layout.selectedWorkpathId, scopeBookmark]);
+
+  const expandedTerminal = layout.zoomedTerminalId
+    ? terminals.find((t) => t.id === layout.zoomedTerminalId) ?? null
+    : null;
+
+  const workpathLabelByMachineAndCwd = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const bm of bookmarks) m.set(`${bm.machine_id}::${bm.path}`, bm.label);
+    return m;
+  }, [bookmarks]);
 
   const handleCreateTerminal = useCallback(
     async (machineId: string, cwd: string, startupCommand?: string) => {
@@ -400,48 +406,52 @@ export function TerminalCanvas() {
         workpathId: match?.id ?? "all",
       });
       window.history.pushState(null, "", `#/t/${newTerminal.id}`);
-      if (isMobile) setSidebarOpen(false);
     },
-    [deviceId, isMachineController, isMobile, bookmarks],
+    [deviceId, isMachineController, bookmarks],
   );
 
-  const handleRequestControl = useCallback(async (machineId: string) => {
-    if (!deviceId) return;
-    const next = await requestControl(machineId, deviceId);
-    setBrowserState((prev) => ({
-      ...prev,
-      controlLeases: next.controller_device_id
-        ? {
-            ...prev.controlLeases,
-            [machineId]: next.controller_device_id,
-          }
-        : prev.controlLeases,
-    }));
-  }, [deviceId]);
+  const handleRequestControl = useCallback(
+    async (machineId: string) => {
+      if (!deviceId) return;
+      const next = await requestControl(machineId, deviceId);
+      setBrowserState((prev) => ({
+        ...prev,
+        controlLeases: next.controller_device_id
+          ? {
+              ...prev.controlLeases,
+              [machineId]: next.controller_device_id,
+            }
+          : prev.controlLeases,
+      }));
+    },
+    [deviceId],
+  );
 
-  const handleReleaseControl = useCallback(async (machineId: string) => {
-    if (!deviceId) return;
-    const next = await releaseControl(machineId, deviceId);
-    setBrowserState((prev) => ({
-      ...prev,
-      controlLeases: next.controller_device_id
-        ? {
-            ...prev.controlLeases,
-            [machineId]: next.controller_device_id,
-          }
-        : Object.fromEntries(
-            Object.entries(prev.controlLeases).filter(
-              ([key]) => key !== machineId,
+  const handleReleaseControl = useCallback(
+    async (machineId: string) => {
+      if (!deviceId) return;
+      const next = await releaseControl(machineId, deviceId);
+      setBrowserState((prev) => ({
+        ...prev,
+        controlLeases: next.controller_device_id
+          ? {
+              ...prev.controlLeases,
+              [machineId]: next.controller_device_id,
+            }
+          : Object.fromEntries(
+              Object.entries(prev.controlLeases).filter(
+                ([key]) => key !== machineId,
+              ),
             ),
-          ),
-    }));
-  }, [deviceId]);
+      }));
+    },
+    [deviceId],
+  );
 
   const handleDestroyTerminal = useCallback(
     async (terminal: TerminalInfo) => {
       if (!deviceId) return;
       if (!isMachineController(terminal.machine_id)) return;
-
       try {
         const result = await checkForegroundProcess(
           terminal.machine_id,
@@ -455,7 +465,7 @@ export function TerminalCanvas() {
           return;
         }
       } catch {
-        // If the foreground-process check fails, fall through and close.
+        /* fall through */
       }
       await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
     },
@@ -479,195 +489,46 @@ export function TerminalCanvas() {
     window.history.pushState(null, "", window.location.pathname);
   }, []);
 
-  const activeMachine = activeMachineId
-    ? machines.find((machine) => machine.id === activeMachineId) ?? null
-    : machines[0] ?? null;
+  const handleSelectWorkpath = useCallback(
+    (id: string) => {
+      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: id });
+      if (window.location.hash.startsWith("#/t/")) {
+        window.history.pushState(null, "", window.location.pathname);
+      }
+    },
+    [],
+  );
 
-  const handleNewTerminalFromOverview = useCallback(async () => {
+  const handleCloseZoomedTerminal = useCallback(async () => {
+    if (!layout.zoomedTerminalId) return;
+    const t = terminals.find((x) => x.id === layout.zoomedTerminalId);
+    if (t) await handleDestroyTerminal(t);
+  }, [layout.zoomedTerminalId, terminals, handleDestroyTerminal]);
+
+  const handleNewTerminalFromHeader = useCallback(async () => {
     if (!activeMachine || !deviceId) return;
     if (!isMachineController(activeMachine.id)) return;
-    if (layout.selectedWorkpathId === "all") {
-      // From All scope, new-terminal needs a target dir. Fall back to home.
-      await handleCreateTerminal(activeMachine.id, activeMachine.home_dir || "~");
+    if (layout.selectedWorkpathId === "all" || !scopeBookmark) {
+      await handleCreateTerminal(
+        activeMachine.id,
+        activeMachine.home_dir || "~",
+      );
       return;
     }
-    const bookmark = bookmarks.find((b) => b.id === layout.selectedWorkpathId);
-    if (!bookmark) {
-      await handleCreateTerminal(activeMachine.id, activeMachine.home_dir || "~");
-      return;
-    }
-    await handleCreateTerminal(bookmark.machine_id, bookmark.path);
+    await handleCreateTerminal(scopeBookmark.machine_id, scopeBookmark.path);
   }, [
     activeMachine,
     deviceId,
     isMachineController,
     handleCreateTerminal,
     layout.selectedWorkpathId,
-    bookmarks,
+    scopeBookmark,
   ]);
 
-  const handleCloseZoomedTerminal = useCallback(async () => {
-    if (!layout.zoomedTerminalId) return;
-    const terminal = terminals.find((t) => t.id === layout.zoomedTerminalId);
-    if (terminal) await handleDestroyTerminal(terminal);
-  }, [layout.zoomedTerminalId, terminals, handleDestroyTerminal]);
-
-  const splitPaneRef = useRef<{
-    splitVertical: () => void;
-    splitHorizontal: () => void;
-    focusPrevPane: () => void;
-    focusNextPane: () => void;
-    closePane: () => void;
-  } | null>(null);
-
-  const handleSplitVertical = useCallback(() => {
-    splitPaneRef.current?.splitVertical();
-  }, []);
-
-  const handleSplitHorizontal = useCallback(() => {
-    splitPaneRef.current?.splitHorizontal();
-  }, []);
-
-  const handleFocusPrevPane = useCallback(() => {
-    splitPaneRef.current?.focusPrevPane();
-  }, []);
-
-  const handleFocusNextPane = useCallback(() => {
-    splitPaneRef.current?.focusNextPane();
-  }, []);
-
-  const handleClosePane = useCallback(() => {
-    splitPaneRef.current?.closePane();
-  }, []);
-
-  const handleSelectWorkpath = useCallback(
-    (id: string) => {
-      if (id === "all") {
-        dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
-        if (window.location.hash.startsWith("#/t/")) {
-          window.history.pushState(null, "", window.location.pathname);
-        }
-        return;
-      }
-      const bookmark = bookmarks.find((b) => b.id === id);
-      const firstTerminal = bookmark
-        ? terminals.find(
-            (t) => t.machine_id === bookmark.machine_id && t.cwd === bookmark.path,
-          )
-        : undefined;
-      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: id });
-      if (firstTerminal) {
-        handleZoomTerminal(firstTerminal.id);
-      }
-    },
-    [bookmarks, terminals, handleZoomTerminal],
-  );
-
-  const handleSelectWorkpathByIndex = useCallback(
-    (index: number) => {
-      if (index === 0) {
-        handleSelectWorkpath("all");
-        return;
-      }
-      const list = bookmarks.filter((b) => b.machine_id === activeMachineId);
-      const target = list[index - 1];
-      if (target) {
-        handleSelectWorkpath(target.id);
-      }
-    },
-    [bookmarks, activeMachineId, handleSelectWorkpath],
-  );
-
-  const currentWorkpathTerminals = useCallback((): TerminalInfo[] => {
-    if (layout.selectedWorkpathId === "all") return terminals;
-    const bookmark = bookmarks.find((b) => b.id === layout.selectedWorkpathId);
-    if (!bookmark) return [];
-    return terminals.filter(
-      (t) => t.machine_id === bookmark.machine_id && t.cwd === bookmark.path,
-    );
-  }, [layout.selectedWorkpathId, terminals, bookmarks]);
-
-  useShortcuts({
-    newTerminal: isActiveController ? handleNewTerminalFromOverview : undefined,
-    closeTab: handleCloseZoomedTerminal,
-    closePane: isActiveController ? handleClosePane : undefined,
-    nextTab: () => {
-      const scoped = currentWorkpathTerminals();
-      if (scoped.length <= 1) return;
-      const idx = scoped.findIndex((t) => t.id === layout.zoomedTerminalId);
-      const nextIdx = (idx === -1 ? 0 : idx + 1) % scoped.length;
-      handleZoomTerminal(scoped[nextIdx].id);
-    },
-    prevTab: () => {
-      const scoped = currentWorkpathTerminals();
-      if (scoped.length <= 1) return;
-      const idx = scoped.findIndex((t) => t.id === layout.zoomedTerminalId);
-      const prevIdx = (idx === -1 ? 0 : (idx - 1 + scoped.length) % scoped.length);
-      handleZoomTerminal(scoped[prevIdx].id);
-    },
-    selectAll: () => {
-      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
-      if (window.location.hash.startsWith("#/t/")) {
-        window.history.pushState(null, "", window.location.pathname);
-      }
-    },
-    selectTab: handleSelectWorkpathByIndex,
-    splitVertical: isActiveController ? handleSplitVertical : undefined,
-    splitHorizontal: isActiveController ? handleSplitHorizontal : undefined,
-    focusPrevPane: handleFocusPrevPane,
-    focusNextPane: handleFocusNextPane,
-    toggleNav: () => {
-      const next = !layout.panelOpen;
-      writePanelOpen(next);
-      dispatchLayout({ type: "TOGGLE_PANEL" });
-    },
-  });
-
-  // Esc unzooms the immersive terminal view, as long as focus is not inside
-  // a terminal (which needs Esc for its own purposes).
-  useEffect(() => {
-    if (!layout.zoomedTerminalId) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (
-        e.key === "Escape" &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.shiftKey &&
-        !e.altKey
-      ) {
-        const target = e.target as HTMLElement | null;
-        if (target?.closest(".xterm")) return;
-        dispatchLayout({ type: "UNZOOM" });
-        window.history.pushState(null, "", window.location.pathname);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [layout.zoomedTerminalId]);
-
-  const navColumnProps = {
-    machines,
-    activeMachineId,
-    bookmarks,
-    terminals,
-    selectedWorkpathId: layout.selectedWorkpathId,
-    panelOpen: layout.panelOpen,
-    canCreateTerminalForActiveMachine: isActiveController,
-    onSelectMachine: (id: string) => setActiveMachineId(id),
-    onSelectAll: () => {
-      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
-      if (window.location.hash.startsWith("#/t/")) {
-        window.history.pushState(null, "", window.location.pathname);
-      }
-    },
-    onSelectWorkpath: handleSelectWorkpath,
-    onCreateTerminal: handleCreateTerminal,
-    onRequestControl: handleRequestControl,
-    onConfirmAddDirectory: async (machineId: string, path: string) => {
-      const label = (() => {
-        const parts = path.replace(/\/+$/, "").split("/");
-        return parts[parts.length - 1] || path;
-      })();
+  const handleConfirmAddDirectory = useCallback(
+    async (machineId: string, path: string) => {
+      const parts = path.replace(/\/+$/, "").split("/");
+      const label = parts[parts.length - 1] || path;
       try {
         const bm = await createBookmark(machineId, path, label);
         setBookmarks((prev) => [...prev, bm]);
@@ -684,18 +545,88 @@ export function TerminalCanvas() {
         ]);
       }
     },
-    onRemoveBookmark: async (id: string) => {
+    [],
+  );
+
+  const handleRemoveBookmark = useCallback(
+    async (id: string) => {
       setBookmarks((prev) => prev.filter((b) => b.id !== id));
       dispatchLayout({ type: "WORKPATH_DELETED", workpathId: id });
       if (id.startsWith("local-")) return;
       try {
         await deleteBookmark(id);
       } catch {
-        /* leave optimistic removal in place */
+        /* optimistic removal */
       }
     },
-    onOpenSettings: () => setShowSettings(true),
-  };
+    [],
+  );
+
+  const handleSelectWorkpathByIndex = useCallback(
+    (index: number) => {
+      if (index === 0) {
+        handleSelectWorkpath("all");
+        return;
+      }
+      const list = bookmarks.filter((b) => b.machine_id === activeMachineId);
+      const target = list[index - 1];
+      if (target) handleSelectWorkpath(target.id);
+    },
+    [bookmarks, activeMachineId, handleSelectWorkpath],
+  );
+
+  const currentWorkpathTerminals = useCallback(
+    (): TerminalInfo[] => scopedTerminals,
+    [scopedTerminals],
+  );
+
+  useShortcuts({
+    newTerminal: isActiveController ? handleNewTerminalFromHeader : undefined,
+    closeTab: handleCloseZoomedTerminal,
+    nextTab: () => {
+      const s = currentWorkpathTerminals();
+      if (s.length <= 1) return;
+      const idx = s.findIndex((t) => t.id === layout.zoomedTerminalId);
+      const next = (idx === -1 ? 0 : idx + 1) % s.length;
+      handleZoomTerminal(s[next].id);
+    },
+    prevTab: () => {
+      const s = currentWorkpathTerminals();
+      if (s.length <= 1) return;
+      const idx = s.findIndex((t) => t.id === layout.zoomedTerminalId);
+      const prev = idx === -1 ? 0 : (idx - 1 + s.length) % s.length;
+      handleZoomTerminal(s[prev].id);
+    },
+    selectAll: () => handleSelectWorkpath("all"),
+    selectTab: handleSelectWorkpathByIndex,
+    toggleNav: () => setRailOpen((v) => !v),
+  });
+
+  // Esc unzooms the expanded view, unless focus is inside xterm (which needs
+  // Esc for its own bindings — the expanded overlay handles that case).
+  useEffect(() => {
+    if (!layout.zoomedTerminalId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        e.key === "Escape" &&
+        !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey
+      ) {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest(".xterm")) return;
+        dispatchLayout({ type: "UNZOOM" });
+        window.history.pushState(null, "", window.location.pathname);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [layout.zoomedTerminalId]);
+
+  // ---- render ----
+
+  const scopeLabel =
+    layout.selectedWorkpathId === "all"
+      ? "All"
+      : scopeBookmark?.label ?? "Workpath";
 
   return (
     <div
@@ -705,9 +636,11 @@ export function TerminalCanvas() {
         height: rootHeight,
         width: "100vw",
         overflow: "hidden",
+        background: colors.bg0,
       }}
     >
       <AppTitleBar isMobile={isMobile} />
+
       <div
         style={{
           display: "flex",
@@ -716,62 +649,6 @@ export function TerminalCanvas() {
           position: "relative",
         }}
       >
-        {/* Mobile hamburger button */}
-        {isMobile && !layout.zoomedTerminalId && (
-          <button
-            onClick={() => setSidebarOpen((prev) => !prev)}
-            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-            data-testid="mobile-sidebar-toggle"
-            style={{
-              position: "fixed",
-              top: 12,
-              left: 12,
-              zIndex: 90,
-              background: colors.surface,
-              border: `1px solid ${colors.border}`,
-              borderRadius: 6,
-              color: colors.foreground,
-              cursor: "pointer",
-              fontSize: 18,
-              padding: "6px 10px",
-              lineHeight: 1,
-            }}
-          >
-            &#x2630;
-          </button>
-        )}
-
-        {/* Sidebar backdrop on mobile */}
-        {isMobile && sidebarOpen && (
-          <div
-            onClick={() => setSidebarOpen(false)}
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 80,
-              background: "rgba(0, 0, 0, 0.5)",
-            }}
-          />
-        )}
-
-        {/* Nav column (desktop renders inline; mobile renders in drawer) */}
-        {!isMobile && <NavColumn {...navColumnProps} />}
-        {isMobile && sidebarOpen && (
-          <div
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              height: rootHeight,
-              zIndex: 85,
-            }}
-          >
-            {/* NavColumn isn't lazy-loaded, so no Suspense boundary needed. */}
-            <NavColumn {...navColumnProps} />
-          </div>
-        )}
-
-        {/* Main content */}
         {showSettings ? (
           <Suspense fallback={null}>
             <SettingsPage onClose={() => setShowSettings(false)} />
@@ -780,45 +657,177 @@ export function TerminalCanvas() {
           <Suspense fallback={null}>
             <OnboardingView />
           </Suspense>
-        ) : (
-          <Canvas
+        ) : isMobile ? (
+          <MobileWorkbench
             machines={machines}
-            terminals={terminals}
-            bookmarks={bookmarks}
-            selectedWorkpathId={layout.selectedWorkpathId}
-            zoomedTerminalId={layout.zoomedTerminalId}
-            activeMachineId={activeMachine?.id ?? null}
+            activeMachineId={activeMachineId}
+            controlLeases={controlLeases}
+            deviceId={deviceId}
             machineStats={machineStats}
-            isMobile={isMobile}
-            isActiveController={isActiveController}
-            isMachineController={isMachineController}
-            deviceId={deviceId ?? ""}
-            quickCommands={quickCommands}
-            onZoomTerminal={handleZoomTerminal}
-            onUnzoom={handleUnzoom}
-            onDestroy={handleDestroyTerminal}
+            bookmarks={bookmarks}
+            terminals={terminals}
+            selectedWorkpathId={layout.selectedWorkpathId}
+            canCreateTerminal={isActiveController}
+            onSelectMachine={setActiveMachineId}
+            onSelectWorkpath={handleSelectWorkpath}
+            onOpenTerminal={handleZoomTerminal}
+            onNewTerminal={handleNewTerminalFromHeader}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
-            onNewTerminal={
-              isActiveController ? handleNewTerminalFromOverview : undefined
-            }
-            splitPaneRef={splitPaneRef}
+            onOpenSettings={() => setShowSettings(true)}
           />
+        ) : (
+          <>
+            {/* Rail (drawer on tight screens) */}
+            {railOpen && (
+              <Rail
+                width={tight ? Math.min(viewportWidth - 40, 260) : 248}
+                machines={machines}
+                activeMachineId={activeMachineId}
+                controlLeases={controlLeases}
+                deviceId={deviceId}
+                machineStats={machineStats}
+                bookmarks={bookmarks}
+                terminals={terminals}
+                selectedWorkpathId={layout.selectedWorkpathId}
+                canCreateTerminal={isActiveController}
+                addDirectoryOpen={addDirectoryOpen}
+                onSelectMachine={(id) => {
+                  setActiveMachineId(id);
+                  if (tight) setRailOpen(false);
+                }}
+                onSelectWorkpath={(id) => {
+                  handleSelectWorkpath(id);
+                  if (tight) setRailOpen(false);
+                }}
+                onOpenAddDirectory={() => setAddDirectoryOpen(true)}
+                onCloseAddDirectory={() => setAddDirectoryOpen(false)}
+                onConfirmAddDirectory={handleConfirmAddDirectory}
+                onRemoveBookmark={handleRemoveBookmark}
+                onOpenSettings={() => setShowSettings(true)}
+                onCollapse={() => setRailOpen(false)}
+              />
+            )}
+            {tight && railOpen && (
+              <div
+                onClick={() => setRailOpen(false)}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "rgba(0, 0, 0, 0.4)",
+                  zIndex: 5,
+                }}
+              />
+            )}
+
+            {/* Main — header + grid */}
+            <main
+              style={{
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                minWidth: 0,
+                background: colors.bg0,
+              }}
+            >
+              <WorkbenchHeader
+                scopeLabel={scopeLabel}
+                hostName={activeMachine?.name ?? "webmux"}
+                isController={isActiveController}
+                terminalCount={scopedTerminals.length}
+                stats={activeStats}
+                viewportWidth={viewportWidth}
+                canCreateTerminal={isActiveController}
+                railOpen={railOpen}
+                onOpenRail={() => setRailOpen(true)}
+                onNewTerminal={
+                  isActiveController ? handleNewTerminalFromHeader : undefined
+                }
+                onReleaseControl={
+                  isActiveController && activeMachine
+                    ? () => handleReleaseControl(activeMachine.id)
+                    : undefined
+                }
+                onRequestControl={
+                  !isActiveController && activeMachine
+                    ? () => handleRequestControl(activeMachine.id)
+                    : undefined
+                }
+              />
+
+              {scopedTerminals.length === 0 ? (
+                <EmptyState
+                  scopeLabel={scopeLabel}
+                  canCreate={isActiveController}
+                  onNewTerminal={handleNewTerminalFromHeader}
+                />
+              ) : (
+                <div
+                  data-testid="workbench-grid"
+                  style={{
+                    flex: 1,
+                    overflow: "auto",
+                    padding: 14,
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fill, minmax(340px, 1fr))",
+                    gridAutoRows: "minmax(220px, 38vh)",
+                    gap: 12,
+                  }}
+                >
+                  {scopedTerminals.map((t) => (
+                    <TerminalGridCard
+                      key={t.id}
+                      terminal={t}
+                      isController={isMachineController(t.machine_id)}
+                      deviceId={deviceId ?? ""}
+                      workpathLabel={
+                        layout.selectedWorkpathId === "all"
+                          ? workpathLabelByMachineAndCwd.get(
+                              `${t.machine_id}::${t.cwd}`,
+                            )
+                          : undefined
+                      }
+                      onExpand={handleZoomTerminal}
+                      onDestroy={handleDestroyTerminal}
+                    />
+                  ))}
+                </div>
+              )}
+            </main>
+          </>
         )}
       </div>
 
-      <Suspense fallback={null}>
-        <StatusBar
-          machines={machines}
-          activeMachineId={activeMachineId}
-          onSelectMachine={setActiveMachineId}
-          machineStats={machineStats}
+      {statusBarVisible && machines.length > 0 && (
+        <Suspense fallback={null}>
+          <StatusBar
+            machines={machines}
+            activeMachineId={activeMachineId}
+            onSelectMachine={setActiveMachineId}
+            machineStats={machineStats}
+            isMobile={isMobile}
+            isController={isActiveController}
+            onRequestControl={handleRequestControl}
+            onReleaseControl={handleReleaseControl}
+          />
+        </Suspense>
+      )}
+
+      {expandedTerminal && (
+        <ExpandedTerminal
+          terminal={expandedTerminal}
+          siblings={scopedTerminals.length > 0 ? scopedTerminals : [expandedTerminal]}
+          isController={isMachineController(expandedTerminal.machine_id)}
+          deviceId={deviceId ?? ""}
           isMobile={isMobile}
-          isController={isActiveController}
+          onClose={handleUnzoom}
+          onPick={handleZoomTerminal}
+          onDestroy={handleDestroyTerminal}
           onRequestControl={handleRequestControl}
           onReleaseControl={handleReleaseControl}
         />
-      </Suspense>
+      )}
 
       {closeConfirmation && (
         <Suspense fallback={null}>
@@ -834,6 +843,57 @@ export function TerminalCanvas() {
           />
         </Suspense>
       )}
+    </div>
+  );
+}
+
+function EmptyState({
+  scopeLabel,
+  canCreate,
+  onNewTerminal,
+}: {
+  scopeLabel: string;
+  canCreate: boolean;
+  onNewTerminal: () => void;
+}) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: colors.fg3,
+        fontSize: 14,
+      }}
+    >
+      <div style={{ textAlign: "center" }}>
+        <TerminalIcon size={40} style={{ opacity: 0.35 }} />
+        <div style={{ marginTop: 12 }}>
+          {scopeLabel === "All"
+            ? "No terminals yet"
+            : `No terminals in ${scopeLabel}`}
+        </div>
+        {canCreate && (
+          <button
+            data-testid="empty-new-terminal"
+            onClick={onNewTerminal}
+            style={{
+              marginTop: 14,
+              background: colors.accent,
+              color: "#120904",
+              border: "none",
+              borderRadius: 999,
+              padding: "8px 14px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Start terminal
+          </button>
+        )}
+      </div>
     </div>
   );
 }

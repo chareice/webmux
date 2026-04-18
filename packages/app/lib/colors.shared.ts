@@ -1,24 +1,24 @@
-// Static hex terminal theme for XTerm.js (always dark, platform-independent)
-// Uses Claude/Anthropic warm dark palette
+// Static hex terminal theme for xterm.js — always dark, platform-independent.
+// Matches the design-refresh oklch palette (see global.css).
 export const terminalTheme = {
-  background: '#141413',
-  foreground: '#faf9f5',
-  cursor: '#d97757',
-  selectionBackground: 'rgba(217, 119, 87, 0.3)',
-  black: '#141413',
-  red: '#b53333',
-  green: '#30d158',
-  yellow: '#d97757',
-  blue: '#3898ec',
-  magenta: '#cc5de8',
-  cyan: '#22b8cf',
-  white: '#faf9f5',
-  brightBlack: '#30302e',
-  brightRed: '#b53333',
-  brightGreen: '#30d158',
-  brightYellow: '#c96442',
-  brightBlue: '#3898ec',
-  brightMagenta: '#cc5de8',
-  brightCyan: '#22b8cf',
-  brightWhite: '#faf9f5',
+  background: '#05060a',                  // bg-0 dropped a tick for terminal body contrast
+  foreground: '#f7f8fb',
+  cursor: '#fb9d59',                       // accent amber
+  selectionBackground: 'rgba(251, 157, 89, 0.3)',
+  black: '#0b0c0f',
+  red: '#fa6863',
+  green: '#63d18f',
+  yellow: '#eabf3a',
+  blue: '#69c1fc',
+  magenta: '#bb9af4',
+  cyan: '#5ccab3',
+  white: '#ccced1',
+  brightBlack: '#27292d',
+  brightRed: '#fa6863',
+  brightGreen: '#63d18f',
+  brightYellow: '#fb9d59',
+  brightBlue: '#69c1fc',
+  brightMagenta: '#bb9af4',
+  brightCyan: '#7ad8c6',
+  brightWhite: '#f7f8fb',
 };
