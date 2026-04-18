@@ -54,10 +54,14 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
 
   // Reload: A never had control (stays "Control Here"), B had control
   // (auto-restored via the pending-control-release recovery on boot).
+  // Don't call openApp() after reload — it runs page.goto("/") which starts
+  // a second navigation that races against the first boot's pending-control
+  // recovery (takePendingControlRelease is one-shot; a second page load sees
+  // empty storage and never re-requests control).
   await pageA.reload();
   await pageB.reload();
-  await openApp(pageA);
-  await openApp(pageB);
+  await pageA.getByTestId("workbench-header").waitFor({ state: "visible", timeout: 20_000 });
+  await pageB.getByTestId("workbench-header").waitFor({ state: "visible", timeout: 20_000 });
   await expectControlState(pageA, "viewing");
   await expectControlState(pageB, "controlling");
 
