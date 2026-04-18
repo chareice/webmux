@@ -53,11 +53,10 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await expect(pageB.getByText(/No terminals/)).toBeVisible();
 
   // Reload: A never had control (stays "Control Here"), B had control
-  // (auto-restored via the pending-control-release recovery on boot).
-  // Don't call openApp() after reload — it runs page.goto("/") which starts
-  // a second navigation that races against the first boot's pending-control
-  // recovery (takePendingControlRelease is one-shot; a second page load sees
-  // empty storage and never re-requests control).
+  // (auto-restored via the hub's WS-disconnect grace period — see
+  // DEVICE_DISCONNECT_GRACE_PERIOD in crates/hub/src/ws.rs). Don't call
+  // openApp() after reload; it runs page.goto("/") which restarts the boot
+  // sequence and races against the `takePendingControlRelease` fallback.
   await pageA.reload();
   await pageB.reload();
   await pageA.getByTestId("workbench-header").waitFor({ state: "visible", timeout: 20_000 });

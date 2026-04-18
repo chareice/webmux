@@ -27,7 +27,6 @@ import {
   listBookmarks,
   requestControl,
   releaseControl,
-  releaseControlKeepalive,
 } from "@/lib/api";
 import {
   applyBootstrapSnapshot,
@@ -267,21 +266,28 @@ export function TerminalCanvas() {
 
   useEffect(() => {
     if (!deviceId) return;
-    const releaseControlled = () => {
+    // Just remember which machines the user was controlling so the next boot
+    // can re-assert via `requestControl` as a belt-and-suspenders. Do NOT
+    // send `releaseControlKeepalive` here: the hub already auto-releases on
+    // WS disconnect (after a 10s grace period — see
+    // `DEVICE_DISCONNECT_GRACE_PERIOD` in crates/hub/src/ws.rs) and restores
+    // the lease when the same device reconnects. A beacon-fired release
+    // races the reconnect and can wipe `released_leases` before restore
+    // runs, leaving the user stuck in "viewing" after a reload.
+    const stashControlled = () => {
       const ids = Object.entries(controlLeases)
         .filter(([, cid]) => cid === deviceId)
         .map(([machineId]) => machineId);
       storePendingControlRelease(window.sessionStorage, ids);
-      for (const machineId of ids) releaseControlKeepalive(machineId, deviceId);
     };
     const onPageHide = (event: PageTransitionEvent) => {
       if (event.persisted) return;
-      releaseControlled();
+      stashControlled();
     };
-    window.addEventListener("beforeunload", releaseControlled);
+    window.addEventListener("beforeunload", stashControlled);
     window.addEventListener("pagehide", onPageHide);
     return () => {
-      window.removeEventListener("beforeunload", releaseControlled);
+      window.removeEventListener("beforeunload", stashControlled);
       window.removeEventListener("pagehide", onPageHide);
     };
   }, [controlLeases, deviceId]);
