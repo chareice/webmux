@@ -54,9 +54,11 @@ test("grid → expand → sibling thumbnail navigation and URL sync", async ({
   await page.getByTestId(`expanded-thumb-${tid1}`).click();
   expect(page.url()).toContain(`#/t/${tid1}`);
 
-  // Esc closes the overlay and clears the hash.
-  await page.keyboard.press("Escape");
-  await expect(getExpandedOverlay(page)).toHaveCount(0);
+  // Close the overlay and clear the hash. We use the × button here rather
+  // than the Esc shortcut because ExpandedTerminal auto-focuses the xterm
+  // on terminal switch; by design Esc inside xterm passes through to the
+  // pty (e.g. vim normal mode) instead of closing the overlay.
+  await closeExpandedOverlay(page);
   expect(page.url()).not.toContain("#/t/");
   await expectTerminalCount(page, 2);
 
@@ -72,10 +74,13 @@ test("grid → expand → sibling thumbnail navigation and URL sync", async ({
   await expectTerminalCount(page, 1);
 
   // Reload while the remaining terminal is expanded → overlay is restored.
+  // page.reload() preserves the hash, so the app picks up `#/t/{id}` on mount
+  // and re-zooms. Don't call openApp() here — it would goto("/") and strip the
+  // hash before the app ever sees it.
   await expandOnlyTerminal(page);
   expect(page.url()).toContain(`#/t/${tid2}`);
   await page.reload();
-  await openApp(page);
+  await page.getByTestId("workbench-header").waitFor({ state: "visible", timeout: 20_000 });
   await expect(getExpandedOverlay(page)).toBeVisible();
 
   await closeExpandedOverlay(page);

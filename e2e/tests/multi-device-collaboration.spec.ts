@@ -60,9 +60,12 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
-  // In view-only mode the mobile terminal toolbar is absent: no control
-  // toggle, no fit button, no keyboard toggle.
-  await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveCount(0);
+  // In view-only mode the mobile terminal toolbar surfaces only the control
+  // toggle (so the viewer can take over) — the controller-only affordances
+  // (fit button and keyboard toggle) are absent.
+  await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
+    "Control Here",
+  );
   await expect(mobilePage.getByTestId("terminal-fit-button")).toHaveCount(0);
   await expect(mobilePage.getByTitle("Show keyboard")).toHaveCount(0);
 
