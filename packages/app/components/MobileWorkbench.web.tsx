@@ -153,7 +153,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           </span>
           <span
             style={{
-              fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+              fontFamily: "var(--font-mono)",
               fontSize: 11,
               color: colors.fg3,
               flexShrink: 0,
@@ -332,7 +332,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                   <div
                     style={{
                       fontFamily:
-                        "ui-monospace, Cascadia Code, Menlo, monospace",
+                        "var(--font-mono)",
                       fontSize: 11,
                       color: colors.fg3,
                     }}
@@ -344,7 +344,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                   style={{
                     textAlign: "right",
                     fontFamily:
-                      "ui-monospace, Cascadia Code, Menlo, monospace",
+                      "var(--font-mono)",
                     fontSize: 11,
                     color: colors.fg3,
                   }}
@@ -472,7 +472,7 @@ function NavBtn({
               color: active ? "#120904" : colors.fg1,
               fontSize: 9.5,
               fontWeight: 700,
-              fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+              fontFamily: "var(--font-mono)",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
@@ -614,7 +614,7 @@ function HostsPage({
               <div
                 style={{
                   fontFamily:
-                    "ui-monospace, Cascadia Code, Menlo, monospace",
+                    "var(--font-mono)",
                   fontSize: 11,
                   color: colors.fg3,
                 }}
@@ -626,7 +626,7 @@ function HostsPage({
               style={{
                 textAlign: "right",
                 fontFamily:
-                  "ui-monospace, Cascadia Code, Menlo, monospace",
+                  "var(--font-mono)",
                 fontSize: 11,
                 color: colors.fg3,
               }}
@@ -717,7 +717,7 @@ function WpRow({
         {path && (
           <div
             style={{
-              fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+              fontFamily: "var(--font-mono)",
               fontSize: 10.5,
               color: colors.fg3,
               whiteSpace: "nowrap",
@@ -737,7 +737,7 @@ function WpRow({
             borderRadius: 999,
             background: selected ? colorAlpha.accentSoft : colors.bg2,
             color: selected ? colors.accent : colors.fg2,
-            fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+            fontFamily: "var(--font-mono)",
             fontSize: 11,
             fontWeight: 600,
             textAlign: "center",
@@ -748,7 +748,7 @@ function WpRow({
       ) : (
         <span
           style={{
-            fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+            fontFamily: "var(--font-mono)",
             fontSize: 11,
             color: colors.fg3,
           }}
@@ -819,7 +819,7 @@ function TerminalsPage({
               <span
                 style={{
                   fontFamily:
-                    "ui-monospace, Cascadia Code, Menlo, monospace",
+                    "var(--font-mono)",
                   fontSize: 10.5,
                   color: colors.fg3,
                   marginLeft: 6,
@@ -918,7 +918,7 @@ function MobileTermCard({
         </span>
         <span
           style={{
-            fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+            fontFamily: "var(--font-mono)",
             fontSize: 10.5,
             color: colors.fg3,
             flexShrink: 0,
@@ -933,7 +933,7 @@ function MobileTermCard({
           display: "flex",
           alignItems: "center",
           gap: 10,
-          fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+          fontFamily: "var(--font-mono)",
           fontSize: 10.5,
           color: colors.fg3,
           borderTop: `1px solid ${colors.lineSoft}`,
@@ -1131,7 +1131,7 @@ function KV({ k, v }: { k: string; v: string }) {
       <span
         style={{
           color: colors.fg0,
-          fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+          fontFamily: "var(--font-mono)",
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",

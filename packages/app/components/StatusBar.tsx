@@ -69,7 +69,7 @@ function StatusBarComponent(props: StatusBarProps) {
         alignItems: "center",
         padding: "0 12px",
         gap: 14,
-        fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+        fontFamily: "var(--font-mono)",
         fontSize: 10.5,
         color: colors.fg2,
         overflow: "hidden",

@@ -160,7 +160,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
           <span
             style={{
               fontFamily:
-                "ui-monospace, Cascadia Code, Menlo, monospace",
+                "var(--font-mono)",
               fontSize: 11,
               color: colors.fg3,
             }}
@@ -171,7 +171,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
           <span
             style={{
               fontFamily:
-                "ui-monospace, Cascadia Code, Menlo, monospace",
+                "var(--font-mono)",
               fontSize: 11,
               color: colors.fg2,
               whiteSpace: "nowrap",
@@ -269,7 +269,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
               alignItems: "center",
               gap: 14,
               fontFamily:
-                "ui-monospace, Cascadia Code, Menlo, monospace",
+                "var(--font-mono)",
               fontSize: 11,
               color: colors.fg3,
             }}
@@ -296,7 +296,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
               <kbd
                 style={{
                   fontFamily:
-                    "ui-monospace, Cascadia Code, Menlo, monospace",
+                    "var(--font-mono)",
                   fontSize: 10,
                   border: `1px solid ${colors.line}`,
                   borderRadius: 4,
@@ -381,7 +381,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
                     <div
                       style={{
                         fontFamily:
-                          "ui-monospace, Cascadia Code, Menlo, monospace",
+                          "var(--font-mono)",
                         fontSize: 9.5,
                         color: colors.fg3,
                         lineHeight: 1.35,

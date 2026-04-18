@@ -359,7 +359,7 @@ function StatChip({
         alignItems: "center",
         gap: 6,
         fontSize: 11.5,
-        fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+        fontFamily: "var(--font-mono)",
         whiteSpace: "nowrap",
       }}
     >
@@ -382,7 +382,7 @@ function Kbd({ children }: { children: React.ReactNode }) {
   return (
     <kbd
       style={{
-        fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+        fontFamily: "var(--font-mono)",
         fontSize: 10,
         color: colors.fg3,
         border: `1px solid ${colors.line}`,

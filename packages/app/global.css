@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -14,6 +16,10 @@
     --color-bg-3: 31 34 38;              /* oklch(0.25  0.008 260) — surface hover */
     --color-line: 39 41 45;              /* oklch(0.28  0.008 260) — solid border */
     --color-line-soft: 27 29 32;         /* oklch(0.23  0.007 260) — subtle divider */
+
+    /* Typography — Geist for UI, JetBrains Mono for code/meta. */
+    --font-sans: 'Geist', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
 
     --color-fg-0: 247 248 251;           /* oklch(0.98 0.004 260) */
     --color-fg-1: 204 206 209;           /* oklch(0.85 0.005 260) */
@@ -49,11 +55,12 @@
 }
 
 html, body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   background-color: rgb(var(--color-bg-0));
   color: rgb(var(--color-fg-1));
   min-height: 100%;
+  font-feature-settings: 'ss01', 'cv11';
 }
 
 body {

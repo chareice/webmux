@@ -113,7 +113,7 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
         </span>
         <span
           style={{
-            fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+            fontFamily: "var(--font-mono)",
             fontSize: 10.5,
             color: colors.fg3,
             padding: "1px 6px",
@@ -248,7 +248,7 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
           display: "flex",
           alignItems: "center",
           gap: 10,
-          fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+          fontFamily: "var(--font-mono)",
           fontSize: 10.5,
           color: colors.fg3,
           borderTop: `1px solid ${colors.lineSoft}`,

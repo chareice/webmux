@@ -197,7 +197,7 @@ function RailComponent(props: RailProps) {
           />
           <kbd
             style={{
-              fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+              fontFamily: "var(--font-mono)",
               fontSize: 10,
               color: colors.fg3,
               border: `1px solid ${colors.line}`,
@@ -419,7 +419,7 @@ function WorkpathRow({
           <div
             style={{
               fontFamily:
-                "ui-monospace, Cascadia Code, Menlo, monospace",
+                "var(--font-mono)",
               fontSize: 10.5,
               color: colors.fg3,
               whiteSpace: "nowrap",
@@ -482,7 +482,7 @@ function WorkpathRow({
               color: selected ? colors.accent : colors.fg2,
               fontSize: 10.5,
               fontFamily:
-                "ui-monospace, Cascadia Code, Menlo, monospace",
+                "var(--font-mono)",
               fontWeight: 600,
               display: "inline-flex",
               alignItems: "center",
@@ -498,7 +498,7 @@ function WorkpathRow({
               color: colors.fg3,
               fontSize: 10.5,
               fontFamily:
-                "ui-monospace, Cascadia Code, Menlo, monospace",
+                "var(--font-mono)",
             }}
           >
             —
@@ -594,7 +594,7 @@ function HostSwitcher({
           <div
             style={{
               fontFamily:
-                "ui-monospace, Cascadia Code, Menlo, monospace",
+                "var(--font-mono)",
               fontSize: 10,
               color: colors.fg3,
               whiteSpace: "nowrap",
@@ -765,7 +765,7 @@ function HostSwitcher({
                   <div
                     style={{
                       fontFamily:
-                        "ui-monospace, Cascadia Code, Menlo, monospace",
+                        "var(--font-mono)",
                       fontSize: 10,
                       color: colors.fg3,
                     }}
@@ -777,7 +777,7 @@ function HostSwitcher({
                   style={{
                     textAlign: "right",
                     fontFamily:
-                      "ui-monospace, Cascadia Code, Menlo, monospace",
+                      "var(--font-mono)",
                     fontSize: 10,
                     color: colors.fg3,
                   }}
@@ -812,7 +812,7 @@ function HostMetaLine({
   return (
     <div
       style={{
-        fontFamily: "ui-monospace, Cascadia Code, Menlo, monospace",
+        fontFamily: "var(--font-mono)",
         fontSize: 10,
         color: colors.fg3,
         display: "flex",
