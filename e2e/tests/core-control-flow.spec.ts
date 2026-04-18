@@ -1,10 +1,13 @@
 import { test, expect } from "@playwright/test";
 
 import {
+  closeExpandedOverlay,
   expectSingleTerminalCard,
-  openPanel,
+  expectControlState,
   openApp,
   resetMachineState,
+  selectHomeWorkpath,
+  takeControlFromHeader,
 } from "./helpers";
 
 test("desktop control handoff stays in sync across browser sessions", async ({ browser }) => {
@@ -15,54 +18,48 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
 
   await openApp(pageA);
   await resetMachineState(pageA);
-  await openPanel(pageA);
 
-  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
-  await pageA.getByTestId("panel-request-control-e2e-node").click();
-  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Stop Control");
+  // Session A starts viewing. Take control and create a terminal via the
+  // empty-state CTA (which scopes the new terminal to the selected workpath).
+  await expectControlState(pageA, "viewing");
+  await takeControlFromHeader(pageA);
+  await selectHomeWorkpath(pageA);
+  await pageA.getByTestId("empty-new-terminal").click();
 
-  // Create a terminal from the "~" bookmark — auto-zooms.
-  await openPanel(pageA);
-  await pageA.getByTestId("panel-bookmark-local-home").click();
-  // Back to Overview grid so we can verify the card state.
-  await pageA.getByTestId("panel-select-all").click();
-  await expect(pageA.getByTestId("overview-header")).toBeVisible();
+  // Creating a terminal auto-zooms; dismiss the overlay so we can verify the
+  // grid card state for both sessions.
+  await closeExpandedOverlay(pageA);
   const cardA = await expectSingleTerminalCard(pageA);
-  await expect(cardA.getByLabel("Close terminal")).toBeVisible();
+  await expect(cardA.getByRole("button", { name: "Close terminal" })).toBeEnabled();
 
+  // Session B arrives in view-only mode with the shared card already visible.
   await openApp(pageB);
-  // Session B starts on the Overview grid (did not create the terminal),
-  // so the shared card is already visible.
-  await expect(pageB.getByTestId("overview-header")).toBeVisible();
+  await expectControlState(pageB, "viewing");
   const cardB = await expectSingleTerminalCard(pageB);
-  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
-  await expect(cardB.getByLabel("View only - cannot close")).toBeVisible();
+  const closeBtnB = cardB.getByRole("button", { name: /Close|View only/ });
+  await expect(closeBtnB).toBeDisabled();
 
-  await pageB.getByTestId("canvas-mode-toggle").click();
-  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Stop Control");
-  await expect(cardB.getByLabel("Close terminal")).toBeVisible();
+  // Handoff: B takes control, A flips to viewing.
+  await takeControlFromHeader(pageB);
+  await expect(cardB.getByRole("button", { name: "Close terminal" })).toBeEnabled();
 
-  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
-  await expect(cardA.getByLabel("View only - cannot close")).toBeVisible();
+  await expectControlState(pageA, "viewing");
+  const closeBtnA = cardA.getByRole("button", { name: /Close|View only/ });
+  await expect(closeBtnA).toBeDisabled();
 
-  await cardB.getByLabel("Close terminal").click();
-  await expect(pageA.locator("[data-testid^='terminal-card-']:not([data-testid='terminal-card-workpath-label']):visible")).toHaveCount(0);
-  await expect(pageB.locator("[data-testid^='terminal-card-']:not([data-testid='terminal-card-workpath-label']):visible")).toHaveCount(0);
-  // No terminals → empty-state inside Overview body.
+  // Destroying from B removes the card everywhere.
+  await cardB.getByRole("button", { name: "Close terminal" }).click();
   await expect(pageA.getByText(/No terminals/)).toBeVisible();
   await expect(pageB.getByText(/No terminals/)).toBeVisible();
 
+  // Reload: A never had control (stays "Control Here"), B had control
+  // (auto-restored via the pending-control-release recovery on boot).
   await pageA.reload();
   await pageB.reload();
-
   await openApp(pageA);
   await openApp(pageB);
-  await expect(pageA.getByText(/No terminals/)).toBeVisible();
-  await expect(pageB.getByText(/No terminals/)).toBeVisible();
-  // pageA had no control before reload → stays without control
-  await expect(pageA.getByTestId("canvas-mode-toggle")).toHaveText("Control Here");
-  // pageB had control before reload → auto-restored on reload
-  await expect(pageB.getByTestId("canvas-mode-toggle")).toHaveText("Stop Control");
+  await expectControlState(pageA, "viewing");
+  await expectControlState(pageB, "controlling");
 
   await contextA.close();
   await contextB.close();

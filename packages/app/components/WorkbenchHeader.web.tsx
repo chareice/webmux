@@ -10,6 +10,7 @@ import { memo, useMemo } from "react";
 import type { ResourceStats } from "@webmux/shared";
 import { Plus, Square } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
+import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 interface WorkbenchHeaderProps {
   scopeLabel: string; // "All" or a workpath label
@@ -44,6 +45,7 @@ function WorkbenchHeaderComponent(props: WorkbenchHeaderProps) {
 
   const compact = viewportWidth < 1180;
   const tight = viewportWidth < 820;
+  const controlCopy = getTerminalControlCopy(isController);
 
   return (
     <header
@@ -157,7 +159,7 @@ function WorkbenchHeaderComponent(props: WorkbenchHeaderProps) {
           <button
             data-testid="workbench-stop-control"
             onClick={onReleaseControl}
-            title="Stop Control"
+            title={controlCopy.toggleLabel}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -174,13 +176,13 @@ function WorkbenchHeaderComponent(props: WorkbenchHeaderProps) {
             }}
           >
             <Square size={11} fill="currentColor" />
-            {!tight && <span>Stop{!compact && " Control"}</span>}
+            {!tight && <span>{controlCopy.toggleLabel}</span>}
           </button>
         ) : onRequestControl ? (
           <button
             data-testid="workbench-request-control"
             onClick={onRequestControl}
-            title="Request control"
+            title={controlCopy.toggleLabel}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -196,7 +198,7 @@ function WorkbenchHeaderComponent(props: WorkbenchHeaderProps) {
               cursor: "pointer",
             }}
           >
-            {tight ? "Ctrl" : "Request control"}
+            {controlCopy.toggleLabel}
           </button>
         ) : null}
       </div>
@@ -294,7 +296,7 @@ function ControllingPill({ isController }: { isController: boolean }) {
           background: colors.fg2,
         }}
       />
-      View only
+      Viewing
     </span>
   );
 }

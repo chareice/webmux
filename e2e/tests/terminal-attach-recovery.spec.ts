@@ -1,9 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 import {
-  getAuthHeaders,
-  getDeviceId,
-  getImmersiveTerminal,
+  expandTerminalById,
   listTerminals,
   openApp,
   requestMachineControl,
@@ -26,10 +24,6 @@ test("WS reconnect rebuilds the attach via a fresh tmux client", async ({
   await resetMachineState(page);
   await requestMachineControl(page);
 
-  const headers = await getAuthHeaders(page);
-  const deviceId = await getDeviceId(page);
-  const machineId = "e2e-node";
-
   // Marker assembled at runtime from two shell variables so the shell's
   // own command echo doesn't contain the literal string — only the printf
   // output does. Otherwise the marker would already appear twice (echo +
@@ -38,19 +32,21 @@ test("WS reconnect rebuilds the attach via a fresh tmux client", async ({
   const marker = `RECOVERY_${ts}`;
   const startup = `\r_A=RECOVERY; _B=${ts}; printf '%s_%s\\n' "$_A" "$_B"`;
 
-  const resp = await page.request.post(`/api/machines/${machineId}/terminals`, {
-    headers,
-    data: { cwd: "/tmp", device_id: deviceId, startup_command: startup },
+  const resp = await page.request.post("/api/machines/e2e-node/terminals", {
+    headers: {
+      Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem("webmux:token"))}`,
+    },
+    data: {
+      cwd: "/tmp",
+      device_id: await page.evaluate(() => sessionStorage.getItem("tc-device-id")),
+      startup_command: startup,
+    },
   });
   expect(resp.ok()).toBeTruthy();
   const tid = ((await resp.json()) as { id: string }).id;
 
   await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
-  // Vertical-workpath UI: click the overview card to enter immersive mode.
-  await page
-    .locator(`[data-testid='terminal-card-${tid}']:visible`)
-    .click();
-  await expect(getImmersiveTerminal(page)).toBeVisible();
+  await expandTerminalById(page, tid);
 
   const readBuffer = async (): Promise<string> =>
     page.evaluate((id) => {

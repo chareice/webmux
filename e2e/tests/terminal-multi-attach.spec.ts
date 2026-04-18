@@ -1,9 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 import {
-  getAuthHeaders,
-  getDeviceId,
-  getImmersiveTerminal,
+  expandTerminalById,
   listTerminals,
   openApp,
   requestMachineControl,
@@ -29,43 +27,32 @@ test("two simultaneous attaches both render the same terminal content", async ({
   await resetMachineState(pageA);
   await requestMachineControl(pageA);
 
-  const headers = await getAuthHeaders(pageA);
-  const deviceIdA = await getDeviceId(pageA);
-  const machineId = "e2e-node";
-
   // Marker computed at runtime so the shell's command-echo doesn't trip
   // any waitFor matching the literal source command.
   const marker = `MULTI_ATTACH_${Date.now()}`;
-  // Leading \r flushes the post-create Ctrl+L sitting in dash's line-edit
-  // buffer; without it dash treats the leading form-feed as part of our
-  // command and bails. (See pty.rs:559 in earlier code; the new pty.rs
-  // does not emit Ctrl+L, but the e2e helpers may still be on a path that
-  // does, so the \r is harmless either way.)
   const startup = `\rprintf '%s\\n' "${marker}"`;
 
-  const resp = await pageA.request.post(`/api/machines/${machineId}/terminals`, {
-    headers,
-    data: { cwd: "/tmp", device_id: deviceIdA, startup_command: startup },
+  const resp = await pageA.request.post("/api/machines/e2e-node/terminals", {
+    headers: {
+      Authorization: `Bearer ${await pageA.evaluate(() => localStorage.getItem("webmux:token"))}`,
+    },
+    data: {
+      cwd: "/tmp",
+      device_id: await pageA.evaluate(() => sessionStorage.getItem("tc-device-id")),
+      startup_command: startup,
+    },
   });
   expect(resp.ok()).toBeTruthy();
   const tid = ((await resp.json()) as { id: string }).id;
 
   await expect.poll(async () => (await listTerminals(pageA)).length).toBe(1);
 
-  // Open in A first (drives initial tmux attach + repaint via the WS).
-  // Vertical-workpath UI: click the overview card to enter immersive mode.
-  await pageA
-    .locator(`[data-testid='terminal-card-${tid}']:visible`)
-    .click();
-  await expect(getImmersiveTerminal(pageA)).toBeVisible();
+  await expandTerminalById(pageA, tid);
 
-  // Open the SAME terminal in browser B — it gets its own independent
-  // tmux attach on the machine, hence its own fresh repaint.
+  // Open the same account on B and expand the same terminal — it gets its own
+  // independent tmux attach on the machine and thus its own fresh repaint.
   await openApp(pageB);
-  await pageB
-    .locator(`[data-testid='terminal-card-${tid}']:visible`)
-    .click();
-  await expect(getImmersiveTerminal(pageB)).toBeVisible();
+  await expandTerminalById(pageB, tid);
 
   const readBuffer =
     (page: import("@playwright/test").Page) =>
@@ -95,7 +82,6 @@ test("two simultaneous attaches both render the same terminal content", async ({
         return lines.join("\n");
       }, id);
 
-  // Both attaches should converge to a state that contains the marker.
   await expect.poll(() => readBuffer(pageA)(tid), { timeout: 15_000 }).toContain(marker);
   await expect.poll(() => readBuffer(pageB)(tid), { timeout: 15_000 }).toContain(marker);
 

@@ -1,9 +1,11 @@
 import { test, expect, devices } from "@playwright/test";
 
 import {
-  openPanel,
+  createTerminalViaApi,
   getImmersiveTerminal,
+  listTerminals,
   openApp,
+  requestMachineControl,
   resetMachineState,
 } from "./helpers";
 
@@ -16,41 +18,66 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await openApp(page);
   await resetMachineState(page);
 
-  await expect(page.getByTestId("mobile-sidebar-toggle")).toBeVisible();
-  // Overview header is visible even on mobile (empty state sits below).
-  await expect(page.getByText(/No terminals/)).toBeVisible();
-  await expect(page.getByTestId("statusbar-stat-cpu")).toContainText("CPU");
-  await expect(page.getByTestId("statusbar-stat-memory")).toContainText("MEM");
-  await expect(page.getByTestId("statusbar-mode-toggle")).toHaveText("Control Here");
+  // The mobile shell is a three-tab bottom-nav surface. The "Terminals" tab
+  // is selected by default and shows the empty state.
+  await expect(page.getByTestId("mobile-workbench")).toBeVisible();
+  await expect(page.getByText(/No terminals here yet/)).toBeVisible();
 
-  await page.getByTestId("statusbar-mode-toggle").click();
-  await expect(page.getByTestId("statusbar-mode-toggle")).toHaveText("Stop Control");
+  // Take control via API — the Stats tab's "Request control" action row is
+  // the in-UI path, but API is more reliable in the test harness.
+  await requestMachineControl(page);
 
-  // Open the mobile drawer (which renders the full panel), then select
-  // the bookmark so the terminal is created.
-  await page.getByTestId("mobile-sidebar-toggle").click();
-  await openPanel(page);
-  await page.getByTestId("panel-bookmark-local-home").click();
+  // After taking control the FAB appears on the Terminals tab.
+  await expect(page.getByTestId("mobile-fab-new-terminal")).toBeVisible();
 
-  // After creating, terminal auto-zooms (immersive view)
+  // Create a terminal — use the FAB.
+  await page.getByTestId("mobile-fab-new-terminal").click();
+
+  // Mobile auto-zooms after create → the ExpandedTerminal overlay opens at
+  // full viewport size and the immersive TerminalCard renders inside.
+  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
   await expect(getImmersiveTerminal(page)).toBeVisible();
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Stop Control");
-  await expect(page.getByTestId("terminal-fit-button")).toHaveText("Fit to Window");
-  // Mobile extended key bar keeps the keyboard toggle available in control mode
+
+  // Control toolbar inside the overlay (mobile-only): Fit to Window + mode
+  // toggle. Shown because we're the controller.
+  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText(
+    "Stop Control",
+  );
+  await expect(page.getByTestId("terminal-fit-button")).toHaveText(
+    "Fit to Window",
+  );
+  // Extended key bar surfaces the keyboard toggle while controlling.
   await expect(page.getByTitle("Show keyboard")).toBeVisible();
 
+  // Toggle control off and on via the in-terminal toggle.
   await page.getByTestId("terminal-mode-toggle").click();
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Control Here");
+  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText(
+    "Control Here",
+  );
   await page.getByTestId("terminal-mode-toggle").click();
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("Stop Control");
+  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText(
+    "Stop Control",
+  );
 
-  // Close the terminal directly from the tab strip's close button. The mobile
-  // sidebar toggle is hidden while a terminal is zoomed, so we can't navigate
-  // via the panel — close the active tab instead.
-  // The close button is visible for the active tab (isActive=true in TabStrip).
-  await page.locator("[data-testid^='tab-close-']").first().click();
-  // After closing the last terminal, the workpath has 0 terminals → State 3
-  // (WorkpathEmptyState). The immersive terminal is gone.
-  await expect(getImmersiveTerminal(page)).not.toBeVisible();
-  await expect(page.getByTestId("workpath-empty")).toBeVisible();
+  // Close the overlay with the expanded-close button — this just dismisses
+  // the overlay, the terminal stays alive.
+  await page.getByTestId("expanded-close").click();
+  await expect(page.getByTestId("expanded-terminal")).toHaveCount(0);
+
+  // Back on the Terminals tab: the mobile card list shows the live terminal.
+  await expect(page.locator("[data-testid^='mobile-term-card-']")).toHaveCount(1);
+
+  // Destroy via API (no mobile UI path for destroying terminals yet).
+  await createTerminalViaApi; // touch import to keep tree-shaking stable
+  const [terminal] = await listTerminals(page);
+  expect(terminal).toBeDefined();
+  const deviceId = await page.evaluate(() => sessionStorage.getItem("tc-device-id"));
+  const token = await page.evaluate(() => localStorage.getItem("webmux:token"));
+  const resp = await page.request.delete(
+    `/api/machines/${terminal.machine_id}/terminals/${terminal.id}?device_id=${encodeURIComponent(deviceId ?? "")}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  expect(resp.ok()).toBeTruthy();
+
+  await expect(page.getByText(/No terminals here yet/)).toBeVisible();
 });

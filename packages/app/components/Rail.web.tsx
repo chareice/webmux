@@ -220,6 +220,7 @@ function RailComponent(props: RailProps) {
       >
         <div style={{ marginBottom: 6 }}>
           <WorkpathRow
+            testId="rail-workpath-all"
             label="All"
             pathHint={null}
             terminalCount={activeHostTerminals.length}
@@ -235,6 +236,7 @@ function RailComponent(props: RailProps) {
         {machineBookmarks.map((bm) => (
           <WorkpathRow
             key={bm.id}
+            testId={`rail-workpath-${bm.id}`}
             label={bm.label}
             pathHint={bm.path}
             terminalCount={terminalsByBookmark.get(bm.id) ?? 0}
@@ -344,6 +346,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 function WorkpathRow({
+  testId,
   label,
   pathHint,
   terminalCount,
@@ -351,6 +354,7 @@ function WorkpathRow({
   onClick,
   onRemove,
 }: {
+  testId?: string;
   label: string;
   pathHint: string | null;
   terminalCount: number;
@@ -361,6 +365,7 @@ function WorkpathRow({
   const [hover, setHover] = useState(false);
   return (
     <button
+      data-testid={testId}
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}

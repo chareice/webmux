@@ -1,9 +1,12 @@
 import { expect, test, devices } from "@playwright/test";
 
 import {
-  expectGlobalModeToggleLabel,
+  closeExpandedOverlay,
+  createTerminalViaApi,
+  expandOnlyTerminal,
+  expandTerminalById,
+  expectControlState,
   expectTerminalCount,
-  openPanel,
   getAuthHeaders,
   getDeviceId,
   getImmersiveTerminal,
@@ -11,10 +14,10 @@ import {
   getTerminalViewJustify,
   getTerminalViewScale,
   listTerminals,
-  maximizeOnlyTerminal,
   openApp,
-  openRootBookmark,
   resetMachineState,
+  selectHomeWorkpath,
+  takeControlFromHeader,
 } from "./helpers";
 
 test("mobile viewing stays readable when desktop explicitly sizes the shared terminal", async ({
@@ -30,17 +33,13 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await openPanel(desktopPage);
-  await desktopPage.getByTestId("panel-request-control-e2e-node").click();
-  await openRootBookmark(desktopPage);
-  // Terminal auto-zooms after creation. The desktop controller auto-fits
-  // it to the 1440x960 viewport — no manual fit click needed any more.
+  await takeControlFromHeader(desktopPage);
+  await selectHomeWorkpath(desktopPage);
+  const tid = await createTerminalViaApi(desktopPage, { cwd: "/root" });
+  await expandTerminalById(desktopPage, tid);
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
 
-  // Wait for the auto-fit resize round-trip to settle so the terminal has
-  // reached the desktop dims before we capture them as the "desktop-sized"
-  // baseline. Without this we may race the create→fit transition and
-  // capture the 80x24 default.
+  // Wait for auto-fit to push the terminal past the 80x24 defaults.
   await expect
     .poll(async () => {
       const [terminal] = await listTerminals(desktopPage);
@@ -52,25 +51,21 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   expect(desktopSizedTerminal).toBeDefined();
 
   await openApp(mobilePage);
-  // Wait for terminal to sync
   await expect.poll(async () => (await listTerminals(mobilePage)).length).toBe(1);
-  // On mobile the Overview grid is already visible — click the card to zoom.
-  const mobileCard = mobilePage
-    .locator("[data-testid^='terminal-card-']:not([data-testid='terminal-card-workpath-label']):visible")
-    .first();
+
+  // Mobile is in view-only mode — tap the card to open the fullscreen
+  // mobile terminal view (ExpandedTerminal in isMobile mode).
+  const mobileCard = mobilePage.locator("[data-testid^='grid-card-']:visible, [data-testid^='mobile-term-card-']").first();
   await expect(mobileCard).toBeVisible();
   await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
-  await expectGlobalModeToggleLabel(mobilePage, "Control Here");
-  await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
-    "Control Here",
-  );
-  // The mobile control bar still surfaces a fit button — but only when
-  // the user has control. The mobile page here is view-only (desktop
-  // holds the lease), so the button should be absent.
+  // In view-only mode the mobile terminal toolbar is absent: no control
+  // toggle, no fit button, no keyboard toggle.
+  await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveCount(0);
   await expect(mobilePage.getByTestId("terminal-fit-button")).toHaveCount(0);
   await expect(mobilePage.getByTitle("Show keyboard")).toHaveCount(0);
+
   await expect
     .poll(async () => getTerminalViewScale(mobilePage))
     .toBeLessThan(1);
@@ -85,10 +80,6 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
 test("terminal auto-fits to whichever device currently holds control", async ({
   browser,
 }) => {
-  // Auto-fit (per-controller, on every viewport change) replaces the old
-  // explicit "Fit to Window" button. Whoever holds control should size the
-  // terminal to their viewport; handing control across devices should
-  // automatically resize, no manual click required.
   const desktop = await browser.newContext({ viewport: { width: 1440, height: 960 } });
   const mobile = await browser.newContext({
     ...devices["iPhone 14"],
@@ -99,10 +90,10 @@ test("terminal auto-fits to whichever device currently holds control", async ({
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await openPanel(desktopPage);
-  await desktopPage.getByTestId("panel-request-control-e2e-node").click();
-  await openRootBookmark(desktopPage);
-  await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
+  await takeControlFromHeader(desktopPage);
+  await selectHomeWorkpath(desktopPage);
+  const tid = await createTerminalViaApi(desktopPage, { cwd: "/root" });
+  await expandTerminalById(desktopPage, tid);
 
   // Desktop controller → terminal auto-fits to desktop dims.
   await expect
@@ -115,16 +106,22 @@ test("terminal auto-fits to whichever device currently holds control", async ({
   expect(desktopSizedTerminal).toBeDefined();
 
   await openApp(mobilePage);
-  await maximizeOnlyTerminal(mobilePage);
+  // Tap the mobile card → opens fullscreen overlay.
+  const mobileCard = mobilePage.locator("[data-testid^='grid-card-']:visible, [data-testid^='mobile-term-card-']").first();
+  await mobileCard.click();
+  await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
+
+  // Mobile takes control via the in-terminal toggle.
   await mobilePage.getByTestId("terminal-mode-toggle").click();
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
     "Stop Control",
   );
-  await expectGlobalModeToggleLabel(desktopPage, "Control Here");
+  // Desktop header flips to view-only (overlay is still open, so the header
+  // isn't visible — close the overlay first to check, then re-open).
+  await closeExpandedOverlay(desktopPage);
+  await expectControlState(desktopPage, "viewing");
 
-  // Mobile takes control → terminal auto-fits to mobile dims (different
-  // from desktop dims). Desktop, no longer the controller, scales-to-fit
-  // and centers.
+  // Mobile takes control → terminal auto-fits to mobile dims.
   let mobileSizedTerminal = desktopSizedTerminal;
   await expect
     .poll(async () => {
@@ -133,6 +130,9 @@ test("terminal auto-fits to whichever device currently holds control", async ({
       return terminal;
     })
     .not.toEqual(desktopSizedTerminal);
+
+  // Desktop re-opens the overlay and sees the narrower terminal centred.
+  await expandOnlyTerminal(desktopPage);
   await expect
     .poll(async () => getTerminalViewJustify(desktopPage))
     .toBe("center");
@@ -140,21 +140,18 @@ test("terminal auto-fits to whichever device currently holds control", async ({
     .poll(async () => getTerminalViewScale(desktopPage))
     .toBe(1);
 
-  // Hand control back to desktop. Switch desktop to Overview first, take
-  // control, then re-zoom into the card.
-  await desktopPage.getByTestId("panel-select-all").click();
-  await expect(desktopPage.getByTestId("overview-header")).toBeVisible();
-  await expectGlobalModeToggleLabel(desktopPage, "Control Here");
-  await desktopPage.getByTestId("canvas-mode-toggle").click();
-  await expectGlobalModeToggleLabel(desktopPage, "Stop Control");
+  // Hand control back to desktop. Close the desktop overlay, press the
+  // header toggle, then re-open.
+  await closeExpandedOverlay(desktopPage);
+  await desktopPage.getByTestId("workbench-request-control").click();
+  await expect(desktopPage.getByTestId("workbench-stop-control")).toBeVisible();
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
     "Control Here",
   );
   await getTerminalCards(desktopPage).first().click();
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
 
-  // Desktop is the controller again → terminal auto-fits back to desktop
-  // dims (different from the mobile-sized snapshot we captured above).
+  // Desktop is controller again → terminal auto-fits back to desktop dims.
   await expect
     .poll(async () => {
       const [terminal] = await listTerminals(desktopPage);
@@ -182,18 +179,11 @@ test("multiple shared terminals stay in sync across mobile handoff and selective
 
   await openApp(desktopPage);
   await resetMachineState(desktopPage);
-  await openPanel(desktopPage);
-  await desktopPage.getByTestId("panel-request-control-e2e-node").click();
-  // First terminal: click the ~ bookmark — creates + auto-zooms.
-  await openRootBookmark(desktopPage);
-  await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
-  // Go back to Overview so we can create another terminal via the header.
-  await desktopPage.getByTestId("panel-select-all").click();
-  await expect(desktopPage.getByTestId("overview-header")).toBeVisible();
-  // Second terminal: the "~" bookmark already has count=1, so the panel
-  // would just filter. Use the Overview header's "New terminal" action
-  // instead, which creates in the current workpath (currently "All" → home).
-  await desktopPage.getByTestId("overview-new-terminal").click();
+  await takeControlFromHeader(desktopPage);
+
+  await createTerminalViaApi(desktopPage, { cwd: "/root" });
+  await createTerminalViaApi(desktopPage, { cwd: "/root" });
+
   await expect
     .poll(async () => (await listTerminals(desktopPage)).length)
     .toBe(2);
@@ -202,24 +192,20 @@ test("multiple shared terminals stay in sync across mobile handoff and selective
     .map((terminal) => terminal.id)
     .sort();
 
-  // Back to the Overview grid to see all terminals
-  await desktopPage.getByTestId("panel-select-all").click();
-  await expect(desktopPage.getByTestId("overview-header")).toBeVisible();
   await expectTerminalCount(desktopPage, 2);
   await openApp(mobilePage);
-  // Wait for terminals to sync
   await expect.poll(async () => (await listTerminals(mobilePage)).length).toBe(2);
-  // Take control via API to avoid mobile UI overlap issues
+
+  // Mobile takes control via API (avoid UI overlap fights).
   const mobileHeaders = await getAuthHeaders(mobilePage);
   const mobileDeviceId = await getDeviceId(mobilePage);
   await mobilePage.request.post("/api/mode/control", {
     headers: mobileHeaders,
     data: { machine_id: "e2e-node", device_id: mobileDeviceId },
   });
-  await expectGlobalModeToggleLabel(mobilePage, "Stop Control");
-  await expectGlobalModeToggleLabel(desktopPage, "Control Here");
+  await expectControlState(desktopPage, "viewing");
 
-  // Close a terminal via API instead of fighting mobile UI overlaps
+  // Mobile closes one terminal via API.
   const mobileTerminals = await listTerminals(mobilePage);
   await mobilePage.request.delete(
     `/api/machines/${mobileTerminals[0].machine_id}/terminals/${mobileTerminals[0].id}?device_id=${encodeURIComponent(mobileDeviceId)}`,
