@@ -26,6 +26,7 @@ import {
   Terminal as TerminalIcon,
 } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
+import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { Sparkline, mockSeries } from "./WorkbenchHeader.web";
 
 type MobileTab = "hosts" | "terminals" | "stats";
@@ -72,6 +73,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
   const [tab, setTab] = useState<MobileTab>("terminals");
   const [hostSheet, setHostSheet] = useState(false);
   const [menuSheet, setMenuSheet] = useState(false);
+  const [addMachineOpen, setAddMachineOpen] = useState(false);
 
   const activeMachine =
     machines.find((m) => m.id === activeMachineId) ?? machines[0] ?? null;
@@ -195,6 +197,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             bookmarks={bookmarks}
             terminals={terminals}
             selectedWorkpathId={selectedWorkpathId}
+            onAddMachine={() => setAddMachineOpen(true)}
             onSelectMachine={onSelectMachine}
             onSelectWorkpath={(id) => {
               onSelectWorkpath(id);
@@ -361,6 +364,14 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         <Sheet onClose={() => setMenuSheet(false)}>
           <MenuRow
             icon={<Plus size={17} />}
+            label="Add host"
+            onClick={() => {
+              setMenuSheet(false);
+              setAddMachineOpen(true);
+            }}
+          />
+          <MenuRow
+            icon={<Plus size={17} />}
             label="New terminal"
             disabled={!canCreateTerminal}
             onClick={() => {
@@ -404,6 +415,10 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             />
           )}
         </Sheet>
+      )}
+
+      {addMachineOpen && (
+        <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
       )}
     </div>
   );
@@ -538,6 +553,7 @@ function HostsPage({
   bookmarks,
   terminals,
   selectedWorkpathId,
+  onAddMachine,
   onSelectMachine,
   onSelectWorkpath,
 }: {
@@ -548,6 +564,7 @@ function HostsPage({
   bookmarks: Bookmark[];
   terminals: TerminalInfo[];
   selectedWorkpathId: string | "all";
+  onAddMachine: () => void;
   onSelectMachine: (id: string) => void;
   onSelectWorkpath: (id: string) => void;
 }) {
@@ -562,6 +579,30 @@ function HostsPage({
   return (
     <div style={{ height: "100%", overflow: "auto", padding: "8px 0 16px" }}>
       <SectionHead>Hosts</SectionHead>
+      <div style={{ padding: "0 16px 10px" }}>
+        <button
+          data-testid="mobile-add-machine"
+          onClick={onAddMachine}
+          style={{
+            width: "100%",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            padding: "10px 14px",
+            borderRadius: 12,
+            border: `1px solid ${colors.lineSoft}`,
+            background: colors.bg1,
+            color: colors.fg0,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          <Plus size={16} />
+          Add host
+        </button>
+      </div>
       {machines.map((m) => {
         const isActive = m.id === activeMachineId;
         const controlling =

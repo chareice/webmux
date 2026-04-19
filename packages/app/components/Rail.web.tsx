@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
+import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { PathInput } from "./PathInput.web";
 
 interface RailProps {
@@ -82,6 +83,7 @@ function RailComponent(props: RailProps) {
   );
 
   const [query, setQuery] = useState("");
+  const [addMachineOpen, setAddMachineOpen] = useState(false);
 
   const machineBookmarks = useMemo(
     () =>
@@ -128,9 +130,13 @@ function RailComponent(props: RailProps) {
         overflow: "hidden",
         height: "100%",
       }}
-    >
-      {/* Host switcher + collapse */}
-      <div
+      >
+        {addMachineOpen && (
+          <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
+        )}
+
+        {/* Host switcher + collapse */}
+        <div
         style={{
           padding: "14px 14px 10px 14px",
           borderBottom: `1px solid ${colors.lineSoft}`,
@@ -154,6 +160,7 @@ function RailComponent(props: RailProps) {
               machineStats={machineStats}
               terminals={terminals}
               onSelect={onSelectMachine}
+              onAddMachine={() => setAddMachineOpen(true)}
             />
           </div>
           {onCollapse && (
@@ -303,7 +310,7 @@ function RailComponent(props: RailProps) {
             border: `1px solid ${colors.lineSoft}`,
             color: canCreateTerminal ? colors.fg1 : colors.fg3,
             fontSize: 12,
-            flex: 1,
+            flex: "1 1 auto",
             justifyContent: "center",
             cursor: canCreateTerminal ? "pointer" : "not-allowed",
             opacity: canCreateTerminal ? 1 : 0.6,
@@ -519,6 +526,7 @@ function HostSwitcher({
   machineStats,
   terminals,
   onSelect,
+  onAddMachine,
 }: {
   machines: MachineInfo[];
   activeMachine: MachineInfo | null;
@@ -527,6 +535,7 @@ function HostSwitcher({
   machineStats: Record<string, ResourceStats>;
   terminals: TerminalInfo[];
   onSelect: (id: string) => void;
+  onAddMachine: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -542,7 +551,6 @@ function HostSwitcher({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
 
-  const onlyOne = machines.length <= 1;
   const active = activeMachine;
   if (!active) {
     return (
@@ -564,50 +572,11 @@ function HostSwitcher({
 
   const termCountFor = (id: string) =>
     terminals.filter((t) => t.machine_id === id).length;
+  const onlineFor = (id: string) =>
+    Boolean(machineStats[id]) ||
+    terminals.some((t) => t.machine_id === id && t.reachable);
   const controllingActive =
     deviceId !== null && controlLeases[active.id] === deviceId;
-
-  if (onlyOne) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          minWidth: 0,
-        }}
-      >
-        <Logomark />
-        <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: colors.fg0,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {active.name}
-          </div>
-          <div
-            style={{
-              fontFamily:
-                "var(--font-mono)",
-              fontSize: 10,
-              color: colors.fg3,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {active.os}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div ref={ref} style={{ position: "relative", minWidth: 0 }}>
@@ -619,8 +588,8 @@ function HostSwitcher({
           alignItems: "center",
           gap: 8,
           width: "100%",
-          padding: "6px 8px",
-          borderRadius: 8,
+          padding: "10px 12px",
+          borderRadius: 16,
           background: open ? colors.bg2 : colors.bg1,
           border: `1px solid ${colors.lineSoft}`,
           textAlign: "left",
@@ -629,18 +598,19 @@ function HostSwitcher({
           cursor: "pointer",
         }}
       >
-        <HostDot online controlling={controllingActive} />
+        <HostDot online={onlineFor(active.id)} controlling={controllingActive} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{
               display: "flex",
-              alignItems: "center",
+              alignItems: "baseline",
               gap: 6,
+              marginBottom: 2,
             }}
           >
             <span
               style={{
-                fontSize: 12.5,
+                fontSize: 14,
                 fontWeight: 600,
                 color: colors.fg0,
                 whiteSpace: "nowrap",
@@ -652,7 +622,7 @@ function HostSwitcher({
             </span>
             <span
               style={{
-                fontSize: 10,
+                fontSize: 10.5,
                 color: colors.fg3,
                 textTransform: "uppercase",
                 letterSpacing: "0.08em",
@@ -662,7 +632,7 @@ function HostSwitcher({
             </span>
           </div>
           <HostMetaLine
-            machineId={active.id}
+            online={onlineFor(active.id)}
             stats={machineStats[active.id]}
             terminals={termCountFor(active.id)}
           />
@@ -687,8 +657,8 @@ function HostSwitcher({
             zIndex: 20,
             background: colors.bg1,
             border: `1px solid ${colors.line}`,
-            borderRadius: 10,
-            padding: 6,
+            borderRadius: 18,
+            padding: 10,
             boxShadow: "0 20px 60px -20px black",
             maxHeight: 360,
             overflow: "auto",
@@ -702,12 +672,14 @@ function HostSwitcher({
               textTransform: "uppercase",
               letterSpacing: "0.1em",
               fontWeight: 600,
+              marginBottom: 8,
             }}
           >
             Hosts · {machines.length}
           </div>
           {machines.map((m) => {
             const isActive = m.id === active.id;
+            const online = onlineFor(m.id);
             const controlling =
               deviceId !== null && controlLeases[m.id] === deviceId;
             return (
@@ -721,39 +693,45 @@ function HostSwitcher({
                   display: "grid",
                   gridTemplateColumns: "auto 1fr auto",
                   gap: 8,
-                  alignItems: "center",
+                  alignItems: "start",
                   width: "100%",
                   textAlign: "left",
-                  padding: "7px 8px",
-                  borderRadius: 6,
+                  padding: "12px 10px",
+                  borderRadius: 12,
                   background: isActive ? colors.bg2 : "transparent",
                   color: colors.fg1,
-                  marginBottom: 1,
+                  marginBottom: 6,
                   cursor: "pointer",
                   border: "none",
                 }}
               >
-                <HostDot online controlling={controlling} />
+                <div style={{ paddingTop: 4 }}>
+                  <HostDot online={online} controlling={controlling} />
+                </div>
                 <div style={{ minWidth: 0 }}>
                   <div
                     style={{
                       display: "flex",
-                      alignItems: "center",
+                      alignItems: "baseline",
                       gap: 6,
+                      marginBottom: 2,
                     }}
                   >
                     <span
                       style={{
-                        fontSize: 12.5,
+                        fontSize: 13.5,
                         fontWeight: 600,
                         color: colors.fg0,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     >
                       {m.name}
                     </span>
                     <span
                       style={{
-                        fontSize: 10,
+                        fontSize: 10.5,
                         color: colors.fg3,
                         textTransform: "uppercase",
                         letterSpacing: "0.08em",
@@ -766,8 +744,11 @@ function HostSwitcher({
                     style={{
                       fontFamily:
                         "var(--font-mono)",
-                      fontSize: 10,
+                      fontSize: 10.5,
                       color: colors.fg3,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
                     }}
                   >
                     {m.home_dir}
@@ -775,21 +756,46 @@ function HostSwitcher({
                 </div>
                 <div
                   style={{
-                    textAlign: "right",
-                    fontFamily:
-                      "var(--font-mono)",
-                    fontSize: 10,
-                    color: colors.fg3,
-                  }}
+                      textAlign: "right",
+                      fontFamily:
+                        "var(--font-mono)",
+                      fontSize: 10.5,
+                      color: colors.fg3,
+                      lineHeight: 1.5,
+                    }}
                 >
+                  <div>{online ? machineRowStatus(machineStats[m.id]) : "offline"}</div>
                   <div>{termCountFor(m.id)} term</div>
-                  {machineStats[m.id] && (
-                    <div>{Math.round(machineStats[m.id].cpu_percent)}% cpu</div>
-                  )}
                 </div>
               </button>
             );
           })}
+          <button
+            data-testid="rail-add-machine"
+            onClick={() => {
+              setOpen(false);
+              onAddMachine();
+            }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              width: "100%",
+              marginTop: 4,
+              padding: "14px 12px",
+              borderRadius: 16,
+              border: `2px solid ${colors.line}`,
+              background: "transparent",
+              color: colors.fg0,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            <Plus size={16} />
+            Add host
+          </button>
         </div>
       )}
     </div>
@@ -797,35 +803,39 @@ function HostSwitcher({
 }
 
 function HostMetaLine({
-  machineId: _unused,
+  online,
   stats,
   terminals,
 }: {
-  machineId: string;
+  online: boolean;
   stats: ResourceStats | undefined;
   terminals: number;
 }) {
   const cpu = stats ? `${Math.round(stats.cpu_percent)}%` : "—";
-  const mem = stats && stats.memory_total > 0
-    ? `${Math.round((stats.memory_used / stats.memory_total) * 100)}%`
-    : "—";
   return (
     <div
       style={{
         fontFamily: "var(--font-mono)",
-        fontSize: 10,
+        fontSize: 10.5,
         color: colors.fg3,
         display: "flex",
         gap: 6,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
       }}
     >
       <span>{terminals} term</span>
       <span>·</span>
-      <span>cpu {cpu}</span>
+      <span>{online ? "online" : "offline"}</span>
       <span>·</span>
-      <span>mem {mem}</span>
+      <span>{cpu} cpu</span>
     </div>
   );
+}
+
+function machineRowStatus(stats: ResourceStats | undefined): string {
+  if (!stats) return "online";
+  return `${Math.round(stats.cpu_percent)}% cpu`;
 }
 
 function HostDot({
