@@ -26,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
+import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { PathInput } from "./PathInput.web";
 
 interface RailProps {
@@ -82,6 +83,7 @@ function RailComponent(props: RailProps) {
   );
 
   const [query, setQuery] = useState("");
+  const [addMachineOpen, setAddMachineOpen] = useState(false);
 
   const machineBookmarks = useMemo(
     () =>
@@ -128,9 +130,13 @@ function RailComponent(props: RailProps) {
         overflow: "hidden",
         height: "100%",
       }}
-    >
-      {/* Host switcher + collapse */}
-      <div
+      >
+        {addMachineOpen && (
+          <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
+        )}
+
+        {/* Host switcher + collapse */}
+        <div
         style={{
           padding: "14px 14px 10px 14px",
           borderBottom: `1px solid ${colors.lineSoft}`,
@@ -289,6 +295,27 @@ function RailComponent(props: RailProps) {
           gap: 8,
         }}
       >
+        <button
+          data-testid="rail-add-machine"
+          onClick={() => setAddMachineOpen(true)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 8px",
+            borderRadius: 7,
+            background: colors.bg1,
+            border: `1px solid ${colors.lineSoft}`,
+            color: colors.fg1,
+            fontSize: 12,
+            flex: 1,
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <Plus size={12} />
+          Add host
+        </button>
         <button
           data-testid="rail-add-workpath"
           onClick={onOpenAddDirectory}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { X } from "lucide-react";
 import { createRegistrationToken } from "@/lib/api";
 import {
   buildOnboardingScript,
@@ -77,7 +78,13 @@ function CodeBlock({
   );
 }
 
-export function OnboardingView() {
+interface OnboardingViewProps {
+  embedded?: boolean;
+}
+
+export function OnboardingView({
+  embedded = false,
+}: OnboardingViewProps = {}) {
   const [loading, setLoading] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,14 +163,15 @@ export function OnboardingView() {
     <div
       style={{
         display: "flex",
-        alignItems: "center",
+        alignItems: embedded ? "stretch" : "center",
         justifyContent: "center",
-        height: "100%",
-        padding: 32,
-        background: colors.background,
+        height: embedded ? "auto" : "100%",
+        minHeight: embedded ? "auto" : "100%",
+        padding: embedded ? 0 : 32,
+        background: embedded ? "transparent" : colors.background,
       }}
     >
-      <div style={{ maxWidth: 600, width: "100%" }}>
+      <div style={{ maxWidth: embedded ? "100%" : 600, width: "100%" }}>
         {/* Header */}
         <h1
           style={{
@@ -335,6 +343,68 @@ export function OnboardingView() {
             </p>
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function MachineOnboardingDialog({
+  onClose,
+}: {
+  onClose: () => void;
+}) {
+  return (
+    <div
+      data-testid="add-machine-dialog"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 80,
+        background: "rgba(0, 0, 0, 0.56)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          position: "relative",
+          width: "min(720px, 100%)",
+          maxHeight: "min(820px, calc(100vh - 40px))",
+          overflowY: "auto",
+          background: colors.background,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 16,
+          boxShadow: "0 28px 80px -24px rgba(0, 0, 0, 0.7)",
+          padding: 24,
+        }}
+      >
+        <button
+          onClick={onClose}
+          title="Close add machine"
+          aria-label="Close add machine"
+          style={{
+            position: "absolute",
+            top: 14,
+            right: 14,
+            width: 32,
+            height: 32,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 999,
+            border: `1px solid ${colors.border}`,
+            background: colors.surface,
+            color: colors.foregroundSecondary,
+            cursor: "pointer",
+          }}
+        >
+          <X size={16} />
+        </button>
+        <OnboardingView embedded />
       </div>
     </div>
   );
