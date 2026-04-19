@@ -1,0 +1,261 @@
+import { useState, useCallback, useEffect, useRef } from "react";
+import { View, Pressable, Text, StyleSheet, BackHandler, StatusBar, } from "react-native";
+import { Canvas } from "./Canvas.android";
+import { createTerminal, destroyTerminal, eventsWsUrl, getBootstrap, requestControl, } from "@/lib/api";
+import { applyBootstrapSnapshot, applyBrowserEventEnvelope, EMPTY_BROWSER_SESSION_STATE, shouldResyncForEnvelope, } from "@/lib/bootstrapState";
+import { colors } from "@/lib/colors";
+import { getPersistentDeviceId } from "@/lib/deviceId";
+export function TerminalCanvas() {
+    const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
+    const [maximizedId, setMaximizedId] = useState(null);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const maximizedRef = useRef(null);
+    const lastSeqRef = useRef(0);
+    const [deviceId, setDeviceId] = useState(null);
+    const [bootstrapReady, setBootstrapReady] = useState(false);
+    const [reconnectGeneration, setReconnectGeneration] = useState(0);
+    const machines = browserState.machines;
+    const terminals = browserState.terminals;
+    const controlLeases = browserState.controlLeases;
+    const isMachineController = useCallback((machineId) => deviceId !== null && controlLeases[machineId] === deviceId, [controlLeases, deviceId]);
+    useEffect(() => {
+        maximizedRef.current = maximizedId;
+    }, [maximizedId]);
+    useEffect(() => {
+        let cancelled = false;
+        void getPersistentDeviceId().then((id) => {
+            if (!cancelled) {
+                setDeviceId(id);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+    useEffect(() => {
+        lastSeqRef.current = browserState.lastSeq;
+    }, [browserState.lastSeq]);
+    // Handle Android back button
+    useEffect(() => {
+        const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+            if (maximizedId) {
+                setMaximizedId(null);
+                return true;
+            }
+            if (sidebarOpen) {
+                setSidebarOpen(false);
+                return true;
+            }
+            return false;
+        });
+        return () => sub.remove();
+    }, [maximizedId, sidebarOpen]);
+    // Load initial data
+    useEffect(() => {
+        if (!deviceId)
+            return;
+        let cancelled = false;
+        let retryTimer = null;
+        setBootstrapReady(false);
+        getBootstrap()
+            .then((snapshot) => {
+            if (cancelled)
+                return;
+            lastSeqRef.current = snapshot.snapshot_seq;
+            setBrowserState(applyBootstrapSnapshot(snapshot));
+            setBootstrapReady(true);
+        })
+            .catch(() => {
+            if (cancelled)
+                return;
+            retryTimer = setTimeout(() => {
+                setReconnectGeneration((value) => value + 1);
+            }, 1000);
+        });
+        return () => {
+            cancelled = true;
+            if (retryTimer)
+                clearTimeout(retryTimer);
+        };
+    }, [deviceId, reconnectGeneration]);
+    // Events WebSocket for live updates
+    useEffect(() => {
+        if (!bootstrapReady || !deviceId)
+            return;
+        const url = eventsWsUrl(deviceId, lastSeqRef.current);
+        const ws = new WebSocket(url);
+        let reconnectTimer = null;
+        ws.onmessage = (event) => {
+            try {
+                const envelope = JSON.parse(event.data);
+                let needsResync = false;
+                setBrowserState((prev) => {
+                    if (shouldResyncForEnvelope(prev, envelope)) {
+                        needsResync = true;
+                        return prev;
+                    }
+                    const next = applyBrowserEventEnvelope(prev, envelope);
+                    if (next !== prev &&
+                        envelope.event?.type === "terminal_destroyed" &&
+                        maximizedRef.current === envelope.event.terminal_id) {
+                        setMaximizedId(null);
+                    }
+                    return next;
+                });
+                if (needsResync) {
+                    ws.close();
+                }
+            }
+            catch {
+                /* ignore */
+            }
+        };
+        ws.onclose = () => {
+            reconnectTimer = setTimeout(() => {
+                setBootstrapReady(false);
+                setReconnectGeneration((value) => value + 1);
+            }, 1000);
+        };
+        return () => {
+            if (reconnectTimer)
+                clearTimeout(reconnectTimer);
+            ws.close();
+        };
+    }, [bootstrapReady, deviceId]);
+    const handleCreateTerminal = useCallback(async (machineId, cwd) => {
+        if (!deviceId || !isMachineController(machineId))
+            return;
+        await createTerminal(machineId, cwd, deviceId);
+        setSidebarOpen(false);
+    }, [deviceId, isMachineController]);
+    const handleDestroyTerminal = useCallback(async (terminal) => {
+        if (!deviceId || !isMachineController(terminal.machine_id))
+            return;
+        await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
+    }, [deviceId, isMachineController]);
+    const handleMaximize = useCallback((id) => {
+        setMaximizedId(id);
+    }, []);
+    const handleMinimize = useCallback(() => {
+        setMaximizedId(null);
+    }, []);
+    return (<View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background}/>
+
+      {/* Hamburger button */}
+      {!maximizedId && (<Pressable onPress={() => setSidebarOpen((prev) => !prev)} style={styles.hamburger}>
+          <Text style={styles.hamburgerText}>{"\u2630"}</Text>
+        </Pressable>)}
+
+      {/* Sidebar overlay: lightweight machine picker for Android while the
+            web nav redesign bakes. Replace with a dedicated mobile nav once
+            ready. */}
+      {sidebarOpen && (<>
+          <Pressable onPress={() => setSidebarOpen(false)} style={styles.backdrop}/>
+          <View style={styles.sidebarContainer}>
+            <AndroidMachineList machines={machines} isMachineController={isMachineController} onCreateTerminal={handleCreateTerminal} onRequestControl={(machineId) => {
+                if (!deviceId)
+                    return;
+                void requestControl(machineId, deviceId).then((next) => {
+                    setBrowserState((prev) => ({
+                        ...prev,
+                        controlLeases: next.controller_device_id
+                            ? {
+                                ...prev.controlLeases,
+                                [machineId]: next.controller_device_id,
+                            }
+                            : prev.controlLeases,
+                    }));
+                });
+            }}/>
+          </View>
+        </>)}
+
+      {/* Main content */}
+      <Canvas terminals={terminals} maximizedId={maximizedId} isMobile isMachineController={isMachineController} deviceId={deviceId} onMaximize={handleMaximize} onMinimize={handleMinimize} onDestroy={handleDestroyTerminal}/>
+    </View>);
+}
+function AndroidMachineList({ machines, isMachineController, onCreateTerminal, onRequestControl, }) {
+    return (<View style={styles.androidMachineList}>
+      {machines.map((machine) => {
+            const canControl = isMachineController(machine.id);
+            return (<View key={machine.id} style={styles.androidMachineRow}>
+            <Text style={styles.androidMachineName}>{machine.name}</Text>
+            {canControl ? (<Pressable onPress={() => onCreateTerminal(machine.id, machine.home_dir || "~")} style={styles.androidActionButton}>
+                <Text style={styles.androidActionText}>New terminal</Text>
+              </Pressable>) : (<Pressable onPress={() => onRequestControl(machine.id)} style={styles.androidActionButton}>
+                <Text style={styles.androidActionText}>Take control</Text>
+              </Pressable>)}
+          </View>);
+        })}
+    </View>);
+}
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: colors.background,
+    },
+    androidMachineList: {
+        width: 280,
+        height: "100%",
+        backgroundColor: colors.surface,
+        paddingTop: 48,
+        paddingHorizontal: 12,
+    },
+    androidMachineRow: {
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    androidMachineName: {
+        color: colors.foreground,
+        fontSize: 14,
+        fontWeight: "600",
+        marginBottom: 6,
+    },
+    androidActionButton: {
+        alignSelf: "flex-start",
+        backgroundColor: colors.accent,
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 6,
+    },
+    androidActionText: {
+        color: colors.background,
+        fontSize: 12,
+        fontWeight: "600",
+    },
+    hamburger: {
+        position: "absolute",
+        top: 12,
+        left: 12,
+        zIndex: 90,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 6,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+    },
+    hamburgerText: {
+        fontSize: 18,
+        color: colors.foreground,
+        lineHeight: 22,
+    },
+    backdrop: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 80,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+    },
+    sidebarContainer: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        height: "100%",
+        zIndex: 85,
+    },
+});
