@@ -14,11 +14,19 @@
 // mobile key bar, close handling) is unchanged — only the chrome wrapping
 // it is new.
 
-import { memo, useEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { TerminalInfo } from "@webmux/shared";
 import { Expand, RefreshCw, X } from "lucide-react";
 import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
+import { terminalWsUrl } from "@/lib/api";
+
+const LiveTerminalView = lazy(() =>
+  import("./TerminalView.web").then((module) => ({
+    default: module.TerminalView,
+  })),
+);
 
 interface ExpandedTerminalProps {
   terminal: TerminalInfo;
@@ -325,6 +333,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
                   sibling={s}
                   isActive={s.id === terminal.id}
                   isController={isController}
+                  deviceId={deviceId}
                   onPick={onPick}
                   onDestroy={onDestroy}
                 />
@@ -345,20 +354,61 @@ interface SiblingThumbProps {
   sibling: TerminalInfo;
   isActive: boolean;
   isController: boolean;
+  deviceId: string;
   onPick: (id: string) => void;
   onDestroy: (terminal: TerminalInfo) => void;
 }
+
+const PREVIEW_WIDTH = 420;
+const PREVIEW_HEIGHT = 240;
+const PREVIEW_DELAY_MS = 250;
+const PREVIEW_GAP = 10;
 
 function SiblingThumb({
   sibling,
   isActive,
   isController,
+  deviceId,
   onPick,
   onDestroy,
 }: SiblingThumbProps) {
+  const ref = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState(false);
+  const [preview, setPreview] = useState<{ top: number; left: number } | null>(
+    null,
+  );
+
+  // Delay before mounting the preview — avoids opening a WS for every thumb
+  // the cursor just brushes past. The active thumb never previews (its
+  // content is already the main terminal body above).
+  useEffect(() => {
+    if (!hover || isActive || !sibling.reachable) {
+      setPreview(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const node = ref.current;
+      if (!node) return;
+      const rect = node.getBoundingClientRect();
+      const vw = window.innerWidth;
+      let left = rect.left + rect.width / 2;
+      // Keep within viewport horizontally (with 8px margin).
+      const half = PREVIEW_WIDTH / 2;
+      if (left - half < 8) left = half + 8;
+      if (left + half > vw - 8) left = vw - half - 8;
+      setPreview({ top: rect.top - PREVIEW_GAP, left });
+    }, PREVIEW_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [hover, isActive, sibling.reachable]);
+
+  const previewWsUrl =
+    preview && sibling.reachable
+      ? terminalWsUrl(sibling.machine_id, sibling.id, deviceId)
+      : null;
+
   return (
     <div
+      ref={ref}
       data-testid={`expanded-thumb-${sibling.id}`}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -457,6 +507,59 @@ function SiblingThumb({
           <X size={11} />
         </button>
       )}
+      {preview &&
+        previewWsUrl &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            data-testid={`expanded-thumb-preview-${sibling.id}`}
+            style={{
+              position: "fixed",
+              top: preview.top,
+              left: preview.left,
+              width: PREVIEW_WIDTH,
+              height: PREVIEW_HEIGHT,
+              transform: "translate(-50%, -100%)",
+              background: terminalTheme.background,
+              border: `1px solid ${colors.line}`,
+              borderRadius: 10,
+              overflow: "hidden",
+              boxShadow: "0 24px 64px -20px black",
+              zIndex: 60,
+              pointerEvents: "none",
+              animation: "webmuxFadeIn 120ms ease-out",
+            }}
+          >
+            <Suspense fallback={null}>
+              <div
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  pointerEvents: "none",
+                  overflow: "hidden",
+                }}
+              >
+                <LiveTerminalView
+                  machineId={sibling.machine_id}
+                  terminalId={sibling.id}
+                  wsUrl={previewWsUrl}
+                  cols={sibling.cols}
+                  rows={sibling.rows}
+                  displayMode="card"
+                  isController={false}
+                  canResizeTerminal={false}
+                  style={{
+                    transform: "scale(0.6)",
+                    transformOrigin: "top left",
+                    width: "166.7%",
+                    height: "166.7%",
+                  }}
+                />
+              </div>
+            </Suspense>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
