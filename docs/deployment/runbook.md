@@ -101,6 +101,28 @@ launchctl load -w ~/Library/LaunchAgents/com.webmux.node.plist
 
 Hub and node versions don't need to match exactly. Unknown message types are silently ignored. A newer hub with an older node just won't show resource monitoring stats — no crashes.
 
+## Release the Desktop App
+
+The desktop app version is injected from the git tag at build time. No source-tree bump is needed.
+
+```bash
+git tag desktop-v<VERSION> && git push origin desktop-v<VERSION>
+# e.g. git tag desktop-v0.3.0 && git push origin desktop-v0.3.0
+```
+
+This triggers `.github/workflows/desktop.yml`, which:
+1. Parses the version out of the tag (`desktop-v0.3.0` → `0.3.0`)
+2. Patches `packages/desktop/src-tauri/tauri.conf.json` in the runner
+3. Builds for macOS (universal), Linux, and Windows
+4. Publishes a GitHub release named `Desktop desktop-v<VERSION>` with the bundles attached
+
+The `version` field in `tauri.conf.json` stays at `0.0.0` as a placeholder — local `pnpm tauri dev` builds will show that value, which is intentional.
+
+Watch the run:
+```bash
+gh run list --repo chareice/webmux --workflow desktop.yml --limit 3
+```
+
 ## Database
 
 - **Type:** SQLite
