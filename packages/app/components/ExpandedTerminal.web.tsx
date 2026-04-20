@@ -14,7 +14,7 @@
 // mobile key bar, close handling) is unchanged — only the chrome wrapping
 // it is new.
 
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { Expand, RefreshCw, X } from "lucide-react";
 import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";
@@ -319,82 +319,16 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
                 paddingBottom: 2,
               }}
             >
-              {siblings.map((s) => {
-                const isActive = s.id === terminal.id;
-                return (
-                  <button
-                    key={s.id}
-                    onClick={() => onPick(s.id)}
-                    data-testid={`expanded-thumb-${s.id}`}
-                    style={{
-                      flexShrink: 0,
-                      width: 140,
-                      height: 56,
-                      border: isActive
-                        ? `1px solid ${colorAlpha.accentLine}`
-                        : `1px solid ${colors.lineSoft}`,
-                      background: isActive ? colors.bg2 : colors.bg1,
-                      borderRadius: 7,
-                      padding: 6,
-                      textAlign: "left",
-                      color: isActive ? colors.fg0 : colors.fg2,
-                      overflow: "hidden",
-                      position: "relative",
-                      outline: isActive
-                        ? `2px solid ${colors.accent}`
-                        : "none",
-                      outlineOffset: -1,
-                      cursor: "pointer",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 5,
-                        marginBottom: 3,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 5,
-                          height: 5,
-                          borderRadius: 999,
-                          background: tintForId(s.id),
-                          flexShrink: 0,
-                        }}
-                      />
-                      <span
-                        style={{
-                          fontSize: 10.5,
-                          fontWeight: 600,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          minWidth: 0,
-                          flex: 1,
-                        }}
-                      >
-                        {s.title || s.id.slice(0, 8)}
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        fontFamily:
-                          "var(--font-mono)",
-                        fontSize: 9.5,
-                        color: colors.fg3,
-                        lineHeight: 1.35,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {shortenHome(s.cwd)}
-                    </div>
-                  </button>
-                );
-              })}
+              {siblings.map((s) => (
+                <SiblingThumb
+                  key={s.id}
+                  sibling={s}
+                  isActive={s.id === terminal.id}
+                  isController={isController}
+                  onPick={onPick}
+                  onDestroy={onDestroy}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -404,6 +338,128 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
 }
 
 export const ExpandedTerminal = memo(ExpandedTerminalComponent);
+
+/* ---------- sibling thumb ---------- */
+
+interface SiblingThumbProps {
+  sibling: TerminalInfo;
+  isActive: boolean;
+  isController: boolean;
+  onPick: (id: string) => void;
+  onDestroy: (terminal: TerminalInfo) => void;
+}
+
+function SiblingThumb({
+  sibling,
+  isActive,
+  isController,
+  onPick,
+  onDestroy,
+}: SiblingThumbProps) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      data-testid={`expanded-thumb-${sibling.id}`}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={() => onPick(sibling.id)}
+      style={{
+        flexShrink: 0,
+        width: 140,
+        height: 56,
+        border: isActive
+          ? `1px solid ${colorAlpha.accentLine}`
+          : `1px solid ${colors.lineSoft}`,
+        background: isActive ? colors.bg2 : colors.bg1,
+        borderRadius: 7,
+        padding: 6,
+        textAlign: "left",
+        color: isActive ? colors.fg0 : colors.fg2,
+        overflow: "hidden",
+        position: "relative",
+        outline: isActive ? `2px solid ${colors.accent}` : "none",
+        outlineOffset: -1,
+        cursor: "pointer",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          marginBottom: 3,
+        }}
+      >
+        <span
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: 999,
+            background: tintForId(sibling.id),
+            flexShrink: 0,
+          }}
+        />
+        <span
+          style={{
+            fontSize: 10.5,
+            fontWeight: 600,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            minWidth: 0,
+            flex: 1,
+          }}
+        >
+          {sibling.title || sibling.id.slice(0, 8)}
+        </span>
+      </div>
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 9.5,
+          color: colors.fg3,
+          lineHeight: 1.35,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {shortenHome(sibling.cwd)}
+      </div>
+      {hover && (
+        <button
+          data-testid={`expanded-thumb-close-${sibling.id}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!isController) return;
+            onDestroy(sibling);
+          }}
+          disabled={!isController}
+          title={isController ? "Close terminal" : "View only — cannot close"}
+          aria-label={isController ? "Close terminal" : "View only — cannot close"}
+          style={{
+            position: "absolute",
+            top: 3,
+            right: 3,
+            width: 18,
+            height: 18,
+            borderRadius: 4,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: colors.bg2,
+            border: `1px solid ${colors.lineSoft}`,
+            color: isController ? colors.fg1 : colors.fg3,
+            cursor: isController ? "pointer" : "not-allowed",
+            padding: 0,
+          }}
+        >
+          <X size={11} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 /* ---------- helpers ---------- */
 
