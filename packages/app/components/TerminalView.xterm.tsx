@@ -354,8 +354,29 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
       });
 
-      // Helper: send image data over the current WebSocket
-      const sendImageToWs = (base64: string, mime: string) => {
+      // 25 MB cap per file — WS frames larger than this regularly choke the
+      // browser and the hub forwarder. Drag-drop a bigger file: we skip it
+      // and surface a console.warn so the user knows why it didn't land.
+      const MAX_DROP_BYTES = 25 * 1024 * 1024;
+
+      // Keep filenames in the basename-shape the machine side expects —
+      // /tmp/<filename> is a naive join that doesn't defend against ../
+      // traversal. Client-side sanitisation keeps the blast radius small;
+      // hardening the machine is tracked separately.
+      const safeFilename = (name: string, fallbackExt = "") => {
+        const base = (name || "").split(/[/\\]/).pop() || "";
+        const stripped = base.replace(/^\.+/, "").replace(/[\x00-\x1f]/g, "");
+        if (stripped) return stripped;
+        return `tc-paste-${Date.now()}${fallbackExt}`;
+      };
+
+      // Helper: send file bytes over the current WebSocket. Reuses the
+      // existing `image_paste` wire type — the machine handler decodes,
+      // writes to /tmp/<filename>, and injects the path via bracketed
+      // paste, which is exactly the flow we want for both clipboard
+      // images and dragged-in files (Claude Code and Codex both accept
+      // file paths pasted into their input).
+      const sendFileToWs = (base64: string, mime: string, filename: string) => {
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(
@@ -363,7 +384,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
               type: "image_paste",
               data: base64,
               mime,
-              filename: `tc-paste-${Date.now()}.png`,
+              filename,
             }),
           );
         }
@@ -413,7 +434,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
                   const reader = new FileReader();
                   reader.onload = () => {
                     const base64 = (reader.result as string).split(",")[1];
-                    sendImageToWs(base64, imageType);
+                    const ext = imageType.split("/")[1] || "png";
+                    sendFileToWs(
+                      base64,
+                      imageType,
+                      `tc-paste-${Date.now()}.${ext}`,
+                    );
                   };
                   reader.readAsDataURL(blob);
                   return;
@@ -449,7 +475,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             const reader = new FileReader();
             reader.onload = () => {
               const base64 = (reader.result as string).split(",")[1];
-              sendImageToWs(base64, item.type);
+              const ext = item.type.split("/")[1] || "png";
+              sendFileToWs(
+                base64,
+                item.type,
+                safeFilename(blob.name, `.${ext}`),
+              );
             };
             reader.readAsDataURL(blob);
             return;
@@ -457,6 +488,44 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
       };
       container.addEventListener("paste", handlePaste);
+
+      // Drag-and-drop file upload. Dropped files go through the same
+      // image-paste pipeline on the machine side (save to /tmp, inject
+      // the path as a bracketed paste into the PTY), which works for any
+      // file type: Claude Code and Codex both accept a pasted path and
+      // figure out whether it's an image / PDF / text themselves.
+      const handleDragOver = (e: DragEvent) => {
+        if (!e.dataTransfer?.types.includes("Files")) return;
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      const handleDrop = (e: DragEvent) => {
+        const files = e.dataTransfer?.files;
+        if (!files || files.length === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        for (const file of Array.from(files)) {
+          if (file.size > MAX_DROP_BYTES) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[webmux] skipping ${file.name}: ${file.size} bytes exceeds ${MAX_DROP_BYTES}`,
+            );
+            continue;
+          }
+          const reader = new FileReader();
+          reader.onload = () => {
+            const base64 = (reader.result as string).split(",")[1];
+            sendFileToWs(
+              base64,
+              file.type || "application/octet-stream",
+              safeFilename(file.name),
+            );
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+      container.addEventListener("dragover", handleDragOver);
+      container.addEventListener("drop", handleDrop);
 
       // Suppress the browser default context menu on the terminal — the custom
       // context menu is rendered by Canvas.web.tsx via an onContextMenu handler
@@ -521,6 +590,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           measureRafRef.current = null;
         }
         container.removeEventListener("paste", handlePaste);
+        container.removeEventListener("dragover", handleDragOver);
+        container.removeEventListener("drop", handleDrop);
         container.removeEventListener("contextmenu", handleContextMenu);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
