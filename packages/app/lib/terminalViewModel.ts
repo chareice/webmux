@@ -71,6 +71,25 @@ export function getTerminalViewportLayout({
   };
 }
 
+/**
+ * Estimate cols/rows for a *new* terminal from a pixel viewport before any
+ * xterm instance exists to measure. Uses the default font metrics
+ * (monospace 14px) so the server creates the tmux session close to the
+ * size it will actually be shown at — the alternative (hardcoded 80x24)
+ * makes TUIs like Claude Code draw their welcome banner narrow, which
+ * SIGWINCH on later resize can't repaint.
+ */
+export function estimateInitialTerminalDimensions(
+  viewportWidthPx: number,
+  viewportHeightPx: number,
+): { cols: number; rows: number } {
+  const CELL_W = 8.5;
+  const CELL_H = 17;
+  const cols = Math.max(80, Math.min(400, Math.floor(viewportWidthPx / CELL_W)));
+  const rows = Math.max(24, Math.min(200, Math.floor(viewportHeightPx / CELL_H)));
+  return { cols, rows };
+}
+
 export function getTerminalFitDimensions({
   viewportWidth,
   viewportHeight,

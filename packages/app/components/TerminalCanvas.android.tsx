@@ -6,6 +6,7 @@ import {
   StyleSheet,
   BackHandler,
   StatusBar,
+  Dimensions,
 } from "react-native";
 import type { MachineInfo, TerminalInfo } from "@webmux/shared";
 import { Canvas } from "./Canvas.android";
@@ -16,6 +17,7 @@ import {
   getBootstrap,
   requestControl,
 } from "@/lib/api";
+import { estimateInitialTerminalDimensions } from "@/lib/terminalViewModel";
 import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,
@@ -160,7 +162,9 @@ export function TerminalCanvas() {
   const handleCreateTerminal = useCallback(
     async (machineId: string, cwd: string) => {
       if (!deviceId || !isMachineController(machineId)) return;
-      await createTerminal(machineId, cwd, deviceId);
+      const { width, height } = Dimensions.get("window");
+      const { cols, rows } = estimateInitialTerminalDimensions(width, height);
+      await createTerminal(machineId, cwd, deviceId, undefined, cols, rows);
       setSidebarOpen(false);
     },
     [deviceId, isMachineController],
