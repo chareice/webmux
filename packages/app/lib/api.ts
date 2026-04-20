@@ -62,11 +62,15 @@ export const createTerminal = (
   cwd: string,
   deviceId?: string,
   startupCommand?: string,
+  cols?: number,
+  rows?: number,
 ) =>
   request<TerminalInfo>("POST", `/api/machines/${machineId}/terminals`, {
     cwd,
     device_id: deviceId,
     ...(startupCommand ? { startup_command: startupCommand } : {}),
+    ...(cols !== undefined ? { cols } : {}),
+    ...(rows !== undefined ? { rows } : {}),
   });
 export const destroyTerminal = (
   machineId: string,

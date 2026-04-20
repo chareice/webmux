@@ -28,6 +28,7 @@ import {
   requestControl,
   releaseControl,
 } from "@/lib/api";
+import { estimateInitialTerminalDimensions } from "@/lib/terminalViewModel";
 import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,
@@ -397,11 +398,22 @@ export function TerminalCanvas() {
     async (machineId: string, cwd: string, startupCommand?: string) => {
       if (!deviceId) return;
       if (!isMachineController(machineId)) return;
+      // Estimate initial cols/rows from the current viewport so the tmux
+      // session is born at roughly the size it will be displayed at.
+      // Without this the server defaults to 80x24 and TUIs (notably Claude
+      // Code / Ink) paint their welcome banner narrow; SIGWINCH on the
+      // subsequent auto-fit can't repaint that static content.
+      const { cols, rows } = estimateInitialTerminalDimensions(
+        window.innerWidth,
+        window.innerHeight,
+      );
       const newTerminal = await createTerminal(
         machineId,
         cwd,
         deviceId,
         startupCommand,
+        cols,
+        rows,
       );
       const match = bookmarks.find(
         (b) => b.machine_id === machineId && b.path === cwd,
