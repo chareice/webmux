@@ -445,7 +445,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         } catch {
           /* ignore */
         }
-      }, 200);
+      }, 500);
 
       return () => window.clearTimeout(timerId);
     }, [

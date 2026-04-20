@@ -443,6 +443,13 @@ async fn handle_hub_message(
             // Together with `window-size manual` in tmux.conf this is the
             // single source of truth for window sizing.
             if let Some(session_id) = attach_mgr.session_of(&attach_id).await {
+                tracing::info!(
+                    attach_id = %attach_id,
+                    session_id = %session_id,
+                    cols,
+                    rows,
+                    "AttachResize: resizing tmux window"
+                );
                 tmux_resize_window(&session_id, cols, rows);
                 let _ = send_tx
                     .send(OutboundHubMessage::Json(MachineToHub::TerminalResized {
