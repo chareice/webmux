@@ -677,10 +677,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     }, [displayMode, scheduleMeasure]);
 
     // Auto-fit terminal whenever the controller's viewport changes, debounced
-    // 200ms. Replaces the previous create-time-only behaviour and the manual
+    // 500ms. Replaces the previous create-time-only behaviour and the manual
     // "Fit to Window" button — controllers now expect the terminal to track
     // their window size continuously. Non-controllers never reach this path
     // (canResizeTerminal is false).
+    //
+    // The debounce used to be 200ms; bumped to 500ms to reduce the chance
+    // that a resize event interleaves with a TUI's (Claude Code / Ink) mid-
+    // frame render, which desyncs Ink's shadow buffer and shows scattered
+    // glyphs from the in-flight line.
     useEffect(() => {
       if (displayMode !== "immersive" || !canResizeTerminal) return;
 
@@ -713,13 +718,23 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           // No-op if the fit didn't actually change cols/rows. Avoids spamming
           // resize messages on small viewport jitter (sub-cell pixel changes).
           if (nextDims.cols === cols && nextDims.rows === rows) return;
+          if (
+            typeof localStorage !== "undefined" &&
+            localStorage.getItem("webmux:diag") === "1"
+          ) {
+            // Diagnostic: enable via `localStorage.setItem('webmux:diag','1')`
+            // to correlate resize events with observed render artifacts.
+            console.log(
+              `[webmux-diag] autofit resize ${cols}x${rows} -> ${nextDims.cols}x${nextDims.rows} @ ${Date.now()}`,
+            );
+          }
           const resizeMessage = buildResizeMessage(nextDims);
           if (!resizeMessage) return;
           liveWs.send(JSON.stringify(resizeMessage));
         } catch {
           /* ignore */
         }
-      }, 200);
+      }, 500);
 
       return () => window.clearTimeout(timerId);
     }, [
