@@ -363,6 +363,11 @@ const PREVIEW_WIDTH = 420;
 const PREVIEW_HEIGHT = 240;
 const PREVIEW_DELAY_MS = 250;
 const PREVIEW_GAP = 10;
+const PREVIEW_SCALE = 0.6;
+const PREVIEW_INNER_PCT = `${100 / PREVIEW_SCALE}%`;
+const VIEWPORT_MARGIN = 8;
+
+type PreviewPlacement = "above" | "below";
 
 function SiblingThumb({
   sibling,
@@ -373,16 +378,18 @@ function SiblingThumb({
   onDestroy,
 }: SiblingThumbProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const [hover, setHover] = useState(false);
-  const [preview, setPreview] = useState<{ top: number; left: number } | null>(
-    null,
-  );
+  const [active, setActive] = useState(false); // hover OR keyboard focus
+  const [preview, setPreview] = useState<{
+    top: number;
+    left: number;
+    placement: PreviewPlacement;
+  } | null>(null);
 
   // Delay before mounting the preview — avoids opening a WS for every thumb
   // the cursor just brushes past. The active thumb never previews (its
   // content is already the main terminal body above).
   useEffect(() => {
-    if (!hover || isActive || !sibling.reachable) {
+    if (!active || isActive || !sibling.reachable) {
       setPreview(null);
       return;
     }
@@ -391,122 +398,165 @@ function SiblingThumb({
       if (!node) return;
       const rect = node.getBoundingClientRect();
       const vw = window.innerWidth;
-      let left = rect.left + rect.width / 2;
-      // Keep within viewport horizontally (with 8px margin).
+      const vh = window.innerHeight;
+
+      // Horizontal: centered on the thumb, clamped to the viewport.
       const half = PREVIEW_WIDTH / 2;
-      if (left - half < 8) left = half + 8;
-      if (left + half > vw - 8) left = vw - half - 8;
-      setPreview({ top: rect.top - PREVIEW_GAP, left });
+      let left = rect.left + rect.width / 2;
+      if (left - half < VIEWPORT_MARGIN) left = half + VIEWPORT_MARGIN;
+      if (left + half > vw - VIEWPORT_MARGIN)
+        left = vw - half - VIEWPORT_MARGIN;
+
+      // Vertical: prefer above the thumb, flip below if there isn't room.
+      const spaceAbove = rect.top;
+      const spaceBelow = vh - rect.bottom;
+      const needed = PREVIEW_HEIGHT + PREVIEW_GAP + VIEWPORT_MARGIN;
+      const placement: PreviewPlacement =
+        spaceAbove >= needed || spaceAbove >= spaceBelow ? "above" : "below";
+
+      // Anchor the top edge of the preview so it stays on-screen after the
+      // CSS transform positions it relative to `placement`.
+      let top: number;
+      if (placement === "above") {
+        top = rect.top - PREVIEW_GAP - PREVIEW_HEIGHT;
+        if (top < VIEWPORT_MARGIN) top = VIEWPORT_MARGIN;
+      } else {
+        top = rect.bottom + PREVIEW_GAP;
+        if (top + PREVIEW_HEIGHT > vh - VIEWPORT_MARGIN)
+          top = vh - VIEWPORT_MARGIN - PREVIEW_HEIGHT;
+      }
+
+      setPreview({ top, left, placement });
     }, PREVIEW_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [hover, isActive, sibling.reachable]);
+  }, [active, isActive, sibling.reachable]);
 
   const previewWsUrl =
     preview && sibling.reachable
       ? terminalWsUrl(sibling.machine_id, sibling.id, deviceId)
       : null;
 
+  const switchLabel = `Switch to terminal ${sibling.title || sibling.id.slice(0, 8)}`;
+
   return (
     <div
       ref={ref}
-      data-testid={`expanded-thumb-${sibling.id}`}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onClick={() => onPick(sibling.id)}
+      onMouseEnter={() => setActive(true)}
+      onMouseLeave={() => setActive(false)}
       style={{
         flexShrink: 0,
         width: 140,
         height: 56,
-        border: isActive
-          ? `1px solid ${colorAlpha.accentLine}`
-          : `1px solid ${colors.lineSoft}`,
-        background: isActive ? colors.bg2 : colors.bg1,
-        borderRadius: 7,
-        padding: 6,
-        textAlign: "left",
-        color: isActive ? colors.fg0 : colors.fg2,
-        overflow: "hidden",
         position: "relative",
-        outline: isActive ? `2px solid ${colors.accent}` : "none",
-        outlineOffset: -1,
-        cursor: "pointer",
       }}
     >
-      <div
+      <button
+        type="button"
+        data-testid={`expanded-thumb-${sibling.id}`}
+        onClick={() => onPick(sibling.id)}
+        onFocus={() => setActive(true)}
+        onBlur={() => setActive(false)}
+        aria-label={switchLabel}
+        title={switchLabel}
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 5,
-          marginBottom: 3,
+          width: "100%",
+          height: "100%",
+          border: isActive
+            ? `1px solid ${colorAlpha.accentLine}`
+            : `1px solid ${colors.lineSoft}`,
+          background: isActive ? colors.bg2 : colors.bg1,
+          borderRadius: 7,
+          padding: 6,
+          textAlign: "left",
+          color: isActive ? colors.fg0 : colors.fg2,
+          overflow: "hidden",
+          outline: isActive ? `2px solid ${colors.accent}` : "none",
+          outlineOffset: -1,
+          cursor: "pointer",
+          fontFamily: "inherit",
         }}
       >
-        <span
+        <div
           style={{
-            width: 5,
-            height: 5,
-            borderRadius: 999,
-            background: tintForId(sibling.id),
-            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            marginBottom: 3,
           }}
-        />
-        <span
+        >
+          <span
+            style={{
+              width: 5,
+              height: 5,
+              borderRadius: 999,
+              background: tintForId(sibling.id),
+              flexShrink: 0,
+            }}
+          />
+          <span
+            style={{
+              fontSize: 10.5,
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minWidth: 0,
+              flex: 1,
+            }}
+          >
+            {sibling.title || sibling.id.slice(0, 8)}
+          </span>
+        </div>
+        <div
           style={{
-            fontSize: 10.5,
-            fontWeight: 600,
+            fontFamily: "var(--font-mono)",
+            fontSize: 9.5,
+            color: colors.fg3,
+            lineHeight: 1.35,
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            minWidth: 0,
-            flex: 1,
           }}
         >
-          {sibling.title || sibling.id.slice(0, 8)}
-        </span>
-      </div>
-      <div
+          {shortenHome(sibling.cwd)}
+        </div>
+      </button>
+      <button
+        type="button"
+        data-testid={`expanded-thumb-close-${sibling.id}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!isController) return;
+          onDestroy(sibling);
+        }}
+        onFocus={() => setActive(true)}
+        onBlur={() => setActive(false)}
+        disabled={!isController}
+        tabIndex={active ? 0 : -1}
+        title={isController ? "Close terminal" : "View only — cannot close"}
+        aria-label={isController ? "Close terminal" : "View only — cannot close"}
         style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: 9.5,
-          color: colors.fg3,
-          lineHeight: 1.35,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
+          position: "absolute",
+          top: 3,
+          right: 3,
+          width: 18,
+          height: 18,
+          borderRadius: 4,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: colors.bg2,
+          border: `1px solid ${colors.lineSoft}`,
+          color: isController ? colors.fg1 : colors.fg3,
+          cursor: isController ? "pointer" : "not-allowed",
+          padding: 0,
+          opacity: active ? 1 : 0,
+          pointerEvents: active ? "auto" : "none",
+          transition: "opacity 120ms",
         }}
       >
-        {shortenHome(sibling.cwd)}
-      </div>
-      {hover && (
-        <button
-          data-testid={`expanded-thumb-close-${sibling.id}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!isController) return;
-            onDestroy(sibling);
-          }}
-          disabled={!isController}
-          title={isController ? "Close terminal" : "View only — cannot close"}
-          aria-label={isController ? "Close terminal" : "View only — cannot close"}
-          style={{
-            position: "absolute",
-            top: 3,
-            right: 3,
-            width: 18,
-            height: 18,
-            borderRadius: 4,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: colors.bg2,
-            border: `1px solid ${colors.lineSoft}`,
-            color: isController ? colors.fg1 : colors.fg3,
-            cursor: isController ? "pointer" : "not-allowed",
-            padding: 0,
-          }}
-        >
-          <X size={11} />
-        </button>
-      )}
+        <X size={11} />
+      </button>
       {preview &&
         previewWsUrl &&
         typeof document !== "undefined" &&
@@ -519,7 +569,7 @@ function SiblingThumb({
               left: preview.left,
               width: PREVIEW_WIDTH,
               height: PREVIEW_HEIGHT,
-              transform: "translate(-50%, -100%)",
+              transform: "translateX(-50%)",
               background: terminalTheme.background,
               border: `1px solid ${colors.line}`,
               borderRadius: 10,
@@ -549,10 +599,10 @@ function SiblingThumb({
                   isController={false}
                   canResizeTerminal={false}
                   style={{
-                    transform: "scale(0.6)",
+                    transform: `scale(${PREVIEW_SCALE})`,
                     transformOrigin: "top left",
-                    width: "166.7%",
-                    height: "166.7%",
+                    width: PREVIEW_INNER_PCT,
+                    height: PREVIEW_INNER_PCT,
                   }}
                 />
               </div>
