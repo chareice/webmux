@@ -1,10 +1,9 @@
 **/target
 node_modules/
-packages/app/dist/
+packages/*/dist/
 packages/app/.expo/
 packages/app/android/
 packages/app/ios/
-packages/shared/dist/
 client/node_modules/
 client/dist/
 *.db
@@ -13,3 +12,4 @@ client/dist/
 .env
 *.tsbuildinfo
 .superpowers/
+.claude/
