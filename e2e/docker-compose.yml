@@ -27,6 +27,12 @@ services:
     build:
       context: ..
       dockerfile: e2e/Dockerfile.node
+    environment:
+      WEBMUX_ZELLIJ_PUBLIC_BASE_URL: "https://node:8443"
+      WEBMUX_ZELLIJ_LISTEN_IP: "0.0.0.0"
+      WEBMUX_ZELLIJ_PORT: "8443"
+      WEBMUX_ZELLIJ_CERT: "/etc/webmux/zellij-node.crt"
+      WEBMUX_ZELLIJ_KEY: "/etc/webmux/zellij-node.key"
     command:
       - webmux-node
       - start

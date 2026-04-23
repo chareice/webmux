@@ -33,3 +33,6 @@ thiserror.workspace = true
 chrono.workspace = true
 http.workspace = true
 bytes.workspace = true
+tokio-tungstenite.workspace = true
+rustls = "0.23"
+urlencoding = "2"

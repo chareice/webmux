@@ -1,3 +1,6 @@
+FROM rust:bookworm AS zellij-builder
+RUN cargo install --locked zellij --version 0.44.1 --root /tmp/zellij-install
+
 FROM rust:bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
@@ -7,5 +10,8 @@ RUN cargo build --release --bin webmux-node
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates bash coreutils tmux && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/webmux-node /usr/local/bin/
+COPY --from=zellij-builder /tmp/zellij-install/bin/zellij /usr/local/bin/
+COPY e2e/certs/zellij-node.crt /etc/webmux/zellij-node.crt
+COPY e2e/certs/zellij-node.key /etc/webmux/zellij-node.key
 
 CMD ["webmux-node"]

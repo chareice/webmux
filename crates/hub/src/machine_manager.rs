@@ -41,6 +41,9 @@ pub enum PendingResult {
         has_foreground_process: bool,
         process_name: Option<String>,
     },
+    NativeZellijStatus {
+        status: tc_protocol::NativeZellijStatus,
+    },
 }
 
 pub struct EventSubscription {
@@ -67,6 +70,8 @@ struct MachineConnection {
     pub terminals: HashMap<String, TerminalInfo>,
     /// Latest resource stats from this machine
     pub latest_stats: Option<tc_protocol::ResourceStats>,
+    /// Latest Native Zellij bootstrap status returned by the machine
+    pub native_zellij_status: Option<tc_protocol::NativeZellijStatus>,
 }
 
 pub struct MachineManager {
@@ -162,6 +167,7 @@ impl MachineManager {
             cmd_tx,
             terminals: HashMap::new(),
             latest_stats: None,
+            native_zellij_status: None,
         };
 
         self.machines.lock().await.insert(machine_id, conn);
@@ -454,6 +460,76 @@ impl MachineManager {
             } => Ok((has_foreground_process, process_name)),
             _ => Err("Unexpected response".to_string()),
         }
+    }
+
+    pub async fn ensure_native_zellij(
+        &self,
+        machine_id: &str,
+        user_id: &str,
+    ) -> Result<tc_protocol::NativeZellijStatus, String> {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let rx = self.register_pending(&request_id).await;
+
+        let cmd_tx = {
+            let machines = self.machines.lock().await;
+            let Some(conn) = machines.get(machine_id) else {
+                drop(machines);
+                self.remove_pending(&request_id).await;
+                return Err(format!("Machine {} not found", machine_id));
+            };
+            conn.cmd_tx.clone()
+        };
+        if let Err(_error) = cmd_tx
+            .send(HubToMachine::EnsureNativeZellij {
+                request_id: request_id.clone(),
+                user_id: user_id.to_string(),
+            })
+            .await
+        {
+            self.remove_pending(&request_id).await;
+            return Err("Machine disconnected".to_string());
+        }
+
+        let result = match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => {
+                self.remove_pending(&request_id).await;
+                return Err("Machine disconnected".to_string());
+            }
+            Err(_) => {
+                self.remove_pending(&request_id).await;
+                return Err("Timeout waiting for Native Zellij bootstrap".to_string());
+            }
+        };
+
+        match result? {
+            PendingResult::NativeZellijStatus { status } => Ok(status),
+            _ => Err("Unexpected response".to_string()),
+        }
+    }
+
+    pub async fn native_zellij_status_for_user(
+        &self,
+        user_id: &str,
+        machine_id: &str,
+    ) -> Option<tc_protocol::NativeZellijStatus> {
+        self.machines
+            .lock()
+            .await
+            .get(machine_id)
+            .filter(|conn| connection_visible_to(conn, user_id))
+            .and_then(|conn| conn.native_zellij_status.clone())
+    }
+
+    pub async fn native_zellij_status(
+        &self,
+        machine_id: &str,
+    ) -> Option<tc_protocol::NativeZellijStatus> {
+        self.machines
+            .lock()
+            .await
+            .get(machine_id)
+            .and_then(|conn| conn.native_zellij_status.clone())
     }
 
     /// Send an arbitrary `HubToMachine` command to the machine. Used by the
@@ -782,6 +858,22 @@ impl MachineManager {
                         has_foreground_process,
                         process_name,
                     }));
+                }
+            }
+            MachineToHub::NativeZellijReady { request_id, status } => {
+                {
+                    let mut machines = self.machines.lock().await;
+                    if let Some(conn) = machines.get_mut(machine_id) {
+                        conn.native_zellij_status = Some(status.clone());
+                    }
+                }
+                if let Some(tx) = self.pending.lock().await.remove(&request_id) {
+                    let _ = tx.send(Ok(PendingResult::NativeZellijStatus { status }));
+                }
+            }
+            MachineToHub::NativeZellijError { request_id, error } => {
+                if let Some(tx) = self.pending.lock().await.remove(&request_id) {
+                    let _ = tx.send(Err(error));
                 }
             }
             MachineToHub::Pong => {}
@@ -1591,6 +1683,71 @@ mod tests {
 
         assert_eq!(error, "Machine disconnected");
         assert_eq!(manager.pending_count_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn ensure_native_zellij_cleans_pending_request_when_machine_is_missing() {
+        let manager = MachineManager::new(test_db());
+
+        let error = manager
+            .ensure_native_zellij("missing-machine", "user-a")
+            .await
+            .unwrap_err();
+
+        assert!(error.contains("not found"));
+        assert_eq!(manager.pending_count_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn native_zellij_ready_response_is_cached_for_proxy_followups() {
+        let manager = Arc::new(MachineManager::new(test_db()));
+
+        let (_conn_id, mut cmd_rx) = manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+
+        let manager_for_request = manager.clone();
+        let request = tokio::spawn(async move {
+            manager_for_request
+                .ensure_native_zellij("machine-a", "user-a")
+                .await
+                .unwrap()
+        });
+
+        let request_id = match cmd_rx.recv().await.unwrap() {
+            HubToMachine::EnsureNativeZellij {
+                request_id,
+                user_id,
+            } => {
+                assert_eq!(user_id, "user-a");
+                request_id
+            }
+            other => panic!("unexpected machine command: {other:?}"),
+        };
+
+        let ready = tc_protocol::NativeZellijStatus::Ready {
+            session_name: "webmux-user-aaaa".to_string(),
+            session_path: "/webmux-user-aaaa".to_string(),
+            base_url: "https://node:8443".to_string(),
+            login_token: "login-token".to_string(),
+        };
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::NativeZellijReady {
+                    request_id,
+                    status: ready.clone(),
+                },
+            )
+            .await;
+
+        assert_eq!(request.await.unwrap(), ready);
+        assert_eq!(
+            manager
+                .native_zellij_status_for_user("user-a", "machine-a")
+                .await,
+            Some(ready)
+        );
     }
 
     #[tokio::test]

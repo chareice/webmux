@@ -5,6 +5,7 @@ mod pty;
 mod service;
 mod session_watcher;
 mod stats;
+mod zellij;
 
 use std::sync::Arc;
 
@@ -293,6 +294,7 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
         machine_secret,
         hub_url: ws_url,
         pty_manager,
+        native_zellij_manager: Arc::new(zellij::NativeZellijManager::from_env()),
     };
 
     conn.run().await;
@@ -382,5 +384,16 @@ fn cmd_service_uninstall() {
             eprintln!("Failed to uninstall service: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn managed_session_name_is_stable_from_user_id() {
+        assert_eq!(
+            crate::zellij::managed_session_name("12345"),
+            "webmux-user-5994471abb01"
+        );
     }
 }

@@ -6,6 +6,7 @@ import type {
   DirEntry,
   Bookmark,
   ResourceStats,
+  NativeZellijBootstrapResponse,
 } from "@webmux/shared";
 
 import { generateDeviceId } from "./deviceIdShared";
@@ -182,6 +183,12 @@ export function releaseControlKeepalive(
 // Machine Stats
 export const getMachineStats = (machineId: string) =>
   request<ResourceStats>("GET", `/api/machines/${machineId}/stats`);
+
+export const getNativeZellijBootstrap = (machineId: string) =>
+  request<NativeZellijBootstrapResponse>(
+    "GET",
+    `/api/machines/${machineId}/native-zellij`,
+  );
 
 // Settings
 export const getSettings = () =>
