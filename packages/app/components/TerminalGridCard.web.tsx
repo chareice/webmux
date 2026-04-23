@@ -4,23 +4,16 @@
 //
 // Visual structure (top → bottom):
 //   header:  tint dot · title · short id chip · [ctrl] · expand · close
-//   body:    scaled-down live xterm preview (pointer-events disabled)
+//   body:    paused-preview placeholder (live stream only starts when opened)
 //   footer:  cwd (~-shortened) + optional workpath tag
 //
 // Click anywhere on the card → onExpand(terminal.id). The close button
 // stops propagation so it doesn't also expand.
 
-import { lazy, memo, Suspense, useState } from "react";
+import { memo, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { Expand, MoreHorizontal, X } from "lucide-react";
-import { terminalWsUrl } from "@/lib/api";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
-
-const LiveTerminalView = lazy(() =>
-  import("./TerminalView.web").then((module) => ({
-    default: module.TerminalView,
-  })),
-);
 
 interface TerminalGridCardProps {
   terminal: TerminalInfo;
@@ -35,7 +28,6 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
   const {
     terminal,
     isController,
-    deviceId,
     workpathLabel,
     onExpand,
     onDestroy,
@@ -43,9 +35,6 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
   const [hover, setHover] = useState(false);
   const short = terminal.id.slice(0, 8);
   const tintColor = tintForId(terminal.id);
-  const wsUrl = terminal.reachable
-    ? terminalWsUrl(terminal.machine_id, terminal.id, deviceId)
-    : null;
 
   return (
     <div
@@ -188,7 +177,7 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
         </div>
       </div>
 
-      {/* Body — scaled-down live preview */}
+      {/* Body — paused preview placeholder */}
       <div
         style={{
           flex: 1,
@@ -196,36 +185,30 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
           background: terminalTheme.background,
           position: "relative",
           overflow: "hidden",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
-        {terminal.reachable && wsUrl && (
-          <Suspense fallback={null}>
-            <div
-              style={{
-                width: "100%",
-                height: "100%",
-                pointerEvents: "none",
-                overflow: "hidden",
-              }}
-            >
-              <LiveTerminalView
-                machineId={terminal.machine_id}
-                terminalId={terminal.id}
-                wsUrl={wsUrl}
-                cols={terminal.cols}
-                rows={terminal.rows}
-                displayMode="card"
-                isController={isController}
-                canResizeTerminal={false}
-                style={{
-                  transform: "scale(0.35)",
-                  transformOrigin: "top left",
-                  width: "286%",
-                  height: "286%",
-                }}
-              />
-            </div>
-          </Suspense>
+        {terminal.reachable && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 6,
+              padding: "0 20px",
+              textAlign: "center",
+              color: colors.fg3,
+            }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 600 }}>
+              Live preview paused
+            </span>
+            <span style={{ fontSize: 11 }}>
+              Open this terminal to resume streaming.
+            </span>
+          </div>
         )}
         <div
           style={{
