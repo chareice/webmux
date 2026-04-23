@@ -16,6 +16,7 @@ services:
       WEBMUX_DEV_MODE: "true"
       JWT_SECRET: "e2e-test-secret"
       WEBMUX_BASE_URL: "http://localhost:4317"
+      WEBMUX_ZELLIJ_CA_CERT: "/usr/local/share/ca-certificates/zellij-ca.crt"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4317/api/auth/dev || exit 1"]
       interval: 3s
@@ -27,6 +28,12 @@ services:
     build:
       context: ..
       dockerfile: e2e/Dockerfile.node
+    environment:
+      WEBMUX_ZELLIJ_PUBLIC_BASE_URL: "https://node:8443"
+      WEBMUX_ZELLIJ_LISTEN_IP: "0.0.0.0"
+      WEBMUX_ZELLIJ_PORT: "8443"
+      WEBMUX_ZELLIJ_CERT: "/etc/webmux/zellij-node.crt"
+      WEBMUX_ZELLIJ_KEY: "/etc/webmux/zellij-node.key"
     command:
       - webmux-node
       - start

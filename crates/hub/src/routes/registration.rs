@@ -184,6 +184,8 @@ mod tests {
             jwt_secret: "test-secret".to_string(),
             base_url: "http://localhost:4317".to_string(),
             dev_mode: false,
+            native_zellij_allow_insecure_tls: false,
+            native_zellij_ca_cert_pem: None,
             github_client_id: None,
             github_client_secret: None,
             google_client_id: None,

@@ -23,6 +23,7 @@ import {
   Plus,
   Search,
   Settings,
+  Terminal,
   X,
 } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
@@ -47,6 +48,7 @@ interface RailProps {
   onCloseAddDirectory: () => void;
   onConfirmAddDirectory: (machineId: string, path: string) => void;
   onRemoveBookmark: (bookmarkId: string) => void;
+  onOpenNativeZellij: (machineId: string) => void;
   onOpenSettings: () => void;
   onCollapse?: () => void;
 }
@@ -70,6 +72,7 @@ function RailComponent(props: RailProps) {
     onCloseAddDirectory,
     onConfirmAddDirectory,
     onRemoveBookmark,
+    onOpenNativeZellij,
     onOpenSettings,
     onCollapse,
   } = props;
@@ -236,6 +239,14 @@ function RailComponent(props: RailProps) {
           />
         </div>
 
+        {activeMachine && (
+          <div style={{ marginBottom: 6 }}>
+            <NativeZellijRow
+              onClick={() => onOpenNativeZellij(activeMachine.id)}
+            />
+          </div>
+        )}
+
         {machineBookmarks.length > 0 && (
           <SectionLabel>Workpaths · {machineBookmarks.length}</SectionLabel>
         )}
@@ -334,6 +345,80 @@ function RailComponent(props: RailProps) {
 }
 
 export const Rail = memo(RailComponent);
+
+function NativeZellijRow({ onClick }: { onClick: () => void }) {
+  const [hover, setHover] = useState(false);
+
+  return (
+    <button
+      type="button"
+      data-testid="rail-native-zellij"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        width: "100%",
+        textAlign: "left",
+        padding: "10px 12px",
+        borderRadius: 10,
+        background: hover ? colors.bg1 : colorAlpha.accentSoft,
+        border: `1px solid ${hover ? colors.line : colorAlpha.accentBorder}`,
+        color: colors.fg0,
+        cursor: "pointer",
+      }}
+    >
+      <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <span
+          style={{
+            width: 26,
+            height: 26,
+            borderRadius: 8,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: colors.bg0,
+            border: `1px solid ${colors.lineSoft}`,
+            color: colors.accent,
+          }}
+        >
+          <Terminal size={13} />
+        </span>
+        <span style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Native Zellij</div>
+          <div
+            style={{
+              fontSize: 10.5,
+              color: colors.fg3,
+              marginTop: 2,
+            }}
+          >
+            Open the managed browser session
+          </div>
+        </span>
+      </span>
+      <span
+        style={{
+          padding: "3px 7px",
+          borderRadius: 999,
+          background: colors.bg0,
+          border: `1px solid ${colors.lineSoft}`,
+          color: colors.fg2,
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          flexShrink: 0,
+        }}
+      >
+        Beta
+      </span>
+    </button>
+  );
+}
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (

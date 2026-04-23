@@ -33,3 +33,7 @@ thiserror.workspace = true
 chrono.workspace = true
 http.workspace = true
 bytes.workspace = true
+tokio-tungstenite.workspace = true
+rustls = "0.23"
+rustls-pemfile = "2"
+urlencoding = "2"

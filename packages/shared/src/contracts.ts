@@ -54,6 +54,36 @@ export interface ResourceStats {
   disks: DiskInfo[]
 }
 
+export type NativeZellijUnavailableReason =
+  | "missing_binary"
+  | "public_base_url_missing"
+  | "missing_tls_config"
+  | "web_client_unavailable"
+  | "web_server_start_failed"
+
+export interface NativeZellijReadyStatus {
+  status: "ready"
+  session_name: string
+  session_path: string
+  base_url: string
+  login_token: string
+}
+
+export interface NativeZellijUnavailableStatus {
+  status: "unavailable"
+  reason: NativeZellijUnavailableReason
+  instructions: string
+}
+
+export type NativeZellijStatus =
+  | NativeZellijReadyStatus
+  | NativeZellijUnavailableStatus
+
+export interface NativeZellijBootstrapResponse {
+  status: NativeZellijStatus
+  proxy_url: string | null
+}
+
 // ── Hub → Machine messages (discriminated union on "type") ──
 
 export type HubToMachine =

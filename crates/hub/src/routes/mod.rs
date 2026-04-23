@@ -3,6 +3,7 @@ mod auth;
 mod bookmarks;
 mod bootstrap;
 mod mode;
+mod native_zellij;
 mod registration;
 mod settings;
 mod terminals;
@@ -20,5 +21,6 @@ pub fn router() -> Router<AppState> {
         .merge(bookmarks::router())
         .merge(api_tokens::router())
         .merge(mode::router())
+        .merge(native_zellij::router())
         .merge(settings::router())
 }

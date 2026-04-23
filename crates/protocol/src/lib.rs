@@ -66,6 +66,31 @@ pub struct ControlLeaseSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum NativeZellijStatus {
+    Ready {
+        session_name: String,
+        session_path: String,
+        base_url: String,
+        login_token: String,
+    },
+    Unavailable {
+        reason: NativeZellijUnavailableReason,
+        instructions: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeZellijUnavailableReason {
+    MissingBinary,
+    PublicBaseUrlMissing,
+    MissingTlsConfig,
+    WebClientUnavailable,
+    WebServerStartFailed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BrowserStateSnapshot {
     pub snapshot_seq: u64,
     pub machines: Vec<MachineInfo>,
@@ -123,6 +148,8 @@ pub enum HubToMachine {
         mime: String,
         filename: String,
     },
+    #[serde(rename = "ensure_native_zellij")]
+    EnsureNativeZellij { request_id: String, user_id: String },
     #[serde(rename = "ping")]
     Ping,
 }
@@ -180,6 +207,13 @@ pub enum MachineToHub {
         cols: u16,
         rows: u16,
     },
+    #[serde(rename = "native_zellij_ready")]
+    NativeZellijReady {
+        request_id: String,
+        status: NativeZellijStatus,
+    },
+    #[serde(rename = "native_zellij_error")]
+    NativeZellijError { request_id: String, error: String },
     #[serde(rename = "pong")]
     Pong,
 }
@@ -253,7 +287,10 @@ pub fn decode_attach_output_frame(frame: &[u8]) -> Result<(String, Bytes), Strin
         return Err("frame is empty".to_string());
     }
     if frame[0] != ATTACH_FRAME_MAGIC {
-        return Err(format!("frame magic is 0x{:02x}, expected attach", frame[0]));
+        return Err(format!(
+            "frame magic is 0x{:02x}, expected attach",
+            frame[0]
+        ));
     }
     let body = &frame[1..];
     if body.len() < 2 {
@@ -266,12 +303,18 @@ pub fn decode_attach_output_frame(frame: &[u8]) -> Result<(String, Bytes), Strin
     let attach_id = std::str::from_utf8(&body[2..2 + attach_id_len])
         .map_err(|error| format!("attach id is not valid utf-8: {error}"))?
         .to_string();
-    Ok((attach_id, Bytes::copy_from_slice(&body[2 + attach_id_len..])))
+    Ok((
+        attach_id,
+        Bytes::copy_from_slice(&body[2 + attach_id_len..]),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_attach_output_frame, encode_attach_output_frame};
+    use super::{
+        decode_attach_output_frame, encode_attach_output_frame, NativeZellijStatus,
+        NativeZellijUnavailableReason,
+    };
 
     #[test]
     fn attach_output_frame_round_trips_without_loss() {
@@ -293,5 +336,16 @@ mod tests {
         // A frame starting with anything other than 0x01 isn't ours.
         let bad = [0xff_u8, 0, 4, b't', b'e', b's', b't'];
         assert!(decode_attach_output_frame(&bad).is_err());
+    }
+
+    #[test]
+    fn native_zellij_status_serializes_missing_binary_reason() {
+        let status = NativeZellijStatus::Unavailable {
+            reason: NativeZellijUnavailableReason::MissingBinary,
+            instructions: "Install zellij".to_string(),
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("\"status\":\"unavailable\""));
+        assert!(json.contains("\"reason\":\"missing_binary\""));
     }
 }

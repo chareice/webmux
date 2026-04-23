@@ -47,6 +47,7 @@ import {
   storePendingControlRelease,
   takePendingControlRelease,
 } from "@/lib/unloadControlRelease";
+import { nativeZellijRoute } from "@/lib/nativeZellij";
 
 const OnboardingView = lazy(() =>
   import("./OnboardingView.web").then((module) => ({
@@ -140,6 +141,10 @@ export function TerminalCanvas() {
   const isActiveController = activeMachineId
     ? isMachineController(activeMachineId)
     : false;
+
+  const openNativeZellij = useCallback((machineId: string) => {
+    window.location.href = nativeZellijRoute(machineId);
+  }, []);
 
   const statusBarVisible = useStatusBarPref();
 
@@ -722,6 +727,7 @@ export function TerminalCanvas() {
                 onCloseAddDirectory={() => setAddDirectoryOpen(false)}
                 onConfirmAddDirectory={handleConfirmAddDirectory}
                 onRemoveBookmark={handleRemoveBookmark}
+                onOpenNativeZellij={openNativeZellij}
                 onOpenSettings={() => setShowSettings(true)}
                 onCollapse={() => setRailOpen(false)}
               />
