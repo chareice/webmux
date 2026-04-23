@@ -196,7 +196,12 @@ impl PtyManager {
     /// Check if a terminal has a foreground process running (not just a shell).
     /// Returns (has_foreground_process, process_name).
     pub fn check_foreground_process(&self, id: &str) -> (bool, Option<String>) {
-        if !self.sessions.lock().map(|s| s.contains_key(id)).unwrap_or(false) {
+        if !self
+            .sessions
+            .lock()
+            .map(|s| s.contains_key(id))
+            .unwrap_or(false)
+        {
             return (false, None);
         }
 
@@ -229,12 +234,7 @@ impl PtyManager {
     }
 
     pub fn list_terminals(&self) -> Vec<SessionInfo> {
-        self.sessions
-            .lock()
-            .unwrap()
-            .values()
-            .cloned()
-            .collect()
+        self.sessions.lock().unwrap().values().cloned().collect()
     }
 
     /// Cheap "is this id still alive on the machine" check used by the

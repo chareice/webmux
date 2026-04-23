@@ -88,11 +88,15 @@ fn stats_changed_enough(previous: &ResourceStats, next: &ResourceStats) -> bool 
         return true;
     }
 
-    previous.disks.iter().zip(next.disks.iter()).any(|(left, right)| {
-        left.mount_point != right.mount_point
-            || left.total_bytes != right.total_bytes
-            || left.used_bytes.abs_diff(right.used_bytes) >= 128 * 1024 * 1024
-    })
+    previous
+        .disks
+        .iter()
+        .zip(next.disks.iter())
+        .any(|(left, right)| {
+            left.mount_point != right.mount_point
+                || left.total_bytes != right.total_bytes
+                || left.used_bytes.abs_diff(right.used_bytes) >= 128 * 1024 * 1024
+        })
 }
 
 #[cfg(test)]

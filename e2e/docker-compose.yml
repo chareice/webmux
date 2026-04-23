@@ -16,6 +16,7 @@ services:
       WEBMUX_DEV_MODE: "true"
       JWT_SECRET: "e2e-test-secret"
       WEBMUX_BASE_URL: "http://localhost:4317"
+      WEBMUX_ZELLIJ_CA_CERT: "/usr/local/share/ca-certificates/zellij-ca.crt"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4317/api/auth/dev || exit 1"]
       interval: 3s

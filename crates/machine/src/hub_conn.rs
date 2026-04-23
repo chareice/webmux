@@ -109,11 +109,8 @@ impl HubConnection {
         // Start the session watcher so terminals that die while no browser
         // is attached still get reported back to the hub.
         let (deaths_tx, mut deaths_rx) = mpsc::unbounded_channel();
-        let _watcher = SessionWatcher::start(
-            pty.clone(),
-            deaths_tx,
-            std::time::Duration::from_secs(5),
-        );
+        let _watcher =
+            SessionWatcher::start(pty.clone(), deaths_tx, std::time::Duration::from_secs(5));
         let send_tx_for_deaths = send_tx.clone();
         tokio::spawn(async move {
             while let Some(death) = deaths_rx.recv().await {

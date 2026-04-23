@@ -19,7 +19,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/webmux-server /usr/local/bin/
 COPY --from=frontend /app/packages/app/dist /app/web
-COPY e2e/certs/zellij-node.crt /usr/local/share/ca-certificates/zellij-node.crt
+COPY e2e/.generated-certs/zellij-ca.crt /usr/local/share/ca-certificates/zellij-ca.crt
 RUN update-ca-certificates
 RUN mkdir -p /app/data
 

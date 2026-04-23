@@ -287,7 +287,10 @@ pub fn decode_attach_output_frame(frame: &[u8]) -> Result<(String, Bytes), Strin
         return Err("frame is empty".to_string());
     }
     if frame[0] != ATTACH_FRAME_MAGIC {
-        return Err(format!("frame magic is 0x{:02x}, expected attach", frame[0]));
+        return Err(format!(
+            "frame magic is 0x{:02x}, expected attach",
+            frame[0]
+        ));
     }
     let body = &frame[1..];
     if body.len() < 2 {
@@ -300,7 +303,10 @@ pub fn decode_attach_output_frame(frame: &[u8]) -> Result<(String, Bytes), Strin
     let attach_id = std::str::from_utf8(&body[2..2 + attach_id_len])
         .map_err(|error| format!("attach id is not valid utf-8: {error}"))?
         .to_string();
-    Ok((attach_id, Bytes::copy_from_slice(&body[2 + attach_id_len..])))
+    Ok((
+        attach_id,
+        Bytes::copy_from_slice(&body[2 + attach_id_len..]),
+    ))
 }
 
 #[cfg(test)]

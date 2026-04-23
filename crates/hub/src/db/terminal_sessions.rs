@@ -22,7 +22,15 @@ pub fn insert(
              cwd = excluded.cwd,
              cols = excluded.cols,
              rows = excluded.rows",
-        params![id, machine_id, title, cwd, cols as i64, rows as i64, created_at],
+        params![
+            id,
+            machine_id,
+            title,
+            cwd,
+            cols as i64,
+            rows as i64,
+            created_at
+        ],
     )?;
     Ok(())
 }

@@ -19,10 +19,15 @@ pub struct NativeZellijManager {
     port: u16,
     cert_path: Option<String>,
     key_path: Option<String>,
+    config_file: Result<PathBuf, String>,
 }
 
 impl NativeZellijManager {
     pub fn from_env() -> Self {
+        Self::from_env_with_config_root(dirs::config_dir())
+    }
+
+    fn from_env_with_config_root(config_root: Option<PathBuf>) -> Self {
         Self {
             public_base_url: std::env::var("WEBMUX_ZELLIJ_PUBLIC_BASE_URL")
                 .ok()
@@ -42,6 +47,7 @@ impl NativeZellijManager {
             key_path: std::env::var("WEBMUX_ZELLIJ_KEY")
                 .ok()
                 .filter(|value| !value.is_empty()),
+            config_file: ensure_default_config_file(config_root),
         }
     }
 
@@ -56,8 +62,8 @@ impl NativeZellijManager {
         let Some(base_url) = self.public_base_url.clone() else {
             return Ok(NativeZellijStatus::Unavailable {
                 reason: NativeZellijUnavailableReason::PublicBaseUrlMissing,
-                instructions:
-                    "Set WEBMUX_ZELLIJ_PUBLIC_BASE_URL so webmux can open Native Zellij.".into(),
+                instructions: "Set WEBMUX_ZELLIJ_PUBLIC_BASE_URL so webmux can open Native Zellij."
+                    .into(),
             });
         };
 
@@ -74,8 +80,8 @@ impl NativeZellijManager {
             Err(EnsureWebServerError::WebClientUnavailable) => {
                 return Ok(NativeZellijStatus::Unavailable {
                     reason: NativeZellijUnavailableReason::WebClientUnavailable,
-                    instructions:
-                        "Install a Zellij build with web client support on this machine.".into(),
+                    instructions: "Install a Zellij build with web client support on this machine."
+                        .into(),
                 });
             }
             Err(EnsureWebServerError::StartFailed(error)) => {
@@ -87,7 +93,7 @@ impl NativeZellijManager {
         }
 
         let session_name = managed_session_name(user_id);
-        let login_token = create_login_token().await?;
+        let login_token = self.create_login_token().await?;
 
         Ok(NativeZellijStatus::Ready {
             session_name: session_name.clone(),
@@ -102,7 +108,12 @@ impl NativeZellijManager {
     }
 
     async fn ensure_web_server_running(&self) -> Result<(), EnsureWebServerError> {
-        if probe_web_server(status_probe_url(&self.listen_ip, self.port, self.requires_tls())).await
+        if probe_web_server(status_probe_url(
+            &self.listen_ip,
+            self.port,
+            self.requires_tls(),
+        ))
+        .await
         {
             return Ok(());
         }
@@ -124,13 +135,19 @@ impl NativeZellijManager {
             args.push(key_path.clone());
         }
 
-        spawn_zellij(args)
+        self.spawn_zellij(args)
             .await
             .map_err(EnsureWebServerError::StartFailed)?;
 
-        if !wait_for_web_server(status_probe_url(&self.listen_ip, self.port, self.requires_tls())).await
+        if !wait_for_web_server(status_probe_url(
+            &self.listen_ip,
+            self.port,
+            self.requires_tls(),
+        ))
+        .await
         {
-            let status = run_zellij(["web".to_string(), "--status".to_string()])
+            let status = self
+                .run_zellij(["web".to_string(), "--status".to_string()])
                 .await
                 .unwrap_or_else(|error| CommandOutput {
                     stdout: String::new(),
@@ -168,23 +185,6 @@ async fn binary_available() -> bool {
     }
 }
 
-async fn create_login_token() -> Result<String, String> {
-    let output = run_zellij(["web".to_string(), "--create-token".to_string()]).await?;
-    if !output.is_success() {
-        return Err(format!(
-            "Failed to create Zellij login token: {}",
-            output.describe()
-        ));
-    }
-
-    parse_created_token(&output.stdout).ok_or_else(|| {
-        format!(
-            "Zellij did not print a login token in the expected format: {}",
-            output.stdout.trim()
-        )
-    })
-}
-
 #[derive(Debug)]
 struct CommandOutput {
     stdout: String,
@@ -210,55 +210,86 @@ impl CommandOutput {
     }
 }
 
-async fn run_zellij<I, S>(args: I) -> Result<CommandOutput, String>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
-    let mut command = zellij_command()?;
-    let output = command
-        .args(args)
-        .output()
-        .await
-        .map_err(|error| match error.kind() {
-            ErrorKind::NotFound => "zellij is not installed".to_string(),
-            _ => format!("Failed to run zellij: {error}"),
-        })?;
+impl NativeZellijManager {
+    async fn create_login_token(&self) -> Result<String, String> {
+        let output = self
+            .run_zellij(["web".to_string(), "--create-token".to_string()])
+            .await?;
+        if !output.is_success() {
+            return Err(format!(
+                "Failed to create Zellij login token: {}",
+                output.describe()
+            ));
+        }
 
-    Ok(CommandOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        status: output.status,
-    })
-}
-
-async fn spawn_zellij<I, S>(args: I) -> Result<(), String>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
-    let mut command = zellij_command()?;
-    command
-        .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| match error.kind() {
-            ErrorKind::NotFound => "zellij is not installed".to_string(),
-            _ => format!("Failed to start zellij: {error}"),
+        parse_created_token(&output.stdout).ok_or_else(|| {
+            format!(
+                "Zellij did not print a login token in the expected format: {}",
+                output.stdout.trim()
+            )
         })
+    }
+
+    async fn run_zellij<I, S>(&self, args: I) -> Result<CommandOutput, String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
+        let mut command = self.zellij_command()?;
+        let output = command
+            .args(args)
+            .output()
+            .await
+            .map_err(|error| match error.kind() {
+                ErrorKind::NotFound => "zellij is not installed".to_string(),
+                _ => format!("Failed to run zellij: {error}"),
+            })?;
+
+        Ok(CommandOutput {
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            status: output.status,
+        })
+    }
+
+    async fn spawn_zellij<I, S>(&self, args: I) -> Result<(), String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
+        let mut command = self.zellij_command()?;
+        command
+            .args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| match error.kind() {
+                ErrorKind::NotFound => "zellij is not installed".to_string(),
+                _ => format!("Failed to start zellij: {error}"),
+            })
+    }
+
+    fn zellij_command(&self) -> Result<Command, String> {
+        let config_file = self.config_file.clone()?;
+        let mut command = Command::new("zellij");
+        command.env("ZELLIJ_CONFIG_FILE", config_file);
+        Ok(command)
+    }
+
+    #[cfg(test)]
+    fn from_env_with_config_root_for_tests(config_root: PathBuf) -> Self {
+        Self::from_env_with_config_root(Some(config_root))
+    }
+
+    #[cfg(test)]
+    fn config_file_for_tests(&self) -> Result<PathBuf, String> {
+        self.config_file.clone()
+    }
 }
 
-fn zellij_command() -> Result<Command, String> {
-    let config_file = ensure_default_config_file()?;
-    let mut command = Command::new("zellij");
-    command.env("ZELLIJ_CONFIG_FILE", config_file);
-    Ok(command)
-}
-
-fn ensure_default_config_file() -> Result<PathBuf, String> {
-    let Some(config_dir) = dirs::config_dir() else {
+fn ensure_default_config_file(config_root: Option<PathBuf>) -> Result<PathBuf, String> {
+    let Some(config_dir) = config_root else {
         return Err("Failed to locate a config directory for Zellij.".into());
     };
     ensure_config_file_at(&config_dir)
@@ -358,12 +389,16 @@ mod tests {
 
     use super::{
         ensure_config_file_at, parse_created_token, status_probe_ip, status_probe_url,
+        NativeZellijManager,
     };
 
     #[test]
     fn parse_created_token_extracts_last_named_token() {
         let stdout = "Created token successfully\n\ntoken_7: abc-123-token";
-        assert_eq!(parse_created_token(stdout).as_deref(), Some("abc-123-token"));
+        assert_eq!(
+            parse_created_token(stdout).as_deref(),
+            Some("abc-123-token")
+        );
     }
 
     #[test]
@@ -400,9 +435,32 @@ mod tests {
 
         assert_eq!(config_file, config_root.join("zellij").join("config.kdl"));
         assert!(config_file.exists());
-        let contents = std::fs::read_to_string(&config_file).expect("config file should be readable");
+        let contents =
+            std::fs::read_to_string(&config_file).expect("config file should be readable");
         assert!(contents.contains("show_startup_tips false"));
         assert!(contents.contains("show_release_notes false"));
+
+        std::fs::remove_dir_all(&config_root).expect("temp config should be removed");
+    }
+
+    #[test]
+    fn native_zellij_manager_prepares_the_default_config_during_initialization() {
+        let unique_id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should move forward")
+            .as_nanos();
+        let config_root = std::env::temp_dir().join(format!(
+            "webmux-zellij-manager-{unique_id}-{}",
+            std::process::id()
+        ));
+
+        let manager = NativeZellijManager::from_env_with_config_root_for_tests(config_root.clone());
+
+        let config_file = manager
+            .config_file_for_tests()
+            .expect("config file should be cached");
+        assert_eq!(config_file, config_root.join("zellij").join("config.kdl"));
+        assert!(config_file.exists());
 
         std::fs::remove_dir_all(&config_root).expect("temp config should be removed");
     }

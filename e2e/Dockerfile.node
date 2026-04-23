@@ -11,7 +11,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates bash coreutils tmux && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/webmux-node /usr/local/bin/
 COPY --from=zellij-builder /tmp/zellij-install/bin/zellij /usr/local/bin/
-COPY e2e/certs/zellij-node.crt /etc/webmux/zellij-node.crt
-COPY e2e/certs/zellij-node.key /etc/webmux/zellij-node.key
+COPY e2e/.generated-certs/zellij-node.crt /etc/webmux/zellij-node.crt
+COPY e2e/.generated-certs/zellij-node.key /etc/webmux/zellij-node.key
 
 CMD ["webmux-node"]

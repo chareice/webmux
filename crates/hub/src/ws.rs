@@ -12,9 +12,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use tc_protocol::{
-    decode_attach_output_frame, BrowserEventEnvelope, HubToMachine, MachineToHub,
-};
+use tc_protocol::{decode_attach_output_frame, BrowserEventEnvelope, HubToMachine, MachineToHub};
 use tokio::sync::mpsc;
 
 use crate::attach_router::WsSender;
@@ -373,8 +371,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                                     // access to the router, so without this
                                     // step the browser WS would stay open
                                     // with no more bytes flowing into it.
-                                    if let MachineToHub::AttachDied { attach_id, .. } =
-                                        &machine_msg
+                                    if let MachineToHub::AttachDied { attach_id, .. } = &machine_msg
                                     {
                                         router.unregister(attach_id).await;
                                     }

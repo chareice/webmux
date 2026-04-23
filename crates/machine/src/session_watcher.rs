@@ -49,7 +49,9 @@ impl SessionWatcher {
                 }
             }
         });
-        Self { handle: Some(handle) }
+        Self {
+            handle: Some(handle),
+        }
     }
 }
 

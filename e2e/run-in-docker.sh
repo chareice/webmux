@@ -9,5 +9,7 @@ cleanup() {
 
 trap cleanup EXIT
 
+"$(dirname "$0")/prepare-zellij-certs.sh"
+
 "${compose[@]}" down --remove-orphans
 "${compose[@]}" up --build --abort-on-container-exit --exit-code-from runner runner

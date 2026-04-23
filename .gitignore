@@ -13,3 +13,4 @@ client/dist/
 *.tsbuildinfo
 .superpowers/
 .claude/
+e2e/.generated-certs/

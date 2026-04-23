@@ -351,6 +351,7 @@ function NativeZellijRow({ onClick }: { onClick: () => void }) {
 
   return (
     <button
+      type="button"
       data-testid="rail-native-zellij"
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
