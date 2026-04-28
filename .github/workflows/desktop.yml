@@ -52,15 +52,47 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Inject version from tag
+        shell: bash
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          VERSION="${REF#desktop-v}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$REF" ]; then
+            echo "::error::Expected tag like desktop-vX.Y.Z, got '$REF'"
+            exit 1
+          fi
+          echo "Building desktop version $VERSION (from tag $REF)"
+          export VERSION
+          node -e "
+            const fs = require('fs');
+            const p = 'packages/desktop/src-tauri/tauri.conf.json';
+            const conf = JSON.parse(fs.readFileSync(p, 'utf8'));
+            conf.version = process.env.VERSION;
+            fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
+          "
+
       - name: Build desktop app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: packages/desktop
-          tagName: desktop-v__VERSION__
-          releaseName: "Desktop v__VERSION__"
+          tagName: ${{ github.ref_name }}
+          releaseName: "Desktop ${{ github.ref_name }}"
           releaseBody: "See the assets to download the desktop app for your platform."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.ref_name }}" \
+            --draft=false \
+            --repo "${{ github.repository }}"
