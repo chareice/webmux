@@ -407,6 +407,8 @@ async fn connect_upstream_websocket(
     ),
     String,
 > {
+    install_default_rustls_provider();
+
     if upstream_request.uri().scheme_str() == Some("wss") {
         if allow_insecure_tls {
             let tls = insecure_upstream_tls_config();
@@ -436,6 +438,10 @@ async fn connect_upstream_websocket(
     connect_async(upstream_request)
         .await
         .map_err(|error| error.to_string())
+}
+
+fn install_default_rustls_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
 
 fn build_upstream_http_client(state: &AppState) -> Result<reqwest::Client, String> {
@@ -789,8 +795,9 @@ mod tests {
 
     use super::{
         authenticate_proxy_request, build_proxy_auth_cookie, build_proxy_url,
-        forwarded_cookie_header, http_proxy_path_allowed, insecure_upstream_tls_config,
-        rewrite_auth_js, rewrite_html_base, rewrite_set_cookie, ws_proxy_path_allowed,
+        build_upstream_http_client, connect_upstream_websocket, forwarded_cookie_header,
+        http_proxy_path_allowed, insecure_upstream_tls_config, rewrite_auth_js, rewrite_html_base,
+        rewrite_set_cookie, ws_proxy_path_allowed,
     };
     use crate::{
         attach_router::HubRouter, auth::sign_jwt, machine_manager::MachineManager, AppState,
@@ -1072,5 +1079,51 @@ mod tests {
     #[test]
     fn insecure_upstream_tls_config_builds_without_global_provider_setup() {
         let _config = insecure_upstream_tls_config();
+    }
+
+    #[tokio::test]
+    async fn upstream_http_client_reports_https_errors_without_panicking() {
+        let state = test_state(false);
+        let client = build_upstream_http_client(&state).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            drop(socket);
+        });
+
+        let result =
+            tokio::spawn(async move { client.get(format!("https://{addr}/")).send().await }).await;
+        server.await.unwrap();
+
+        assert!(
+            result.is_ok(),
+            "HTTPS proxy requests should return reqwest errors instead of panicking"
+        );
+    }
+
+    #[tokio::test]
+    async fn upstream_websocket_reports_wss_errors_without_panicking() {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            drop(socket);
+        });
+        let request = format!("wss://{addr}/ws/control")
+            .into_client_request()
+            .unwrap();
+
+        let result =
+            tokio::spawn(async move { connect_upstream_websocket(request, false, None).await })
+                .await;
+        server.await.unwrap();
+
+        assert!(
+            result.is_ok(),
+            "WSS proxy requests should return websocket errors instead of panicking"
+        );
     }
 }
