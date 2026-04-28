@@ -13,6 +13,9 @@ const LiveTerminalView = lazy(() =>
   })),
 );
 
+const FIT_REF_RETRY_LIMIT = 10;
+const FIT_REF_RETRY_DELAY_MS = 100;
+
 export interface TerminalCardRef {
   fitToContainer: () => void;
   focus: () => void;
@@ -30,7 +33,6 @@ interface TerminalCardProps {
   onDestroy: (terminal: TerminalInfo) => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
-  suppressAutoFitUntil?: number;
 }
 
 const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(function TerminalCardComponent({
@@ -44,18 +46,45 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   onDestroy,
   onRequestControl,
   onReleaseControl,
-  suppressAutoFitUntil,
 }, ref) {
   const termViewRef = useRef<TerminalViewRef>(null);
+  const fitRefRetryTimer = useRef<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const controlCopy = getTerminalControlCopy(isController);
   const isTab = displayMode === "tab";
 
+  const clearFitRefRetryTimer = useCallback(() => {
+    if (fitRefRetryTimer.current !== null) {
+      window.clearTimeout(fitRefRetryTimer.current);
+      fitRefRetryTimer.current = null;
+    }
+  }, []);
+
+  const fitToContainer = useCallback(
+    (attempt = 0) => {
+      if (!isController || !isTab) return;
+      const view = termViewRef.current;
+      if (!view) {
+        if (attempt >= FIT_REF_RETRY_LIMIT) return;
+        clearFitRefRetryTimer();
+        fitRefRetryTimer.current = window.setTimeout(() => {
+          fitRefRetryTimer.current = null;
+          fitToContainer(attempt + 1);
+        }, FIT_REF_RETRY_DELAY_MS);
+        return;
+      }
+      clearFitRefRetryTimer();
+      view.fitToContainer();
+      view.focus();
+    },
+    [clearFitRefRetryTimer, isController, isTab],
+  );
+
+  useEffect(() => clearFitRefRetryTimer, [clearFitRefRetryTimer]);
+
   useImperativeHandle(ref, () => ({
     fitToContainer: () => {
-      if (!isController || !isTab) return;
-      termViewRef.current?.fitToContainer();
-      termViewRef.current?.focus();
+      fitToContainer();
     },
     focus: () => {
       termViewRef.current?.focus();
@@ -63,7 +92,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
     sendInput: (data: string) => {
       termViewRef.current?.sendInput(data);
     },
-  }), [isController, isTab]);
+  }), [fitToContainer]);
 
   useEffect(() => {
     if (isController) {
@@ -138,9 +167,8 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         </div>
       )}
 
-      {/* Desktop: no manual fit button. The terminal auto-fits to the
-          container whenever the viewport changes while the user is the
-          controller — see the auto-fit effect in TerminalView.{xterm,wterm}. */}
+      {/* Desktop fit lives in ExpandedTerminal's header; resizing stays
+          explicit so running TUIs are not resized mid-frame. */}
 
       {/* Mobile controls bar in tab mode */}
       {isTab && isMobile && onRequestControl && onReleaseControl && (
@@ -186,8 +214,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
               <button
                 data-testid="terminal-fit-button"
                 onClick={() => {
-                  termViewRef.current?.fitToContainer();
-                  termViewRef.current?.focus();
+                  fitToContainer();
                 }}
                 style={{
                   minHeight: 38,
@@ -382,7 +409,6 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                   displayMode={isTab ? "immersive" : "card"}
                   isController={isController}
                   canResizeTerminal={isTab && isController}
-                  suppressAutoFitUntil={suppressAutoFitUntil}
                   style={
                     isTab
                       ? undefined
@@ -444,8 +470,7 @@ function areTerminalCardPropsEqual(
     previous.onSelectTab === next.onSelectTab &&
     previous.onDestroy === next.onDestroy &&
     previous.onRequestControl === next.onRequestControl &&
-    previous.onReleaseControl === next.onReleaseControl &&
-    previous.suppressAutoFitUntil === next.suppressAutoFitUntil
+    previous.onReleaseControl === next.onReleaseControl
   );
 }
 

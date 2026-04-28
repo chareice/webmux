@@ -16,6 +16,55 @@ import {
   takeControlFromHeader,
 } from "./helpers";
 
+test("opening an existing terminal keeps its pty size until Fit is requested", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 960 },
+  });
+  const page = await context.newPage();
+  const terminalFramesSent: string[] = [];
+
+  page.on("websocket", (socket) => {
+    if (!socket.url().includes("/ws/terminal/")) return;
+    socket.on("framesent", (frame) => {
+      if (typeof frame.payload === "string") {
+        terminalFramesSent.push(frame.payload);
+      }
+    });
+  });
+
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+  await selectHomeWorkpath(page);
+  const tid = await createTerminalViaApi(page, { cwd: "/root" });
+
+  await expandTerminalById(page, tid);
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+
+  await page.waitForTimeout(1_200);
+
+  const resizeFrames = terminalFramesSent.filter((payload) =>
+    payload.includes('"type":"resize"'),
+  );
+  expect(resizeFrames).toEqual([]);
+
+  const [terminal] = await listTerminals(page);
+  expect(terminal?.cols).toBe(80);
+  expect(terminal?.rows).toBe(24);
+
+  await page.getByLabel("Fit", { exact: true }).click();
+  await expect
+    .poll(async () => {
+      const [current] = await listTerminals(page);
+      return current?.cols ?? 0;
+    })
+    .toBeGreaterThan(80);
+
+  await context.close();
+});
+
 test("terminal size stays stable across overlay and cross-device handoff until fit is requested", async ({
   browser,
 }) => {
@@ -37,17 +86,10 @@ test("terminal size stays stable across overlay and cross-device handoff until f
   await expandTerminalById(desktopPage, tid);
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
 
-  // Wait for auto-fit to settle (runs ~200ms after opening for newly created
-  // terminals) — cols/rows move off the 80x24 defaults, then stabilize.
-  let initialTerminal: Awaited<ReturnType<typeof listTerminals>>[number] | null = null;
-  await expect.poll(async () => {
-    const terminals = await listTerminals(desktopPage);
-    if (terminals.length !== 1) return false;
-    if (terminals[0].cols === 80 && terminals[0].rows === 24) return false;
-    initialTerminal = terminals[0];
-    return true;
-  }).toBe(true);
-  expect(initialTerminal).not.toBeNull();
+  const [initialTerminal] = await listTerminals(desktopPage);
+  expect(initialTerminal).toBeDefined();
+  expect(initialTerminal?.cols).toBe(80);
+  expect(initialTerminal?.rows).toBe(24);
 
   await expect
     .poll(async () => listTerminals(desktopPage))
@@ -64,8 +106,7 @@ test("terminal size stays stable across overlay and cross-device handoff until f
   await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
-  // Server pty size is still at desktop dims — asserted inside the auto-fit
-  // debounce window so no fit message has reached the server yet.
+  // Server pty size is unchanged because opening a view never resizes it.
   await expect
     .poll(async () => listTerminals(mobilePage))
     .toEqual([initialTerminal]);
@@ -102,7 +143,8 @@ test("mobile controller can resize the shared pty with Fit to Window", async ({
   const tid = await createTerminalViaApi(desktopPage, { cwd: "/root" });
   await expandTerminalById(desktopPage, tid);
 
-  // Wait for desktop auto-fit to settle.
+  await desktopPage.getByLabel("Fit", { exact: true }).click();
+
   let desktopInitial: Awaited<ReturnType<typeof listTerminals>>[number] | null = null;
   await expect.poll(async () => {
     const terminals = await listTerminals(desktopPage);

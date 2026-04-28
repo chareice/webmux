@@ -69,7 +69,6 @@ const ConfirmDialog = lazy(() =>
 );
 
 const STATUS_BAR_KEY = "webmux:show-status-bar";
-const MOBILE_NEW_TERMINAL_AUTO_FIT_SUPPRESS_MS = 1_500;
 
 function useViewportWidth() {
   const [w, setW] = useState(
@@ -126,8 +125,6 @@ export function TerminalCanvas() {
   const [showSettings, setShowSettings] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
-  const [suppressAutoFitUntilByTerminalId, setSuppressAutoFitUntilByTerminalId] =
-    useState<Record<string, number>>({});
   const lastSeqRef = useRef(0);
 
   const [closeConfirmation, setCloseConfirmation] = useState<
@@ -400,22 +397,6 @@ export function TerminalCanvas() {
     ? terminals.find((t) => t.id === layout.zoomedTerminalId) ?? null
     : null;
 
-  useEffect(() => {
-    setSuppressAutoFitUntilByTerminalId((current) => {
-      const liveIds = new Set(terminals.map((terminal) => terminal.id));
-      let changed = false;
-      const next: Record<string, number> = {};
-      for (const [terminalId, suppressUntil] of Object.entries(current)) {
-        if (!liveIds.has(terminalId)) {
-          changed = true;
-          continue;
-        }
-        next[terminalId] = suppressUntil;
-      }
-      return changed ? next : current;
-    });
-  }, [terminals]);
-
   const workpathLabelByMachineAndCwd = useMemo(() => {
     const m = new Map<string, string>();
     for (const bm of bookmarks) m.set(`${bm.machine_id}::${bm.path}`, bm.label);
@@ -429,8 +410,8 @@ export function TerminalCanvas() {
       // Estimate initial cols/rows from the current viewport so the tmux
       // session is born at roughly the size it will be displayed at.
       // Without this the server defaults to 80x24 and TUIs (notably Claude
-      // Code / Ink) paint their welcome banner narrow; SIGWINCH on the
-      // subsequent auto-fit can't repaint that static content.
+      // Code / Ink) paint their welcome banner narrow; a later manual fit
+      // cannot repaint that static content.
       const viewportHeightPx = viewportHeight ?? window.innerHeight;
       const { cols, rows } = isMobile
         ? estimateMobileInitialTerminalDimensions(
@@ -446,12 +427,6 @@ export function TerminalCanvas() {
         cols,
         rows,
       );
-      if (isMobile) {
-        setSuppressAutoFitUntilByTerminalId((current) => ({
-          ...current,
-          [newTerminal.id]: Date.now() + MOBILE_NEW_TERMINAL_AUTO_FIT_SUPPRESS_MS,
-        }));
-      }
       const match = bookmarks.find(
         (b) => b.machine_id === machineId && b.path === cwd,
       );
@@ -884,9 +859,6 @@ export function TerminalCanvas() {
             onDestroy={handleDestroyTerminal}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
-            suppressAutoFitUntil={
-              suppressAutoFitUntilByTerminalId[expandedTerminal.id]
-            }
           />
         )}
 

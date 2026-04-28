@@ -39,7 +39,9 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   await expandTerminalById(desktopPage, tid);
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
 
-  // Wait for auto-fit to push the terminal past the 80x24 defaults.
+  await desktopPage.getByLabel("Fit", { exact: true }).click();
+
+  // Explicit desktop fit pushes the terminal past the 80x24 defaults.
   await expect
     .poll(async () => {
       const [terminal] = await listTerminals(desktopPage);
@@ -80,7 +82,7 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   await mobile.close();
 });
 
-test("terminal auto-fits to whichever device currently holds control", async ({
+test("terminal can be manually fitted by whichever device currently holds control", async ({
   browser,
 }) => {
   const desktop = await browser.newContext({ viewport: { width: 1440, height: 960 } });
@@ -98,7 +100,8 @@ test("terminal auto-fits to whichever device currently holds control", async ({
   const tid = await createTerminalViaApi(desktopPage, { cwd: "/root" });
   await expandTerminalById(desktopPage, tid);
 
-  // Desktop controller → terminal auto-fits to desktop dims.
+  // Desktop controller → terminal fits to desktop dims when requested.
+  await desktopPage.getByLabel("Fit", { exact: true }).click();
   await expect
     .poll(async () => {
       const [terminal] = await listTerminals(desktopPage);
@@ -124,7 +127,8 @@ test("terminal auto-fits to whichever device currently holds control", async ({
   await closeExpandedOverlay(desktopPage);
   await expectControlState(desktopPage, "viewing");
 
-  // Mobile takes control → terminal auto-fits to mobile dims.
+  // Mobile takes control → terminal fits to mobile dims when requested.
+  await mobilePage.getByTestId("terminal-fit-button").click();
   let mobileSizedTerminal = desktopSizedTerminal;
   await expect
     .poll(async () => {
@@ -154,7 +158,8 @@ test("terminal auto-fits to whichever device currently holds control", async ({
   await getTerminalCards(desktopPage).first().click();
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
 
-  // Desktop is controller again → terminal auto-fits back to desktop dims.
+  // Desktop is controller again → terminal fits back to desktop dims when requested.
+  await desktopPage.getByLabel("Fit", { exact: true }).click();
   await expect
     .poll(async () => {
       const [terminal] = await listTerminals(desktopPage);

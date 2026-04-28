@@ -27,6 +27,8 @@ import { isAppShortcut } from "@/lib/shortcuts";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
+const FIT_RETRY_LIMIT = 10;
+const FIT_RETRY_DELAY_MS = 100;
 
 // Preferred monospace fonts in priority order.
 // Includes Nerd Font variants common on Linux.
@@ -112,7 +114,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     displayMode = "immersive",
     isController,
     canResizeTerminal,
-    suppressAutoFitUntil,
     onTitleChange,
     style,
   }, ref) {
@@ -124,6 +125,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const isControllerRef = useRef(isController ?? true);
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
+    const fitRetryTimerRef = useRef<number | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
     const [sessionGeneration, setSessionGeneration] = useState(0);
@@ -200,6 +202,65 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       return await navigator.clipboard.readText();
     }, []);
 
+    const clearFitRetryTimer = useCallback(() => {
+      if (fitRetryTimerRef.current !== null) {
+        window.clearTimeout(fitRetryTimerRef.current);
+        fitRetryTimerRef.current = null;
+      }
+    }, []);
+
+    const fitToContainer = useCallback(
+      (attempt = 0) => {
+        const scheduleRetry = () => {
+          if (attempt >= FIT_RETRY_LIMIT) return;
+          clearFitRetryTimer();
+          fitRetryTimerRef.current = window.setTimeout(() => {
+            fitRetryTimerRef.current = null;
+            fitToContainer(attempt + 1);
+          }, FIT_RETRY_DELAY_MS);
+        };
+
+        const fit = fitRef.current;
+        const liveWs = wsRef.current;
+        if (!isControllerRef.current || !canResizeTerminalRef.current) return;
+        if (liveWs?.readyState !== WebSocket.OPEN) {
+          scheduleRetry();
+          return;
+        }
+
+        try {
+          const nextDims =
+            displayMode === "immersive"
+              ? getTerminalFitDimensions({
+                  viewportWidth: viewportSizeRef.current.width,
+                  viewportHeight: viewportSizeRef.current.height,
+                  contentWidth: surfaceSizeRef.current.width,
+                  contentHeight: surfaceSizeRef.current.height,
+                  cols,
+                  rows,
+                })
+              : (() => {
+                  if (!fit) return null;
+                  fit.fit();
+                  return fit.proposeDimensions();
+                })();
+
+          const resizeMessage = buildResizeMessage(nextDims);
+          if (!resizeMessage) {
+            scheduleRetry();
+            return;
+          }
+          clearFitRetryTimer();
+          liveWs.send(JSON.stringify(resizeMessage));
+        } catch {
+          scheduleRetry();
+        }
+      },
+      [clearFitRetryTimer, cols, displayMode, rows],
+    );
+
+    useEffect(() => clearFitRetryTimer, [clearFitRetryTimer]);
+
     // Expose imperative API
     useImperativeHandle(
       ref,
@@ -217,45 +278,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
         },
         fitToContainer() {
-          const fit = fitRef.current;
-          const liveWs = wsRef.current;
-          if (
-            liveWs?.readyState !== WebSocket.OPEN ||
-            !isControllerRef.current ||
-            !canResizeTerminalRef.current
-          ) {
-            return;
-          }
-
-          try {
-            const nextDims =
-              displayMode === "immersive"
-                ? getTerminalFitDimensions({
-                    viewportWidth: viewportSizeRef.current.width,
-                    viewportHeight: viewportSizeRef.current.height,
-                    contentWidth: surfaceSizeRef.current.width,
-                    contentHeight: surfaceSizeRef.current.height,
-                    cols,
-                    rows,
-                  })
-                : (() => {
-                    if (!fit) return null;
-                    fit.fit();
-                    return fit.proposeDimensions();
-                  })();
-
-            const resizeMessage = buildResizeMessage(nextDims);
-            if (!resizeMessage) return;
-            liveWs.send(JSON.stringify(resizeMessage));
-          } catch {
-            /* ignore */
-          }
+          fitToContainer();
         },
         focus() {
           termRef.current?.focus();
         },
       }),
-      [cols, displayMode, rows],
+      [fitToContainer],
     );
 
     // Create terminal once on mount — never recreated during reconnections
@@ -795,78 +824,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     useEffect(() => {
       scheduleMeasure();
     }, [displayMode, scheduleMeasure]);
-
-    // Auto-fit terminal whenever the controller's viewport changes, debounced
-    // 500ms. Replaces the previous create-time-only behaviour and the manual
-    // "Fit to Window" button — controllers now expect the terminal to track
-    // their window size continuously. Non-controllers never reach this path
-    // (canResizeTerminal is false).
-    //
-    // The debounce used to be 200ms; bumped to 500ms to reduce the chance
-    // that a resize event interleaves with a TUI's (Claude Code / Ink) mid-
-    // frame render, which desyncs Ink's shadow buffer and shows scattered
-    // glyphs from the in-flight line.
-    useEffect(() => {
-      if (displayMode !== "immersive" || !canResizeTerminal) return;
-      if (suppressAutoFitUntil && Date.now() < suppressAutoFitUntil) return;
-
-      const timerId = window.setTimeout(() => {
-        const fit = fitRef.current;
-        const liveWs = wsRef.current;
-        const viewport = viewportRef.current;
-        if (
-          !fit ||
-          !liveWs ||
-          liveWs.readyState !== WebSocket.OPEN ||
-          !isControllerRef.current ||
-          !canResizeTerminalRef.current ||
-          // Skip auto-fit if the viewport is hidden (e.g. inactive tab kept alive)
-          !viewport ||
-          viewport.offsetParent === null
-        ) {
-          return;
-        }
-        try {
-          const nextDims = getTerminalFitDimensions({
-            viewportWidth: viewportSizeRef.current.width,
-            viewportHeight: viewportSizeRef.current.height,
-            contentWidth: surfaceSizeRef.current.width,
-            contentHeight: surfaceSizeRef.current.height,
-            cols,
-            rows,
-          });
-          if (!nextDims) return;
-          // No-op if the fit didn't actually change cols/rows. Avoids spamming
-          // resize messages on small viewport jitter (sub-cell pixel changes).
-          if (nextDims.cols === cols && nextDims.rows === rows) return;
-          if (
-            typeof localStorage !== "undefined" &&
-            localStorage.getItem("webmux:diag") === "1"
-          ) {
-            // Diagnostic: enable via `localStorage.setItem('webmux:diag','1')`
-            // to correlate resize events with observed render artifacts.
-            console.log(
-              `[webmux-diag] autofit resize ${cols}x${rows} -> ${nextDims.cols}x${nextDims.rows} @ ${Date.now()}`,
-            );
-          }
-          const resizeMessage = buildResizeMessage(nextDims);
-          if (!resizeMessage) return;
-          liveWs.send(JSON.stringify(resizeMessage));
-        } catch {
-          /* ignore */
-        }
-      }, 500);
-
-      return () => window.clearTimeout(timerId);
-    }, [
-      displayMode,
-      canResizeTerminal,
-      cols,
-      rows,
-      suppressAutoFitUntil,
-      viewportSize.width,
-      viewportSize.height,
-    ]);
 
     const viewportLayout = getTerminalViewportLayout({
       displayMode,
