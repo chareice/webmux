@@ -17,6 +17,7 @@ import {
   type TerminalPreviewChunkHandler,
   type TerminalPreviewClientMessage,
 } from "@/lib/terminalPreviewMux";
+import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 
 interface TerminalPreviewMuxProviderProps {
   deviceId: string | null;
@@ -68,10 +69,23 @@ export function TerminalPreviewMuxProvider({
     if (!deviceId || !hasPreviewSubscriptions) return;
 
     let disposed = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     const ws = new WebSocket(terminalPreviewsWsUrl(deviceId));
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
+
+    const reconnectController = createTerminalReconnectController<
+      ReturnType<typeof setTimeout>
+    >({
+      delayMs: 1000,
+      openReadyState: WebSocket.OPEN,
+      onReconnect: () => {
+        if (!disposed) {
+          setGeneration((value) => value + 1);
+        }
+      },
+      schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      cancel: (timerId) => window.clearTimeout(timerId),
+    });
 
     const dispatchBytes = (source: ArrayBuffer | Uint8Array) => {
       try {
@@ -82,6 +96,7 @@ export function TerminalPreviewMuxProvider({
     };
 
     ws.onopen = () => {
+      reconnectController.handleSocketOpen();
       registryRef.current.replaySubscriptions();
     };
 
@@ -105,14 +120,26 @@ export function TerminalPreviewMuxProvider({
         wsRef.current = null;
       }
       if (disposed) return;
-      reconnectTimer = setTimeout(() => {
-        setGeneration((value) => value + 1);
-      }, 1000);
+      reconnectController.scheduleReconnect();
     };
+
+    const handleVisibilityChange = () => {
+      reconnectController.handleVisibilityChange(
+        document.visibilityState,
+        ws.readyState,
+      );
+    };
+    const handlePageShow = () => {
+      reconnectController.handleVisibilityChange("visible", ws.readyState);
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pageshow", handlePageShow);
 
     return () => {
       disposed = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pageshow", handlePageShow);
+      reconnectController.cancelReconnect();
       if (wsRef.current === ws) {
         wsRef.current = null;
       }

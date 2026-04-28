@@ -22,6 +22,7 @@ export function createTerminalReconnectController<TimerHandle>({
   cancel,
 }: TerminalReconnectControllerOptions<TimerHandle>): TerminalReconnectController {
   let reconnectTimer: TimerHandle | null = null;
+  let wasHidden = false;
 
   const cancelReconnect = () => {
     if (reconnectTimer === null) {
@@ -47,9 +48,13 @@ export function createTerminalReconnectController<TimerHandle>({
       cancelReconnect();
     },
     handleVisibilityChange(visibilityState, readyState) {
-      if (visibilityState !== "visible" || readyState === openReadyState) {
+      if (visibilityState !== "visible") {
+        wasHidden = true;
         return;
       }
+      const shouldReconnect = wasHidden || readyState !== openReadyState;
+      wasHidden = false;
+      if (!shouldReconnect) return;
       scheduleReconnect();
     },
     hasPendingReconnect() {
