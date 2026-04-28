@@ -211,6 +211,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         focus() {
           postToWebView({ type: "focus" });
         },
+        blur() {
+          // Native WebView keyboard dismissal is handled by the host platform.
+        },
       }),
       [postToWebView],
     );

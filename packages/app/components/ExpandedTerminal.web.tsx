@@ -58,11 +58,14 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
   const short = terminal.id.slice(0, 8);
   const tintColor = tintForId(terminal.id);
 
-  // Keep focus inside the terminal body so typing goes to the PTY.
+  // Desktop keeps focus inside the terminal body so typing goes to the PTY.
+  // Mobile must wait for an explicit terminal tap, otherwise switching tabs
+  // opens the soft keyboard.
   useEffect(() => {
+    if (isMobile) return;
     const id = requestAnimationFrame(() => cardRef.current?.focus());
     return () => cancelAnimationFrame(id);
-  }, [terminal.id]);
+  }, [isMobile, terminal.id]);
 
   // Arrow-key navigation between siblings (works when the overlay is open
   // but the terminal body isn't focused — e.g. the header was just clicked).

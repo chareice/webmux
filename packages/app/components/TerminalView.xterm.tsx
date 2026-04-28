@@ -288,6 +288,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         focus() {
           termRef.current?.focus();
         },
+        blur() {
+          const active = document.activeElement;
+          if (
+            active instanceof HTMLElement &&
+            containerRef.current?.contains(active)
+          ) {
+            active.blur();
+          }
+        },
       }),
       [fitToContainer],
     );
