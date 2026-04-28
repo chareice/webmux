@@ -19,7 +19,6 @@ export interface TerminalViewProps {
   displayMode?: "card" | "immersive";
   isController?: boolean;
   canResizeTerminal?: boolean;
-  suppressAutoFitUntil?: number;
   onTitleChange?: (title: string) => void;
   /** Platform-specific style object (CSSProperties on web, ViewStyle on native) */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

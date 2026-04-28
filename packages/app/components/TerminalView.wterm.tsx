@@ -19,6 +19,9 @@ import {
 } from "@/lib/terminalViewModel";
 import { terminalTheme } from "@/lib/colors";
 
+const FIT_RETRY_LIMIT = 10;
+const FIT_RETRY_DELAY_MS = 100;
+
 function measureTerminalSurface(
   container: HTMLDivElement | null,
 ): { width: number; height: number } {
@@ -78,7 +81,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     displayMode = "immersive",
     isController,
     canResizeTerminal,
-    suppressAutoFitUntil,
     onTitleChange,
     style,
   }, ref) {
@@ -89,6 +91,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const isControllerRef = useRef(isController ?? true);
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
+    const fitRetryTimerRef = useRef<number | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
     const [sessionGeneration, setSessionGeneration] = useState(0);
@@ -140,6 +143,57 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       });
     }, [measureLayout]);
 
+    const clearFitRetryTimer = useCallback(() => {
+      if (fitRetryTimerRef.current !== null) {
+        window.clearTimeout(fitRetryTimerRef.current);
+        fitRetryTimerRef.current = null;
+      }
+    }, []);
+
+    const fitToContainer = useCallback(
+      (attempt = 0) => {
+        const scheduleRetry = () => {
+          if (attempt >= FIT_RETRY_LIMIT) return;
+          clearFitRetryTimer();
+          fitRetryTimerRef.current = window.setTimeout(() => {
+            fitRetryTimerRef.current = null;
+            fitToContainer(attempt + 1);
+          }, FIT_RETRY_DELAY_MS);
+        };
+
+        const liveWs = wsRef.current;
+        if (!isControllerRef.current || !canResizeTerminalRef.current) return;
+        if (liveWs?.readyState !== WebSocket.OPEN) {
+          scheduleRetry();
+          return;
+        }
+
+        try {
+          const nextDims = getTerminalFitDimensions({
+            viewportWidth: viewportSizeRef.current.width,
+            viewportHeight: viewportSizeRef.current.height,
+            contentWidth: surfaceSizeRef.current.width,
+            contentHeight: surfaceSizeRef.current.height,
+            cols,
+            rows,
+          });
+
+          const resizeMessage = buildResizeMessage(nextDims);
+          if (!resizeMessage) {
+            scheduleRetry();
+            return;
+          }
+          clearFitRetryTimer();
+          liveWs.send(JSON.stringify(resizeMessage));
+        } catch {
+          scheduleRetry();
+        }
+      },
+      [clearFitRetryTimer, cols, rows],
+    );
+
+    useEffect(() => clearFitRetryTimer, [clearFitRetryTimer]);
+
     useImperativeHandle(
       ref,
       () => ({
@@ -156,37 +210,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
         },
         fitToContainer() {
-          const liveWs = wsRef.current;
-          if (
-            liveWs?.readyState !== WebSocket.OPEN ||
-            !isControllerRef.current ||
-            !canResizeTerminalRef.current
-          ) {
-            return;
-          }
-
-          try {
-            const nextDims = getTerminalFitDimensions({
-              viewportWidth: viewportSizeRef.current.width,
-              viewportHeight: viewportSizeRef.current.height,
-              contentWidth: surfaceSizeRef.current.width,
-              contentHeight: surfaceSizeRef.current.height,
-              cols,
-              rows,
-            });
-
-            const resizeMessage = buildResizeMessage(nextDims);
-            if (!resizeMessage) return;
-            liveWs.send(JSON.stringify(resizeMessage));
-          } catch {
-            /* ignore */
-          }
+          fitToContainer();
         },
         focus() {
           wtermRef.current?.focus();
         },
       }),
-      [cols, rows],
+      [fitToContainer],
     );
 
     useEffect(() => {
@@ -458,55 +488,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     useEffect(() => {
       scheduleMeasure();
     }, [displayMode, scheduleMeasure]);
-
-    // Auto-fit on every viewport change while the user is the controller —
-    // see the matching effect in TerminalView.xterm.tsx for context.
-    useEffect(() => {
-      if (displayMode !== "immersive" || !canResizeTerminal) return;
-      if (suppressAutoFitUntil && Date.now() < suppressAutoFitUntil) return;
-
-      const timerId = window.setTimeout(() => {
-        const liveWs = wsRef.current;
-        const viewport = viewportRef.current;
-        if (
-          !liveWs ||
-          liveWs.readyState !== WebSocket.OPEN ||
-          !isControllerRef.current ||
-          !canResizeTerminalRef.current ||
-          !viewport ||
-          viewport.offsetParent === null
-        ) {
-          return;
-        }
-        try {
-          const nextDims = getTerminalFitDimensions({
-            viewportWidth: viewportSizeRef.current.width,
-            viewportHeight: viewportSizeRef.current.height,
-            contentWidth: surfaceSizeRef.current.width,
-            contentHeight: surfaceSizeRef.current.height,
-            cols,
-            rows,
-          });
-          if (!nextDims) return;
-          if (nextDims.cols === cols && nextDims.rows === rows) return;
-          const resizeMessage = buildResizeMessage(nextDims);
-          if (!resizeMessage) return;
-          liveWs.send(JSON.stringify(resizeMessage));
-        } catch {
-          /* ignore */
-        }
-      }, 500);
-
-      return () => window.clearTimeout(timerId);
-    }, [
-      displayMode,
-      canResizeTerminal,
-      cols,
-      rows,
-      suppressAutoFitUntil,
-      viewportSize.width,
-      viewportSize.height,
-    ]);
 
     const viewportLayout = getTerminalViewportLayout({
       displayMode,
