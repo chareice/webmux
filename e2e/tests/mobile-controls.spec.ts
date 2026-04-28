@@ -2,9 +2,11 @@ import { test, expect, devices } from "@playwright/test";
 
 import {
   createTerminalViaApi,
+  expectSingleTerminalCard,
   getImmersiveTerminal,
   listTerminals,
   openApp,
+  requestMachineControl,
   resetMachineState,
 } from "./helpers";
 
@@ -117,3 +119,75 @@ test("mobile new terminal starts fitted without an immediate resize", async ({ p
   const [terminal] = await listTerminals(page);
   expect(terminal.cols).toBeLessThan(80);
 });
+
+test("mobile live streams reconnect after returning from background", async ({
+  page,
+}) => {
+  const webSocketUrls: string[] = [];
+  page.on("websocket", (socket) => {
+    webSocketUrls.push(socket.url());
+  });
+
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  await createTerminalViaApi(page);
+  const card = await expectSingleTerminalCard(page);
+  await card.click();
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+
+  await expect
+    .poll(
+      () => webSocketUrls.filter((url) => url.includes("/ws/events")).length,
+      { timeout: 20_000 },
+    )
+    .toBeGreaterThan(0);
+  await expect
+    .poll(
+      () =>
+        webSocketUrls.filter((url) =>
+          url.includes("/ws/terminal/e2e-node/"),
+        ).length,
+      { timeout: 20_000 },
+    )
+    .toBeGreaterThan(0);
+
+  const eventsBefore = webSocketUrls.filter((url) =>
+    url.includes("/ws/events"),
+  ).length;
+  const terminalsBefore = webSocketUrls.filter((url) =>
+    url.includes("/ws/terminal/e2e-node/"),
+  ).length;
+
+  await setPageVisibility(page, "hidden");
+  await setPageVisibility(page, "visible");
+
+  await expect
+    .poll(
+      () => webSocketUrls.filter((url) => url.includes("/ws/events")).length,
+      { timeout: 20_000 },
+    )
+    .toBeGreaterThan(eventsBefore);
+  await expect
+    .poll(
+      () =>
+        webSocketUrls.filter((url) =>
+          url.includes("/ws/terminal/e2e-node/"),
+        ).length,
+      { timeout: 20_000 },
+    )
+    .toBeGreaterThan(terminalsBefore);
+});
+
+async function setPageVisibility(
+  page: Parameters<typeof openApp>[0],
+  visibilityState: "hidden" | "visible",
+): Promise<void> {
+  await page.evaluate((nextVisibilityState) => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => nextVisibilityState,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, visibilityState);
+}

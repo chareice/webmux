@@ -67,12 +67,27 @@ test("visible pages only reconnect when the socket is no longer open", () => {
     cancel: (timerId) => timers.cancel(timerId),
   });
 
-  controller.handleVisibilityChange("hidden", 3);
   controller.handleVisibilityChange("visible", 1);
 
   assert.deepEqual(timers.ids(), []);
 
   controller.handleVisibilityChange("visible", 3);
+
+  assert.equal(timers.ids().length, 1);
+});
+
+test("pages reconnect after being hidden even when the socket still reports open", () => {
+  const timers = createFakeTimers();
+  const controller = createTerminalReconnectController({
+    delayMs: 250,
+    openReadyState: 1,
+    onReconnect: () => {},
+    schedule: (callback, delayMs) => timers.schedule(callback, delayMs),
+    cancel: (timerId) => timers.cancel(timerId),
+  });
+
+  controller.handleVisibilityChange("hidden", 1);
+  controller.handleVisibilityChange("visible", 1);
 
   assert.equal(timers.ids().length, 1);
 });

@@ -53,6 +53,7 @@ import {
 } from "@/lib/unloadControlRelease";
 import { nativeZellijRoute } from "@/lib/nativeZellij";
 import { TerminalPreviewMuxProvider } from "@/lib/terminalPreviewMuxReact";
+import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 
 const OnboardingView = lazy(() =>
   import("./OnboardingView.web").then((module) => ({
@@ -312,7 +313,23 @@ export function TerminalCanvas() {
   useEffect(() => {
     if (!bootstrapReady || !deviceId) return;
     const ws = new WebSocket(eventsWsUrl(deviceId, lastSeqRef.current));
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+
+    const reconnect = () => {
+      if (disposed) return;
+      setBootstrapReady(false);
+      setReconnectGeneration((value) => value + 1);
+    };
+
+    const reconnectController = createTerminalReconnectController<
+      ReturnType<typeof setTimeout>
+    >({
+      delayMs: 1000,
+      openReadyState: WebSocket.OPEN,
+      onReconnect: reconnect,
+      schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      cancel: (timerId) => window.clearTimeout(timerId),
+    });
 
     ws.onmessage = (event) => {
       try {
@@ -344,30 +361,32 @@ export function TerminalCanvas() {
       }
     };
 
+    ws.onopen = () => {
+      reconnectController.handleSocketOpen();
+    };
+
     ws.onclose = () => {
-      reconnectTimer = setTimeout(() => {
-        setBootstrapReady(false);
-        setReconnectGeneration((value) => value + 1);
-      }, 1000);
+      if (disposed) return;
+      reconnectController.scheduleReconnect();
     };
 
     const onVisibility = () => {
-      if (
-        document.visibilityState === "visible" &&
-        ws.readyState !== WebSocket.OPEN &&
-        ws.readyState !== WebSocket.CONNECTING
-      ) {
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-        setBootstrapReady(false);
-        setReconnectGeneration((value) => value + 1);
-      }
+      reconnectController.handleVisibilityChange(
+        document.visibilityState,
+        ws.readyState,
+      );
+    };
+    const onPageShow = () => {
+      reconnectController.handleVisibilityChange("visible", ws.readyState);
     };
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onPageShow);
 
     return () => {
+      disposed = true;
       document.removeEventListener("visibilitychange", onVisibility);
-      if (reconnectTimer) clearTimeout(reconnectTimer);
+      window.removeEventListener("pageshow", onPageShow);
+      reconnectController.cancelReconnect();
       ws.onclose = null;
       ws.close();
     };
