@@ -10,6 +10,10 @@ import {
 } from "./helpers";
 
 test("visible grid previews share one preview websocket", async ({ page }) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+
   const websocketUrls: string[] = [];
   let previewSubscribeFrames = 0;
   let previewBinaryFrames = 0;
@@ -30,10 +34,6 @@ test("visible grid previews share one preview websocket", async ({ page }) => {
       }
     });
   });
-
-  await openApp(page);
-  await resetMachineState(page);
-  await requestMachineControl(page);
 
   const firstMarker = `PREVIEW_MUX_A_${Date.now()}`;
   const secondMarker = `PREVIEW_MUX_B_${Date.now()}`;
