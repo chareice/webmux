@@ -6,7 +6,15 @@
 // The native-android build keeps its own `MobileCanvas` / `Canvas.android`
 // path — this file is opt-in only from the web orchestrator.
 
-import { memo, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type {
   Bookmark,
   MachineInfo,
@@ -25,11 +33,18 @@ import {
   Square,
   Terminal as TerminalIcon,
 } from "lucide-react";
-import { colors, colorAlpha } from "@/lib/colors";
+import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
+import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { Sparkline, mockSeries } from "./WorkbenchHeader.web";
 
 type MobileTab = "hosts" | "terminals" | "stats";
+
+const LiveTerminalView = lazy(() =>
+  import("./TerminalView.web").then((module) => ({
+    default: module.TerminalView,
+  })),
+);
 
 interface MobileWorkbenchProps {
   machines: MachineInfo[];
@@ -1048,10 +1063,55 @@ function MobileTermCard({
   terminal: TerminalInfo;
   onClick: () => void;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
   const short = terminal.id.slice(0, 8);
+  const previewSource = useTerminalPreviewOutputSource({
+    enabled: terminal.reachable && previewVisible,
+    machineId: terminal.machine_id,
+    terminalId: terminal.id,
+    cols: terminal.cols,
+    rows: terminal.rows,
+  });
+
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!node || !terminal.reachable) {
+      setPreviewVisible(false);
+      return;
+    }
+
+    if (typeof IntersectionObserver === "undefined") {
+      setPreviewVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setPreviewVisible(entry.isIntersecting);
+      },
+      {
+        root: null,
+        rootMargin: "120px 0px",
+        threshold: 0.01,
+      },
+    );
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [terminal.id, terminal.reachable]);
+
   return (
-    <button
+    <div
+      ref={rootRef}
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onClick();
+      }}
       data-testid={`mobile-term-card-${terminal.id}`}
       style={{
         display: "block",
@@ -1110,6 +1170,71 @@ function MobileTermCard({
           {short}
         </span>
       </div>
+
+      <div
+        data-testid={`mobile-term-preview-${terminal.id}`}
+        style={{
+          height: 126,
+          background: terminalTheme.background,
+          borderTop: `1px solid ${colors.lineSoft}`,
+          overflow: "hidden",
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {terminal.reachable && previewSource ? (
+          <Suspense fallback={null}>
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                pointerEvents: "none",
+                overflow: "hidden",
+              }}
+            >
+              <LiveTerminalView
+                machineId={terminal.machine_id}
+                terminalId={terminal.id}
+                outputSource={previewSource}
+                cols={terminal.cols}
+                rows={terminal.rows}
+                displayMode="card"
+                isController={false}
+                canResizeTerminal={false}
+                style={{
+                  transform: "scale(0.36)",
+                  transformOrigin: "top left",
+                  width: "278%",
+                  height: "278%",
+                }}
+              />
+            </div>
+          </Suspense>
+        ) : terminal.reachable ? (
+          <span style={{ color: colors.fg3, fontSize: 11 }}>
+            Live preview paused
+          </span>
+        ) : (
+          <span style={{ color: colors.fg3, fontSize: 11 }}>
+            Waiting for reconnection...
+          </span>
+        )}
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: 0,
+            height: 14,
+            background:
+              "linear-gradient(rgba(5,6,10,1), rgba(5,6,10,0))",
+            pointerEvents: "none",
+          }}
+        />
+      </div>
+
       <div
         style={{
           padding: "8px 12px",
@@ -1137,7 +1262,7 @@ function MobileTermCard({
           {terminal.cols}×{terminal.rows}
         </span>
       </div>
-    </button>
+    </div>
   );
 }
 

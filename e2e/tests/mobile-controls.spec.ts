@@ -120,6 +120,31 @@ test("mobile new terminal starts fitted without an immediate resize", async ({ p
   expect(terminal.cols).toBeLessThan(80);
 });
 
+test("mobile terminal cards show live preview surfaces", async ({ page }) => {
+  const webSocketUrls: string[] = [];
+  page.on("websocket", (socket) => {
+    webSocketUrls.push(socket.url());
+  });
+
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  const terminalId = await createTerminalViaApi(page);
+
+  await expect(page.getByTestId(`mobile-term-card-${terminalId}`)).toBeVisible();
+  await expect(
+    page.getByTestId(`mobile-term-preview-${terminalId}`),
+  ).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        webSocketUrls.filter((url) => url.includes("/ws/terminal-previews"))
+          .length,
+      { timeout: 20_000 },
+    )
+    .toBeGreaterThan(0);
+});
+
 test("mobile terminal only focuses after an explicit input gesture", async ({
   page,
 }) => {
