@@ -30,6 +30,26 @@ interface TerminalFitDimensionsInput {
   rows: number;
 }
 
+interface EstimateInitialTerminalDimensionsOptions {
+  cellWidth?: number;
+  cellHeight?: number;
+  minCols?: number;
+  minRows?: number;
+  maxCols?: number;
+  maxRows?: number;
+}
+
+const DESKTOP_ESTIMATE_CELL_WIDTH = 8.5;
+const DESKTOP_ESTIMATE_CELL_HEIGHT = 17;
+
+// Mobile fullscreen terminals sit inside ExpandedTerminal + TerminalCard
+// chrome before xterm exists, so creation needs to estimate the inner terminal
+// viewport rather than the whole screen.
+const MOBILE_TERMINAL_HORIZONTAL_CHROME_PX = 20;
+const MOBILE_TERMINAL_VERTICAL_CHROME_PX = 194;
+const MOBILE_ESTIMATE_CELL_WIDTH = 7.1;
+const MOBILE_ESTIMATE_CELL_HEIGHT = 17;
+
 export function getTerminalControlCopy(
   isController: boolean,
 ): TerminalControlCopy {
@@ -82,12 +102,39 @@ export function getTerminalViewportLayout({
 export function estimateInitialTerminalDimensions(
   viewportWidthPx: number,
   viewportHeightPx: number,
+  options: EstimateInitialTerminalDimensionsOptions = {},
 ): { cols: number; rows: number } {
-  const CELL_W = 8.5;
-  const CELL_H = 17;
-  const cols = Math.max(80, Math.min(400, Math.floor(viewportWidthPx / CELL_W)));
-  const rows = Math.max(24, Math.min(200, Math.floor(viewportHeightPx / CELL_H)));
+  const cellWidth = options.cellWidth ?? DESKTOP_ESTIMATE_CELL_WIDTH;
+  const cellHeight = options.cellHeight ?? DESKTOP_ESTIMATE_CELL_HEIGHT;
+  const minCols = options.minCols ?? 80;
+  const minRows = options.minRows ?? 24;
+  const maxCols = options.maxCols ?? 400;
+  const maxRows = options.maxRows ?? 200;
+  const cols = Math.max(
+    minCols,
+    Math.min(maxCols, Math.floor(viewportWidthPx / cellWidth)),
+  );
+  const rows = Math.max(
+    minRows,
+    Math.min(maxRows, Math.floor(viewportHeightPx / cellHeight)),
+  );
   return { cols, rows };
+}
+
+export function estimateMobileInitialTerminalDimensions(
+  viewportWidthPx: number,
+  viewportHeightPx: number,
+): { cols: number; rows: number } {
+  return estimateInitialTerminalDimensions(
+    Math.max(0, viewportWidthPx - MOBILE_TERMINAL_HORIZONTAL_CHROME_PX),
+    Math.max(0, viewportHeightPx - MOBILE_TERMINAL_VERTICAL_CHROME_PX),
+    {
+      cellWidth: MOBILE_ESTIMATE_CELL_WIDTH,
+      cellHeight: MOBILE_ESTIMATE_CELL_HEIGHT,
+      minCols: 40,
+      minRows: 12,
+    },
+  );
 }
 
 export function getTerminalFitDimensions({

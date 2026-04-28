@@ -1,10 +1,10 @@
 import { lazy, memo, Suspense, useRef, useCallback, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import type { TerminalInfo } from "@webmux/shared";
-import { X } from "lucide-react";
+import { Maximize2, X } from "lucide-react";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { terminalWsUrl } from "@/lib/api";
-import { colors, terminalTheme } from "@/lib/colors";
+import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 const LiveTerminalView = lazy(() =>
@@ -30,6 +30,7 @@ interface TerminalCardProps {
   onDestroy: (terminal: TerminalInfo) => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
+  suppressAutoFitUntil?: number;
 }
 
 const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(function TerminalCardComponent({
@@ -43,6 +44,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   onDestroy,
   onRequestControl,
   onReleaseControl,
+  suppressAutoFitUntil,
 }, ref) {
   const termViewRef = useRef<TerminalViewRef>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -146,44 +148,67 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
           style={{
             display: "flex",
             alignItems: "center",
-            justifyContent: "flex-end",
-            padding: "4px 12px",
+            justifyContent: "space-between",
+            gap: 10,
+            padding: "8px 10px",
             borderBottom: `1px solid ${colors.border}`,
-            background: "rgba(0,0,0,0.2)",
+            background: colors.bg1,
+            flexShrink: 0,
           }}
         >
-          <div style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}>
-            {isController && (
-              <>
-                <button
-                  data-testid="terminal-fit-button"
-                  onClick={() => {
-                    termViewRef.current?.fitToContainer();
-                    termViewRef.current?.focus();
-                  }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: colors.accent,
-                    cursor: "pointer",
-                    fontSize: 11,
-                    padding: "10px 8px",
-                  }}
-                >
-                  {controlCopy.sizeActionLabel}
-                </button>
-                <span style={{
-                  width: 1, height: 14,
-                  background: colors.border,
-                  flexShrink: 0,
-                }} />
-              </>
-            )}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              minWidth: 0,
+              color: isController ? colors.accent : colors.foregroundMuted,
+              fontSize: 12,
+              fontWeight: 650,
+            }}
+          >
             <span style={{
-              width: 6, height: 6, borderRadius: '50%',
+              width: 7, height: 7, borderRadius: '50%',
               background: isController ? colors.accent : colors.foregroundMuted,
               flexShrink: 0,
             }} />
+            <span style={{
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minWidth: 0,
+            }}>
+              {controlCopy.modeLabel}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 7, flexShrink: 0, alignItems: "center" }}>
+            {isController && (
+              <button
+                data-testid="terminal-fit-button"
+                onClick={() => {
+                  termViewRef.current?.fitToContainer();
+                  termViewRef.current?.focus();
+                }}
+                style={{
+                  minHeight: 38,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: colorAlpha.accentSoft,
+                  border: `1px solid ${colorAlpha.accentLine}`,
+                  borderRadius: 9,
+                  color: colors.accent,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: "0 11px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Maximize2 size={14} />
+                <span>{controlCopy.sizeActionLabel}</span>
+              </button>
+            )}
             <button
               data-testid="terminal-mode-toggle"
               onClick={() => {
@@ -191,12 +216,18 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                 else onRequestControl?.(terminal.machine_id);
               }}
               style={{
-                background: 'none',
-                border: 'none',
-                color: isController ? colors.foregroundSecondary : colors.accent,
-                cursor: 'pointer',
-                fontSize: 11,
-                padding: '10px 8px',
+                minHeight: 38,
+                background: isController ? colors.bg2 : colors.accent,
+                border: `1px solid ${
+                  isController ? colors.border : colors.accent
+                }`,
+                borderRadius: 9,
+                color: isController ? colors.foregroundSecondary : "#120904",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 750,
+                padding: "0 11px",
+                whiteSpace: "nowrap",
               }}
             >
               {controlCopy.toggleLabel}
@@ -351,6 +382,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                   displayMode={isTab ? "immersive" : "card"}
                   isController={isController}
                   canResizeTerminal={isTab && isController}
+                  suppressAutoFitUntil={suppressAutoFitUntil}
                   style={
                     isTab
                       ? undefined
@@ -412,7 +444,8 @@ function areTerminalCardPropsEqual(
     previous.onSelectTab === next.onSelectTab &&
     previous.onDestroy === next.onDestroy &&
     previous.onRequestControl === next.onRequestControl &&
-    previous.onReleaseControl === next.onReleaseControl
+    previous.onReleaseControl === next.onReleaseControl &&
+    previous.suppressAutoFitUntil === next.suppressAutoFitUntil
   );
 }
 
