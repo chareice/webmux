@@ -210,6 +210,15 @@ export function terminalWsUrl(
   return `${base}/ws/terminal/${machineId}/${terminalId}${qs ? '?' + qs : ''}`;
 }
 
+export function terminalPreviewsWsUrl(deviceId?: string): string {
+  const base = _baseUrl.replace(/^http/, "ws");
+  const params = new URLSearchParams();
+  if (_token) params.set("token", _token);
+  if (deviceId) params.set("device_id", deviceId);
+  const qs = params.toString();
+  return `${base}/ws/terminal-previews${qs ? '?' + qs : ''}`;
+}
+
 export function eventsWsUrl(deviceId?: string, afterSeq?: number): string {
   const base = _baseUrl.replace(/^http/, "ws");
   const params = new URLSearchParams();

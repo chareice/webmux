@@ -48,6 +48,7 @@ import {
   takePendingControlRelease,
 } from "@/lib/unloadControlRelease";
 import { nativeZellijRoute } from "@/lib/nativeZellij";
+import { TerminalPreviewMuxProvider } from "@/lib/terminalPreviewMuxReact";
 
 const OnboardingView = lazy(() =>
   import("./OnboardingView.web").then((module) => ({
@@ -664,85 +665,86 @@ export function TerminalCanvas() {
     >
       <AppTitleBar isMobile={isMobile} />
 
-      <div
-        style={{
-          display: "flex",
-          flex: 1,
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
-        {showSettings ? (
-          <Suspense fallback={null}>
-            <SettingsPage onClose={() => setShowSettings(false)} />
-          </Suspense>
-        ) : machines.length === 0 ? (
-          <Suspense fallback={null}>
-            <OnboardingView />
-          </Suspense>
-        ) : isMobile ? (
-          <MobileWorkbench
-            machines={machines}
-            activeMachineId={activeMachineId}
-            controlLeases={controlLeases}
-            deviceId={deviceId}
-            machineStats={machineStats}
-            bookmarks={bookmarks}
-            terminals={terminals}
-            selectedWorkpathId={layout.selectedWorkpathId}
-            canCreateTerminal={isActiveController}
-            onSelectMachine={setActiveMachineId}
-            onSelectWorkpath={handleSelectWorkpath}
-            onOpenTerminal={handleZoomTerminal}
-            onNewTerminal={handleNewTerminalFromHeader}
-            onRequestControl={handleRequestControl}
-            onReleaseControl={handleReleaseControl}
-            onOpenSettings={() => setShowSettings(true)}
-          />
-        ) : (
-          <>
-            {/* Rail (drawer on tight screens) */}
-            {railOpen && (
-              <Rail
-                width={tight ? Math.min(viewportWidth - 40, 260) : 248}
-                machines={machines}
-                activeMachineId={activeMachineId}
-                controlLeases={controlLeases}
-                deviceId={deviceId}
-                machineStats={machineStats}
-                bookmarks={bookmarks}
-                terminals={terminals}
-                selectedWorkpathId={layout.selectedWorkpathId}
-                canCreateTerminal={isActiveController}
-                addDirectoryOpen={addDirectoryOpen}
-                onSelectMachine={(id) => {
-                  setActiveMachineId(id);
-                  if (tight) setRailOpen(false);
-                }}
-                onSelectWorkpath={(id) => {
-                  handleSelectWorkpath(id);
-                  if (tight) setRailOpen(false);
-                }}
-                onOpenAddDirectory={() => setAddDirectoryOpen(true)}
-                onCloseAddDirectory={() => setAddDirectoryOpen(false)}
-                onConfirmAddDirectory={handleConfirmAddDirectory}
-                onRemoveBookmark={handleRemoveBookmark}
-                onOpenNativeZellij={openNativeZellij}
-                onOpenSettings={() => setShowSettings(true)}
-                onCollapse={() => setRailOpen(false)}
-              />
-            )}
-            {tight && railOpen && (
-              <div
-                onClick={() => setRailOpen(false)}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  background: "rgba(0, 0, 0, 0.4)",
-                  zIndex: 5,
-                }}
-              />
-            )}
+      <TerminalPreviewMuxProvider deviceId={deviceId}>
+        <div
+          style={{
+            display: "flex",
+            flex: 1,
+            overflow: "hidden",
+            position: "relative",
+          }}
+        >
+          {showSettings ? (
+            <Suspense fallback={null}>
+              <SettingsPage onClose={() => setShowSettings(false)} />
+            </Suspense>
+          ) : machines.length === 0 ? (
+            <Suspense fallback={null}>
+              <OnboardingView />
+            </Suspense>
+          ) : isMobile ? (
+            <MobileWorkbench
+              machines={machines}
+              activeMachineId={activeMachineId}
+              controlLeases={controlLeases}
+              deviceId={deviceId}
+              machineStats={machineStats}
+              bookmarks={bookmarks}
+              terminals={terminals}
+              selectedWorkpathId={layout.selectedWorkpathId}
+              canCreateTerminal={isActiveController}
+              onSelectMachine={setActiveMachineId}
+              onSelectWorkpath={handleSelectWorkpath}
+              onOpenTerminal={handleZoomTerminal}
+              onNewTerminal={handleNewTerminalFromHeader}
+              onRequestControl={handleRequestControl}
+              onReleaseControl={handleReleaseControl}
+              onOpenSettings={() => setShowSettings(true)}
+            />
+          ) : (
+            <>
+              {/* Rail (drawer on tight screens) */}
+              {railOpen && (
+                <Rail
+                  width={tight ? Math.min(viewportWidth - 40, 260) : 248}
+                  machines={machines}
+                  activeMachineId={activeMachineId}
+                  controlLeases={controlLeases}
+                  deviceId={deviceId}
+                  machineStats={machineStats}
+                  bookmarks={bookmarks}
+                  terminals={terminals}
+                  selectedWorkpathId={layout.selectedWorkpathId}
+                  canCreateTerminal={isActiveController}
+                  addDirectoryOpen={addDirectoryOpen}
+                  onSelectMachine={(id) => {
+                    setActiveMachineId(id);
+                    if (tight) setRailOpen(false);
+                  }}
+                  onSelectWorkpath={(id) => {
+                    handleSelectWorkpath(id);
+                    if (tight) setRailOpen(false);
+                  }}
+                  onOpenAddDirectory={() => setAddDirectoryOpen(true)}
+                  onCloseAddDirectory={() => setAddDirectoryOpen(false)}
+                  onConfirmAddDirectory={handleConfirmAddDirectory}
+                  onRemoveBookmark={handleRemoveBookmark}
+                  onOpenNativeZellij={openNativeZellij}
+                  onOpenSettings={() => setShowSettings(true)}
+                  onCollapse={() => setRailOpen(false)}
+                />
+              )}
+              {tight && railOpen && (
+                <div
+                  onClick={() => setRailOpen(false)}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(0, 0, 0, 0.4)",
+                    zIndex: 5,
+                  }}
+                />
+              )}
 
             {/* Main — header + grid */}
             <main
@@ -804,7 +806,6 @@ export function TerminalCanvas() {
                       key={t.id}
                       terminal={t}
                       isController={isMachineController(t.machine_id)}
-                      deviceId={deviceId ?? ""}
                       workpathLabel={
                         layout.selectedWorkpathId === "all"
                           ? workpathLabelByMachineAndCwd.get(
@@ -821,52 +822,53 @@ export function TerminalCanvas() {
             </main>
           </>
         )}
-      </div>
+        </div>
 
-      {statusBarVisible && machines.length > 0 && (
-        <Suspense fallback={null}>
-          <StatusBar
-            machines={machines}
-            activeMachineId={activeMachineId}
-            onSelectMachine={setActiveMachineId}
-            machineStats={machineStats}
+        {statusBarVisible && machines.length > 0 && (
+          <Suspense fallback={null}>
+            <StatusBar
+              machines={machines}
+              activeMachineId={activeMachineId}
+              onSelectMachine={setActiveMachineId}
+              machineStats={machineStats}
+              isMobile={isMobile}
+              isController={isActiveController}
+              onRequestControl={handleRequestControl}
+              onReleaseControl={handleReleaseControl}
+            />
+          </Suspense>
+        )}
+
+        {expandedTerminal && (
+          <ExpandedTerminal
+            terminal={expandedTerminal}
+            siblings={scopedTerminals.length > 0 ? scopedTerminals : [expandedTerminal]}
+            isController={isMachineController(expandedTerminal.machine_id)}
+            deviceId={deviceId ?? ""}
             isMobile={isMobile}
-            isController={isActiveController}
+            onClose={handleUnzoom}
+            onPick={handleZoomTerminal}
+            onDestroy={handleDestroyTerminal}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
           />
-        </Suspense>
-      )}
+        )}
 
-      {expandedTerminal && (
-        <ExpandedTerminal
-          terminal={expandedTerminal}
-          siblings={scopedTerminals.length > 0 ? scopedTerminals : [expandedTerminal]}
-          isController={isMachineController(expandedTerminal.machine_id)}
-          deviceId={deviceId ?? ""}
-          isMobile={isMobile}
-          onClose={handleUnzoom}
-          onPick={handleZoomTerminal}
-          onDestroy={handleDestroyTerminal}
-          onRequestControl={handleRequestControl}
-          onReleaseControl={handleReleaseControl}
-        />
-      )}
-
-      {closeConfirmation && (
-        <Suspense fallback={null}>
-          <ConfirmDialog
-            open
-            title="Close terminal?"
-            message={`"${closeConfirmation.processName}" is still running in this terminal. Closing the terminal will terminate it.`}
-            confirmLabel="Close terminal"
-            cancelLabel="Cancel"
-            variant="danger"
-            onConfirm={confirmClosePending}
-            onCancel={() => setCloseConfirmation(null)}
-          />
-        </Suspense>
-      )}
+        {closeConfirmation && (
+          <Suspense fallback={null}>
+            <ConfirmDialog
+              open
+              title="Close terminal?"
+              message={`"${closeConfirmation.processName}" is still running in this terminal. Closing the terminal will terminate it.`}
+              confirmLabel="Close terminal"
+              cancelLabel="Cancel"
+              variant="danger"
+              onConfirm={confirmClosePending}
+              onCancel={() => setCloseConfirmation(null)}
+            />
+          </Suspense>
+        )}
+      </TerminalPreviewMuxProvider>
     </div>
   );
 }

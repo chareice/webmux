@@ -258,6 +258,36 @@ export async function getTerminalViewJustify(
   return getImmersiveTerminal(page).getAttribute("data-terminal-view-justify");
 }
 
+export async function readTerminalBuffer(
+  page: Page,
+  terminalId: string,
+): Promise<string> {
+  return page.evaluate((tid) => {
+    const map = (
+      window as unknown as { __webmuxTerminals?: Map<string, unknown> }
+    ).__webmuxTerminals;
+    const term = map?.get(tid) as
+      | {
+          buffer: {
+            active: {
+              length: number;
+              getLine: (
+                i: number,
+              ) => { translateToString: (trim: boolean) => string } | undefined;
+            };
+          };
+        }
+      | undefined;
+    if (!term) return "";
+    const buf = term.buffer.active;
+    const lines: string[] = [];
+    for (let i = 0; i < buf.length; i++) {
+      lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+    }
+    return lines.join("\n");
+  }, terminalId);
+}
+
 /**
  * Mobile-specific: tap the "Stats" bottom tab and click Request/Stop control
  * from the Actions panel.

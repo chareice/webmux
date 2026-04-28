@@ -4,21 +4,27 @@
 //
 // Visual structure (top → bottom):
 //   header:  tint dot · title · short id chip · [ctrl] · expand · close
-//   body:    paused-preview placeholder (live stream only starts when opened)
+//   body:    live preview while the card is inside the viewport
 //   footer:  cwd (~-shortened) + optional workpath tag
 //
 // Click anywhere on the card → onExpand(terminal.id). The close button
 // stops propagation so it doesn't also expand.
 
-import { memo, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { Expand, MoreHorizontal, X } from "lucide-react";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
+import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
+
+const LiveTerminalView = lazy(() =>
+  import("./TerminalView.web").then((module) => ({
+    default: module.TerminalView,
+  })),
+);
 
 interface TerminalGridCardProps {
   terminal: TerminalInfo;
   isController: boolean;
-  deviceId: string;
   workpathLabel?: string;
   onExpand: (id: string) => void;
   onDestroy: (terminal: TerminalInfo) => void;
@@ -32,12 +38,51 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
     onExpand,
     onDestroy,
   } = props;
+  const rootRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
   const short = terminal.id.slice(0, 8);
   const tintColor = tintForId(terminal.id);
+  const previewSource = useTerminalPreviewOutputSource({
+    enabled: terminal.reachable && previewVisible,
+    machineId: terminal.machine_id,
+    terminalId: terminal.id,
+    cols: terminal.cols,
+    rows: terminal.rows,
+  });
+
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!node || !terminal.reachable) {
+      setPreviewVisible(false);
+      return;
+    }
+
+    if (typeof IntersectionObserver === "undefined") {
+      setPreviewVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setPreviewVisible(entry.isIntersecting);
+      },
+      {
+        root: null,
+        rootMargin: "160px 0px",
+        threshold: 0.01,
+      },
+    );
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [terminal.id, terminal.reachable]);
 
   return (
     <div
+      ref={rootRef}
       data-testid={`grid-card-${terminal.id}`}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -177,7 +222,7 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
         </div>
       </div>
 
-      {/* Body — paused preview placeholder */}
+      {/* Body — visible cards stream through the shared preview mux. */}
       <div
         style={{
           flex: 1,
@@ -190,7 +235,35 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
           justifyContent: "center",
         }}
       >
-        {terminal.reachable && (
+        {terminal.reachable && previewSource ? (
+          <Suspense fallback={null}>
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                pointerEvents: "none",
+                overflow: "hidden",
+              }}
+            >
+              <LiveTerminalView
+                machineId={terminal.machine_id}
+                terminalId={terminal.id}
+                outputSource={previewSource}
+                cols={terminal.cols}
+                rows={terminal.rows}
+                displayMode="card"
+                isController={false}
+                canResizeTerminal={false}
+                style={{
+                  transform: "scale(0.35)",
+                  transformOrigin: "top left",
+                  width: "286%",
+                  height: "286%",
+                }}
+              />
+            </div>
+          </Suspense>
+        ) : terminal.reachable ? (
           <div
             style={{
               display: "flex",
@@ -205,11 +278,8 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
             <span style={{ fontSize: 12, fontWeight: 600 }}>
               Live preview paused
             </span>
-            <span style={{ fontSize: 11 }}>
-              Open this terminal to resume streaming.
-            </span>
           </div>
-        )}
+        ) : null}
         <div
           style={{
             position: "absolute",

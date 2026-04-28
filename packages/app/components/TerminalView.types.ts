@@ -5,10 +5,15 @@ export interface TerminalViewRef {
   focus: () => void;
 }
 
+export interface TerminalOutputSource {
+  subscribe: (onChunk: (chunk: Uint8Array) => void) => () => void;
+}
+
 export interface TerminalViewProps {
   machineId: string;
   terminalId: string;
-  wsUrl: string;
+  wsUrl?: string;
+  outputSource?: TerminalOutputSource | null;
   cols: number;
   rows: number;
   displayMode?: "card" | "immersive";

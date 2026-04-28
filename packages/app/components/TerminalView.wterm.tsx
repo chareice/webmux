@@ -72,6 +72,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     machineId,
     terminalId,
     wsUrl,
+    outputSource,
     cols,
     rows,
     displayMode = "immersive",
@@ -274,7 +275,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
     useEffect(() => {
       const wt = wtermRef.current;
-      if (!wt || !wsUrl) return;
+      if (!wt || !wsUrl || outputSource) return;
       let disposed = false;
 
       const ws = new WebSocket(wsUrl);
@@ -392,7 +393,54 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         ws.onclose = null;
         ws.close();
       };
-    }, [scheduleMeasure, sessionGeneration, wsUrl]);
+    }, [outputSource, scheduleMeasure, sessionGeneration, wsUrl]);
+
+    useEffect(() => {
+      const wt = wtermRef.current;
+      if (!wt || !outputSource) return;
+
+      let pendingChunks: Uint8Array[] = [];
+      let pendingBytes = 0;
+      let rafId = 0;
+      const MAX_PENDING = 128 * 1024;
+
+      const flushPending = () => {
+        if (pendingBytes > 0) {
+          const merged = new Uint8Array(pendingBytes);
+          let offset = 0;
+          for (const chunk of pendingChunks) {
+            merged.set(chunk, offset);
+            offset += chunk.length;
+          }
+          wt.write(merged);
+          pendingChunks = [];
+          pendingBytes = 0;
+        }
+        rafId = 0;
+      };
+
+      const enqueueOutput = (chunk: Uint8Array) => {
+        pendingChunks.push(chunk);
+        pendingBytes += chunk.length;
+
+        if (pendingBytes >= MAX_PENDING) {
+          if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = 0;
+          }
+          flushPending();
+        } else if (!rafId) {
+          rafId = requestAnimationFrame(flushPending);
+        }
+      };
+
+      const unsubscribe = outputSource.subscribe(enqueueOutput);
+
+      return () => {
+        unsubscribe();
+        if (rafId) cancelAnimationFrame(rafId);
+      };
+    }, [outputSource]);
 
     useEffect(() => {
       const wt = wtermRef.current;
