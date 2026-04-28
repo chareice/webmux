@@ -104,7 +104,7 @@ async fn main() {
         .layer(CorsLayer::permissive())
         .fallback_service(
             ServeDir::new(&args.static_dir)
-                .not_found_service(ServeFile::new(format!("{}/index.html", args.static_dir))),
+                .fallback(ServeFile::new(format!("{}/index.html", args.static_dir))),
         )
         .with_state(state);
 
