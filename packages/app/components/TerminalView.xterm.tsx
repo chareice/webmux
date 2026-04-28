@@ -126,6 +126,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
     const fitRetryTimerRef = useRef<number | null>(null);
+    // Set when Cmd/Ctrl+V is intercepted by the keydown handler so the
+    // container's `paste` listener can skip the same image. Chromium fires
+    // `paste` even after we preventDefault on keydown, so without this we
+    // send `image_paste` twice and Codex sees two attached files.
+    const lastKeydownPasteAtRef = useRef(0);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
     const [sessionGeneration, setSessionGeneration] = useState(0);
@@ -451,6 +456,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           event.type === "keydown"
         ) {
           event.preventDefault();
+          lastKeydownPasteAtRef.current = Date.now();
           void (async () => {
             // Try navigator.clipboard.read() first — it works in Tauri WebView
             // and supports images. Fall back to text-only if it throws.
@@ -495,6 +501,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       // Intercept paste events for image detection
       const handlePaste = (e: ClipboardEvent) => {
+        // Cmd/Ctrl+V was just handled by the keydown branch above —
+        // skip so we don't send the same image twice.
+        if (Date.now() - lastKeydownPasteAtRef.current < 1000) return;
         const items = e.clipboardData?.items;
         if (!items) return;
         for (const item of Array.from(items)) {
