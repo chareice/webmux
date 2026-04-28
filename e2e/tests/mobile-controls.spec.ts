@@ -120,6 +120,58 @@ test("mobile new terminal starts fitted without an immediate resize", async ({ p
   expect(terminal.cols).toBeLessThan(80);
 });
 
+test("mobile terminal only focuses after an explicit input gesture", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  await createTerminalViaApi(page);
+  const card = await expectSingleTerminalCard(page);
+  await card.click();
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+
+  await expect
+    .poll(() => terminalHasKeyboardFocus(page), { timeout: 20_000 })
+    .toBe(false);
+
+  await page.getByTitle("Show keyboard").click();
+  await expect
+    .poll(() => terminalHasKeyboardFocus(page), { timeout: 20_000 })
+    .toBe(true);
+
+  await page.getByTitle("Hide keyboard").click();
+  await expect
+    .poll(() => terminalHasKeyboardFocus(page), { timeout: 20_000 })
+    .toBe(false);
+
+  await getImmersiveTerminal(page).click({ position: { x: 24, y: 24 } });
+  await expect
+    .poll(() => terminalHasKeyboardFocus(page), { timeout: 20_000 })
+    .toBe(true);
+});
+
+test("mobile terminal switch does not focus the new terminal automatically", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  const firstTerminalId = await createTerminalViaApi(page);
+  const secondTerminalId = await createTerminalViaApi(page);
+  await expect(page.locator("[data-testid^='mobile-term-card-']")).toHaveCount(2);
+  await page.getByTestId(`mobile-term-card-${firstTerminalId}`).click();
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+
+  await page.locator("body").click({ position: { x: 4, y: 4 } });
+  await page.getByTestId(`expanded-thumb-${secondTerminalId}`).click();
+  await expect(page.getByTestId(`expanded-thumb-${firstTerminalId}`)).toBeVisible();
+
+  await expect
+    .poll(() => terminalHasKeyboardFocus(page), { timeout: 20_000 })
+    .toBe(false);
+});
+
 test("mobile live streams reconnect after returning from background", async ({
   page,
 }) => {
@@ -190,4 +242,13 @@ async function setPageVisibility(
     });
     document.dispatchEvent(new Event("visibilitychange"));
   }, visibilityState);
+}
+
+async function terminalHasKeyboardFocus(
+  page: Parameters<typeof openApp>[0],
+): Promise<boolean> {
+  return page.evaluate(() => {
+    const active = document.activeElement;
+    return active instanceof HTMLElement && active.closest(".xterm") !== null;
+  });
 }

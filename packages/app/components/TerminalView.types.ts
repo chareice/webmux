@@ -3,6 +3,7 @@ export interface TerminalViewRef {
   sendCommandInput: (data: string) => void;
   fitToContainer: () => void;
   focus: () => void;
+  blur: () => void;
 }
 
 export interface TerminalOutputSource {

@@ -19,6 +19,7 @@ const FIT_REF_RETRY_DELAY_MS = 100;
 export interface TerminalCardRef {
   fitToContainer: () => void;
   focus: () => void;
+  blur: () => void;
   sendInput: (data: string) => void;
 }
 
@@ -75,9 +76,11 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
       }
       clearFitRefRetryTimer();
       view.fitToContainer();
-      view.focus();
+      if (!isMobile) {
+        view.focus();
+      }
     },
-    [clearFitRefRetryTimer, isController, isTab],
+    [clearFitRefRetryTimer, isController, isMobile, isTab],
   );
 
   useEffect(() => clearFitRefRetryTimer, [clearFitRefRetryTimer]);
@@ -88,6 +91,9 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
     },
     focus: () => {
       termViewRef.current?.focus();
+    },
+    blur: () => {
+      termViewRef.current?.blur();
     },
     sendInput: (data: string) => {
       termViewRef.current?.sendInput(data);
@@ -104,8 +110,18 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   const handleToolbarKey = useCallback((data: string) => {
     if (!isController) return;
     termViewRef.current?.sendCommandInput(data);
-    termViewRef.current?.focus();
   }, [isController]);
+
+  const handleToggleKeyboard = useCallback(() => {
+    if (!isController) return;
+    const nextVisible = !keyboardVisible;
+    setKeyboardVisible(nextVisible);
+    if (nextVisible) {
+      termViewRef.current?.focus();
+    } else {
+      termViewRef.current?.blur();
+    }
+  }, [isController, keyboardVisible]);
 
   const handleCardClick = useCallback(() => {
     if (!isTab) onSelectTab(terminal.id);
@@ -429,7 +445,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         {isTab && isMobile && (
           <ExtendedKeyBar
             onKey={handleToolbarKey}
-            onToggleKeyboard={() => setKeyboardVisible(v => !v)}
+            onToggleKeyboard={handleToggleKeyboard}
             keyboardVisible={keyboardVisible}
             isController={isController}
           />
