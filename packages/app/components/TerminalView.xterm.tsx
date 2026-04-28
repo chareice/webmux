@@ -214,6 +214,25 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       }
     }, []);
 
+    const resizeLocalTerminal = useCallback(
+      (nextCols: number, nextRows: number) => {
+        const term = termRef.current;
+        if (!term) return;
+        if (term.cols === nextCols && term.rows === nextRows) {
+          scheduleMeasure();
+          return;
+        }
+        try {
+          term.resize(nextCols, nextRows);
+          term.refresh(0, Math.max(nextRows - 1, 0));
+          scheduleMeasure();
+        } catch {
+          /* ignore */
+        }
+      },
+      [scheduleMeasure],
+    );
+
     const fitToContainer = useCallback(
       (attempt = 0) => {
         const scheduleRetry = () => {
@@ -234,6 +253,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
 
         try {
+          const currentCols = termRef.current?.cols ?? cols;
+          const currentRows = termRef.current?.rows ?? rows;
           const nextDims =
             displayMode === "immersive"
               ? getTerminalFitDimensions({
@@ -241,8 +262,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
                   viewportHeight: viewportSizeRef.current.height,
                   contentWidth: surfaceSizeRef.current.width,
                   contentHeight: surfaceSizeRef.current.height,
-                  cols,
-                  rows,
+                  cols: currentCols,
+                  rows: currentRows,
                 })
               : (() => {
                   if (!fit) return null;
@@ -257,11 +278,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
           clearFitRetryTimer();
           liveWs.send(JSON.stringify(resizeMessage));
+          resizeLocalTerminal(resizeMessage.cols, resizeMessage.rows);
         } catch {
           scheduleRetry();
         }
       },
-      [clearFitRetryTimer, cols, displayMode, rows],
+      [clearFitRetryTimer, cols, displayMode, resizeLocalTerminal, rows],
     );
 
     useEffect(() => clearFitRetryTimer, [clearFitRetryTimer]);
@@ -831,13 +853,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const term = termRef.current;
       if (!term) return;
       if (term.cols === cols && term.rows === rows) return;
-      try {
-        term.resize(cols, rows);
-        scheduleMeasure();
-      } catch {
-        /* ignore */
-      }
-    }, [cols, rows, scheduleMeasure]);
+      resizeLocalTerminal(cols, rows);
+    }, [cols, resizeLocalTerminal, rows]);
 
     useEffect(() => {
       scheduleMeasure();

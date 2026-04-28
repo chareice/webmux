@@ -150,6 +150,24 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       }
     }, []);
 
+    const resizeLocalTerminal = useCallback(
+      (nextCols: number, nextRows: number) => {
+        const wt = wtermRef.current;
+        if (!wt || !wt.bridge) return;
+        if (wt.cols === nextCols && wt.rows === nextRows) {
+          scheduleMeasure();
+          return;
+        }
+        try {
+          wt.resize(nextCols, nextRows);
+          scheduleMeasure();
+        } catch {
+          /* ignore */
+        }
+      },
+      [scheduleMeasure],
+    );
+
     const fitToContainer = useCallback(
       (attempt = 0) => {
         const scheduleRetry = () => {
@@ -169,13 +187,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
 
         try {
+          const currentCols = wtermRef.current?.cols ?? cols;
+          const currentRows = wtermRef.current?.rows ?? rows;
           const nextDims = getTerminalFitDimensions({
             viewportWidth: viewportSizeRef.current.width,
             viewportHeight: viewportSizeRef.current.height,
             contentWidth: surfaceSizeRef.current.width,
             contentHeight: surfaceSizeRef.current.height,
-            cols,
-            rows,
+            cols: currentCols,
+            rows: currentRows,
           });
 
           const resizeMessage = buildResizeMessage(nextDims);
@@ -185,11 +205,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
           clearFitRetryTimer();
           liveWs.send(JSON.stringify(resizeMessage));
+          resizeLocalTerminal(resizeMessage.cols, resizeMessage.rows);
         } catch {
           scheduleRetry();
         }
       },
-      [clearFitRetryTimer, cols, rows],
+      [clearFitRetryTimer, cols, resizeLocalTerminal, rows],
     );
 
     useEffect(() => clearFitRetryTimer, [clearFitRetryTimer]);
@@ -486,13 +507,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const wt = wtermRef.current;
       if (!wt || !wt.bridge) return;
       if (wt.cols === cols && wt.rows === rows) return;
-      try {
-        wt.resize(cols, rows);
-        scheduleMeasure();
-      } catch {
-        /* ignore */
-      }
-    }, [cols, rows, scheduleMeasure]);
+      resizeLocalTerminal(cols, rows);
+    }, [cols, resizeLocalTerminal, rows]);
 
     useEffect(() => {
       scheduleMeasure();

@@ -1,4 +1,4 @@
-import { expect, test, devices } from "@playwright/test";
+import { expect, test, devices, type Page } from "@playwright/test";
 
 import {
   closeExpandedOverlay,
@@ -10,6 +10,7 @@ import {
   getDeviceId,
   getImmersiveTerminal,
   listTerminals,
+  mobileTakeControl,
   openApp,
   resetMachineState,
   selectHomeWorkpath,
@@ -206,3 +207,69 @@ test("mobile controller can resize the shared pty with Fit to Window", async ({
   await desktop.close();
   await mobile.close();
 });
+
+test("Fit to Window updates the local terminal size before resize output can arrive", async ({
+  browser,
+}) => {
+  const mobile = await browser.newContext({
+    ...devices["iPhone 14"],
+    browserName: "chromium",
+  });
+  const page = await mobile.newPage();
+  let resizeFrame: { cols: number; rows: number } | null = null;
+  let resolveResizeFrame: (() => void) | null = null;
+  const resizeFrameSeen = new Promise<void>((resolve) => {
+    resolveResizeFrame = resolve;
+  });
+
+  page.on("websocket", (socket) => {
+    if (!socket.url().includes("/ws/terminal/")) return;
+    socket.on("framesent", (frame) => {
+      if (typeof frame.payload !== "string") return;
+      const payload = JSON.parse(frame.payload) as
+        | { type: "resize"; cols: number; rows: number }
+        | { type: string };
+      if (payload.type !== "resize") return;
+      resizeFrame = payload;
+      resolveResizeFrame?.();
+    });
+  });
+
+  await openApp(page);
+  await resetMachineState(page);
+  await mobileTakeControl(page);
+  const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
+  await page.getByRole("button", { name: "Terminals" }).click();
+  const mobileCard = await expectSingleTerminalCard(page);
+  await mobileCard.click();
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+  await expect
+    .poll(() => getLocalTerminalSize(page, terminalId))
+    .toEqual({ cols: 80, rows: 24 });
+
+  await page.getByTestId("terminal-fit-button").click();
+  await resizeFrameSeen;
+  expect(resizeFrame).not.toBeNull();
+  expect(await getLocalTerminalSize(page, terminalId)).toEqual({
+    cols: resizeFrame!.cols,
+    rows: resizeFrame!.rows,
+  });
+
+  await mobile.close();
+});
+
+async function getLocalTerminalSize(
+  page: Page,
+  terminalId: string,
+): Promise<{ cols: number; rows: number } | null> {
+  return page.evaluate((tid) => {
+    const map = (
+      window as unknown as {
+        __webmuxTerminals?: Map<string, { cols: number; rows: number }>;
+      }
+    ).__webmuxTerminals;
+    const terminal = map?.get(tid);
+    if (!terminal) return null;
+    return { cols: terminal.cols, rows: terminal.rows };
+  }, terminalId);
+}
