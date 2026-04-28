@@ -1,4 +1,4 @@
-use portable_pty::{native_pty_system, Child, CommandBuilder, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -14,6 +14,13 @@ pub struct SessionInfo {
     pub cwd: String,
     pub cols: u16,
     pub rows: u16,
+}
+
+pub struct TmuxAttach {
+    pub writer: Box<dyn Write + Send>,
+    pub reader: Box<dyn Read + Send>,
+    pub child: Box<dyn Child + Send + Sync>,
+    pub master: Box<dyn MasterPty + Send>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -478,18 +485,7 @@ fn tmux_kill_session(id: &str) {
 /// Caller owns the lifecycle: drop / kill the child to detach. Used by
 /// `crate::attach::AttachManager` to give each browser its own tmux client
 /// view of the session.
-pub fn spawn_tmux_attach(
-    session_id: &str,
-    cols: u16,
-    rows: u16,
-) -> Result<
-    (
-        Box<dyn Write + Send>,
-        Box<dyn Read + Send>,
-        Box<dyn Child + Send + Sync>,
-    ),
-    String,
-> {
+pub fn spawn_tmux_attach(session_id: &str, cols: u16, rows: u16) -> Result<TmuxAttach, String> {
     let tmux_name = tmux_session_name(session_id);
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -500,28 +496,31 @@ pub fn spawn_tmux_attach(
             pixel_height: 0,
         })
         .map_err(|e| format!("Failed to open pty: {}", e))?;
+    let portable_pty::PtyPair { slave, master } = pair;
 
     let mut cmd = CommandBuilder::new("tmux");
     cmd.args(["-L", TMUX_SOCKET, "attach-session", "-t", &tmux_name]);
     let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
     cmd.env("TERM", term);
 
-    let child = pair
-        .slave
+    let child = slave
         .spawn_command(cmd)
         .map_err(|e| format!("Failed to spawn tmux attach: {}", e))?;
-    drop(pair.slave);
+    drop(slave);
 
-    let writer = pair
-        .master
+    let writer = master
         .take_writer()
         .map_err(|e| format!("Failed to get writer: {}", e))?;
-    let reader = pair
-        .master
+    let reader = master
         .try_clone_reader()
         .map_err(|e| format!("Failed to get reader: {}", e))?;
 
-    Ok((writer, reader, child))
+    Ok(TmuxAttach {
+        writer,
+        reader,
+        child,
+        master,
+    })
 }
 
 /// Resize the tmux window for a session. With `window-size manual` set in

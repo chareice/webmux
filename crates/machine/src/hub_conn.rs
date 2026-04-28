@@ -441,10 +441,11 @@ async fn handle_hub_message(
             cols,
             rows,
         } => {
-            // Resolve attach → session, then call `tmux resize-window`.
+            // Keep the tmux client PTY and tmux window at the same size.
             // Together with `window-size manual` in tmux.conf this is the
             // single source of truth for window sizing.
             if let Some(session_id) = attach_mgr.session_of(&attach_id).await {
+                attach_mgr.resize(&attach_id, cols, rows).await;
                 tracing::info!(
                     attach_id = %attach_id,
                     session_id = %session_id,
