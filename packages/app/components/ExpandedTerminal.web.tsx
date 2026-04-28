@@ -39,6 +39,7 @@ interface ExpandedTerminalProps {
   onDestroy: (terminal: TerminalInfo) => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
+  suppressAutoFitUntil?: number;
 }
 
 function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
@@ -53,6 +54,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
     onDestroy,
     onRequestControl,
     onReleaseControl,
+    suppressAutoFitUntil,
   } = props;
   const cardRef = useRef<TerminalCardRef>(null);
   const short = terminal.id.slice(0, 8);
@@ -256,6 +258,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
             onDestroy={onDestroy}
             onRequestControl={onRequestControl}
             onReleaseControl={onReleaseControl}
+            suppressAutoFitUntil={suppressAutoFitUntil}
           />
         </div>
 

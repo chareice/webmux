@@ -5,7 +5,6 @@ import {
   getImmersiveTerminal,
   listTerminals,
   openApp,
-  requestMachineControl,
   resetMachineState,
 } from "./helpers";
 
@@ -23,9 +22,14 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await expect(page.getByTestId("mobile-workbench")).toBeVisible();
   await expect(page.getByText(/No terminals here yet/)).toBeVisible();
 
-  // Take control via API — the Stats tab's "Request control" action row is
-  // the in-UI path, but API is more reliable in the test harness.
-  await requestMachineControl(page);
+  // Take control without leaving the Terminals tab.
+  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
+    "Control Here",
+  );
+  await page.getByTestId("mobile-control-toggle").click();
+  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
+    "Stop Control",
+  );
 
   // After taking control the FAB appears on the Terminals tab.
   await expect(page.getByTestId("mobile-fab-new-terminal")).toBeVisible();
@@ -80,4 +84,36 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   expect(resp.ok()).toBeTruthy();
 
   await expect(page.getByText(/No terminals here yet/)).toBeVisible();
+});
+
+test("mobile new terminal starts fitted without an immediate resize", async ({ page }) => {
+  const terminalFramesSent: string[] = [];
+  page.on("websocket", (socket) => {
+    if (!socket.url().includes("/ws/terminal/")) return;
+    socket.on("framesent", (frame) => {
+      if (typeof frame.payload === "string") {
+        terminalFramesSent.push(frame.payload);
+      }
+    });
+  });
+
+  await openApp(page);
+  await resetMachineState(page);
+  await page.getByTestId("mobile-control-toggle").click();
+  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
+    "Stop Control",
+  );
+
+  await page.getByTestId("mobile-fab-new-terminal").click();
+  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+
+  await page.waitForTimeout(1_200);
+  const resizeFrames = terminalFramesSent.filter((payload) =>
+    payload.includes('"type":"resize"'),
+  );
+  expect(resizeFrames).toEqual([]);
+
+  const [terminal] = await listTerminals(page);
+  expect(terminal.cols).toBeLessThan(80);
 });

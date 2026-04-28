@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   estimateInitialTerminalDimensions,
+  estimateMobileInitialTerminalDimensions,
   getTerminalControlCopy,
   getTerminalFitDimensions,
   getTerminalViewportLayout,
@@ -110,4 +111,9 @@ test("estimateInitialTerminalDimensions clamps at 400×200 to block runaway valu
   const { cols, rows } = estimateInitialTerminalDimensions(10_000, 10_000);
   assert.equal(cols, 400);
   assert.equal(rows, 200);
+});
+
+test("estimateMobileInitialTerminalDimensions accounts for mobile overlay chrome", () => {
+  const { cols, rows } = estimateMobileInitialTerminalDimensions(390, 664);
+  assert.deepEqual({ cols, rows }, { cols: 52, rows: 27 });
 });

@@ -207,10 +207,24 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         )}
         {tab === "terminals" && (
           <TerminalsPage
+            machine={activeMachine}
             scopeLabel={scopedBookmark?.label ?? "All"}
             scopePath={scopedBookmark?.path ?? null}
             terminals={scopedTerminals}
+            isController={isController}
+            canCreateTerminal={canCreateTerminal}
             onOpen={onOpenTerminal}
+            onNewTerminal={onNewTerminal}
+            onRequestControl={
+              activeMachine
+                ? () => onRequestControl(activeMachine.id)
+                : undefined
+            }
+            onReleaseControl={
+              activeMachine
+                ? () => onReleaseControl(activeMachine.id)
+                : undefined
+            }
             onChangeScope={() => setTab("hosts")}
           />
         )}
@@ -802,20 +816,136 @@ function WpRow({
 }
 
 function TerminalsPage({
+  machine,
   scopeLabel,
   scopePath,
   terminals,
+  isController,
+  canCreateTerminal,
   onOpen,
+  onNewTerminal,
+  onRequestControl,
+  onReleaseControl,
   onChangeScope,
 }: {
+  machine: MachineInfo | null;
   scopeLabel: string;
   scopePath: string | null;
   terminals: TerminalInfo[];
+  isController: boolean;
+  canCreateTerminal: boolean;
   onOpen: (id: string) => void;
+  onNewTerminal: () => void;
+  onRequestControl?: () => void;
+  onReleaseControl?: () => void;
   onChangeScope: () => void;
 }) {
   return (
     <div style={{ height: "100%", overflow: "auto", padding: "8px 0 80px" }}>
+      <div
+        style={{
+          margin: "4px 12px 10px",
+          padding: 10,
+          display: "grid",
+          gridTemplateColumns: "1fr auto",
+          gap: 8,
+          alignItems: "center",
+          borderRadius: 12,
+          border: `1px solid ${colors.lineSoft}`,
+          background: colors.bg1,
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              minWidth: 0,
+            }}
+          >
+            <HostDot isController={isController} />
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 650,
+                color: colors.fg0,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                minWidth: 0,
+              }}
+            >
+              {machine?.name ?? "No host"}
+            </span>
+          </div>
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 11,
+              color: isController ? colors.accent : colors.fg3,
+            }}
+          >
+            {isController ? "Ready to create and type" : "Viewing only"}
+          </div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            justifyContent: "flex-end",
+            minWidth: 0,
+          }}
+        >
+          <button
+            type="button"
+            data-testid="mobile-control-toggle"
+            disabled={!machine || (!isController && !onRequestControl)}
+            onClick={() => {
+              if (isController) onReleaseControl?.();
+              else onRequestControl?.();
+            }}
+            style={{
+              minHeight: 40,
+              padding: "0 12px",
+              borderRadius: 9,
+              border: `1px solid ${
+                isController ? colors.lineSoft : colorAlpha.accentLine
+              }`,
+              background: isController ? colors.bg2 : colorAlpha.accentSoft,
+              color: isController ? colors.fg1 : colors.accent,
+              fontSize: 12,
+              fontWeight: 700,
+              whiteSpace: "nowrap",
+              cursor: machine ? "pointer" : "not-allowed",
+            }}
+          >
+            {isController ? "Stop Control" : "Control Here"}
+          </button>
+          {canCreateTerminal && (
+            <button
+              type="button"
+              data-testid="mobile-new-terminal-inline"
+              onClick={onNewTerminal}
+              style={{
+                minHeight: 40,
+                padding: "0 12px",
+                borderRadius: 9,
+                border: "none",
+                background: colors.accent,
+                color: "#120904",
+                fontSize: 12,
+                fontWeight: 800,
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+              }}
+            >
+              New
+            </button>
+          )}
+        </div>
+      </div>
+
       <button
         onClick={onChangeScope}
         style={{

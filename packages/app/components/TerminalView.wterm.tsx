@@ -78,6 +78,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     displayMode = "immersive",
     isController,
     canResizeTerminal,
+    suppressAutoFitUntil,
     onTitleChange,
     style,
   }, ref) {
@@ -462,6 +463,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     // see the matching effect in TerminalView.xterm.tsx for context.
     useEffect(() => {
       if (displayMode !== "immersive" || !canResizeTerminal) return;
+      if (suppressAutoFitUntil && Date.now() < suppressAutoFitUntil) return;
 
       const timerId = window.setTimeout(() => {
         const liveWs = wsRef.current;
@@ -501,6 +503,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       canResizeTerminal,
       cols,
       rows,
+      suppressAutoFitUntil,
       viewportSize.width,
       viewportSize.height,
     ]);

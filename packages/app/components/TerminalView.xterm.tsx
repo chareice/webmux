@@ -112,6 +112,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     displayMode = "immersive",
     isController,
     canResizeTerminal,
+    suppressAutoFitUntil,
     onTitleChange,
     style,
   }, ref) {
@@ -807,6 +808,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     // glyphs from the in-flight line.
     useEffect(() => {
       if (displayMode !== "immersive" || !canResizeTerminal) return;
+      if (suppressAutoFitUntil && Date.now() < suppressAutoFitUntil) return;
 
       const timerId = window.setTimeout(() => {
         const fit = fitRef.current;
@@ -861,6 +863,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       canResizeTerminal,
       cols,
       rows,
+      suppressAutoFitUntil,
       viewportSize.width,
       viewportSize.height,
     ]);
