@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import type { TerminalInfo, Bookmark } from "@webmux/shared";
+import { useRouter } from "expo-router";
 import { AppTitleBar } from "./AppTitleBar.web";
 import { Rail } from "./Rail.web";
 import { WorkbenchHeader } from "./WorkbenchHeader.web";
@@ -98,6 +99,7 @@ function useStatusBarPref() {
 }
 
 export function TerminalCanvas() {
+  const router = useRouter();
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
   const [layout, dispatchLayout] = useReducer(
     mainLayoutReducer,
@@ -147,8 +149,8 @@ export function TerminalCanvas() {
     : false;
 
   const openNativeZellij = useCallback((machineId: string) => {
-    window.location.href = nativeZellijRoute(machineId);
-  }, []);
+    router.push(nativeZellijRoute(machineId));
+  }, [router]);
 
   const statusBarVisible = useStatusBarPref();
 
@@ -705,6 +707,7 @@ export function TerminalCanvas() {
               onNewTerminal={handleNewTerminalFromHeader}
               onRequestControl={handleRequestControl}
               onReleaseControl={handleReleaseControl}
+              onOpenNativeZellij={openNativeZellij}
               onOpenSettings={() => setShowSettings(true)}
             />
           ) : (

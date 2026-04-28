@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { devices, expect, test } from "@playwright/test";
 
 import { getAuthHeaders, openApp } from "./helpers";
 
@@ -77,4 +77,55 @@ test("native zellij sidebar entry opens the managed browser session", async ({
       { timeout: 60_000 },
     )
     .toBe(bootstrap.status.status === "ready" ? bootstrap.status.session_name : "");
+});
+
+test("mobile menu entry opens native zellij", async ({ browser }) => {
+  const iPhone = devices["iPhone 14"];
+  const context = await browser.newContext({
+    viewport: iPhone.viewport,
+    userAgent: iPhone.userAgent,
+    deviceScaleFactor: iPhone.deviceScaleFactor,
+    isMobile: iPhone.isMobile,
+    hasTouch: iPhone.hasTouch,
+  });
+  const page = await context.newPage();
+
+  try {
+    await openApp(page);
+
+    const bootstrapResponse = await page.request.get(
+      "/api/machines/e2e-node/native-zellij",
+      {
+        headers: await getAuthHeaders(page),
+      },
+    );
+    expect(bootstrapResponse.ok()).toBeTruthy();
+    const bootstrap = (await bootstrapResponse.json()) as {
+      status:
+        | {
+            status: "ready";
+            session_name: string;
+            session_path: string;
+            base_url: string;
+            login_token: string;
+          }
+        | {
+            status: "unavailable";
+            reason: string;
+            instructions: string;
+          };
+      proxy_url: string | null;
+    };
+    expect(bootstrap.status.status).toBe("ready");
+    expect(bootstrap.proxy_url).toBeTruthy();
+
+    await page.getByLabel("More").click();
+    await expect(page.getByText("Native Zellij")).toBeVisible();
+    await page.getByText("Native Zellij").click();
+
+    await expect(page).toHaveURL(/\/machines\/e2e-node\/native-zellij$/);
+    await expect(page.getByTestId("native-zellij-frame")).toBeVisible();
+  } finally {
+    await context.close();
+  }
 });
