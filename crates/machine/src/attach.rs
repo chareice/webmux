@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use portable_pty::PtySize;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -36,6 +37,12 @@ pub enum AttachEvent {
     Died(AttachExitReason),
 }
 
+#[derive(Debug)]
+enum AttachCommand {
+    Input(Bytes),
+    Resize { cols: u16, rows: u16 },
+}
+
 /// Per-machine collection of live attaches.
 ///
 /// Each attach owns one `tmux attach-session` subprocess + the PTY it speaks
@@ -46,11 +53,11 @@ pub struct AttachManager {
 }
 
 struct AttachHandle {
-    /// Sending here writes to the attach's PTY (i.e., the user's input).
+    /// Sending here controls the attach's PTY.
     /// Dropping this is the close signal — the writer thread sees the
     /// channel close, kills the tmux attach child, and the reader thread
     /// follows on PTY EOF.
-    input_tx: mpsc::Sender<Bytes>,
+    command_tx: mpsc::Sender<AttachCommand>,
     /// Recorded so callers can look up which session this attach belongs to
     /// (e.g., to issue `tmux resize-window` against the right session).
     session_id: String,
@@ -74,18 +81,18 @@ impl AttachManager {
         rows: u16,
     ) -> mpsc::Receiver<AttachEvent> {
         let (events_tx, events_rx) = mpsc::channel::<AttachEvent>(64);
-        let (input_tx, input_rx) = mpsc::channel::<Bytes>(64);
+        let (command_tx, command_rx) = mpsc::channel::<AttachCommand>(64);
 
         self.inner.lock().await.insert(
             attach_id.clone(),
             AttachHandle {
-                input_tx,
+                command_tx,
                 session_id: session_id.clone(),
             },
         );
 
         std::thread::spawn(move || {
-            run_attach_task(attach_id, session_id, cols, rows, events_tx, input_rx);
+            run_attach_task(attach_id, session_id, cols, rows, events_tx, command_rx);
         });
 
         events_rx
@@ -94,13 +101,28 @@ impl AttachManager {
     pub async fn write_input(&self, attach_id: &str, data: Bytes) -> bool {
         // Clone the sender out from under the lock; awaiting send() while
         // holding the async Mutex would block close() / close_all() /
-        // session_of() if the writer thread is slow to drain input_rx.
-        let input_tx = {
+        // session_of() if the writer thread is slow to drain command_rx.
+        let command_tx = {
             let inner = self.inner.lock().await;
-            inner.get(attach_id).map(|handle| handle.input_tx.clone())
+            inner.get(attach_id).map(|handle| handle.command_tx.clone())
         };
-        if let Some(input_tx) = input_tx {
-            input_tx.send(data).await.is_ok()
+        if let Some(command_tx) = command_tx {
+            command_tx.send(AttachCommand::Input(data)).await.is_ok()
+        } else {
+            false
+        }
+    }
+
+    pub async fn resize(&self, attach_id: &str, cols: u16, rows: u16) -> bool {
+        let command_tx = {
+            let inner = self.inner.lock().await;
+            inner.get(attach_id).map(|handle| handle.command_tx.clone())
+        };
+        if let Some(command_tx) = command_tx {
+            command_tx
+                .send(AttachCommand::Resize { cols, rows })
+                .await
+                .is_ok()
         } else {
             false
         }
@@ -138,18 +160,22 @@ fn run_attach_task(
     cols: u16,
     rows: u16,
     events_tx: mpsc::Sender<AttachEvent>,
-    mut input_rx: mpsc::Receiver<Bytes>,
+    mut command_rx: mpsc::Receiver<AttachCommand>,
 ) {
     let _ = attach_id; // reserved for tracing in a future change
 
     // Spawn the tmux attach. On failure we report Died and bail.
-    let (mut writer, reader, mut child) = match spawn_tmux_attach(&session_id, cols, rows) {
+    let attach = match spawn_tmux_attach(&session_id, cols, rows) {
         Ok(v) => v,
         Err(e) => {
             let _ = events_tx.blocking_send(AttachEvent::Died(AttachExitReason::IoError(e)));
             return;
         }
     };
+    let mut writer = attach.writer;
+    let reader = attach.reader;
+    let mut child = attach.child;
+    let master = attach.master;
 
     // Reader thread: blocking PTY reads → events_tx. Owns the reader handle
     // and emits the Died event when the PTY closes (which happens on shell
@@ -177,13 +203,30 @@ fn run_attach_task(
         let _ = reader_events_tx.blocking_send(AttachEvent::Died(exit));
     });
 
-    // Writer loop on this thread: input_rx → PTY. Exits when input_tx is
+    // Writer loop on this thread: commands → PTY. Exits when command_tx is
     // dropped (close_attach / AttachManager dropped).
-    while let Some(chunk) = input_rx.blocking_recv() {
-        if writer.write_all(&chunk).is_err() {
-            break;
+    while let Some(command) = command_rx.blocking_recv() {
+        match command {
+            AttachCommand::Input(chunk) => {
+                if writer.write_all(&chunk).is_err() {
+                    break;
+                }
+                let _ = writer.flush();
+            }
+            AttachCommand::Resize { cols, rows } => {
+                if master
+                    .resize(PtySize {
+                        rows,
+                        cols,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
         }
-        let _ = writer.flush();
     }
 
     // Force the child down so the reader thread sees PTY EOF and finishes.
@@ -205,5 +248,29 @@ mod tests {
     async fn manager_construct_and_drop() {
         let mgr = AttachManager::new();
         mgr.close_all().await;
+    }
+
+    #[tokio::test]
+    async fn resize_sends_resize_command_to_existing_attach() {
+        let mgr = AttachManager::new();
+        let (command_tx, mut command_rx) = mpsc::channel::<AttachCommand>(1);
+
+        mgr.inner.lock().await.insert(
+            "attach-a".to_string(),
+            AttachHandle {
+                command_tx,
+                session_id: "term-a".to_string(),
+            },
+        );
+
+        assert!(mgr.resize("attach-a", 132, 40).await);
+
+        match command_rx.recv().await {
+            Some(AttachCommand::Resize { cols, rows }) => {
+                assert_eq!(cols, 132);
+                assert_eq!(rows, 40);
+            }
+            other => panic!("expected resize command, got {other:?}"),
+        }
     }
 }
