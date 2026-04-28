@@ -18,7 +18,6 @@ describe("TerminalGridCard", () => {
           reachable: true,
         },
         isController: true,
-        deviceId: "device-1",
         onExpand: () => {},
         onDestroy: () => {},
       }),

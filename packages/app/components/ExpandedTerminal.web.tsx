@@ -20,7 +20,7 @@ import type { TerminalInfo } from "@webmux/shared";
 import { Expand, RefreshCw, X } from "lucide-react";
 import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
-import { terminalWsUrl } from "@/lib/api";
+import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
 
 const LiveTerminalView = lazy(() =>
   import("./TerminalView.web").then((module) => ({
@@ -333,7 +333,6 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
                   sibling={s}
                   isActive={s.id === terminal.id}
                   isController={isController}
-                  deviceId={deviceId}
                   onPick={onPick}
                   onDestroy={onDestroy}
                 />
@@ -354,7 +353,6 @@ interface SiblingThumbProps {
   sibling: TerminalInfo;
   isActive: boolean;
   isController: boolean;
-  deviceId: string;
   onPick: (id: string) => void;
   onDestroy: (terminal: TerminalInfo) => void;
 }
@@ -373,7 +371,6 @@ function SiblingThumb({
   sibling,
   isActive,
   isController,
-  deviceId,
   onPick,
   onDestroy,
 }: SiblingThumbProps) {
@@ -431,10 +428,13 @@ function SiblingThumb({
     return () => clearTimeout(timer);
   }, [active, isActive, sibling.reachable]);
 
-  const previewWsUrl =
-    preview && sibling.reachable
-      ? terminalWsUrl(sibling.machine_id, sibling.id, deviceId)
-      : null;
+  const previewSource = useTerminalPreviewOutputSource({
+    enabled: Boolean(preview && sibling.reachable),
+    machineId: sibling.machine_id,
+    terminalId: sibling.id,
+    cols: sibling.cols,
+    rows: sibling.rows,
+  });
 
   const switchLabel = `Switch to terminal ${sibling.title || sibling.id.slice(0, 8)}`;
 
@@ -558,7 +558,7 @@ function SiblingThumb({
         <X size={11} />
       </button>
       {preview &&
-        previewWsUrl &&
+        previewSource &&
         typeof document !== "undefined" &&
         createPortal(
           <div
@@ -592,7 +592,7 @@ function SiblingThumb({
                 <LiveTerminalView
                   machineId={sibling.machine_id}
                   terminalId={sibling.id}
-                  wsUrl={previewWsUrl}
+                  outputSource={previewSource}
                   cols={sibling.cols}
                   rows={sibling.rows}
                   displayMode="card"

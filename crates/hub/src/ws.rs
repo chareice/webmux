@@ -12,8 +12,12 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use tc_protocol::{decode_attach_output_frame, BrowserEventEnvelope, HubToMachine, MachineToHub};
+use tc_protocol::{
+    decode_attach_output_frame, encode_terminal_preview_output_frame, BrowserEventEnvelope,
+    HubToMachine, MachineToHub,
+};
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 use crate::attach_router::WsSender;
 use crate::auth;
@@ -60,6 +64,26 @@ enum ClientMessage {
 enum ServerMessage {
     #[serde(rename = "error")]
     Error { message: String },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum PreviewClientMessage {
+    #[serde(rename = "subscribe")]
+    Subscribe {
+        machine_id: String,
+        terminal_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    #[serde(rename = "unsubscribe")]
+    Unsubscribe { terminal_id: String },
+}
+
+struct PreviewAttach {
+    attach_id: String,
+    machine_id: String,
+    task: JoinHandle<()>,
 }
 
 fn client_message_allowed(
@@ -276,6 +300,178 @@ async fn handle_terminal_ws(
         )
         .await;
     state.router.unregister(&attach_id).await;
+}
+
+async fn terminal_previews_ws_handler(
+    ws: WebSocketUpgrade,
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<AppState>,
+) -> Response {
+    let token = params.get("token").map(|s| s.as_str());
+    let user_id =
+        token.and_then(|t| auth::verify_bearer_token(t, &state.db, &state.jwt_secret).ok());
+
+    if user_id.is_none() && !state.dev_mode {
+        return Response::builder()
+            .status(401)
+            .body(axum::body::Body::from("Unauthorized"))
+            .unwrap();
+    }
+
+    ws.on_upgrade(move |socket| handle_terminal_previews_ws(socket, user_id, state))
+}
+
+async fn handle_terminal_previews_ws(
+    socket: WebSocket,
+    user_id: Option<String>,
+    state: AppState,
+) {
+    let (mut sender, mut receiver) = socket.split();
+    let (out_tx, mut out_rx) = mpsc::channel::<Vec<u8>>(128);
+
+    let mut send_task = tokio::spawn(async move {
+        while let Some(frame) = out_rx.recv().await {
+            if sender.send(Message::Binary(frame.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let mut attaches: HashMap<String, PreviewAttach> = HashMap::new();
+
+    loop {
+        tokio::select! {
+            _ = &mut send_task => {
+                break;
+            }
+            maybe_msg = receiver.next() => {
+                let Some(Ok(msg)) = maybe_msg else {
+                    break;
+                };
+                match msg {
+                    Message::Text(text) => {
+                        let Ok(client_msg) = serde_json::from_str::<PreviewClientMessage>(&text) else {
+                            tracing::warn!("Failed to parse preview client message");
+                            continue;
+                        };
+                        match client_msg {
+                            PreviewClientMessage::Subscribe {
+                                machine_id,
+                                terminal_id,
+                                cols,
+                                rows,
+                            } => {
+                                if attaches.contains_key(&terminal_id) {
+                                    continue;
+                                }
+
+                                if let Some(user_id) = user_id.as_deref() {
+                                    if !state
+                                        .manager
+                                        .user_can_access_terminal(user_id, &machine_id, &terminal_id)
+                                        .await
+                                    {
+                                        continue;
+                                    }
+                                }
+
+                                let attach_id = uuid::Uuid::new_v4().to_string();
+                                let (attach_tx, mut attach_rx) = mpsc::channel::<Bytes>(64);
+                                state
+                                    .router
+                                    .register(
+                                        attach_id.clone(),
+                                        machine_id.clone(),
+                                        terminal_id.clone(),
+                                        WsSender(attach_tx),
+                                    )
+                                    .await;
+
+                                let (attach_cols, attach_rows) = state
+                                    .manager
+                                    .terminal_dimensions(&machine_id, &terminal_id)
+                                    .await
+                                    .unwrap_or((cols, rows));
+
+                                if state
+                                    .manager
+                                    .send_to_machine(
+                                        &machine_id,
+                                        HubToMachine::OpenAttach {
+                                            attach_id: attach_id.clone(),
+                                            terminal_id: terminal_id.clone(),
+                                            cols: attach_cols,
+                                            rows: attach_rows,
+                                        },
+                                    )
+                                    .await
+                                    .is_err()
+                                {
+                                    state.router.unregister(&attach_id).await;
+                                    continue;
+                                }
+
+                                let mux_tx = out_tx.clone();
+                                let terminal_id_for_task = terminal_id.clone();
+                                let task = tokio::spawn(async move {
+                                    while let Some(chunk) = attach_rx.recv().await {
+                                        let frame = encode_terminal_preview_output_frame(
+                                            &terminal_id_for_task,
+                                            &chunk,
+                                        );
+                                        if mux_tx.send(frame).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                });
+
+                                attaches.insert(
+                                    terminal_id,
+                                    PreviewAttach {
+                                        attach_id,
+                                        machine_id,
+                                        task,
+                                    },
+                                );
+                            }
+                            PreviewClientMessage::Unsubscribe { terminal_id } => {
+                                if let Some(attach) = attaches.remove(&terminal_id) {
+                                    attach.task.abort();
+                                    let _ = state
+                                        .manager
+                                        .send_to_machine(
+                                            &attach.machine_id,
+                                            HubToMachine::CloseAttach {
+                                                attach_id: attach.attach_id.clone(),
+                                            },
+                                        )
+                                        .await;
+                                    state.router.unregister(&attach.attach_id).await;
+                                }
+                            }
+                        }
+                    }
+                    Message::Close(_) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    send_task.abort();
+    for (_, attach) in attaches {
+        attach.task.abort();
+        let _ = state
+            .manager
+            .send_to_machine(
+                &attach.machine_id,
+                HubToMachine::CloseAttach {
+                    attach_id: attach.attach_id.clone(),
+                },
+            )
+            .await;
+        state.router.unregister(&attach.attach_id).await;
+    }
 }
 
 // ── Machine → Hub registration WebSocket ──
@@ -627,6 +823,7 @@ pub fn router() -> Router<AppState> {
             "/ws/terminal/{machine_id}/{terminal_id}",
             get(terminal_ws_handler),
         )
+        .route("/ws/terminal-previews", get(terminal_previews_ws_handler))
         .route("/ws/events", get(events_handler))
 }
 

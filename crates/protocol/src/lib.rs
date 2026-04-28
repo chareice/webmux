@@ -266,6 +266,7 @@ pub struct BrowserEventEnvelope {
 /// byte stays as a forward-compatible discriminator (any future binary
 /// frame variants get a different magic and dispatch trivially).
 const ATTACH_FRAME_MAGIC: u8 = 0x01;
+const TERMINAL_PREVIEW_FRAME_MAGIC: u8 = 0x02;
 
 pub fn encode_attach_output_frame(attach_id: &str, data: &[u8]) -> Vec<u8> {
     let attach_id_bytes = attach_id.as_bytes();
@@ -309,10 +310,53 @@ pub fn decode_attach_output_frame(frame: &[u8]) -> Result<(String, Bytes), Strin
     ))
 }
 
+pub fn encode_terminal_preview_output_frame(terminal_id: &str, data: &[u8]) -> Vec<u8> {
+    let terminal_id_bytes = terminal_id.as_bytes();
+    let terminal_id_len: u16 = terminal_id_bytes
+        .len()
+        .try_into()
+        .expect("terminal_id is too long to encode");
+
+    let mut frame = Vec::with_capacity(1 + 2 + terminal_id_bytes.len() + data.len());
+    frame.push(TERMINAL_PREVIEW_FRAME_MAGIC);
+    frame.extend_from_slice(&terminal_id_len.to_be_bytes());
+    frame.extend_from_slice(terminal_id_bytes);
+    frame.extend_from_slice(data);
+    frame
+}
+
+pub fn decode_terminal_preview_output_frame(frame: &[u8]) -> Result<(String, Bytes), String> {
+    if frame.is_empty() {
+        return Err("frame is empty".to_string());
+    }
+    if frame[0] != TERMINAL_PREVIEW_FRAME_MAGIC {
+        return Err(format!(
+            "frame magic is 0x{:02x}, expected terminal preview",
+            frame[0]
+        ));
+    }
+    let body = &frame[1..];
+    if body.len() < 2 {
+        return Err("frame is missing terminal id length".to_string());
+    }
+    let terminal_id_len = u16::from_be_bytes([body[0], body[1]]) as usize;
+    if body.len() < 2 + terminal_id_len {
+        return Err("frame is truncated".to_string());
+    }
+    let terminal_id = std::str::from_utf8(&body[2..2 + terminal_id_len])
+        .map_err(|error| format!("terminal id is not valid utf-8: {error}"))?
+        .to_string();
+    Ok((
+        terminal_id,
+        Bytes::copy_from_slice(&body[2 + terminal_id_len..]),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_attach_output_frame, encode_attach_output_frame, NativeZellijStatus,
+        decode_attach_output_frame, decode_terminal_preview_output_frame,
+        encode_attach_output_frame, encode_terminal_preview_output_frame, NativeZellijStatus,
         NativeZellijUnavailableReason,
     };
 
@@ -336,6 +380,22 @@ mod tests {
         // A frame starting with anything other than 0x01 isn't ours.
         let bad = [0xff_u8, 0, 4, b't', b'e', b's', b't'];
         assert!(decode_attach_output_frame(&bad).is_err());
+    }
+
+    #[test]
+    fn terminal_preview_output_frame_round_trips_without_loss() {
+        let frame =
+            encode_terminal_preview_output_frame("terminal-x", b"\x1b[32mpreview\x00\xff");
+        let (terminal_id, payload) = decode_terminal_preview_output_frame(&frame).unwrap();
+        assert_eq!(terminal_id, "terminal-x");
+        assert_eq!(payload.as_ref(), b"\x1b[32mpreview\x00\xff");
+    }
+
+    #[test]
+    fn terminal_preview_output_frame_rejects_wrong_magic() {
+        let frame = encode_attach_output_frame("attach-x", b"not a preview");
+        let error = decode_terminal_preview_output_frame(&frame).unwrap_err();
+        assert!(error.contains("expected terminal preview"));
     }
 
     #[test]
