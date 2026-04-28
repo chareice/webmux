@@ -94,6 +94,29 @@ export function TerminalToolbar({ onKey }: TerminalToolbarProps) {
           </Text>
         </Pressable>
 
+        <Pressable
+          onPress={() => handleKey("\x03")}
+          style={({ pressed }) => ({
+            backgroundColor: pressed
+              ? colors.surfaceHover
+              : colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 4,
+            paddingVertical: 6,
+            paddingHorizontal: 10,
+            minWidth: 36,
+            alignItems: "center",
+          })}
+        >
+          <Text
+            style={{ fontSize: 13, color: colors.foreground }}
+            selectable={false}
+          >
+            ^C
+          </Text>
+        </Pressable>
+
         {(ctrlMode ? CTRL_KEYS : KEYS).map((k) => (
           <Pressable
             key={k.label}
