@@ -101,6 +101,85 @@ function measureTerminalSurface(
   return { width, height };
 }
 
+interface XtermMouseService {
+  getCoords: (
+    event: { clientX: number; clientY: number },
+    element: HTMLElement,
+    colCount: number,
+    rowCount: number,
+    isSelection?: boolean,
+  ) => [number, number] | undefined;
+  getMouseReportCoords: (
+    event: MouseEvent,
+    element: HTMLElement,
+  ) => { col: number; row: number; x: number; y: number } | undefined;
+}
+
+type TerminalWithMouseService = Terminal & {
+  _core?: {
+    _mouseService?: XtermMouseService;
+  };
+};
+
+function getUnscaledMouseEvent<T extends { clientX: number; clientY: number }>(
+  event: T,
+  element: HTMLElement,
+): T | { clientX: number; clientY: number } {
+  const rect = element.getBoundingClientRect();
+  const layoutWidth = element.clientWidth || element.offsetWidth;
+  const layoutHeight = element.clientHeight || element.offsetHeight;
+  const scaleX = layoutWidth > 0 ? rect.width / layoutWidth : 1;
+  const scaleY = layoutHeight > 0 ? rect.height / layoutHeight : 1;
+  const hasScaledX = Number.isFinite(scaleX) && Math.abs(scaleX - 1) > 0.001;
+  const hasScaledY = Number.isFinite(scaleY) && Math.abs(scaleY - 1) > 0.001;
+
+  if (!hasScaledX && !hasScaledY) return event;
+
+  return {
+    clientX: hasScaledX
+      ? rect.left + (event.clientX - rect.left) / scaleX
+      : event.clientX,
+    clientY: hasScaledY
+      ? rect.top + (event.clientY - rect.top) / scaleY
+      : event.clientY,
+  };
+}
+
+function patchScaledMouseCoordinates(term: Terminal): () => void {
+  const mouseService = (term as TerminalWithMouseService)._core?._mouseService;
+  if (!mouseService) return () => {};
+
+  const originalGetCoords = mouseService.getCoords.bind(mouseService);
+  const originalGetMouseReportCoords =
+    mouseService.getMouseReportCoords.bind(mouseService);
+
+  mouseService.getCoords = (
+    event,
+    element,
+    colCount,
+    rowCount,
+    isSelection,
+  ) =>
+    originalGetCoords(
+      getUnscaledMouseEvent(event, element),
+      element,
+      colCount,
+      rowCount,
+      isSelection,
+    );
+
+  mouseService.getMouseReportCoords = (event, element) =>
+    originalGetMouseReportCoords(
+      getUnscaledMouseEvent(event, element) as MouseEvent,
+      element,
+    );
+
+  return () => {
+    mouseService.getCoords = originalGetCoords;
+    mouseService.getMouseReportCoords = originalGetMouseReportCoords;
+  };
+}
+
 export type { TerminalViewRef, TerminalViewProps };
 
 export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
@@ -377,6 +456,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }),
       );
       term.open(container);
+      const restoreMouseCoordinates = patchScaledMouseCoordinates(term);
       scheduleMeasure();
 
       // Put xterm into mouse-tracking mode locally instead of relying on the
@@ -690,6 +770,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           // otherwise because the map itself was never created.
           winAny.__webmuxTerminals?.delete(terminalId);
         }
+        restoreMouseCoordinates();
         term.dispose();
         if (termRef.current === term) {
           termRef.current = null;
