@@ -18,6 +18,10 @@ import {
   getTerminalViewportLayout,
 } from "@/lib/terminalViewModel";
 import { terminalTheme } from "@/lib/colors";
+import {
+  shouldSendClipboardImagePaste,
+  type ImagePasteDedupeRecord,
+} from "@/lib/imagePasteDedupe";
 
 const FIT_RETRY_LIMIT = 10;
 const FIT_RETRY_DELAY_MS = 100;
@@ -92,6 +96,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
     const fitRetryTimerRef = useRef<number | null>(null);
+    const recentClipboardImagePasteRef =
+      useRef<ImagePasteDedupeRecord | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
     const [sessionGeneration, setSessionGeneration] = useState(0);
@@ -288,7 +294,20 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           console.error("wterm init failed:", err);
         });
 
-      const sendImageToWs = (base64: string, mime: string) => {
+      const sendImageToWs = (
+        base64: string,
+        mime: string,
+        options: { dedupeClipboardImage?: boolean } = {},
+      ) => {
+        if (options.dedupeClipboardImage) {
+          const result = shouldSendClipboardImagePaste(
+            recentClipboardImagePasteRef.current,
+            { data: base64, mime },
+          );
+          recentClipboardImagePasteRef.current = result.recent;
+          if (!result.send) return;
+        }
+
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(
@@ -305,23 +324,25 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const handlePaste = (e: ClipboardEvent) => {
         const items = e.clipboardData?.items;
         if (!items) return;
-        for (const item of Array.from(items)) {
-          if (item.type.startsWith("image/")) {
-            e.preventDefault();
-            e.stopPropagation();
-            const blob = item.getAsFile();
-            if (!blob) continue;
-            const reader = new FileReader();
-            reader.onload = () => {
-              const base64 = (reader.result as string).split(",")[1];
-              sendImageToWs(base64, item.type);
-            };
-            reader.readAsDataURL(blob);
-            return;
-          }
-        }
+        const imageItem = Array.from(items).find((item) =>
+          item.type.startsWith("image/"),
+        );
+        if (!imageItem) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        const blob = imageItem.getAsFile();
+        if (!blob) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(",")[1];
+          sendImageToWs(base64, imageItem.type, {
+            dedupeClipboardImage: true,
+          });
+        };
+        reader.readAsDataURL(blob);
       };
-      container.addEventListener("paste", handlePaste);
+      container.addEventListener("paste", handlePaste, { capture: true });
 
       const viewport = viewportRef.current;
       const resizeObserver = new ResizeObserver(() => {
@@ -337,7 +358,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           cancelAnimationFrame(measureRafRef.current);
           measureRafRef.current = null;
         }
-        container.removeEventListener("paste", handlePaste);
+        container.removeEventListener("paste", handlePaste, { capture: true });
         wt.destroy();
         if (wtermRef.current === wt) {
           wtermRef.current = null;
