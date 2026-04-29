@@ -469,11 +469,12 @@ async fn handle_hub_message(
             mime,
             filename,
         } => {
-            // Reuse the existing image-paste pipeline (decode → save tmp →
-            // bracketed paste path), routing the resulting bytes to this
-            // attach's PTY instead of writing terminal-wide.
-            if let Some(session_id) = attach_mgr.session_of(&attach_id).await {
-                match handle_image_paste(pty, &session_id, &data, &mime, &filename) {
+            // Decode and save the image, then send the resulting bracketed
+            // paste payload only through this attach's PTY. Writing through
+            // both tmux send-keys and the attach would deliver the same image
+            // path twice to clients that recognize pasted local images.
+            if attach_mgr.session_of(&attach_id).await.is_some() {
+                match handle_image_paste(&data, &mime, &filename) {
                     Ok(paste_str) => {
                         attach_mgr
                             .write_input(&attach_id, Bytes::from(paste_str.into_bytes()))
@@ -509,13 +510,7 @@ async fn handle_hub_message(
     }
 }
 
-fn handle_image_paste(
-    pty: &Arc<PtyManager>,
-    terminal_id: &str,
-    base64_data: &str,
-    _mime: &str,
-    filename: &str,
-) -> Result<String, String> {
+fn handle_image_paste(base64_data: &str, _mime: &str, filename: &str) -> Result<String, String> {
     use std::io::Write;
 
     // Decode base64
@@ -531,11 +526,7 @@ fn handle_image_paste(
 
     let path_str = path.to_string_lossy().to_string();
 
-    // Inject path into PTY stdin with bracketed paste
-    let paste_data = format!("\x1b[200~{}\x1b[201~", path_str);
-    pty.write_to_terminal(terminal_id, paste_data.as_bytes())?;
-
-    Ok(path_str)
+    Ok(format!("\x1b[200~{}\x1b[201~", path_str))
 }
 
 fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
@@ -564,6 +555,32 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
         }
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_paste_returns_bracketed_path_for_single_attach_write() {
+        let filename = format!("webmux-image-paste-test-{}.png", std::process::id());
+        let path = std::env::temp_dir().join(&filename);
+        let _ = std::fs::remove_file(&path);
+
+        let paste = handle_image_paste("d2VibXV4", "image/png", &filename)
+            .expect("image paste should be prepared");
+
+        assert_eq!(
+            std::fs::read(&path).expect("image file should exist"),
+            b"webmux"
+        );
+        assert_eq!(
+            paste,
+            format!("\x1b[200~{}\x1b[201~", path.to_string_lossy())
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 fn read_directory(path: &str) -> Result<Vec<DirEntry>, String> {
