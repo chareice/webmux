@@ -63,7 +63,7 @@ export function getTerminalControlCopy(
 export function getTerminalViewportLayout({
   displayMode,
   viewportWidth,
-  viewportHeight: _viewportHeight,
+  viewportHeight,
   contentWidth,
   contentHeight,
 }: TerminalViewportLayoutInput): TerminalViewportLayout {
@@ -81,7 +81,8 @@ export function getTerminalViewportLayout({
     };
   }
 
-  const scale = Math.min(1, viewportWidth / contentWidth);
+  const heightScale = viewportHeight > 0 ? viewportHeight / contentHeight : 1;
+  const scale = Math.min(1, viewportWidth / contentWidth, heightScale);
 
   return {
     scale,

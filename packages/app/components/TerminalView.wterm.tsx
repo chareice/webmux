@@ -143,6 +143,14 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       });
     }, [measureLayout]);
 
+    const schedulePostResizeMeasure = useCallback(() => {
+      scheduleMeasure();
+      requestAnimationFrame(() => {
+        scheduleMeasure();
+        requestAnimationFrame(scheduleMeasure);
+      });
+    }, [scheduleMeasure]);
+
     const clearFitRetryTimer = useCallback(() => {
       if (fitRetryTimerRef.current !== null) {
         window.clearTimeout(fitRetryTimerRef.current);
@@ -155,17 +163,18 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         const wt = wtermRef.current;
         if (!wt || !wt.bridge) return;
         if (wt.cols === nextCols && wt.rows === nextRows) {
-          scheduleMeasure();
+          wt.resize(nextCols, nextRows);
+          schedulePostResizeMeasure();
           return;
         }
         try {
           wt.resize(nextCols, nextRows);
-          scheduleMeasure();
+          schedulePostResizeMeasure();
         } catch {
           /* ignore */
         }
       },
-      [scheduleMeasure],
+      [schedulePostResizeMeasure],
     );
 
     const fitToContainer = useCallback(
@@ -330,6 +339,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
         container.removeEventListener("paste", handlePaste);
         wt.destroy();
+        if (wtermRef.current === wt) {
+          wtermRef.current = null;
+        }
       };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Terminal created once on mount
     }, []);

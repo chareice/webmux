@@ -214,23 +214,39 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       }
     }, []);
 
+    const stabilizeTerminalSurface = useCallback(
+      (term: Terminal) => {
+        const refresh = () => {
+          if (termRef.current !== term) return;
+          term.refresh(0, Math.max(term.rows - 1, 0));
+          scheduleMeasure();
+        };
+
+        refresh();
+        requestAnimationFrame(() => {
+          refresh();
+          requestAnimationFrame(refresh);
+        });
+      },
+      [scheduleMeasure],
+    );
+
     const resizeLocalTerminal = useCallback(
       (nextCols: number, nextRows: number) => {
         const term = termRef.current;
         if (!term) return;
         if (term.cols === nextCols && term.rows === nextRows) {
-          scheduleMeasure();
+          stabilizeTerminalSurface(term);
           return;
         }
         try {
           term.resize(nextCols, nextRows);
-          term.refresh(0, Math.max(nextRows - 1, 0));
-          scheduleMeasure();
+          stabilizeTerminalSurface(term);
         } catch {
           /* ignore */
         }
       },
-      [scheduleMeasure],
+      [stabilizeTerminalSurface],
     );
 
     const fitToContainer = useCallback(
@@ -675,6 +691,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           winAny.__webmuxTerminals?.delete(terminalId);
         }
         term.dispose();
+        if (termRef.current === term) {
+          termRef.current = null;
+        }
+        if (fitRef.current === fit) {
+          fitRef.current = null;
+        }
       };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Terminal created once on mount
     }, []);
