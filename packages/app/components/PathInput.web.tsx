@@ -160,6 +160,7 @@ export function PathInput({
       <View style={{ flexDirection: "row", gap: 4 }}>
         <TextInput
           ref={inputRef}
+          testID="path-input"
           autoFocus={Platform.OS === "web"}
           autoCorrect={false}
           autoCapitalize="none"
@@ -185,6 +186,7 @@ export function PathInput({
           placeholderTextColor={colors.foregroundMuted}
         />
         <Pressable
+          testID="path-input-submit"
           onPress={() => onSubmit(value.trim())}
           style={{
             backgroundColor: colorAlpha.accentLight,

@@ -145,6 +145,27 @@ test("mobile terminal cards show live preview surfaces", async ({ page }) => {
     .toBeGreaterThan(0);
 });
 
+test("mobile controller can add a workpath from the Hosts tab", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await page.getByTestId("mobile-control-toggle").click();
+  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
+    "Stop Control",
+  );
+
+  await page.getByText("Hosts", { exact: true }).click();
+  await expect(page.getByTestId("mobile-add-workpath")).toBeVisible();
+
+  await page.getByTestId("mobile-add-workpath").click();
+  await page.getByTestId("path-input").fill("/tmp");
+  await page.getByTestId("path-input-submit").click();
+
+  await expect(page.getByText("tmp", { exact: true })).toBeVisible();
+  await expect(page.getByText("/tmp", { exact: true })).toBeVisible();
+});
+
 test("mobile terminal only focuses after an explicit input gesture", async ({
   page,
 }) => {
