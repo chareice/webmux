@@ -55,6 +55,21 @@ test("immersive view keeps narrow terminals at native size and centers them", ()
   assert.equal(layout.justifyContent, "center");
 });
 
+test("immersive view shrinks tall terminals to the available height", () => {
+  const layout = getTerminalViewportLayout({
+    displayMode: "immersive",
+    viewportWidth: 1280,
+    viewportHeight: 360,
+    contentWidth: 640,
+    contentHeight: 720,
+  });
+
+  assert.equal(layout.scale, 0.5);
+  assert.equal(layout.frameWidth, 320);
+  assert.equal(layout.frameHeight, 360);
+  assert.equal(layout.justifyContent, "center");
+});
+
 test("card view skips immersive scaling rules", () => {
   const layout = getTerminalViewportLayout({
     displayMode: "card",
