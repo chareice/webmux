@@ -76,6 +76,7 @@ enum ServiceCommands {
 
 #[tokio::main]
 async fn main() {
+    install_tls_crypto_provider();
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
@@ -110,6 +111,10 @@ async fn main() {
             run_start(None, None, None).await;
         }
     }
+}
+
+fn install_tls_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
 async fn run_register(hub_url: String, token: String, name: Option<String>) {
@@ -389,6 +394,13 @@ fn cmd_service_uninstall() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn startup_installs_tls_crypto_provider() {
+        super::install_tls_crypto_provider();
+
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
+
     #[test]
     fn managed_session_name_is_stable_from_user_id() {
         assert_eq!(

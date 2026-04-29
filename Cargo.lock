@@ -1986,6 +1986,7 @@ dependencies = [
  "hostname",
  "portable-pty",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",
