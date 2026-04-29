@@ -33,6 +33,7 @@ const TERM_COLS = 120;
 const TERM_ROWS = 36;
 const FIT_RETRY_LIMIT = 10;
 const FIT_RETRY_DELAY_MS = 100;
+const TERMINAL_SCROLL_SENSITIVITY = 6;
 
 // Preferred monospace fonts in priority order.
 // Includes Nerd Font variants common on Linux.
@@ -447,6 +448,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         theme: terminalTheme,
         cursorBlink: true,
         scrollback: 0,
+        // xterm dampens likely trackpad wheel deltas before emitting mouse
+        // wheel reports. Keep small terminal scroll gestures responsive.
+        scrollSensitivity: TERMINAL_SCROLL_SENSITIVITY,
       });
 
       const fit = new FitAddon();
