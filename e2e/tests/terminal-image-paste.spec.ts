@@ -4,6 +4,7 @@ import {
   createTerminalViaApi,
   expandTerminalById,
   getImmersiveTerminal,
+  readTerminalBuffer,
   openApp,
   resetMachineState,
   selectHomeWorkpath,
@@ -46,6 +47,44 @@ test("duplicate browser image paste events send one image_paste frame", async ({
 
   await page.waitForTimeout(500);
   expect(imagePasteFrames).toHaveLength(1);
+
+  await context.close();
+});
+
+test("single browser image paste injects one image path into the terminal", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+  });
+  const page = await context.newPage();
+
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+  await selectHomeWorkpath(page);
+
+  const readyNonce = String(Date.now());
+  const readyMarker = `IMAGE_PASTE_CAPTURE_READY_${readyNonce}`;
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    startupCommand: buildRawInputCaptureCommand(readyNonce),
+  });
+  await expandTerminalById(page, terminalId);
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+  await expect
+    .poll(() => readTerminalBuffer(page, terminalId), { timeout: 20_000 })
+    .toContain(readyMarker);
+
+  await focusTerminal(page, terminalId);
+  await dispatchClipboardImagePaste(page);
+
+  await expect
+    .poll(() => readTerminalBuffer(page, terminalId), { timeout: 20_000 })
+    .toContain("CAPTURE_HEX:");
+
+  const capture = await readTerminalBuffer(page, terminalId);
+  expect(capture.match(/70617374652e706e67/g) ?? []).toHaveLength(1);
 
   await context.close();
 });
@@ -93,4 +132,28 @@ async function dispatchClipboardImagePaste(page: Page): Promise<void> {
       }),
     );
   });
+}
+
+function buildRawInputCaptureCommand(readyNonce: string): string {
+  const script = [
+    "ready_prefix=IMAGE_PASTE_CAPTURE_READY",
+    `ready_nonce=${readyNonce}`,
+    `printf '\\033[?2004h%s_%s\\n' "$ready_prefix" "$ready_nonce"`,
+    "stty raw -echo",
+    "data=''",
+    "end=$((SECONDS + 3))",
+    "while [ \"$SECONDS\" -lt \"$end\" ]; do if IFS= read -rsn 1 -t 0.05 ch; then data+=\"$ch\"; fi; done",
+    "stty sane",
+    "printf '\\033[?2004l'",
+    "hex=$(printf '%s' \"$data\" | od -An -tx1 -v | tr -d ' \\n')",
+    "done_prefix=CAPTURE_",
+    "printf '%sHEX:%s\\n' \"$done_prefix\" \"$hex\"",
+    "sleep 600",
+  ].join("; ");
+
+  return `bash -lc ${shellQuote(script)}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
