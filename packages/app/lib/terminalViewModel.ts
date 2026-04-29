@@ -22,12 +22,20 @@ interface TerminalViewportLayoutInput {
 }
 
 interface TerminalFitDimensionsInput {
+  // Available pixel space the rendered terminal must fit into.
   viewportWidth: number;
   viewportHeight: number;
-  contentWidth: number;
-  contentHeight: number;
-  cols: number;
-  rows: number;
+  // True per-cell pixel size for the live font/zoom — read from the
+  // terminal renderer, never reverse-engineered from a DOM measurement.
+  cellWidth: number;
+  cellHeight: number;
+  // Optional CSS chrome (padding/border) that subtracts from the viewport
+  // before we divide by cell size. Defaults to 0.
+  paddingX?: number;
+  paddingY?: number;
+  // Lower bounds for safety. Defaults match xterm's FitAddon.
+  minCols?: number;
+  minRows?: number;
 }
 
 interface EstimateInitialTerminalDimensionsOptions {
@@ -138,37 +146,40 @@ export function estimateMobileInitialTerminalDimensions(
   );
 }
 
+// Compute the next cols/rows that fit inside `viewport` given the live cell
+// metrics. Cell width and height MUST come from the terminal renderer
+// (xterm: `core._renderService.dimensions.css.cell.{width,height}`; wterm:
+// a fresh DOM probe of `.term-cell`). Reverse-engineering cell size from a
+// cached surface measurement (contentWidth / cols) creates a race where
+// `term.cols` updates synchronously but the surface cache lags one RAF
+// behind, producing wildly wrong dimensions on rapid back-to-back fits.
 export function getTerminalFitDimensions({
   viewportWidth,
   viewportHeight,
-  contentWidth,
-  contentHeight,
-  cols,
-  rows,
+  cellWidth,
+  cellHeight,
+  paddingX = 0,
+  paddingY = 0,
+  minCols = 2,
+  minRows = 1,
 }: TerminalFitDimensionsInput): { cols: number; rows: number } | null {
   if (
-    viewportWidth <= 0 ||
-    viewportHeight <= 0 ||
-    contentWidth <= 0 ||
-    contentHeight <= 0 ||
-    cols <= 0 ||
-    rows <= 0
+    !Number.isFinite(cellWidth) ||
+    !Number.isFinite(cellHeight) ||
+    cellWidth <= 0 ||
+    cellHeight <= 0
   ) {
     return null;
   }
 
-  const cellWidth = contentWidth / cols;
-  const cellHeight = contentHeight / rows;
-  if (!Number.isFinite(cellWidth) || !Number.isFinite(cellHeight)) {
+  const availableWidth = viewportWidth - paddingX;
+  const availableHeight = viewportHeight - paddingY;
+  if (availableWidth <= 0 || availableHeight <= 0) {
     return null;
   }
 
-  const nextCols = Math.floor(viewportWidth / cellWidth);
-  const nextRows = Math.floor(viewportHeight / cellHeight);
-  if (nextCols <= 0 || nextRows <= 0) {
-    return null;
-  }
-
+  const nextCols = Math.max(minCols, Math.floor(availableWidth / cellWidth));
+  const nextRows = Math.max(minRows, Math.floor(availableHeight / cellHeight));
   return {
     cols: nextCols,
     rows: nextRows,

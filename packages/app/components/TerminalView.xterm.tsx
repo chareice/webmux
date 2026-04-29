@@ -106,6 +106,44 @@ function measureTerminalSurface(
   return { width, height };
 }
 
+// Read xterm's true CSS cell size from the renderer. Going through this
+// private path (also what `@xterm/addon-fit` uses internally) is the only
+// way to avoid the surface-measurement race: cell size depends on font
+// and zoom, never on cols/rows, so it's a stable input for fit math even
+// when the rendered surface hasn't repainted yet after a resize.
+interface CellMetrics {
+  width: number;
+  height: number;
+}
+type TerminalWithRenderService = Terminal & {
+  _core?: {
+    _renderService?: {
+      dimensions?: {
+        css?: {
+          cell?: { width?: number; height?: number };
+        };
+      };
+    };
+  };
+};
+function readXtermCellMetrics(term: Terminal): CellMetrics | null {
+  const cell = (term as TerminalWithRenderService)._core?._renderService
+    ?.dimensions?.css?.cell;
+  if (!cell) return null;
+  const { width, height } = cell;
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return { width, height };
+}
+
 interface XtermMouseService {
   getCoords: (
     event: { clientX: number; clientY: number },
@@ -355,23 +393,33 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
 
         try {
-          const currentCols = termRef.current?.cols ?? cols;
-          const currentRows = termRef.current?.rows ?? rows;
-          const nextDims =
-            displayMode === "immersive"
-              ? getTerminalFitDimensions({
-                  viewportWidth: viewportSizeRef.current.width,
-                  viewportHeight: viewportSizeRef.current.height,
-                  contentWidth: surfaceSizeRef.current.width,
-                  contentHeight: surfaceSizeRef.current.height,
-                  cols: currentCols,
-                  rows: currentRows,
-                })
-              : (() => {
-                  if (!fit) return null;
-                  fit.fit();
-                  return fit.proposeDimensions();
-                })();
+          const term = termRef.current;
+          let nextDims: { cols: number; rows: number } | null;
+          if (displayMode === "immersive") {
+            // Immersive: divide the unscaled viewport by xterm's true cell
+            // size. Skip until the renderer has actually computed cell
+            // metrics (right after construction the values can be 0).
+            const cellMetrics = term ? readXtermCellMetrics(term) : null;
+            if (!cellMetrics) {
+              scheduleRetry();
+              return;
+            }
+            nextDims = getTerminalFitDimensions({
+              viewportWidth: viewportSizeRef.current.width,
+              viewportHeight: viewportSizeRef.current.height,
+              cellWidth: cellMetrics.width,
+              cellHeight: cellMetrics.height,
+            });
+          } else {
+            // Card mode: parent element is sized to 100% of its container,
+            // so xterm's bundled FitAddon does the right thing.
+            if (!fit) {
+              scheduleRetry();
+              return;
+            }
+            fit.fit();
+            nextDims = fit.proposeDimensions() ?? null;
+          }
 
           const resizeMessage = buildResizeMessage(nextDims);
           if (!resizeMessage) {
@@ -385,7 +433,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           scheduleRetry();
         }
       },
-      [clearFitRetryTimer, cols, displayMode, resizeLocalTerminal, rows],
+      [clearFitRetryTimer, displayMode, resizeLocalTerminal],
     );
 
     useEffect(() => clearFitRetryTimer, [clearFitRetryTimer]);

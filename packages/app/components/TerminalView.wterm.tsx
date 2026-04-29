@@ -50,6 +50,62 @@ function measureTerminalSurface(
   return { width, height };
 }
 
+interface CellMetrics {
+  width: number;
+  height: number;
+}
+
+interface WtermFitInputs extends CellMetrics {
+  paddingX: number;
+  paddingY: number;
+}
+
+// Probe one `.term-cell` inside `.term-grid` to read the live per-cell
+// pixel size, plus the `.wterm` padding that takes pixels from the viewport
+// before rows/cols can fit. Probing on each fit call is cheap (one DOM
+// insertion + getBoundingClientRect + removal) and avoids the cached
+// surface-measurement race that was driving fit drift.
+function readWtermFitInputs(element: HTMLElement | null): WtermFitInputs | null {
+  if (!element) return null;
+  const grid = element.querySelector(".term-grid") as HTMLElement | null;
+  if (!grid) return null;
+  const probe = document.createElement("span");
+  probe.className = "term-cell";
+  probe.textContent = "W";
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  probe.style.pointerEvents = "none";
+  grid.appendChild(probe);
+  const rect = probe.getBoundingClientRect();
+  probe.remove();
+  if (!rect.width || !rect.height) return null;
+  const cs = getComputedStyle(element);
+  // wterm pins row height via the --term-row-height custom property; rect's
+  // height is line-height-padded text and would over-count.
+  const rowHeight = parseFloat(cs.getPropertyValue("--term-row-height"));
+  const cellHeight = Number.isFinite(rowHeight) && rowHeight > 0 ? rowHeight : rect.height;
+  const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  if (cs.boxSizing === "border-box") {
+    // Border counts against the inner content too when box-sizing is
+    // border-box, matching wterm's own _lockHeight bookkeeping.
+    const borderX = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+    const borderY = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+    return {
+      width: rect.width,
+      height: cellHeight,
+      paddingX: padX + borderX,
+      paddingY: padY + borderY,
+    };
+  }
+  return {
+    width: rect.width,
+    height: cellHeight,
+    paddingX: padX,
+    paddingY: padY,
+  };
+}
+
 const WTERM_THEME_STYLE: React.CSSProperties & Record<`--${string}`, string> = {
   "--term-bg": terminalTheme.background,
   "--term-fg": terminalTheme.foreground,
@@ -202,15 +258,18 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
 
         try {
-          const currentCols = wtermRef.current?.cols ?? cols;
-          const currentRows = wtermRef.current?.rows ?? rows;
+          const fitInputs = readWtermFitInputs(containerRef.current);
+          if (!fitInputs) {
+            scheduleRetry();
+            return;
+          }
           const nextDims = getTerminalFitDimensions({
             viewportWidth: viewportSizeRef.current.width,
             viewportHeight: viewportSizeRef.current.height,
-            contentWidth: surfaceSizeRef.current.width,
-            contentHeight: surfaceSizeRef.current.height,
-            cols: currentCols,
-            rows: currentRows,
+            cellWidth: fitInputs.width,
+            cellHeight: fitInputs.height,
+            paddingX: fitInputs.paddingX,
+            paddingY: fitInputs.paddingY,
           });
 
           const resizeMessage = buildResizeMessage(nextDims);
@@ -225,7 +284,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           scheduleRetry();
         }
       },
-      [clearFitRetryTimer, cols, resizeLocalTerminal, rows],
+      [clearFitRetryTimer, resizeLocalTerminal],
     );
 
     useEffect(() => clearFitRetryTimer, [clearFitRetryTimer]);

@@ -55,6 +55,66 @@ test("desktop Fit reaches a stable terminal size after one click", async ({
   await context.close();
 });
 
+// Regression for "每次点击 fit 终端尺寸都跳" — rapid back-to-back clicks.
+// The previous implementation reverse-engineered cell width from a cached
+// surface measurement (which lagged term.cols by one RAF), so clicks fired
+// before the cache caught up produced wildly different dimensions. With
+// cell metrics read directly from xterm/wterm, every click is a pure
+// projection of viewport onto cell size and converges in one shot.
+test("rapid Fit clicks all produce the same terminal size", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 960 },
+  });
+  const page = await context.newPage();
+  const resizeFrames: Array<{ cols: number; rows: number }> = [];
+
+  page.on("websocket", (socket) => {
+    if (!socket.url().includes("/ws/terminal/")) return;
+    socket.on("framesent", (frame) => {
+      if (typeof frame.payload !== "string") return;
+      const payload = JSON.parse(frame.payload) as
+        | { type: "resize"; cols: number; rows: number }
+        | { type: string };
+      if (payload.type === "resize") {
+        resizeFrames.push({ cols: payload.cols, rows: payload.rows });
+      }
+    });
+  });
+
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+  await selectHomeWorkpath(page);
+  const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
+  await expandTerminalById(page, terminalId);
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+  await expect.poll(() => getLocalTerminalSize(page, terminalId)).toEqual({
+    cols: 80,
+    rows: 24,
+  });
+
+  // Dispatch five clicks back-to-back in a single microtask. The previous
+  // implementation needed a few RAFs between clicks to settle its cached
+  // surface size; doing them all in one frame would cascade stale reads
+  // and produce divergent resize messages.
+  const fit = page.getByLabel("Fit", { exact: true });
+  await fit.evaluate((node: Element) => {
+    const button = node as HTMLButtonElement;
+    for (let i = 0; i < 5; i++) {
+      button.click();
+    }
+  });
+
+  await expect.poll(() => resizeFrames.length).toBe(5);
+  const first = resizeFrames[0];
+  for (const frame of resizeFrames) {
+    expect(frame).toEqual(first);
+  }
+  await context.close();
+});
+
 test("immersive terminal scales tall sessions to the available height", async ({
   browser,
 }) => {
