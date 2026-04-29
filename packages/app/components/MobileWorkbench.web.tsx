@@ -36,6 +36,7 @@ import {
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
+import { PathInput } from "./PathInput.web";
 import { Sparkline, mockSeries } from "./WorkbenchHeader.web";
 
 type MobileTab = "hosts" | "terminals" | "stats";
@@ -58,6 +59,7 @@ interface MobileWorkbenchProps {
   canCreateTerminal: boolean;
   onSelectMachine: (id: string) => void;
   onSelectWorkpath: (id: string) => void;
+  onAddWorkpath: (machineId: string, path: string) => void | Promise<void>;
   onOpenTerminal: (id: string) => void;
   onNewTerminal: () => void;
   onRequestControl: (machineId: string) => void;
@@ -79,6 +81,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     canCreateTerminal,
     onSelectMachine,
     onSelectWorkpath,
+    onAddWorkpath,
     onOpenTerminal,
     onNewTerminal,
     onRequestControl,
@@ -214,12 +217,14 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             bookmarks={bookmarks}
             terminals={terminals}
             selectedWorkpathId={selectedWorkpathId}
+            canCreateTerminal={canCreateTerminal}
             onAddMachine={() => setAddMachineOpen(true)}
             onSelectMachine={onSelectMachine}
             onSelectWorkpath={(id) => {
               onSelectWorkpath(id);
               setTab("terminals");
             }}
+            onAddWorkpath={onAddWorkpath}
           />
         )}
         {tab === "terminals" && (
@@ -594,9 +599,11 @@ function HostsPage({
   bookmarks,
   terminals,
   selectedWorkpathId,
+  canCreateTerminal,
   onAddMachine,
   onSelectMachine,
   onSelectWorkpath,
+  onAddWorkpath,
 }: {
   machines: MachineInfo[];
   activeMachineId: string | null;
@@ -605,10 +612,13 @@ function HostsPage({
   bookmarks: Bookmark[];
   terminals: TerminalInfo[];
   selectedWorkpathId: string | "all";
+  canCreateTerminal: boolean;
   onAddMachine: () => void;
   onSelectMachine: (id: string) => void;
   onSelectWorkpath: (id: string) => void;
+  onAddWorkpath: (machineId: string, path: string) => void | Promise<void>;
 }) {
+  const [addWorkpathOpen, setAddWorkpathOpen] = useState(false);
   const active =
     machines.find((m) => m.id === activeMachineId) ?? machines[0];
   const machineBookmarks = active
@@ -722,6 +732,54 @@ function HostsPage({
       <SectionHead style={{ marginTop: 8 }}>
         Workpaths{active ? ` · ${active.name}` : ""}
       </SectionHead>
+      <div style={{ padding: "0 16px 10px" }}>
+        <button
+          data-testid="mobile-add-workpath"
+          disabled={!canCreateTerminal || !active}
+          onClick={() => setAddWorkpathOpen(true)}
+          style={{
+            width: "100%",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            padding: "10px 14px",
+            borderRadius: 12,
+            border: `1px solid ${colors.lineSoft}`,
+            background: canCreateTerminal && active ? colors.bg1 : colors.bg2,
+            color: canCreateTerminal && active ? colors.fg0 : colors.fg3,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: canCreateTerminal && active ? "pointer" : "not-allowed",
+            opacity: canCreateTerminal && active ? 1 : 0.65,
+          }}
+          type="button"
+        >
+          <Plus size={16} />
+          Add workpath
+        </button>
+      </div>
+      {addWorkpathOpen && active && (
+        <div data-testid="mobile-add-workpath-form">
+          <PathInput
+            machineId={active.id}
+            onSubmit={(path) => {
+              if (!path) {
+                setAddWorkpathOpen(false);
+                return;
+              }
+              const exists = bookmarks.some(
+                (b) => b.machine_id === active.id && b.path === path,
+              );
+              if (!exists) {
+                void onAddWorkpath(active.id, path);
+              }
+              setAddWorkpathOpen(false);
+            }}
+            onCancel={() => setAddWorkpathOpen(false)}
+          />
+        </div>
+      )}
       <WpRow
         label="All workpaths"
         path={null}

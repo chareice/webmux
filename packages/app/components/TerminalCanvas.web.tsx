@@ -722,6 +722,7 @@ export function TerminalCanvas() {
               canCreateTerminal={isActiveController}
               onSelectMachine={setActiveMachineId}
               onSelectWorkpath={handleSelectWorkpath}
+              onAddWorkpath={handleConfirmAddDirectory}
               onOpenTerminal={handleZoomTerminal}
               onNewTerminal={handleNewTerminalFromHeader}
               onRequestControl={handleRequestControl}
