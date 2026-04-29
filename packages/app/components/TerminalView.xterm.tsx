@@ -22,6 +22,10 @@ import {
   getTerminalViewportLayout,
 } from "@/lib/terminalViewModel";
 import { terminalTheme } from "@/lib/colors";
+import {
+  shouldSendClipboardImagePaste,
+  type ImagePasteDedupeRecord,
+} from "@/lib/imagePasteDedupe";
 import { isTauri } from "@/lib/platform";
 import { isAppShortcut } from "@/lib/shortcuts";
 
@@ -210,6 +214,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     // `paste` even after we preventDefault on keydown, so without this we
     // send `image_paste` twice and Codex sees two attached files.
     const lastKeydownPasteAtRef = useRef(0);
+    const recentClipboardImagePasteRef =
+      useRef<ImagePasteDedupeRecord | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
     const [sessionGeneration, setSessionGeneration] = useState(0);
@@ -539,7 +545,21 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // paste, which is exactly the flow we want for both clipboard
       // images and dragged-in files (Claude Code and Codex both accept
       // file paths pasted into their input).
-      const sendFileToWs = (base64: string, mime: string, filename: string) => {
+      const sendFileToWs = (
+        base64: string,
+        mime: string,
+        filename: string,
+        options: { dedupeClipboardImage?: boolean } = {},
+      ) => {
+        if (options.dedupeClipboardImage) {
+          const result = shouldSendClipboardImagePaste(
+            recentClipboardImagePasteRef.current,
+            { data: base64, mime },
+          );
+          recentClipboardImagePasteRef.current = result.recent;
+          if (!result.send) return;
+        }
+
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(
@@ -603,6 +623,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
                       base64,
                       imageType,
                       `tc-paste-${Date.now()}.${ext}`,
+                      { dedupeClipboardImage: true },
                     );
                   };
                   reader.readAsDataURL(blob);
@@ -628,33 +649,39 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       // Intercept paste events for image detection
       const handlePaste = (e: ClipboardEvent) => {
-        // Cmd/Ctrl+V was just handled by the keydown branch above —
-        // skip so we don't send the same image twice.
-        if (Date.now() - lastKeydownPasteAtRef.current < 1000) return;
         const items = e.clipboardData?.items;
         if (!items) return;
-        for (const item of Array.from(items)) {
-          if (item.type.startsWith("image/")) {
-            e.preventDefault();
-            e.stopPropagation();
-            const blob = item.getAsFile();
-            if (!blob) continue;
-            const reader = new FileReader();
-            reader.onload = () => {
-              const base64 = (reader.result as string).split(",")[1];
-              const ext = item.type.split("/")[1] || "png";
-              sendFileToWs(
-                base64,
-                item.type,
-                safeFilename(blob.name, `.${ext}`),
-              );
-            };
-            reader.readAsDataURL(blob);
-            return;
-          }
+        const imageItem = Array.from(items).find((item) =>
+          item.type.startsWith("image/"),
+        );
+        if (!imageItem) return;
+
+        // Cmd/Ctrl+V was just handled by the keydown branch above —
+        // skip so we don't send the same image twice.
+        if (Date.now() - lastKeydownPasteAtRef.current < 1000) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
         }
+
+        e.preventDefault();
+        e.stopPropagation();
+        const blob = imageItem.getAsFile();
+        if (!blob) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(",")[1];
+          const ext = imageItem.type.split("/")[1] || "png";
+          sendFileToWs(
+            base64,
+            imageItem.type,
+            safeFilename(blob.name, `.${ext}`),
+            { dedupeClipboardImage: true },
+          );
+        };
+        reader.readAsDataURL(blob);
       };
-      container.addEventListener("paste", handlePaste);
+      container.addEventListener("paste", handlePaste, { capture: true });
 
       // Drag-and-drop file upload. Dropped files go through the same
       // image-paste pipeline on the machine side (save to /tmp, inject
@@ -756,7 +783,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           cancelAnimationFrame(measureRafRef.current);
           measureRafRef.current = null;
         }
-        container.removeEventListener("paste", handlePaste);
+        container.removeEventListener("paste", handlePaste, { capture: true });
         container.removeEventListener("dragover", handleDragOver);
         container.removeEventListener("drop", handleDrop);
         container.removeEventListener("contextmenu", handleContextMenu);
