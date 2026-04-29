@@ -55,6 +55,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
     onReleaseControl,
   } = props;
   const cardRef = useRef<TerminalCardRef>(null);
+  const previousTerminalIdRef = useRef(terminal.id);
   const short = terminal.id.slice(0, 8);
   const tintColor = tintForId(terminal.id);
 
@@ -63,9 +64,24 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
   // opens the soft keyboard.
   useEffect(() => {
     if (isMobile) return;
-    const id = requestAnimationFrame(() => cardRef.current?.focus());
-    return () => cancelAnimationFrame(id);
-  }, [isMobile, terminal.id]);
+    const terminalChanged = previousTerminalIdRef.current !== terminal.id;
+    previousTerminalIdRef.current = terminal.id;
+
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (terminalChanged && isController) {
+          cardRef.current?.fitToContainer();
+        } else {
+          cardRef.current?.focus();
+        }
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame) cancelAnimationFrame(secondFrame);
+    };
+  }, [isController, isMobile, terminal.id]);
 
   // Arrow-key navigation between siblings (works when the overlay is open
   // but the terminal body isn't focused — e.g. the header was just clicked).

@@ -416,6 +416,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                 }
               >
                 <LiveTerminalView
+                  key={terminal.id}
                   ref={termViewRef}
                   machineId={terminal.machine_id}
                   terminalId={terminal.id}

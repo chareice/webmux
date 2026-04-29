@@ -4,6 +4,7 @@ import {
   createTerminalViaApi,
   expandTerminalById,
   getImmersiveTerminal,
+  listTerminals,
   openApp,
   resetMachineState,
   selectHomeWorkpath,
@@ -84,6 +85,46 @@ test("immersive terminal scales tall sessions to the available height", async ({
       );
     })
     .toBe(true);
+
+  await context.close();
+});
+
+test("desktop thumbnail switch fits the newly focused terminal to the overlay", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const page = await context.newPage();
+
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+  await selectHomeWorkpath(page);
+
+  const firstId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    cols: 80,
+    rows: 24,
+  });
+  const compactId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    cols: 164,
+    rows: 16,
+  });
+
+  await expandTerminalById(page, firstId);
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+  await expect
+    .poll(async () => terminalSize(page, compactId))
+    .toEqual({ cols: 164, rows: 16 });
+
+  await page.getByTestId(`expanded-thumb-${compactId}`).click();
+
+  await expect
+    .poll(async () => {
+      const size = await terminalSize(page, compactId);
+      return size?.rows ?? 0;
+    })
+    .toBeGreaterThan(16);
 
   await context.close();
 });
@@ -192,4 +233,16 @@ interface Rect {
   y: number;
   width: number;
   height: number;
+}
+
+async function terminalSize(
+  page: Page,
+  terminalId: string,
+): Promise<{ cols: number; rows: number } | null> {
+  const terminal = (await listTerminals(page)).find((t) => t.id === terminalId);
+  if (!terminal) return null;
+  return {
+    cols: terminal.cols,
+    rows: terminal.rows,
+  };
 }
