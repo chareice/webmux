@@ -241,13 +241,13 @@ test("Fit to Window updates the local terminal size before resize output can arr
   const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
   await page.getByRole("button", { name: "Terminals" }).click();
   const mobileCard = await expectSingleTerminalCard(page);
+  // Opening the mobile overlay auto-fits the terminal as the controller —
+  // the contract this test guards is that the local terminal size moves
+  // in lockstep with the resize frame the client sends, never lagging
+  // behind a server echo. (Used to be triggered by a manual Fit click;
+  // mobile now does it automatically on entry.)
   await mobileCard.click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
-  await expect
-    .poll(() => getLocalTerminalSize(page, terminalId))
-    .toEqual({ cols: 80, rows: 24 });
-
-  await page.getByTestId("terminal-fit-button").click();
   await resizeFrameSeen;
   expect(resizeFrame).not.toBeNull();
   expect(await getLocalTerminalSize(page, terminalId)).toEqual({

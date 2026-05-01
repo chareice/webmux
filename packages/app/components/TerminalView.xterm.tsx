@@ -501,6 +501,17 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             return;
           }
           clearFitRetryTimer();
+          // Skip the WS send when the requested dims already match the
+          // live terminal — keeps auto-fit-on-entry from sending no-op
+          // resize frames for terminals created at the right size.
+          const live = termRef.current;
+          if (
+            live &&
+            live.cols === resizeMessage.cols &&
+            live.rows === resizeMessage.rows
+          ) {
+            return;
+          }
           liveWs.send(JSON.stringify(resizeMessage));
           resizeLocalTerminal(resizeMessage.cols, resizeMessage.rows);
         } catch {
