@@ -22,6 +22,12 @@ import {
   shouldSendClipboardImagePaste,
   type ImagePasteDedupeRecord,
 } from "@/lib/imagePasteDedupe";
+import {
+  buildImagePasteMessage,
+  MAX_IMAGE_PASTE_BYTES,
+  readFileAsBase64,
+  safeFilename,
+} from "@/lib/terminalImagePaste";
 
 const FIT_RETRY_LIMIT = 10;
 const FIT_RETRY_DELAY_MS = 100;
@@ -289,6 +295,26 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
     useEffect(() => clearFitRetryTimer, [clearFitRetryTimer]);
 
+    const sendImageFile = useCallback(
+      async (file: Blob & { name?: string }): Promise<void> => {
+        if (!isControllerRef.current) return;
+        if (file.size > MAX_IMAGE_PASTE_BYTES) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[webmux] skipped attachment >${MAX_IMAGE_PASTE_BYTES} bytes`,
+          );
+          return;
+        }
+        const ws = wsRef.current;
+        if (ws?.readyState !== WebSocket.OPEN) return;
+        const { base64, mime } = await readFileAsBase64(file);
+        const ext = mime.includes("/") ? `.${mime.split("/")[1]}` : "";
+        const filename = safeFilename(file.name ?? "", ext);
+        ws.send(JSON.stringify(buildImagePasteMessage(base64, mime, filename)));
+      },
+      [],
+    );
+
     useImperativeHandle(
       ref,
       () => ({
@@ -319,8 +345,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             active.blur();
           }
         },
+        sendImageFile,
       }),
-      [fitToContainer],
+      [fitToContainer, sendImageFile],
     );
 
     useEffect(() => {

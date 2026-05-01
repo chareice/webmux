@@ -11,6 +11,12 @@ import type { WebViewMessageEvent } from "react-native-webview";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
 import { buildResizeMessage } from "@/lib/terminalResize";
+import {
+  buildImagePasteMessage,
+  MAX_IMAGE_PASTE_BYTES,
+  readFileAsBase64,
+  safeFilename,
+} from "@/lib/terminalImagePaste";
 
 export type { TerminalViewRef, TerminalViewProps };
 
@@ -213,6 +219,22 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         },
         blur() {
           // Native WebView keyboard dismissal is handled by the host platform.
+        },
+        async sendImageFile(file: Blob & { name?: string }): Promise<void> {
+          if (!isControllerRef.current) return;
+          if (file.size > MAX_IMAGE_PASTE_BYTES) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[webmux] skipped attachment >${MAX_IMAGE_PASTE_BYTES} bytes`,
+            );
+            return;
+          }
+          const ws = wsRef.current;
+          if (ws?.readyState !== WebSocket.OPEN) return;
+          const { base64, mime } = await readFileAsBase64(file);
+          const ext = mime.includes("/") ? `.${mime.split("/")[1]}` : "";
+          const filename = safeFilename(file.name ?? "", ext);
+          ws.send(JSON.stringify(buildImagePasteMessage(base64, mime, filename)));
         },
       }),
       [postToWebView],

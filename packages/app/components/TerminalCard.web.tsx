@@ -112,6 +112,16 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
     termViewRef.current?.sendCommandInput(data);
   }, [isController]);
 
+  const handleAttachFile = useCallback(async (file: File) => {
+    if (!isController) return;
+    try {
+      await termViewRef.current?.sendImageFile(file);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[webmux] attach file failed", err);
+    }
+  }, [isController]);
+
   const handleToggleKeyboard = useCallback(() => {
     if (!isController) return;
     const nextVisible = !keyboardVisible;
@@ -447,6 +457,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
           <ExtendedKeyBar
             onKey={handleToolbarKey}
             onToggleKeyboard={handleToggleKeyboard}
+            onAttachFile={handleAttachFile}
             keyboardVisible={keyboardVisible}
             isController={isController}
           />
