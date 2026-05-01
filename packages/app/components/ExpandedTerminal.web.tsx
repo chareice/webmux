@@ -17,7 +17,7 @@
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { TerminalInfo } from "@webmux/shared";
-import { Expand, RefreshCw, X } from "lucide-react";
+import { Expand, X } from "lucide-react";
 import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
@@ -147,20 +147,25 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 12,
-            padding: "12px 16px",
+            gap: isMobile ? 8 : 12,
+            padding: isMobile ? "8px 12px" : "12px 16px",
             borderBottom: `1px solid ${colors.lineSoft}`,
             background: colors.bg2,
             flexShrink: 0,
           }}
         >
-          {/* Traffic lights */}
-          <div style={{ display: "flex", gap: 6 }}>
-            <TrafficDot color={colors.err} />
-            <TrafficDot color={colors.warn} />
-            <TrafficDot color={colors.ok} />
-          </div>
-          <span style={{ color: colors.fg3 }}>·</span>
+          {/* Desktop-only traffic lights — pure macOS skeuomorphism with no
+              touch affordance, so we drop them on mobile. */}
+          {!isMobile && (
+            <>
+              <div style={{ display: "flex", gap: 6 }}>
+                <TrafficDot color={colors.err} />
+                <TrafficDot color={colors.warn} />
+                <TrafficDot color={colors.ok} />
+              </div>
+              <span style={{ color: colors.fg3 }}>·</span>
+            </>
+          )}
           <span
             style={{
               width: 8,
@@ -184,16 +189,20 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
           >
             {terminal.title || short}
           </span>
-          <span
-            style={{
-              fontFamily:
-                "var(--font-mono)",
-              fontSize: 11,
-              color: colors.fg3,
-            }}
-          >
-            {short}
-          </span>
+          {/* Desktop shows the 8-char terminal id alongside the title; on
+              mobile this is duplicated in the bottom thumbnail strip and
+              eats space the truncated cwd needs. */}
+          {!isMobile && (
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                color: colors.fg3,
+              }}
+            >
+              {short}
+            </span>
+          )}
           <span style={{ color: colors.fg3 }}>·</span>
           <span
             style={{
@@ -208,32 +217,78 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
           >
             {shortenHome(terminal.cwd)}
           </span>
-          {isController && (
-            <span
-              style={{
-                fontSize: 10.5,
-                fontWeight: 600,
-                padding: "1px 7px",
-                borderRadius: 4,
-                background: colorAlpha.accentSoft,
-                color: colors.accent,
-                border: `1px solid ${colorAlpha.accentLine}`,
-                flexShrink: 0,
-              }}
-            >
-              ctrl
-            </span>
+          {/* On mobile the ctrl pill becomes the control-toggle button:
+              tap to release. When not controlling, render a "control"
+              CTA pill that requests it. This replaces the big middle
+              "Stop Control / Control Here" row. */}
+          {isMobile ? (
+            isController ? (
+              <button
+                onClick={() => onReleaseControl?.(terminal.machine_id)}
+                data-testid="expanded-ctrl-toggle"
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  padding: "3px 9px",
+                  borderRadius: 4,
+                  background: colorAlpha.accentSoft,
+                  color: colors.accent,
+                  border: `1px solid ${colorAlpha.accentLine}`,
+                  flexShrink: 0,
+                  cursor: "pointer",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
+                }}
+                title="Release control"
+                aria-label="Release control"
+              >
+                ctrl
+              </button>
+            ) : (
+              <button
+                onClick={() => onRequestControl?.(terminal.machine_id)}
+                data-testid="expanded-ctrl-toggle"
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  padding: "3px 9px",
+                  borderRadius: 4,
+                  background: colors.accent,
+                  color: "#120904",
+                  border: `1px solid ${colors.accent}`,
+                  flexShrink: 0,
+                  cursor: "pointer",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
+                }}
+                title="Take control"
+                aria-label="Take control"
+              >
+                control
+              </button>
+            )
+          ) : (
+            isController && (
+              <span
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  padding: "1px 7px",
+                  borderRadius: 4,
+                  background: colorAlpha.accentSoft,
+                  color: colors.accent,
+                  border: `1px solid ${colorAlpha.accentLine}`,
+                  flexShrink: 0,
+                }}
+              >
+                ctrl
+              </span>
+            )
           )}
           <div style={{ flex: 1 }} />
 
-          <button
-            onClick={() => cardRef.current?.fitToContainer()}
-            title="Re-fit terminal"
-            aria-label="Re-fit terminal"
-            style={iconBtn}
-          >
-            <RefreshCw size={13} />
-          </button>
+          {/* Refresh and Fit hit the same handler (cardRef.fitToContainer)
+              — they were duplicated. Keep one icon, drop the other. */}
           <button
             onClick={() => cardRef.current?.fitToContainer()}
             title="Fit"
@@ -281,7 +336,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
         {/* Meta + sibling thumbnail strip */}
         <div
           style={{
-            padding: "10px 14px",
+            padding: isMobile ? "8px 10px" : "10px 14px",
             borderTop: `1px solid ${colors.lineSoft}`,
             background: colors.bg1,
             display: "flex",
@@ -290,6 +345,24 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
             flexShrink: 0,
           }}
         >
+          {/* On mobile we hide the always-on meta row entirely (id is in
+              the thumbnail strip below; cols×rows and "reachable" are
+              rarely useful; Esc-hint is desktop-only). The only signal
+              worth surfacing is the offline state. */}
+          {isMobile ? (
+            !terminal.reachable && (
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 11,
+                  color: colors.warn,
+                  textAlign: "center",
+                }}
+              >
+                offline — waiting for reconnection
+              </div>
+            )
+          ) : (
           <div
             style={{
               display: "flex",
@@ -336,6 +409,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
               <span>collapse</span>
             </span>
           </div>
+          )}
 
           {siblings.length > 1 && (
             <div
