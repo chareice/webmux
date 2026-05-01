@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense, useRef, useCallback, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { Maximize2, X } from "lucide-react";
-import type { TerminalViewRef } from "./TerminalView.types";
+import type { TerminalViewRef, SelectionSnapshot } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { terminalWsUrl } from "@/lib/api";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
@@ -49,9 +49,11 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   onReleaseControl,
 }, ref) {
   const termViewRef = useRef<TerminalViewRef>(null);
+  const selectOverlayRef = useRef<HTMLPreElement>(null);
   const fitRefRetryTimer = useRef<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
+  const [selectSnapshot, setSelectSnapshot] = useState<SelectionSnapshot | null>(null);
   const controlCopy = getTerminalControlCopy(isController);
   const isTab = displayMode === "tab";
 
@@ -136,21 +138,36 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
 
   const handleEnterSelectMode = useCallback(() => {
     if (!isController) return;
+    // Snapshot the visible viewport BEFORE we touch focus or mouse modes
+    // so we render exactly what was on screen when the user tapped.
+    const snapshot = termViewRef.current?.getSelectionSnapshot() ?? null;
+    if (!snapshot) return;
     termViewRef.current?.setMouseTrackingEnabled(false);
     // Drop focus so the soft keyboard retreats and the user has the
-    // whole terminal area free for the drag gesture.
+    // whole terminal area free for the long-press gesture.
     termViewRef.current?.blur();
     setKeyboardVisible(false);
+    setSelectSnapshot(snapshot);
     setSelectMode(true);
   }, [isController]);
 
   const handleExitSelectMode = useCallback(() => {
     termViewRef.current?.setMouseTrackingEnabled(true);
     setSelectMode(false);
+    setSelectSnapshot(null);
+    if (typeof window !== "undefined") {
+      window.getSelection()?.removeAllRanges();
+    }
   }, []);
 
   const handleCopySelection = useCallback(async () => {
-    const text = termViewRef.current?.getSelection() ?? "";
+    // Pull from the browser's native selection (the user dragged on the
+    // overlay) rather than xterm.getSelection() — xterm has no idea what
+    // was selected because the overlay sits above its canvas.
+    const text =
+      typeof window !== "undefined"
+        ? window.getSelection()?.toString() ?? ""
+        : "";
     if (text) {
       try {
         await navigator.clipboard.writeText(text);
@@ -434,6 +451,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         }}>
           <div style={isTab ? {
             flex: 1, padding: "8px 10px", overflow: "hidden", background: terminalTheme.background,
+            position: "relative" as const,
           } : {
             width: "100%", height: "100%",
           }}>
@@ -479,6 +497,46 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                 />
               </Suspense>
             ) : null}
+
+            {/* Mobile select overlay — xterm renders to canvas so its
+                text isn't selectable by touch (xterm.js #3727). When
+                select mode is active we paint the visible viewport on
+                top as a <pre>, where browser long-press selection works
+                natively. The user drags handles, taps Copy, we read
+                window.getSelection(). */}
+            {isTab && isMobile && selectMode && selectSnapshot && (
+              <pre
+                ref={selectOverlayRef}
+                data-testid="terminal-select-overlay"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  margin: 0,
+                  padding: "8px 10px",
+                  background: terminalTheme.background,
+                  color: terminalTheme.foreground,
+                  fontFamily: selectSnapshot.fontFamily,
+                  fontSize: selectSnapshot.fontSize,
+                  // Match xterm's lineHeight: 1 so text rows align with
+                  // what the user just saw on the canvas.
+                  lineHeight: 1,
+                  whiteSpace: "pre",
+                  overflow: "auto",
+                  zIndex: 6,
+                  // Allow native long-press selection on touch devices —
+                  // global CSS sets `touch-action: manipulation` on *,
+                  // which we override here so the browser treats touches
+                  // as potential selection gestures.
+                  touchAction: "auto",
+                  WebkitUserSelect: "text",
+                  userSelect: "text",
+                  WebkitTouchCallout: "default",
+                  cursor: "text",
+                }}
+              >
+                {selectSnapshot.lines.join("\n")}
+              </pre>
+            )}
           </div>
         </div>
 

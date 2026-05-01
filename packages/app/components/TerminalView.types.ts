@@ -15,6 +15,21 @@ export interface TerminalViewRef {
   setMouseTrackingEnabled: (enabled: boolean) => void;
   // Return the currently selected text (empty string if no selection).
   getSelection: () => string;
+  // Snapshot the visible viewport as plain text + font metrics. Mobile
+  // select mode renders this as a <pre> overlay so the browser's native
+  // long-press selection works — xterm's canvas-rendered text isn't in
+  // the DOM and so cannot be selected by touch (xterm.js issue #3727).
+  // Returns null if no terminal is mounted yet.
+  getSelectionSnapshot: () => SelectionSnapshot | null;
+}
+
+export interface SelectionSnapshot {
+  /** Visible viewport, one entry per row. Trailing whitespace trimmed. */
+  lines: string[];
+  /** Font family the terminal is currently rendering with. */
+  fontFamily: string;
+  /** Font size in pixels. */
+  fontSize: number;
 }
 
 export interface TerminalOutputSource {

@@ -375,6 +375,28 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       return termRef.current?.getSelection() ?? "";
     }, []);
 
+    const getSelectionSnapshot = useCallback(() => {
+      const term = termRef.current;
+      if (!term) return null;
+      const buf = term.buffer.active;
+      const start = buf.viewportY;
+      const lines: string[] = [];
+      for (let i = 0; i < term.rows; i++) {
+        const line = buf.getLine(start + i);
+        lines.push(line ? line.translateToString(true) : "");
+      }
+      // Drop trailing fully-blank rows so the overlay doesn't show a
+      // tall expanse of empty lines below the actual content.
+      while (lines.length > 0 && lines[lines.length - 1] === "") {
+        lines.pop();
+      }
+      return {
+        lines,
+        fontFamily: term.options.fontFamily ?? "monospace",
+        fontSize: term.options.fontSize ?? 14,
+      };
+    }, []);
+
     const clearFitRetryTimer = useCallback(() => {
       if (fitRetryTimerRef.current !== null) {
         window.clearTimeout(fitRetryTimerRef.current);
@@ -516,8 +538,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         sendImageFile,
         setMouseTrackingEnabled,
         getSelection,
+        getSelectionSnapshot,
       }),
-      [fitToContainer, sendImageFile, setMouseTrackingEnabled, getSelection],
+      [fitToContainer, sendImageFile, setMouseTrackingEnabled, getSelection, getSelectionSnapshot],
     );
 
     // Create terminal once on mount — never recreated during reconnections

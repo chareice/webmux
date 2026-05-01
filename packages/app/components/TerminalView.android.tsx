@@ -243,6 +243,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         getSelection() {
           return "";
         },
+        getSelectionSnapshot() {
+          return null;
+        },
       }),
       [postToWebView],
     );
