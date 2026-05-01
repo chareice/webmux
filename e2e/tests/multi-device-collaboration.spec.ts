@@ -66,7 +66,7 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   // toggle (so the viewer can take over) — the controller-only affordances
   // (fit button and keyboard toggle) are absent.
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
-    "Control Here",
+    "control",
   );
   await expect(mobilePage.getByTestId("terminal-fit-button")).toHaveCount(0);
   await expect(mobilePage.getByTitle("Show keyboard")).toHaveCount(0);
@@ -117,10 +117,10 @@ test("terminal can be manually fitted by whichever device currently holds contro
   await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
-  // Mobile takes control via the in-terminal toggle.
+  // Mobile takes control via the header pill.
   await mobilePage.getByTestId("terminal-mode-toggle").click();
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
-    "Stop Control",
+    "ctrl",
   );
   // Desktop header flips to view-only (overlay is still open, so the header
   // isn't visible — close the overlay first to check, then re-open).
@@ -153,7 +153,7 @@ test("terminal can be manually fitted by whichever device currently holds contro
   await desktopPage.getByTestId("workbench-request-control").click();
   await expect(desktopPage.getByTestId("workbench-stop-control")).toBeVisible();
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
-    "Control Here",
+    "control",
   );
   await getTerminalCards(desktopPage).first().click();
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();

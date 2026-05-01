@@ -225,7 +225,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
             isController ? (
               <button
                 onClick={() => onReleaseControl?.(terminal.machine_id)}
-                data-testid="expanded-ctrl-toggle"
+                data-testid="terminal-mode-toggle"
                 style={{
                   fontSize: 10.5,
                   fontWeight: 600,
@@ -247,7 +247,7 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
             ) : (
               <button
                 onClick={() => onRequestControl?.(terminal.machine_id)}
-                data-testid="expanded-ctrl-toggle"
+                data-testid="terminal-mode-toggle"
                 style={{
                   fontSize: 10.5,
                   fontWeight: 700,
@@ -288,15 +288,21 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
           <div style={{ flex: 1 }} />
 
           {/* Refresh and Fit hit the same handler (cardRef.fitToContainer)
-              — they were duplicated. Keep one icon, drop the other. */}
-          <button
-            onClick={() => cardRef.current?.fitToContainer()}
-            title="Fit"
-            aria-label="Fit"
-            style={iconBtn}
-          >
-            <Expand size={13} />
-          </button>
+              — they were duplicated. Keep one icon, drop the other. On
+              mobile we only render Fit while in control: the viewer has
+              no business resizing the shared pty, and the e2e contract
+              expects the button to disappear in view-only mode. */}
+          {(!isMobile || isController) && (
+            <button
+              onClick={() => cardRef.current?.fitToContainer()}
+              title="Fit"
+              aria-label="Fit"
+              data-testid="terminal-fit-button"
+              style={iconBtn}
+            >
+              <Expand size={13} />
+            </button>
+          )}
           <button
             onClick={onClose}
             title="Collapse (Esc)"
