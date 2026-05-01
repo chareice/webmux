@@ -32,6 +32,11 @@ import {
   readFileAsBase64,
   safeFilename,
 } from "@/lib/terminalImagePaste";
+import {
+  mergeWrappedRows,
+  trimTrailingBlankLines,
+  type RawRow,
+} from "@/lib/terminalSelection";
 import { isTauri } from "@/lib/platform";
 import { isAppShortcut } from "@/lib/shortcuts";
 
@@ -380,16 +385,19 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       if (!term) return null;
       const buf = term.buffer.active;
       const start = buf.viewportY;
-      const lines: string[] = [];
+      const rawRows: RawRow[] = [];
       for (let i = 0; i < term.rows; i++) {
         const line = buf.getLine(start + i);
-        lines.push(line ? line.translateToString(true) : "");
+        if (!line) {
+          rawRows.push({ text: "", isWrapped: false });
+          continue;
+        }
+        rawRows.push({
+          text: line.translateToString(true),
+          isWrapped: line.isWrapped,
+        });
       }
-      // Drop trailing fully-blank rows so the overlay doesn't show a
-      // tall expanse of empty lines below the actual content.
-      while (lines.length > 0 && lines[lines.length - 1] === "") {
-        lines.pop();
-      }
+      const lines = trimTrailingBlankLines(mergeWrappedRows(rawRows));
       return {
         lines,
         fontFamily: term.options.fontFamily ?? "monospace",

@@ -517,10 +517,16 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                   color: terminalTheme.foreground,
                   fontFamily: selectSnapshot.fontFamily,
                   fontSize: selectSnapshot.fontSize,
-                  // Match xterm's lineHeight: 1 so text rows align with
-                  // what the user just saw on the canvas.
-                  lineHeight: 1,
-                  whiteSpace: "pre",
+                  // Slightly looser line-height so soft-wrapped lines
+                  // are easier to read than xterm's compact 1.0.
+                  lineHeight: 1.25,
+                  // pre-wrap (not pre): preserve real \n separators but
+                  // let the browser soft-wrap long logical lines so the
+                  // overlay doesn't scroll sideways. Combined with
+                  // overflow-wrap: anywhere so an unbroken token still
+                  // wraps inside the viewport.
+                  whiteSpace: "pre-wrap",
+                  overflowWrap: "anywhere",
                   overflow: "auto",
                   zIndex: 6,
                   // Allow native long-press selection on touch devices —
