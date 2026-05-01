@@ -16,7 +16,7 @@ const FIT_REF_RETRY_LIMIT = 10;
 const FIT_REF_RETRY_DELAY_MS = 100;
 
 export interface TerminalCardRef {
-  fitToContainer: () => void;
+  fitToContainer: (opts?: { skipIfUnchanged?: boolean }) => void;
   focus: () => void;
   blur: () => void;
   sendInput: (data: string) => void;
@@ -63,7 +63,11 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   }, []);
 
   const fitToContainer = useCallback(
-    (attempt = 0) => {
+    (
+      opts: { attempt?: number; skipIfUnchanged?: boolean } = {},
+    ) => {
+      const attempt = opts.attempt ?? 0;
+      const skipIfUnchanged = opts.skipIfUnchanged ?? false;
       if (!isController || !isTab) return;
       const view = termViewRef.current;
       if (!view) {
@@ -71,12 +75,12 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         clearFitRefRetryTimer();
         fitRefRetryTimer.current = window.setTimeout(() => {
           fitRefRetryTimer.current = null;
-          fitToContainer(attempt + 1);
+          fitToContainer({ attempt: attempt + 1, skipIfUnchanged });
         }, FIT_REF_RETRY_DELAY_MS);
         return;
       }
       clearFitRefRetryTimer();
-      view.fitToContainer();
+      view.fitToContainer({ skipIfUnchanged });
       if (!isMobile) {
         view.focus();
       }
@@ -87,8 +91,8 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   useEffect(() => clearFitRefRetryTimer, [clearFitRefRetryTimer]);
 
   useImperativeHandle(ref, () => ({
-    fitToContainer: () => {
-      fitToContainer();
+    fitToContainer: (opts) => {
+      fitToContainer(opts);
     },
     focus: () => {
       termViewRef.current?.focus();

@@ -448,13 +448,17 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     );
 
     const fitToContainer = useCallback(
-      (attempt = 0) => {
+      (
+        opts: { attempt?: number; skipIfUnchanged?: boolean } = {},
+      ) => {
+        const attempt = opts.attempt ?? 0;
+        const skipIfUnchanged = opts.skipIfUnchanged ?? false;
         const scheduleRetry = () => {
           if (attempt >= FIT_RETRY_LIMIT) return;
           clearFitRetryTimer();
           fitRetryTimerRef.current = window.setTimeout(() => {
             fitRetryTimerRef.current = null;
-            fitToContainer(attempt + 1);
+            fitToContainer({ attempt: attempt + 1, skipIfUnchanged });
           }, FIT_RETRY_DELAY_MS);
         };
 
@@ -501,16 +505,20 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             return;
           }
           clearFitRetryTimer();
-          // Skip the WS send when the requested dims already match the
-          // live terminal — keeps auto-fit-on-entry from sending no-op
-          // resize frames for terminals created at the right size.
-          const live = termRef.current;
-          if (
-            live &&
-            live.cols === resizeMessage.cols &&
-            live.rows === resizeMessage.rows
-          ) {
-            return;
+          // Auto-fit callers (mobile entry) pass skipIfUnchanged so a
+          // terminal that was already opened at the right size doesn't
+          // get a redundant resize frame. Manual Fit clicks default to
+          // always-send, which existing desktop fit-stability tests rely
+          // on (they count frames per click).
+          if (skipIfUnchanged) {
+            const live = termRef.current;
+            if (
+              live &&
+              live.cols === resizeMessage.cols &&
+              live.rows === resizeMessage.rows
+            ) {
+              return;
+            }
           }
           liveWs.send(JSON.stringify(resizeMessage));
           resizeLocalTerminal(resizeMessage.cols, resizeMessage.rows);
@@ -539,8 +547,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             ws.send(JSON.stringify({ type: "command_input", data }));
           }
         },
-        fitToContainer() {
-          fitToContainer();
+        fitToContainer(opts) {
+          fitToContainer(opts);
         },
         focus() {
           termRef.current?.focus();

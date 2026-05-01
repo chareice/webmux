@@ -74,8 +74,12 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
         if (isMobile) {
           // Auto-fit on mobile only when we hold control — fitToContainer
           // sends a resize over the WS, and viewers must not change the
-          // shared pty geometry.
-          if (isController) cardRef.current?.fitToContainer();
+          // shared pty geometry. skipIfUnchanged keeps a no-op fit silent
+          // on the wire when the terminal was already created at the
+          // right size (FAB flow).
+          if (isController) {
+            cardRef.current?.fitToContainer({ skipIfUnchanged: true });
+          }
           return;
         }
         if (terminalChanged && isController) {

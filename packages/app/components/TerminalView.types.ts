@@ -1,7 +1,10 @@
 export interface TerminalViewRef {
   sendInput: (data: string) => void;
   sendCommandInput: (data: string) => void;
-  fitToContainer: () => void;
+  // skipIfUnchanged: when true, suppress the WS resize frame if the
+  // computed dims already match the live terminal. Used by mobile
+  // auto-fit-on-entry; manual Fit clicks omit it so they always re-send.
+  fitToContainer: (opts?: { skipIfUnchanged?: boolean }) => void;
   focus: () => void;
   blur: () => void;
   // Forward an image / file picked from a system picker into the terminal
