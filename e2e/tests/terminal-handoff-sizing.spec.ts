@@ -167,7 +167,7 @@ test("mobile controller can resize the shared pty with Fit to Window", async ({
   await expect(desktopPage.getByTestId("workbench-request-control")).toBeVisible();
 
   await mobilePage.getByTestId("terminal-mode-toggle").click();
-  await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText("Stop Control");
+  await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText("ctrl");
 
   // Fit to mobile viewport → server cols/rows shrink.
   await mobilePage.getByTestId("terminal-fit-button").click();

@@ -44,26 +44,19 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await expect(page.getByTestId("expanded-terminal")).toBeVisible();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
-  // Control toolbar inside the overlay (mobile-only): Fit to Window + mode
-  // toggle. Shown because we're the controller.
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText(
-    "Stop Control",
-  );
-  await expect(page.getByTestId("terminal-fit-button")).toHaveText(
-    "Fit to Window",
-  );
+  // Control toggle and Fit live in the slim ExpandedTerminal header on
+  // mobile. The pill text is "ctrl" while controlling and "control"
+  // (i.e. take-control CTA) when viewing — CSS uppercases for display.
+  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("ctrl");
+  await expect(page.getByTestId("terminal-fit-button")).toBeVisible();
   // Extended key bar surfaces the keyboard toggle while controlling.
   await expect(page.getByTitle("Show keyboard")).toBeVisible();
 
-  // Toggle control off and on via the in-terminal toggle.
+  // Toggle control off and on via the header pill.
   await page.getByTestId("terminal-mode-toggle").click();
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText(
-    "Control Here",
-  );
+  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("control");
   await page.getByTestId("terminal-mode-toggle").click();
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText(
-    "Stop Control",
-  );
+  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("ctrl");
 
   // Close the overlay with the expanded-close button — this just dismisses
   // the overlay, the terminal stays alive.

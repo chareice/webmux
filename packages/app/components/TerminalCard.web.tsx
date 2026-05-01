@@ -1,11 +1,10 @@
 import { lazy, memo, Suspense, useRef, useCallback, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import type { TerminalInfo } from "@webmux/shared";
-import { Maximize2, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { TerminalViewRef, SelectionSnapshot } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { terminalWsUrl } from "@/lib/api";
-import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
-import { getTerminalControlCopy } from "@/lib/terminalViewModel";
+import { colors, terminalTheme } from "@/lib/colors";
 
 const LiveTerminalView = lazy(() =>
   import("./TerminalView.web").then((module) => ({
@@ -54,7 +53,6 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectSnapshot, setSelectSnapshot] = useState<SelectionSnapshot | null>(null);
-  const controlCopy = getTerminalControlCopy(isController);
   const isTab = displayMode === "tab";
 
   const clearFitRefRetryTimer = useCallback(() => {
@@ -240,101 +238,11 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         </div>
       )}
 
-      {/* Desktop fit lives in ExpandedTerminal's header; resizing stays
-          explicit so running TUIs are not resized mid-frame. */}
-
-      {/* Mobile controls bar in tab mode */}
-      {isTab && isMobile && onRequestControl && onReleaseControl && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
-            padding: "8px 10px",
-            borderBottom: `1px solid ${colors.border}`,
-            background: colors.bg1,
-            flexShrink: 0,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              minWidth: 0,
-              color: isController ? colors.accent : colors.foregroundMuted,
-              fontSize: 12,
-              fontWeight: 650,
-            }}
-          >
-            <span style={{
-              width: 7, height: 7, borderRadius: '50%',
-              background: isController ? colors.accent : colors.foregroundMuted,
-              flexShrink: 0,
-            }} />
-            <span style={{
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              minWidth: 0,
-            }}>
-              {controlCopy.modeLabel}
-            </span>
-          </div>
-          <div style={{ display: "flex", gap: 7, flexShrink: 0, alignItems: "center" }}>
-            {isController && (
-              <button
-                data-testid="terminal-fit-button"
-                onClick={() => {
-                  fitToContainer();
-                }}
-                style={{
-                  minHeight: 38,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  background: colorAlpha.accentSoft,
-                  border: `1px solid ${colorAlpha.accentLine}`,
-                  borderRadius: 9,
-                  color: colors.accent,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  padding: "0 11px",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <Maximize2 size={14} />
-                <span>{controlCopy.sizeActionLabel}</span>
-              </button>
-            )}
-            <button
-              data-testid="terminal-mode-toggle"
-              onClick={() => {
-                if (isController) onReleaseControl?.(terminal.machine_id);
-                else onRequestControl?.(terminal.machine_id);
-              }}
-              style={{
-                minHeight: 38,
-                background: isController ? colors.bg2 : colors.accent,
-                border: `1px solid ${
-                  isController ? colors.border : colors.accent
-                }`,
-                borderRadius: 9,
-                color: isController ? colors.foregroundSecondary : "#120904",
-                cursor: "pointer",
-                fontSize: 12,
-                fontWeight: 750,
-                padding: "0 11px",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {controlCopy.toggleLabel}
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Mobile controls (Stop Control / Fit / Controlling indicator)
+          used to live here as a separate row, but they duplicated the
+          header — the ctrl pill in ExpandedTerminal's header now toggles
+          control, and the Fit icon stayed in the header. The keybar's
+          accent-tinted buttons already signal "Controlling". */}
 
       {/* Card mode: title bar */}
       {!isTab && (
