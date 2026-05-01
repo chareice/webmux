@@ -46,4 +46,40 @@ describe("ExtendedKeyBar", () => {
     expect(html).not.toContain('aria-label="Show keyboard"');
     expect(html).not.toContain('aria-label="Hide keyboard"');
   });
+
+  it("hides the select toggle when select-mode callbacks are missing", () => {
+    const html = renderToStaticMarkup(createElement(ExtendedKeyBar, baseProps));
+    expect(html).not.toContain('data-testid="extended-keybar-select-toggle"');
+  });
+
+  it("renders the select toggle when all select-mode callbacks are provided", () => {
+    const html = renderToStaticMarkup(
+      createElement(ExtendedKeyBar, {
+        ...baseProps,
+        onEnterSelectMode: () => {},
+        onExitSelectMode: () => {},
+        onCopySelection: () => null,
+      }),
+    );
+    expect(html).toContain('data-testid="extended-keybar-select-toggle"');
+  });
+
+  it("morphs into the slim Done/hint/Copy bar while selectMode is true", () => {
+    const html = renderToStaticMarkup(
+      createElement(ExtendedKeyBar, {
+        ...baseProps,
+        onEnterSelectMode: () => {},
+        onExitSelectMode: () => {},
+        onCopySelection: () => null,
+        selectMode: true,
+      }),
+    );
+    expect(html).toContain('data-testid="extended-keybar-select-mode"');
+    expect(html).toContain('data-testid="extended-keybar-select-done"');
+    expect(html).toContain('data-testid="extended-keybar-copy"');
+    expect(html).toContain("Drag on the terminal to select text");
+    // Default-mode buttons should be gone.
+    expect(html).not.toContain('data-testid="extended-keybar-ctrl-c"');
+    expect(html).not.toContain('data-testid="extended-keybar-attach"');
+  });
 });

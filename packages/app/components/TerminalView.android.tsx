@@ -236,6 +236,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           const filename = safeFilename(file.name ?? "", ext);
           ws.send(JSON.stringify(buildImagePasteMessage(base64, mime, filename)));
         },
+        setMouseTrackingEnabled() {
+          // Native APK uses platform-level text selection — the web
+          // select-mode toggle does not apply here.
+        },
+        getSelection() {
+          return "";
+        },
       }),
       [postToWebView],
     );

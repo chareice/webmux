@@ -51,6 +51,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   const termViewRef = useRef<TerminalViewRef>(null);
   const fitRefRetryTimer = useRef<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
   const controlCopy = getTerminalControlCopy(isController);
   const isTab = displayMode === "tab";
 
@@ -132,6 +133,35 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
       termViewRef.current?.blur();
     }
   }, [isController, keyboardVisible]);
+
+  const handleEnterSelectMode = useCallback(() => {
+    if (!isController) return;
+    termViewRef.current?.setMouseTrackingEnabled(false);
+    // Drop focus so the soft keyboard retreats and the user has the
+    // whole terminal area free for the drag gesture.
+    termViewRef.current?.blur();
+    setKeyboardVisible(false);
+    setSelectMode(true);
+  }, [isController]);
+
+  const handleExitSelectMode = useCallback(() => {
+    termViewRef.current?.setMouseTrackingEnabled(true);
+    setSelectMode(false);
+  }, []);
+
+  const handleCopySelection = useCallback(async () => {
+    const text = termViewRef.current?.getSelection() ?? "";
+    if (text) {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[webmux] clipboard write failed", err);
+      }
+    }
+    handleExitSelectMode();
+    return text;
+  }, [handleExitSelectMode]);
 
   const handleCardClick = useCallback(() => {
     if (!isTab) onSelectTab(terminal.id);
@@ -458,6 +488,10 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
             onKey={handleToolbarKey}
             onToggleKeyboard={handleToggleKeyboard}
             onAttachFile={handleAttachFile}
+            onEnterSelectMode={handleEnterSelectMode}
+            onExitSelectMode={handleExitSelectMode}
+            onCopySelection={handleCopySelection}
+            selectMode={selectMode}
             keyboardVisible={keyboardVisible}
             isController={isController}
           />
