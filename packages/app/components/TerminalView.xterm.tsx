@@ -26,6 +26,12 @@ import {
   shouldSendClipboardImagePaste,
   type ImagePasteDedupeRecord,
 } from "@/lib/imagePasteDedupe";
+import {
+  buildImagePasteMessage,
+  MAX_IMAGE_PASTE_BYTES,
+  readFileAsBase64,
+  safeFilename,
+} from "@/lib/terminalImagePaste";
 import { isTauri } from "@/lib/platform";
 import { isAppShortcut } from "@/lib/shortcuts";
 
@@ -331,6 +337,30 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       return await navigator.clipboard.readText();
     }, []);
 
+    // Forward a picked file (mobile attach button, drag-drop, etc.) over
+    // the live WS using the same `image_paste` protocol that clipboard
+    // pastes use. Skips silently if WS is closed or the user lacks
+    // control.
+    const sendImageFile = useCallback(
+      async (file: Blob & { name?: string }): Promise<void> => {
+        if (!isControllerRef.current) return;
+        if (file.size > MAX_IMAGE_PASTE_BYTES) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[webmux] skipped attachment >${MAX_IMAGE_PASTE_BYTES} bytes`,
+          );
+          return;
+        }
+        const ws = wsRef.current;
+        if (ws?.readyState !== WebSocket.OPEN) return;
+        const { base64, mime } = await readFileAsBase64(file);
+        const ext = mime.includes("/") ? `.${mime.split("/")[1]}` : "";
+        const filename = safeFilename(file.name ?? "", ext);
+        ws.send(JSON.stringify(buildImagePasteMessage(base64, mime, filename)));
+      },
+      [],
+    );
+
     const clearFitRetryTimer = useCallback(() => {
       if (fitRetryTimerRef.current !== null) {
         window.clearTimeout(fitRetryTimerRef.current);
@@ -469,8 +499,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             active.blur();
           }
         },
+        sendImageFile,
       }),
-      [fitToContainer],
+      [fitToContainer, sendImageFile],
     );
 
     // Create terminal once on mount — never recreated during reconnections
@@ -578,25 +609,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // 25 MB cap per file — WS frames larger than this regularly choke the
       // browser and the hub forwarder. Drag-drop a bigger file: we skip it
       // and surface a console.warn so the user knows why it didn't land.
-      const MAX_DROP_BYTES = 25 * 1024 * 1024;
+      const MAX_DROP_BYTES = MAX_IMAGE_PASTE_BYTES;
 
-      // Keep filenames in the basename-shape the machine side expects —
-      // /tmp/<filename> is a naive join that doesn't defend against ../
-      // traversal. Client-side sanitisation keeps the blast radius small;
-      // hardening the machine is tracked separately.
-      const safeFilename = (name: string, fallbackExt = "") => {
-        const base = (name || "").split(/[/\\]/).pop() || "";
-        const stripped = base.replace(/^\.+/, "").replace(/[\x00-\x1f]/g, "");
-        if (stripped) return stripped;
-        return `tc-paste-${Date.now()}${fallbackExt}`;
-      };
-
-      // Helper: send file bytes over the current WebSocket. Reuses the
-      // existing `image_paste` wire type — the machine handler decodes,
-      // writes to /tmp/<filename>, and injects the path via bracketed
-      // paste, which is exactly the flow we want for both clipboard
-      // images and dragged-in files (Claude Code and Codex both accept
-      // file paths pasted into their input).
+      // Send file bytes over the current WS using the shared `image_paste`
+      // protocol. The machine handler writes to /tmp/<filename> and
+      // bracketed-pastes the path, which both Claude Code and Codex accept.
       const sendFileToWs = (
         base64: string,
         mime: string,
@@ -614,14 +631,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN) {
-          ws.send(
-            JSON.stringify({
-              type: "image_paste",
-              data: base64,
-              mime,
-              filename,
-            }),
-          );
+          ws.send(JSON.stringify(buildImagePasteMessage(base64, mime, filename)));
         }
       };
 
