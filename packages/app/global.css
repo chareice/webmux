@@ -122,3 +122,6 @@ body {
   0%, 50%       { opacity: 1; }
   50.01%, 100%  { opacity: 0; }
 }
+@keyframes webmuxSpin {
+  to { transform: rotate(360deg); }
+}

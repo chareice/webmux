@@ -327,6 +327,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       return sel?.toString() ?? "";
     }, []);
 
+    const getSelectionSnapshot = useCallback(() => {
+      // WTerm doesn't expose a buffer API; mobile select-mode overlay
+      // isn't supported on this backend.
+      return null;
+    }, []);
+
     useImperativeHandle(
       ref,
       () => ({
@@ -360,8 +366,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         sendImageFile,
         setMouseTrackingEnabled,
         getSelection,
+        getSelectionSnapshot,
       }),
-      [fitToContainer, sendImageFile, setMouseTrackingEnabled, getSelection],
+      [fitToContainer, sendImageFile, setMouseTrackingEnabled, getSelection, getSelectionSnapshot],
     );
 
     useEffect(() => {

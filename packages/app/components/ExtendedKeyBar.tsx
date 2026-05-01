@@ -238,21 +238,46 @@ export function ExtendedKeyBar({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: 'transparent',
+              background: uploading ? colorAlpha.accentSoft : 'transparent',
               border: 'none',
               borderRight: `1px solid ${colors.border}`,
-              color: isController ? colors.foregroundSecondary : colors.foregroundMuted,
+              color: uploading
+                ? colors.accent
+                : isController
+                  ? colors.foregroundSecondary
+                  : colors.foregroundMuted,
               cursor: isController && !uploading ? 'pointer' : 'not-allowed',
               flexShrink: 0,
-              opacity: uploading ? 0.5 : 1,
             }}
             title={uploading ? 'Uploading…' : 'Attach image'}
-            aria-label="Attach image"
+            aria-label={uploading ? 'Uploading attachment' : 'Attach image'}
             data-testid="extended-keybar-attach"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-            </svg>
+            {uploading ? (
+              // Three-quarter ring rotated by webmuxSpin keyframe — gives
+              // a clear "I'm doing something" cue, much more visible than
+              // the previous opacity dim.
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                style={{
+                  animation: 'webmuxSpin 800ms linear infinite',
+                  transformOrigin: 'center',
+                }}
+                data-testid="extended-keybar-attach-spinner"
+              >
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </svg>
+            )}
           </button>
           <input
             ref={fileInputRef}
