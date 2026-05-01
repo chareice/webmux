@@ -107,7 +107,12 @@ test("mobile new terminal starts fitted without an immediate resize", async ({ p
   const resizeFrames = terminalFramesSent.filter((payload) =>
     payload.includes('"type":"resize"'),
   );
-  expect(resizeFrames).toEqual([]);
+  // Mobile auto-fits on entry now. The server creates the FAB terminal
+  // at our estimated mobile dims; the live fit may agree (no resize) or
+  // produce slightly different dims (one resize). Either is fine — what
+  // matters is that the terminal isn't stuck at the desktop default
+  // 80 cols and there's no resize storm.
+  expect(resizeFrames.length).toBeLessThanOrEqual(1);
 
   const [terminal] = await listTerminals(page);
   expect(terminal.cols).toBeLessThan(80);
