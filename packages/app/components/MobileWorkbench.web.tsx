@@ -7,9 +7,7 @@
 // path — this file is opt-in only from the web orchestrator.
 
 import {
-  lazy,
   memo,
-  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -33,19 +31,12 @@ import {
   Square,
   Terminal as TerminalIcon,
 } from "lucide-react";
-import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
-import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
+import { colors, colorAlpha } from "@/lib/colors";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { PathInput } from "./PathInput.web";
 import { Sparkline, mockSeries } from "./WorkbenchHeader.web";
 
 type MobileTab = "hosts" | "terminals" | "stats";
-
-const LiveTerminalView = lazy(() =>
-  import("./TerminalView.web").then((module) => ({
-    default: module.TerminalView,
-  })),
-);
 
 interface MobileWorkbenchProps {
   machines: MachineInfo[];
@@ -1121,47 +1112,18 @@ function MobileTermCard({
   terminal: TerminalInfo;
   onClick: () => void;
 }) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [previewVisible, setPreviewVisible] = useState(false);
+  // Slim metadata card. We dropped the live preview thumbnail because
+  // (a) it varied wildly in visual content density between terminals
+  // (some filled, some mostly empty cells with a "dotted column" on the
+  // right), making the list look unbalanced even when card heights were
+  // mathematically uniform; (b) at the ~0.36 scale the preview ran at,
+  // the rendered text was largely unreadable; and (c) the actual content
+  // is one tap away. Every card now has the same exact height —
+  // title row + cwd row — so the list reads as a clean inventory.
   const short = terminal.id.slice(0, 8);
-  const previewSource = useTerminalPreviewOutputSource({
-    enabled: terminal.reachable && previewVisible,
-    machineId: terminal.machine_id,
-    terminalId: terminal.id,
-    cols: terminal.cols,
-    rows: terminal.rows,
-  });
-
-  useEffect(() => {
-    const node = rootRef.current;
-    if (!node || !terminal.reachable) {
-      setPreviewVisible(false);
-      return;
-    }
-
-    if (typeof IntersectionObserver === "undefined") {
-      setPreviewVisible(true);
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setPreviewVisible(entry.isIntersecting);
-      },
-      {
-        root: null,
-        rootMargin: "120px 0px",
-        threshold: 0.01,
-      },
-    );
-    observer.observe(node);
-
-    return () => observer.disconnect();
-  }, [terminal.id, terminal.reachable]);
 
   return (
     <div
-      ref={rootRef}
       role="button"
       tabIndex={0}
       onClick={onClick}
@@ -1174,11 +1136,11 @@ function MobileTermCard({
       style={{
         display: "block",
         width: "calc(100% - 24px)",
-        margin: "0 12px 10px",
+        margin: "0 12px 8px",
         padding: 0,
         background: colors.bg1,
         border: `1px solid ${colors.lineSoft}`,
-        borderRadius: 12,
+        borderRadius: 10,
         textAlign: "left",
         overflow: "hidden",
         cursor: "pointer",
@@ -1190,16 +1152,19 @@ function MobileTermCard({
           display: "flex",
           alignItems: "center",
           gap: 8,
-          padding: "10px 12px",
+          padding: "10px 12px 4px",
         }}
       >
         <span
+          aria-hidden
           style={{
             width: 8,
             height: 8,
             borderRadius: 999,
-            background: colors.accent,
-            boxShadow: "0 0 0 3px rgba(251, 157, 89, 0.22)",
+            background: terminal.reachable ? colors.accent : colors.fg3,
+            boxShadow: terminal.reachable
+              ? "0 0 0 3px rgba(251, 157, 89, 0.22)"
+              : "none",
             flexShrink: 0,
           }}
         />
@@ -1230,91 +1195,14 @@ function MobileTermCard({
       </div>
 
       <div
-        data-testid={`mobile-term-preview-${terminal.id}`}
         style={{
-          // Aspect-ratio + position-absolute child guarantees every card
-          // is the same shape no matter what's inside the xterm canvas.
-          // The previous height: 126 + flex layout was leaking the
-          // intrinsic xterm canvas size (~644px tall for 46 rows) and
-          // stretching some cards taller than others.
-          width: "100%",
-          aspectRatio: "16 / 6",
-          maxHeight: 140,
-          background: terminalTheme.background,
-          borderTop: `1px solid ${colors.lineSoft}`,
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
-        {terminal.reachable && previewSource ? (
-          <Suspense fallback={null}>
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                pointerEvents: "none",
-                overflow: "hidden",
-              }}
-            >
-              <LiveTerminalView
-                machineId={terminal.machine_id}
-                terminalId={terminal.id}
-                outputSource={previewSource}
-                cols={terminal.cols}
-                rows={terminal.rows}
-                displayMode="card"
-                isController={false}
-                canResizeTerminal={false}
-                style={{
-                  transform: "scale(0.36)",
-                  transformOrigin: "top left",
-                  width: "278%",
-                  height: "278%",
-                }}
-              />
-            </div>
-          </Suspense>
-        ) : (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: colors.fg3,
-              fontSize: 11,
-            }}
-          >
-            {terminal.reachable
-              ? "Live preview paused"
-              : "Waiting for reconnection..."}
-          </div>
-        )}
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: 0,
-            height: 14,
-            background:
-              "linear-gradient(rgba(5,6,10,1), rgba(5,6,10,0))",
-            pointerEvents: "none",
-          }}
-        />
-      </div>
-
-      <div
-        style={{
-          padding: "8px 12px",
+          padding: "0 12px 10px",
           display: "flex",
           alignItems: "center",
           gap: 10,
           fontFamily: "var(--font-mono)",
           fontSize: 10.5,
           color: colors.fg3,
-          borderTop: `1px solid ${colors.lineSoft}`,
         }}
       >
         <span
