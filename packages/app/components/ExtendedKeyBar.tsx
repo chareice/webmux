@@ -5,6 +5,13 @@ interface ExtendedKeyBarProps {
   onKey: (data: string) => void;
   onToggleKeyboard: () => void;
   onAttachFile?: (file: File) => void | Promise<void>;
+  // Select-mode plumbing — when both callbacks are provided the bar will
+  // render a "Select" toggle in the fixed cluster, and morph into a slim
+  // [Done] · hint · [Copy] strip while selectMode is true.
+  onEnterSelectMode?: () => void;
+  onExitSelectMode?: () => void;
+  onCopySelection?: () => Promise<string | null> | string | null;
+  selectMode?: boolean;
   keyboardVisible: boolean;
   isController: boolean;
 }
@@ -49,11 +56,16 @@ export function ExtendedKeyBar({
   onKey,
   onToggleKeyboard,
   onAttachFile,
+  onEnterSelectMode,
+  onExitSelectMode,
+  onCopySelection,
+  selectMode = false,
   keyboardVisible,
   isController,
 }: ExtendedKeyBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   const handleAttachClick = () => {
     if (!isController || uploading) return;
@@ -72,6 +84,102 @@ export function ExtendedKeyBar({
       setUploading(false);
     }
   };
+
+  const selectModeAvailable =
+    typeof onEnterSelectMode === "function" &&
+    typeof onExitSelectMode === "function" &&
+    typeof onCopySelection === "function";
+
+  const handleCopyClick = async () => {
+    if (!onCopySelection || copying) return;
+    setCopying(true);
+    try {
+      await onCopySelection();
+    } finally {
+      setCopying(false);
+    }
+  };
+
+  // Select mode collapses the bar to [Done] · hint · [Copy]. Most keys
+  // are useless during selection so we hide the noise.
+  if (selectMode && selectModeAvailable) {
+    return (
+      <div
+        data-testid="extended-keybar-select-mode"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          borderTop: `1px solid ${colors.border}`,
+          background: colorAlpha.accentSoft,
+          height: BAR_HEIGHT,
+          flexShrink: 0,
+          touchAction: 'none',
+        }}
+      >
+        <button
+          onClick={onExitSelectMode}
+          disabled={copying}
+          data-testid="extended-keybar-select-done"
+          style={{
+            height: BAR_HEIGHT,
+            padding: '0 14px',
+            display: 'flex',
+            alignItems: 'center',
+            background: 'transparent',
+            border: 'none',
+            borderRight: `1px solid ${colorAlpha.accentLine}`,
+            color: colors.accent,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: copying ? 'wait' : 'pointer',
+            flexShrink: 0,
+          }}
+        >
+          Done
+        </button>
+        <div style={{
+          flex: 1,
+          minWidth: 0,
+          padding: '0 12px',
+          fontSize: 11,
+          color: colors.accent,
+          textAlign: 'center',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          opacity: 0.85,
+        }}>
+          Drag on the terminal to select text
+        </div>
+        <button
+          onClick={handleCopyClick}
+          disabled={copying}
+          data-testid="extended-keybar-copy"
+          style={{
+            height: BAR_HEIGHT,
+            padding: '0 18px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            background: colors.accent,
+            border: 'none',
+            color: '#120904',
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: copying ? 'wait' : 'pointer',
+            flexShrink: 0,
+            opacity: copying ? 0.6 : 1,
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+          {copying ? 'Copying…' : 'Copy'}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -155,6 +263,37 @@ export function ExtendedKeyBar({
             data-testid="extended-keybar-file-input"
           />
         </>
+      )}
+
+      {selectModeAvailable && (
+        <button
+          onClick={onEnterSelectMode}
+          disabled={!isController}
+          data-testid="extended-keybar-select-toggle"
+          style={{
+            width: BAR_HEIGHT,
+            height: BAR_HEIGHT,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'transparent',
+            border: 'none',
+            borderRight: `1px solid ${colors.border}`,
+            color: isController ? colors.foregroundSecondary : colors.foregroundMuted,
+            cursor: isController ? 'pointer' : 'not-allowed',
+            flexShrink: 0,
+          }}
+          title="Select text to copy"
+          aria-label="Select text to copy"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 6.5V4a1 1 0 0 1 1-1h2.5" />
+            <path d="M4 17.5V20a1 1 0 0 0 1 1h2.5" />
+            <path d="M16.5 3H19a1 1 0 0 1 1 1v2.5" />
+            <path d="M16.5 21H19a1 1 0 0 0 1-1v-2.5" />
+            <path d="M9 8v8M15 8v8M9 12h6" />
+          </svg>
+        </button>
       )}
 
       {/* Pinned ^C — interrupting the running process is the highest-frequency

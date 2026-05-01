@@ -361,6 +361,20 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       [],
     );
 
+    // Toggle DEC mouse-tracking modes locally so touch users can drag-select
+    // text while in "select mode". We only flip the locally-written modes;
+    // a TUI program can still re-enable on its own output, but for shells
+    // and Claude Code / Codex sessions this is sufficient in practice.
+    const setMouseTrackingEnabled = useCallback((enabled: boolean) => {
+      const term = termRef.current;
+      if (!term) return;
+      term.write(enabled ? "\x1b[?1003h\x1b[?1006h" : "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+    }, []);
+
+    const getSelection = useCallback((): string => {
+      return termRef.current?.getSelection() ?? "";
+    }, []);
+
     const clearFitRetryTimer = useCallback(() => {
       if (fitRetryTimerRef.current !== null) {
         window.clearTimeout(fitRetryTimerRef.current);
@@ -500,8 +514,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
         },
         sendImageFile,
+        setMouseTrackingEnabled,
+        getSelection,
       }),
-      [fitToContainer, sendImageFile],
+      [fitToContainer, sendImageFile, setMouseTrackingEnabled, getSelection],
     );
 
     // Create terminal once on mount — never recreated during reconnections

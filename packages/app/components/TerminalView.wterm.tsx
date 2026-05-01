@@ -315,6 +315,18 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       [],
     );
 
+    const setMouseTrackingEnabled = useCallback((enabled: boolean) => {
+      const wt = wtermRef.current;
+      if (!wt) return;
+      wt.write(enabled ? "\x1b[?1003h\x1b[?1006h" : "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+    }, []);
+
+    const getSelection = useCallback((): string => {
+      // WTerm renders to DOM, so the browser's native selection covers it.
+      const sel = typeof window !== "undefined" ? window.getSelection() : null;
+      return sel?.toString() ?? "";
+    }, []);
+
     useImperativeHandle(
       ref,
       () => ({
@@ -346,8 +358,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
         },
         sendImageFile,
+        setMouseTrackingEnabled,
+        getSelection,
       }),
-      [fitToContainer, sendImageFile],
+      [fitToContainer, sendImageFile, setMouseTrackingEnabled, getSelection],
     );
 
     useEffect(() => {
