@@ -49,8 +49,9 @@ const SCROLLABLE_GROUPS = [
   ],
 ];
 
-const BAR_HEIGHT = 44;
-const BUTTON_HEIGHT = 32;
+const BAR_HEIGHT = 40;
+const BUTTON_HEIGHT = 30;
+const UTILITY_SIZE = 40;
 
 export function ExtendedKeyBar({
   onKey,
@@ -181,180 +182,188 @@ export function ExtendedKeyBar({
     );
   }
 
+  // Two-row layout. Row 1 = utility cluster (kb/attach/select) + ^C +
+  // arrows, all pinned (no scroll). Row 2 = the rest (Esc/Tab/Ctrl-keys/
+  // symbols), scrollable but with much more visible width than the
+  // single-row layout had — typically ~10 keys visible without scrolling
+  // instead of ~6.
   return (
     <div style={{
       display: 'flex',
-      alignItems: 'center',
+      flexDirection: 'column',
       borderTop: `1px solid ${colors.border}`,
       background: colors.backgroundSecondary,
-      height: BAR_HEIGHT,
       flexShrink: 0,
       touchAction: 'none',
     }}>
-      {/* Left fixed cluster — keyboard toggle, attach, ^C, arrows */}
-      {isController && (
-        <button
-          onClick={onToggleKeyboard}
-          style={{
-            width: BAR_HEIGHT,
-            height: BAR_HEIGHT,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: keyboardVisible ? colorAlpha.accentMedium15 : 'transparent',
-            border: 'none',
-            borderRight: `1px solid ${colors.border}`,
-            color: keyboardVisible ? colors.accent : colors.foregroundSecondary,
-            fontSize: 18,
-            cursor: 'pointer',
-            flexShrink: 0,
-          }}
-          title={keyboardVisible ? 'Hide keyboard' : 'Show keyboard'}
-          aria-label={keyboardVisible ? 'Hide keyboard' : 'Show keyboard'}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <line x1="6" y1="8" x2="6.01" y2="8" />
-            <line x1="10" y1="8" x2="10.01" y2="8" />
-            <line x1="14" y1="8" x2="14.01" y2="8" />
-            <line x1="18" y1="8" x2="18.01" y2="8" />
-            <line x1="6" y1="12" x2="6.01" y2="12" />
-            <line x1="10" y1="12" x2="10.01" y2="12" />
-            <line x1="14" y1="12" x2="14.01" y2="12" />
-            <line x1="18" y1="12" x2="18.01" y2="12" />
-            <line x1="8" y1="16" x2="16" y2="16" />
-          </svg>
-        </button>
-      )}
-
-      {onAttachFile && (
-        <>
+      {/* Row 1 — pinned essentials */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        height: BAR_HEIGHT,
+        borderBottom: `1px solid ${colors.border}`,
+      }}>
+        {isController && (
           <button
-            onClick={handleAttachClick}
-            disabled={!isController || uploading}
+            onClick={onToggleKeyboard}
             style={{
-              width: BAR_HEIGHT,
+              width: UTILITY_SIZE,
               height: BAR_HEIGHT,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: uploading ? colorAlpha.accentSoft : 'transparent',
+              background: keyboardVisible ? colorAlpha.accentMedium15 : 'transparent',
               border: 'none',
               borderRight: `1px solid ${colors.border}`,
-              color: uploading
-                ? colors.accent
-                : isController
-                  ? colors.foregroundSecondary
-                  : colors.foregroundMuted,
-              cursor: isController && !uploading ? 'pointer' : 'not-allowed',
+              color: keyboardVisible ? colors.accent : colors.foregroundSecondary,
+              fontSize: 18,
+              cursor: 'pointer',
               flexShrink: 0,
             }}
-            title={uploading ? 'Uploading…' : 'Attach image'}
-            aria-label={uploading ? 'Uploading attachment' : 'Attach image'}
-            data-testid="extended-keybar-attach"
+            title={keyboardVisible ? 'Hide keyboard' : 'Show keyboard'}
+            aria-label={keyboardVisible ? 'Hide keyboard' : 'Show keyboard'}
           >
-            {uploading ? (
-              // Three-quarter ring rotated by webmuxSpin keyframe — gives
-              // a clear "I'm doing something" cue, much more visible than
-              // the previous opacity dim.
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                style={{
-                  animation: 'webmuxSpin 800ms linear infinite',
-                  transformOrigin: 'center',
-                }}
-                data-testid="extended-keybar-attach-spinner"
-              >
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-              </svg>
-            ) : (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-              </svg>
-            )}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <line x1="6" y1="8" x2="6.01" y2="8" />
+              <line x1="10" y1="8" x2="10.01" y2="8" />
+              <line x1="14" y1="8" x2="14.01" y2="8" />
+              <line x1="18" y1="8" x2="18.01" y2="8" />
+              <line x1="6" y1="12" x2="6.01" y2="12" />
+              <line x1="10" y1="12" x2="10.01" y2="12" />
+              <line x1="14" y1="12" x2="14.01" y2="12" />
+              <line x1="18" y1="12" x2="18.01" y2="12" />
+              <line x1="8" y1="16" x2="16" y2="16" />
+            </svg>
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            style={{ display: 'none' }}
-            onChange={handleFileChange}
-            data-testid="extended-keybar-file-input"
-          />
-        </>
-      )}
+        )}
 
-      {selectModeAvailable && (
-        <button
-          onClick={onEnterSelectMode}
-          disabled={!isController}
-          data-testid="extended-keybar-select-toggle"
-          style={{
-            width: BAR_HEIGHT,
-            height: BAR_HEIGHT,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'transparent',
-            border: 'none',
-            borderRight: `1px solid ${colors.border}`,
-            color: isController ? colors.foregroundSecondary : colors.foregroundMuted,
-            cursor: isController ? 'pointer' : 'not-allowed',
-            flexShrink: 0,
-          }}
-          title="Select text to copy"
-          aria-label="Select text to copy"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 6.5V4a1 1 0 0 1 1-1h2.5" />
-            <path d="M4 17.5V20a1 1 0 0 0 1 1h2.5" />
-            <path d="M16.5 3H19a1 1 0 0 1 1 1v2.5" />
-            <path d="M16.5 21H19a1 1 0 0 0 1-1v-2.5" />
-            <path d="M9 8v8M15 8v8M9 12h6" />
-          </svg>
-        </button>
-      )}
+        {onAttachFile && (
+          <>
+            <button
+              onClick={handleAttachClick}
+              disabled={!isController || uploading}
+              style={{
+                width: UTILITY_SIZE,
+                height: BAR_HEIGHT,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: uploading ? colorAlpha.accentSoft : 'transparent',
+                border: 'none',
+                borderRight: `1px solid ${colors.border}`,
+                color: uploading
+                  ? colors.accent
+                  : isController
+                    ? colors.foregroundSecondary
+                    : colors.foregroundMuted,
+                cursor: isController && !uploading ? 'pointer' : 'not-allowed',
+                flexShrink: 0,
+              }}
+              title={uploading ? 'Uploading…' : 'Attach image'}
+              aria-label={uploading ? 'Uploading attachment' : 'Attach image'}
+              data-testid="extended-keybar-attach"
+            >
+              {uploading ? (
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  style={{
+                    animation: 'webmuxSpin 800ms linear infinite',
+                    transformOrigin: 'center',
+                  }}
+                  data-testid="extended-keybar-attach-spinner"
+                >
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              )}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={handleFileChange}
+              data-testid="extended-keybar-file-input"
+            />
+          </>
+        )}
 
-      {/* Pinned ^C — interrupting the running process is the highest-frequency
-          action on Claude Code / Codex sessions, so it must never scroll off. */}
-      <KeyButton
-        label="^C"
-        onPress={() => isController && onKey('\x03')}
-        isController={isController}
-        pinned
-        testid="extended-keybar-ctrl-c"
-      />
+        {selectModeAvailable && (
+          <button
+            onClick={onEnterSelectMode}
+            disabled={!isController}
+            data-testid="extended-keybar-select-toggle"
+            style={{
+              width: UTILITY_SIZE,
+              height: BAR_HEIGHT,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              border: 'none',
+              borderRight: `1px solid ${colors.border}`,
+              color: isController ? colors.foregroundSecondary : colors.foregroundMuted,
+              cursor: isController ? 'pointer' : 'not-allowed',
+              flexShrink: 0,
+            }}
+            title="Select text to copy"
+            aria-label="Select text to copy"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 6.5V4a1 1 0 0 1 1-1h2.5" />
+              <path d="M4 17.5V20a1 1 0 0 0 1 1h2.5" />
+              <path d="M16.5 3H19a1 1 0 0 1 1 1v2.5" />
+              <path d="M16.5 21H19a1 1 0 0 0 1-1v-2.5" />
+              <path d="M9 8v8M15 8v8M9 12h6" />
+            </svg>
+          </button>
+        )}
 
-      {/* Pinned arrows — TUI navigation needs them within reach. */}
-      <div style={{
-        display: 'flex',
-        gap: 2,
-        padding: '0 4px',
-        borderRight: `1px solid ${colors.border}`,
-        flexShrink: 0,
-      }}>
-        {ARROW_KEYS.map((key) => (
-          <KeyButton
-            key={key.label}
-            label={key.label}
-            onPress={() => isController && onKey(key.data)}
-            isController={isController}
-          />
-        ))}
+        {/* Pinned ^C — highest-frequency action, must never scroll off. */}
+        <KeyButton
+          label="^C"
+          onPress={() => isController && onKey('\x03')}
+          isController={isController}
+          pinned
+          testid="extended-keybar-ctrl-c"
+        />
+
+        {/* Arrow keys — flex:1 makes them spread across remaining row 1
+            width so they're easy to hit. */}
+        <div style={{
+          display: 'flex',
+          flex: 1,
+          minWidth: 0,
+          gap: 2,
+          padding: '0 6px',
+          justifyContent: 'flex-end',
+        }}>
+          {ARROW_KEYS.map((key) => (
+            <KeyButton
+              key={key.label}
+              label={key.label}
+              onPress={() => isController && onKey(key.data)}
+              isController={isController}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Right scrollable area with edge fade hinting more keys exist. */}
+      {/* Row 2 — secondary keys, scrollable but with much more visible
+          width than the previous single-row layout. */}
       <div style={{
         position: 'relative',
-        flex: 1,
-        minWidth: 0,
-        height: '100%',
+        height: BAR_HEIGHT,
       }}>
         <div style={{
           height: '100%',
@@ -364,7 +373,7 @@ export function ExtendedKeyBar({
           WebkitOverflowScrolling: 'touch',
           scrollbarWidth: 'none',
           gap: 2,
-          padding: '0 4px',
+          padding: '0 6px',
         }}>
           {SCROLLABLE_GROUPS.map((group, gi) => (
             <div key={gi} style={{
@@ -386,7 +395,6 @@ export function ExtendedKeyBar({
             </div>
           ))}
         </div>
-        {/* Edge fade — purely visual hint that more keys are scrollable. */}
         <div
           aria-hidden
           style={{

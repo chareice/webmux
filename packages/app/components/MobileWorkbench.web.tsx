@@ -1232,22 +1232,26 @@ function MobileTermCard({
       <div
         data-testid={`mobile-term-preview-${terminal.id}`}
         style={{
-          height: 126,
+          // Aspect-ratio + position-absolute child guarantees every card
+          // is the same shape no matter what's inside the xterm canvas.
+          // The previous height: 126 + flex layout was leaking the
+          // intrinsic xterm canvas size (~644px tall for 46 rows) and
+          // stretching some cards taller than others.
+          width: "100%",
+          aspectRatio: "16 / 6",
+          maxHeight: 140,
           background: terminalTheme.background,
           borderTop: `1px solid ${colors.lineSoft}`,
           overflow: "hidden",
           position: "relative",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
         }}
       >
         {terminal.reachable && previewSource ? (
           <Suspense fallback={null}>
             <div
               style={{
-                width: "100%",
-                height: "100%",
+                position: "absolute",
+                inset: 0,
                 pointerEvents: "none",
                 overflow: "hidden",
               }}
@@ -1270,14 +1274,22 @@ function MobileTermCard({
               />
             </div>
           </Suspense>
-        ) : terminal.reachable ? (
-          <span style={{ color: colors.fg3, fontSize: 11 }}>
-            Live preview paused
-          </span>
         ) : (
-          <span style={{ color: colors.fg3, fontSize: 11 }}>
-            Waiting for reconnection...
-          </span>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: colors.fg3,
+              fontSize: 11,
+            }}
+          >
+            {terminal.reachable
+              ? "Live preview paused"
+              : "Waiting for reconnection..."}
+          </div>
         )}
         <div
           style={{

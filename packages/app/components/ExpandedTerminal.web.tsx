@@ -60,16 +60,24 @@ function ExpandedTerminalComponent(props: ExpandedTerminalProps) {
   const tintColor = tintForId(terminal.id);
 
   // Desktop keeps focus inside the terminal body so typing goes to the PTY.
-  // Mobile must wait for an explicit terminal tap, otherwise switching tabs
-  // opens the soft keyboard.
+  // Mobile must NOT focus on its own (focus opens the soft keyboard, which
+  // shrinks the visual viewport before the user even taps), but it should
+  // still auto-fit so the terminal sizes itself to the phone viewport
+  // instead of forcing the user to tap the Fit icon.
   useEffect(() => {
-    if (isMobile) return;
     const terminalChanged = previousTerminalIdRef.current !== terminal.id;
     previousTerminalIdRef.current = terminal.id;
 
     let secondFrame = 0;
     const firstFrame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
+        if (isMobile) {
+          // Auto-fit on mobile only when we hold control — fitToContainer
+          // sends a resize over the WS, and viewers must not change the
+          // shared pty geometry.
+          if (isController) cardRef.current?.fitToContainer();
+          return;
+        }
         if (terminalChanged && isController) {
           cardRef.current?.fitToContainer();
         } else {
