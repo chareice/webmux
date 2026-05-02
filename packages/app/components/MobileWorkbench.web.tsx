@@ -1109,7 +1109,7 @@ function TerminalsPage({
 
 // Number of "tail" lines we render in each preview. Fixed so every card
 // is exactly the same height regardless of what the terminal contains.
-const PREVIEW_TAIL_LINES = 4;
+const PREVIEW_TAIL_LINES = 6;
 const PREVIEW_LINE_PX = 15;
 const PREVIEW_PADDING_Y = 8;
 
