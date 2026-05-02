@@ -1,0 +1,89 @@
+name: Build Android APK
+
+on:
+  push:
+    tags:
+      - "app-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-22.04
+    # Hoisted layout — Expo's autolinking + React Native's gradle plugin
+    # walk node_modules expecting a flat-ish tree. Strict pnpm symlinks
+    # work for the web build (already validated by CI), but android
+    # gradle resolution needs the hoisted view.
+    env:
+      NPM_CONFIG_NODE_LINKER: hoisted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-34 build-tools;34.0.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Build shared package
+        run: pnpm --filter @webmux/shared build
+
+      - name: Generate native android project
+        working-directory: packages/app
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build debug APK
+        working-directory: packages/app/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Locate APK
+        id: apk
+        run: |
+          apk=$(find packages/app/android/app/build/outputs/apk -name "*.apk" | head -n1)
+          if [ -z "$apk" ]; then
+            echo "No APK produced — check the gradle build above" >&2
+            exit 1
+          fi
+          tag="${GITHUB_REF_NAME:-app-vlocal}"
+          version="${tag#app-v}"
+          out="webmux-${version}.apk"
+          cp "$apk" "$out"
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+          ls -lh "$out"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.path }}
+          path: ${{ steps.apk.outputs.path }}
+
+      - name: Create or update release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --title "Mobile ${tag}" \
+              --notes "Debug-signed Android APK for $tag. Sideload via 'install from unknown sources'."
+          fi
+          gh release upload "$tag" "${{ steps.apk.outputs.path }}" --clobber
