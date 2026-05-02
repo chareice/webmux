@@ -31,7 +31,9 @@ import {
   Square,
   Terminal as TerminalIcon,
 } from "lucide-react";
-import { colors, colorAlpha } from "@/lib/colors";
+import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
+import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
+import { TerminalTailBuffer } from "@/lib/terminalTailBuffer";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { PathInput } from "./PathInput.web";
 import { Sparkline, mockSeries } from "./WorkbenchHeader.web";
@@ -1105,6 +1107,12 @@ function TerminalsPage({
   );
 }
 
+// Number of "tail" lines we render in each preview. Fixed so every card
+// is exactly the same height regardless of what the terminal contains.
+const PREVIEW_TAIL_LINES = 4;
+const PREVIEW_LINE_PX = 15;
+const PREVIEW_PADDING_Y = 8;
+
 function MobileTermCard({
   terminal,
   onClick,
@@ -1112,18 +1120,76 @@ function MobileTermCard({
   terminal: TerminalInfo;
   onClick: () => void;
 }) {
-  // Slim metadata card. We dropped the live preview thumbnail because
-  // (a) it varied wildly in visual content density between terminals
-  // (some filled, some mostly empty cells with a "dotted column" on the
-  // right), making the list look unbalanced even when card heights were
-  // mathematically uniform; (b) at the ~0.36 scale the preview ran at,
-  // the rendered text was largely unreadable; and (c) the actual content
-  // is one tap away. Every card now has the same exact height —
-  // title row + cwd row — so the list reads as a clean inventory.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [tailLines, setTailLines] = useState<string[]>([]);
   const short = terminal.id.slice(0, 8);
+
+  // Lazy-subscribe only when the card is in (or near) the viewport, so
+  // long lists don't keep dozens of preview WS subscriptions alive.
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!node || !terminal.reachable) {
+      setPreviewVisible(false);
+      return;
+    }
+    if (typeof IntersectionObserver === "undefined") {
+      setPreviewVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setPreviewVisible(entry.isIntersecting),
+      { root: null, rootMargin: "120px 0px", threshold: 0.01 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [terminal.id, terminal.reachable]);
+
+  const previewSource = useTerminalPreviewOutputSource({
+    enabled: terminal.reachable && previewVisible,
+    machineId: terminal.machine_id,
+    terminalId: terminal.id,
+    cols: terminal.cols,
+    rows: terminal.rows,
+  });
+
+  // Subscribe to the preview byte stream and feed it into a tail
+  // buffer. We render plain text instead of a scaled-down xterm canvas
+  // because the canvas approach was unreadable at ~0.36 scale and
+  // varied in visual density, making the list look unbalanced.
+  useEffect(() => {
+    if (!previewSource) {
+      setTailLines([]);
+      return;
+    }
+    const tail = new TerminalTailBuffer({
+      maxLines: PREVIEW_TAIL_LINES,
+      maxLineWidth: 120,
+    });
+    let raf = 0;
+    let pending: string[] | null = null;
+    const flush = () => {
+      raf = 0;
+      if (pending) {
+        setTailLines(pending);
+        pending = null;
+      }
+    };
+    const unsubscribe = previewSource.subscribe((chunk) => {
+      pending = tail.append(chunk);
+      if (raf === 0) raf = requestAnimationFrame(flush);
+    });
+    return () => {
+      if (raf !== 0) cancelAnimationFrame(raf);
+      unsubscribe();
+    };
+  }, [previewSource]);
+
+  const previewHeight = PREVIEW_TAIL_LINES * PREVIEW_LINE_PX + PREVIEW_PADDING_Y * 2;
 
   return (
     <div
+      ref={rootRef}
       role="button"
       tabIndex={0}
       onClick={onClick}
@@ -1152,7 +1218,7 @@ function MobileTermCard({
           display: "flex",
           alignItems: "center",
           gap: 8,
-          padding: "10px 12px 4px",
+          padding: "10px 12px 6px",
         }}
       >
         <span
@@ -1194,9 +1260,53 @@ function MobileTermCard({
         </span>
       </div>
 
+      {/* Activity tail — fixed height, bottom-anchored so the most
+          recent line sits right above the cwd footer. Empty terminals
+          (or before the first WS chunk arrives) get a hint that
+          preserves the same height. */}
+      <div
+        data-testid={`mobile-term-preview-${terminal.id}`}
+        style={{
+          marginLeft: 12,
+          marginRight: 12,
+          height: previewHeight,
+          padding: `${PREVIEW_PADDING_Y}px 10px`,
+          borderRadius: 8,
+          background: terminalTheme.background,
+          color: colors.fg2,
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          lineHeight: `${PREVIEW_LINE_PX}px`,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "flex-end",
+          whiteSpace: "pre",
+        }}
+      >
+        {tailLines.length === 0 ? (
+          <span style={{ color: colors.fg3, fontStyle: "italic" }}>
+            {terminal.reachable ? "no recent output" : "offline"}
+          </span>
+        ) : (
+          tailLines.map((line, i) => (
+            <span
+              key={i}
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {line || " " /* keep blank lines visible */}
+            </span>
+          ))
+        )}
+      </div>
+
       <div
         style={{
-          padding: "0 12px 10px",
+          padding: "8px 12px 10px",
           display: "flex",
           alignItems: "center",
           gap: 10,
