@@ -6,6 +6,7 @@ import {
   Modal,
   StyleSheet,
   StatusBar,
+  ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { TerminalInfo } from "@webmux/shared";
@@ -17,6 +18,7 @@ import { colors } from "@/lib/colors";
 
 interface TerminalCardProps {
   terminal: TerminalInfo;
+  siblings?: TerminalInfo[];
   maximized: boolean;
   isMobile: boolean;
   isController: boolean;
@@ -24,10 +26,14 @@ interface TerminalCardProps {
   onMaximize: () => void;
   onMinimize: () => void;
   onDestroy: () => void;
+  onPickTerminal?: (terminalId: string) => void;
+  onRequestControl?: (machineId: string) => void;
+  onReleaseControl?: (machineId: string) => void;
 }
 
 export function TerminalCard({
   terminal,
+  siblings = [],
   maximized,
   isMobile,
   isController,
@@ -35,6 +41,9 @@ export function TerminalCard({
   onMaximize,
   onMinimize,
   onDestroy,
+  onPickTerminal,
+  onRequestControl,
+  onReleaseControl,
 }: TerminalCardProps) {
   const termViewRef = useRef<TerminalViewRef>(null);
 
@@ -87,6 +96,26 @@ export function TerminalCard({
               </Text>
             </View>
             <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => {
+                  if (isController) onReleaseControl?.(terminal.machine_id);
+                  else onRequestControl?.(terminal.machine_id);
+                }}
+                hitSlop={8}
+                style={[
+                  styles.controlPill,
+                  !isController && styles.controlPillTake,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.controlPillText,
+                    !isController && styles.controlPillTakeText,
+                  ]}
+                >
+                  {isController ? "CTRL" : "CONTROL"}
+                </Text>
+              </Pressable>
               {isController && (
                 <Pressable
                   onPress={handleFitHere}
@@ -128,6 +157,37 @@ export function TerminalCard({
             <Text numberOfLines={1} style={styles.footerText}>
               {terminal.cwd}
             </Text>
+            {siblings.length > 1 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.siblingStrip}
+              >
+                {siblings.map((sibling) => (
+                  <Pressable
+                    key={sibling.id}
+                    onPress={() => onPickTerminal?.(sibling.id)}
+                    style={[
+                      styles.siblingPill,
+                      sibling.id === terminal.id && styles.siblingPillActive,
+                    ]}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.siblingTitle,
+                        sibling.id === terminal.id && styles.siblingTitleActive,
+                      ]}
+                    >
+                      {sibling.title || sibling.id.slice(0, 8)}
+                    </Text>
+                    <Text numberOfLines={1} style={styles.siblingPath}>
+                      {sibling.cwd.replace(/^\/home\/[^/]+/, "~")}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
           </View>
         </SafeAreaView>
       </Modal>
@@ -231,6 +291,27 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 4,
+  },
+  controlPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.borderActive,
+    backgroundColor: "rgba(217, 119, 87, 0.14)",
+  },
+  controlPillTake: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  controlPillText: {
+    color: colors.accent,
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  controlPillTakeText: {
+    color: colors.background,
   },
   fitButton: {
     paddingHorizontal: 8,
@@ -266,6 +347,36 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 11,
     color: colors.foregroundMuted,
+  },
+  siblingStrip: {
+    gap: 6,
+    paddingTop: 8,
+  },
+  siblingPill: {
+    width: 130,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+  },
+  siblingPillActive: {
+    borderColor: colors.accent,
+    backgroundColor: "rgba(217, 119, 87, 0.14)",
+  },
+  siblingTitle: {
+    color: colors.foregroundSecondary,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  siblingTitleActive: {
+    color: colors.accent,
+  },
+  siblingPath: {
+    marginTop: 2,
+    color: colors.foregroundMuted,
+    fontSize: 9,
   },
 
   // ── Card (thumbnail) ──
