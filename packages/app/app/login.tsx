@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   View,
   Text,
   Pressable,
@@ -23,18 +24,30 @@ export default function LoginScreen() {
   const [activeProvider, setActiveProvider] = useState<OAuthProvider | null>(
     null,
   );
-  const [serverUrlInput, setServerUrlInput] = useState(getServerUrl());
+  const [serverUrlInput, setServerUrlInput] = useState(
+    getServerUrl(Platform.OS),
+  );
   const isDesktop = isTauri();
 
   const handleDesktopConnect = () => {
     setServerUrl(serverUrlInput.trim());
     setConnecting(true);
-    login();
+    void login().catch(() => {
+      setConnecting(false);
+    });
   };
 
   const handleWebLogin = (provider: OAuthProvider) => {
     setActiveProvider(provider);
-    login(provider);
+    void login(provider)
+      .then(() => {
+        if (Platform.OS !== "web") {
+          setActiveProvider(null);
+        }
+      })
+      .catch(() => {
+        setActiveProvider(null);
+      });
   };
 
   if (isDesktop) {

@@ -368,23 +368,106 @@ fn urlencoded(s: &str) -> String {
 }
 
 /// Build the GitHub OAuth authorization URL.
-pub fn github_oauth_url(client_id: &str, base_url: &str) -> String {
+pub fn github_oauth_url(client_id: &str, base_url: &str, state: Option<&str>) -> String {
     let redirect_uri = format!("{base_url}/api/auth/github/callback");
-    let query = format!(
+    let mut query = format!(
         "client_id={}&redirect_uri={}&scope=read%3Auser",
         urlencoded(client_id),
         urlencoded(&redirect_uri)
     );
+    if let Some(state) = state {
+        query.push_str("&state=");
+        query.push_str(&urlencoded(state));
+    }
     format!("https://github.com/login/oauth/authorize?{query}")
 }
 
 /// Build the Google OAuth authorization URL.
-pub fn google_oauth_url(client_id: &str, base_url: &str) -> String {
+pub fn google_oauth_url(client_id: &str, base_url: &str, state: Option<&str>) -> String {
     let redirect_uri = format!("{base_url}/api/auth/google/callback");
-    let query = format!(
+    let mut query = format!(
         "client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile",
         urlencoded(client_id),
         urlencoded(&redirect_uri)
     );
+    if let Some(state) = state {
+        query.push_str("&state=");
+        query.push_str(&urlencoded(state));
+    }
     format!("https://accounts.google.com/o/oauth2/v2/auth?{query}")
+}
+
+const MOBILE_OAUTH_STATE_PREFIX: &str = "mobile:";
+const MOBILE_AUTH_CALLBACK_URL: &str = "webmux://auth";
+
+fn is_valid_mobile_callback(callback: &str) -> bool {
+    callback == MOBILE_AUTH_CALLBACK_URL
+}
+
+pub fn mobile_oauth_state(callback: &str) -> Option<String> {
+    if !is_valid_mobile_callback(callback) {
+        return None;
+    }
+    Some(format!(
+        "{MOBILE_OAUTH_STATE_PREFIX}{}",
+        urlencoded(callback)
+    ))
+}
+
+pub fn mobile_callback_from_oauth_state(state: Option<&str>) -> Option<String> {
+    let encoded = state?.strip_prefix(MOBILE_OAUTH_STATE_PREFIX)?;
+    let decoded = urlencoding::decode(encoded).ok()?.into_owned();
+    if is_valid_mobile_callback(&decoded) {
+        Some(decoded)
+    } else {
+        None
+    }
+}
+
+pub fn oauth_success_redirect_url(base_url: &str, jwt: &str, state: Option<&str>) -> String {
+    if let Some(callback) = mobile_callback_from_oauth_state(state) {
+        return format!("{callback}?token={}", urlencoded(jwt));
+    }
+    format!("{base_url}?token={}", urlencoded(jwt))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mobile_oauth_state_round_trips_the_webmux_callback() {
+        let state = mobile_oauth_state("webmux://auth").expect("callback should be accepted");
+
+        assert_eq!(
+            mobile_callback_from_oauth_state(Some(&state)).as_deref(),
+            Some("webmux://auth")
+        );
+    }
+
+    #[test]
+    fn mobile_oauth_state_rejects_non_app_callbacks() {
+        assert!(mobile_oauth_state("https://evil.example/callback").is_none());
+    }
+
+    #[test]
+    fn google_oauth_url_includes_state_when_present() {
+        let url = google_oauth_url(
+            "client id",
+            "https://webmux.example",
+            Some("mobile:webmux%3A%2F%2Fauth"),
+        );
+
+        assert!(url.contains("state=mobile%3Awebmux%253A%252F%252Fauth"));
+    }
+
+    #[test]
+    fn oauth_success_redirect_url_uses_mobile_callback_when_state_is_valid() {
+        let state = mobile_oauth_state("webmux://auth").expect("callback should be accepted");
+
+        assert_eq!(
+            oauth_success_redirect_url("https://webmux.example", "jwt.token", Some(&state)),
+            "webmux://auth?token=jwt.token"
+        );
+    }
 }
