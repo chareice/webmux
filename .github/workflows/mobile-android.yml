@@ -82,6 +82,11 @@ jobs:
           gradle = open(path).read()
 
           # 1. Insert a release signingConfig referencing the generated keystore.
+          #    Explicitly enable v1, v2, v3 signing schemes. AGP's auto-logic
+          #    disables v1 when minSdk >= 24, leaving v2-only — which some
+          #    Samsung devices on Android 13+ reject as "package appears
+          #    invalid". Including v1 + v2 + v3 covers everything from
+          #    Android 7 (API 24) through Android 16 cleanly.
           signing_block = """
               signingConfigs {
                   release {
@@ -89,6 +94,9 @@ jobs:
                       storePassword 'webmux-release'
                       keyAlias 'webmux-release'
                       keyPassword 'webmux-release'
+                      enableV1Signing true
+                      enableV2Signing true
+                      enableV3Signing true
                   }
               }
           """
