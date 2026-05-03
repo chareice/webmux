@@ -2,7 +2,7 @@ module.exports = ({ config }) => ({
   ...config,
   name: "webmux",
   slug: "webmux",
-  version: "0.1.0",
+  version: process.env.WEBMUX_APP_VERSION || "0.1.0",
   scheme: "webmux",
   userInterfaceStyle: "automatic",
   platforms: ["web", "android"],
@@ -19,5 +19,6 @@ module.exports = ({ config }) => ({
   plugins: ["expo-router"],
   android: {
     package: "com.webmux.app",
+    permissions: ["REQUEST_INSTALL_PACKAGES"],
   },
 });

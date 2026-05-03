@@ -37,7 +37,7 @@ jobs:
 
       - uses: android-actions/setup-android@v3
         with:
-          packages: "platform-tools platforms;android-34 build-tools;34.0.0"
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0 cmake;3.22.1 ndk;27.1.12297006"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile=false
@@ -47,26 +47,34 @@ jobs:
 
       - name: Generate native android project
         working-directory: packages/app
-        run: npx expo prebuild --platform android --no-install
-
-      # Some Samsung phones reject the well-known Android Debug keystore
-      # (CN=Android Debug) because malware has historically abused it.
-      # Generate a unique self-signed release keystore per build so the
-      # APK is signed with a never-before-seen key. Trade-off: every
-      # build has a different signature, so users must uninstall the
-      # previous version before installing a new one. Acceptable for
-      # solo / small-team distribution; if/when we need stable signing,
-      # move the keystore (base64) into a repo secret.
-      - name: Generate release keystore
-        working-directory: packages/app/android/app
         run: |
-          keytool -genkeypair -v \
-            -keystore release.keystore \
-            -alias webmux-release \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass webmux-release \
-            -keypass webmux-release \
-            -dname "CN=webmux, OU=app, O=chareice, L=Beijing, S=Beijing, C=CN"
+          version="${GITHUB_REF_NAME#app-v}"
+          if [ "$version" = "$GITHUB_REF_NAME" ]; then
+            version="0.1.0"
+          fi
+          WEBMUX_APP_VERSION="$version" pnpm exec expo prebuild --platform android --no-install
+
+      # App-side updates only work when each release is signed with the
+      # same key. These secrets hold the stable Webmux Android signing key.
+      - name: Decode release keystore
+        working-directory: packages/app/android/app
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=0
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "$name secret is required for Android releases." >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.keystore
 
       # Patch build.gradle to:
       #   1. Add a release signing config that points at our keystore
@@ -91,9 +99,9 @@ jobs:
               signingConfigs {
                   release {
                       storeFile file('release.keystore')
-                      storePassword 'webmux-release'
-                      keyAlias 'webmux-release'
-                      keyPassword 'webmux-release'
+                      storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                      keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                      keyPassword System.getenv('ANDROID_KEY_PASSWORD')
                       enableV1Signing true
                       enableV2Signing true
                       enableV3Signing true
@@ -149,6 +157,10 @@ jobs:
 
       - name: Build release APKs
         working-directory: packages/app/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Collect APKs
@@ -187,7 +199,7 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" \
               --title "Mobile ${tag}" \
-              --notes "Sideload via 'install from unknown sources'. Most modern phones: pick the **arm64-v8a** APK. The **universal** APK works on any architecture but is larger. Note: each release is signed with a fresh keystore, so you must uninstall the previous version before installing a new one."
+              --notes "Sideload via 'install from unknown sources'. Most modern phones: pick the **arm64-v8a** APK. The **universal** APK works on any architecture but is larger. If you installed an older APK from before stable signing, uninstall it once before installing this release; future app-side updates can install over it."
           fi
           for apk in artifacts/*.apk; do
             gh release upload "$tag" "$apk" --clobber
