@@ -95,15 +95,23 @@ jobs:
           # Drop into the android { ... } block right after the opening brace.
           gradle = re.sub(r"android\s*\{", "android {" + signing_block, gradle, count=1)
 
-          # 2. Make the release buildType actually use that signingConfig and
-          #    drop the default debug fallback. Expo's template usually has
-          #    `signingConfig signingConfigs.debug` — replace it.
-          gradle = re.sub(
-              r"(buildTypes\s*\{[^}]*release\s*\{[^}]*?)signingConfig\s+signingConfigs\.\w+",
+          # 2. Make the release buildType actually use that signingConfig.
+          #    Anchor on `release {` directly — anchoring on `buildTypes {`
+          #    fails because the intermediate `debug { ... }` block ends
+          #    in `}`, which `[^}]*` doesn't cross.
+          new_gradle, n = re.subn(
+              r"(release\s*\{[^}]*?)signingConfig\s+signingConfigs\.\w+",
               r"\1signingConfig signingConfigs.release",
               gradle,
+              count=1,
               flags=re.DOTALL,
           )
+          if n == 0:
+              raise SystemExit(
+                  "Could not find `release { ... signingConfig signingConfigs.X }` "
+                  "in build.gradle — expo prebuild template may have changed."
+              )
+          gradle = new_gradle
 
           # 3. Enable per-ABI splits (one APK per architecture, plus a
           #    universal one we can fall back to). Lives at android level.
