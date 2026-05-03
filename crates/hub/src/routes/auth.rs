@@ -14,6 +14,12 @@ use crate::AppState;
 #[derive(Deserialize)]
 pub struct OAuthCallbackQuery {
     pub code: Option<String>,
+    pub state: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct OAuthRedirectQuery {
+    pub mobile_callback: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -34,6 +40,7 @@ struct DevLoginResponse {
 
 async fn github_redirect(
     State(state): State<AppState>,
+    Query(query): Query<OAuthRedirectQuery>,
 ) -> Result<Redirect, (StatusCode, Json<serde_json::Value>)> {
     let client_id = state.github_client_id.as_deref().ok_or_else(|| {
         (
@@ -42,7 +49,8 @@ async fn github_redirect(
         )
     })?;
 
-    let url = auth::github_oauth_url(client_id, &state.base_url);
+    let oauth_state = mobile_oauth_state_param(query.mobile_callback.as_deref())?;
+    let url = auth::github_oauth_url(client_id, &state.base_url, oauth_state.as_deref());
     Ok(Redirect::temporary(&url))
 }
 
@@ -88,7 +96,8 @@ async fn github_callback(
         gh_user.avatar_url.as_deref(),
     )?;
 
-    let redirect_url = format!("{}?token={}", state.base_url, jwt);
+    let redirect_url =
+        auth::oauth_success_redirect_url(&state.base_url, &jwt, query.state.as_deref());
     Ok(Redirect::temporary(&redirect_url))
 }
 
@@ -96,6 +105,7 @@ async fn github_callback(
 
 async fn google_redirect(
     State(state): State<AppState>,
+    Query(query): Query<OAuthRedirectQuery>,
 ) -> Result<Redirect, (StatusCode, Json<serde_json::Value>)> {
     let client_id = state.google_client_id.as_deref().ok_or_else(|| {
         (
@@ -104,7 +114,8 @@ async fn google_redirect(
         )
     })?;
 
-    let url = auth::google_oauth_url(client_id, &state.base_url);
+    let oauth_state = mobile_oauth_state_param(query.mobile_callback.as_deref())?;
+    let url = auth::google_oauth_url(client_id, &state.base_url, oauth_state.as_deref());
     Ok(Redirect::temporary(&url))
 }
 
@@ -153,7 +164,8 @@ async fn google_callback(
         g_user.picture.as_deref(),
     )?;
 
-    let redirect_url = format!("{}?token={}", state.base_url, jwt);
+    let redirect_url =
+        auth::oauth_success_redirect_url(&state.base_url, &jwt, query.state.as_deref());
     Ok(Redirect::temporary(&redirect_url))
 }
 
@@ -275,6 +287,21 @@ fn db_err(e: rusqlite::Error) -> (StatusCode, Json<serde_json::Value>) {
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(serde_json::json!({"error": format!("DB error: {e}")})),
     )
+}
+
+fn mobile_oauth_state_param(
+    mobile_callback: Option<&str>,
+) -> Result<Option<String>, (StatusCode, Json<serde_json::Value>)> {
+    let Some(callback) = mobile_callback else {
+        return Ok(None);
+    };
+
+    auth::mobile_oauth_state(callback).map(Some).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid mobile callback"})),
+        )
+    })
 }
 
 pub fn router() -> Router<AppState> {

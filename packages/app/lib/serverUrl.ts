@@ -3,14 +3,44 @@ import { isTauri } from "./platform";
 const SERVER_URL_KEY = "webmux:server_url";
 const DEFAULT_SERVER_URL = "https://webmux.nas.chareice.site";
 
-export function getServerUrl(): string {
-  if (!isTauri()) {
+export interface ResolveServerUrlOptions {
+  platformOs: string;
+  isTauriRuntime: boolean;
+  storedUrl: string | null;
+}
+
+export function resolveServerUrl({
+  platformOs,
+  isTauriRuntime,
+  storedUrl,
+}: ResolveServerUrlOptions): string {
+  if (platformOs === "web" && !isTauriRuntime) {
     return "";
   }
-  if (typeof localStorage !== "undefined") {
-    return localStorage.getItem(SERVER_URL_KEY) || DEFAULT_SERVER_URL;
+  return storedUrl?.replace(/\/+$/, "") || DEFAULT_SERVER_URL;
+}
+
+function getRuntimePlatformOs(): string {
+  if (
+    typeof navigator !== "undefined" &&
+    (navigator as { product?: string }).product === "ReactNative"
+  ) {
+    return "native";
   }
-  return DEFAULT_SERVER_URL;
+  return "web";
+}
+
+export function getServerUrl(platformOs = getRuntimePlatformOs()): string {
+  const storedUrl =
+    typeof localStorage !== "undefined"
+      ? localStorage.getItem(SERVER_URL_KEY)
+      : null;
+
+  return resolveServerUrl({
+    platformOs,
+    isTauriRuntime: isTauri(),
+    storedUrl,
+  });
 }
 
 export function getDefaultServerUrl(): string {

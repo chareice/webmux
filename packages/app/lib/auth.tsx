@@ -7,13 +7,17 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
 
 import { configure, devLogin, getMe } from "./api";
 import type { User } from "@webmux/shared";
 import { storage } from "./storage";
 import { getServerUrl } from "./serverUrl";
 import { isTauri } from "./platform";
+import {
+  buildNativeOAuthUrl,
+  getTokenFromNativeAuthUrl,
+} from "./nativeAuth";
 
 export type { User };
 
@@ -26,7 +30,7 @@ export interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (provider?: "github" | "google") => void;
+  login: (provider?: "github" | "google") => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -135,6 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const isAuthenticated = !!user && !!token;
+  const currentServerUrl = useCallback(() => getServerUrl(Platform.OS), []);
 
   // On mount: persist desktop_callback from URL to sessionStorage so it
   // survives the OAuth redirect round-trip.
@@ -156,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           removeUrlParams("token");
           await storage.set(TOKEN_KEY, urlToken);
           if (!cancelled) {
-            configure(getServerUrl(), urlToken);
+            configure(currentServerUrl(), urlToken);
             setToken(urlToken);
           }
           return;
@@ -166,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const storedToken = await storage.get(TOKEN_KEY);
         if (storedToken) {
           if (!cancelled) {
-            configure(getServerUrl(), storedToken);
+            configure(currentServerUrl(), storedToken);
             setToken(storedToken);
           }
           return;
@@ -179,7 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (result?.token) {
               await storage.set(TOKEN_KEY, result.token);
               if (!cancelled) {
-                configure(getServerUrl(), result.token);
+                configure(currentServerUrl(), result.token);
                 setToken(result.token);
               }
               return;
@@ -199,7 +204,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void restore();
     return () => { cancelled = true; };
-  }, []);
+  }, [currentServerUrl]);
+
+  // Native OAuth returns through the app deep link declared in app.config.js.
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+
+    let cancelled = false;
+
+    const applyNativeAuthUrl = (url: string | null) => {
+      if (!url) return;
+      const nativeToken = getTokenFromNativeAuthUrl(url);
+      if (!nativeToken) return;
+
+      void (async () => {
+        await storage.set(TOKEN_KEY, nativeToken);
+        if (!cancelled) {
+          configure(currentServerUrl(), nativeToken);
+          setToken(nativeToken);
+        }
+      })();
+    };
+
+    const subscription = Linking.addEventListener("url", (event) => {
+      applyNativeAuthUrl(event.url);
+    });
+
+    void Linking.getInitialURL()
+      .then(applyNativeAuthUrl)
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, [currentServerUrl]);
 
   // When token changes, validate via getMe(), then handle desktop callback
   useEffect(() => {
@@ -229,7 +268,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         await storage.remove(TOKEN_KEY);
         if (!cancelled) {
-          configure(getServerUrl(), null);
+          configure(currentServerUrl(), null);
           setToken(null);
           setUser(null);
         }
@@ -242,36 +281,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void loadUser();
     return () => { cancelled = true; };
-  }, [token]);
+  }, [currentServerUrl, token]);
 
-  const login = useCallback((provider?: "github" | "google") => {
-    if (Platform.OS !== "web" || typeof window === "undefined") return;
-
-    if (isTauri()) {
+  const login = useCallback(async (provider?: "github" | "google") => {
+    if (Platform.OS === "web" && typeof window !== "undefined" && isTauri()) {
       // Desktop: open web page which handles auth (reuses existing session
       // or shows login). Provider selection happens on the web side.
-      void tauriDesktopLogin(async (newToken) => {
+      await tauriDesktopLogin(async (newToken) => {
         await storage.set(TOKEN_KEY, newToken);
-        configure(getServerUrl(), newToken);
+        configure(currentServerUrl(), newToken);
         setToken(newToken);
-      }).catch((err) => {
-        console.error("Desktop login failed:", err);
       });
-    } else {
+      return;
+    }
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
       if (!provider) return;
       // desktop_callback is already persisted in sessionStorage by the
       // mount effect, so it survives the OAuth redirect round-trip.
-      const base = getServerUrl();
+      const base = currentServerUrl();
       window.location.href = `${base}/api/auth/${provider}`;
+      return;
     }
-  }, []);
+
+    if (!provider) return;
+    await Linking.openURL(buildNativeOAuthUrl(currentServerUrl(), provider));
+  }, [currentServerUrl]);
 
   const logout = useCallback(async () => {
     await storage.remove(TOKEN_KEY);
-    configure(getServerUrl(), null);
+    configure(currentServerUrl(), null);
     setToken(null);
     setUser(null);
-  }, []);
+  }, [currentServerUrl]);
 
   const value = useMemo<AuthContextType>(
     () => ({ user, token, isLoading, isAuthenticated, login, logout }),
