@@ -14,8 +14,7 @@ jobs:
     runs-on: ubuntu-22.04
     # Hoisted layout — Expo's autolinking + React Native's gradle plugin
     # walk node_modules expecting a flat-ish tree. Strict pnpm symlinks
-    # work for the web build (already validated by CI), but android
-    # gradle resolution needs the hoisted view.
+    # work for the web build but the gradle plugin needs flat-ish.
     env:
       NPM_CONFIG_NODE_LINKER: hoisted
 
@@ -50,30 +49,126 @@ jobs:
         working-directory: packages/app
         run: npx expo prebuild --platform android --no-install
 
-      - name: Build debug APK
-        working-directory: packages/app/android
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Locate APK
-        id: apk
+      # Some Samsung phones reject the well-known Android Debug keystore
+      # (CN=Android Debug) because malware has historically abused it.
+      # Generate a unique self-signed release keystore per build so the
+      # APK is signed with a never-before-seen key. Trade-off: every
+      # build has a different signature, so users must uninstall the
+      # previous version before installing a new one. Acceptable for
+      # solo / small-team distribution; if/when we need stable signing,
+      # move the keystore (base64) into a repo secret.
+      - name: Generate release keystore
+        working-directory: packages/app/android/app
         run: |
-          apk=$(find packages/app/android/app/build/outputs/apk -name "*.apk" | head -n1)
-          if [ -z "$apk" ]; then
-            echo "No APK produced — check the gradle build above" >&2
-            exit 1
-          fi
+          keytool -genkeypair -v \
+            -keystore release.keystore \
+            -alias webmux-release \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass webmux-release \
+            -keypass webmux-release \
+            -dname "CN=webmux, OU=app, O=chareice, L=Beijing, S=Beijing, C=CN"
+
+      # Patch build.gradle to:
+      #   1. Add a release signing config that points at our keystore
+      #   2. Enable per-ABI APK splits so each output APK is ~50MB
+      #      instead of one ~190MB universal blob (debug-mode splits
+      #      were off; we turn them on for our release variant)
+      - name: Patch build.gradle for release signing + abi splits
+        working-directory: packages/app/android/app
+        run: |
+          python3 - <<'PY'
+          import re
+          path = "build.gradle"
+          gradle = open(path).read()
+
+          # 1. Insert a release signingConfig referencing the generated keystore.
+          signing_block = """
+              signingConfigs {
+                  release {
+                      storeFile file('release.keystore')
+                      storePassword 'webmux-release'
+                      keyAlias 'webmux-release'
+                      keyPassword 'webmux-release'
+                  }
+              }
+          """
+          # Drop into the android { ... } block right after the opening brace.
+          gradle = re.sub(r"android\s*\{", "android {" + signing_block, gradle, count=1)
+
+          # 2. Make the release buildType actually use that signingConfig.
+          #    Anchor on `release {` directly — anchoring on `buildTypes {`
+          #    fails because the intermediate `debug { ... }` block ends
+          #    in `}`, which `[^}]*` doesn't cross.
+          new_gradle, n = re.subn(
+              r"(release\s*\{[^}]*?)signingConfig\s+signingConfigs\.\w+",
+              r"\1signingConfig signingConfigs.release",
+              gradle,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if n == 0:
+              raise SystemExit(
+                  "Could not find `release { ... signingConfig signingConfigs.X }` "
+                  "in build.gradle — expo prebuild template may have changed."
+              )
+          gradle = new_gradle
+
+          # 3. Enable per-ABI splits (one APK per architecture, plus a
+          #    universal one we can fall back to). Lives at android level.
+          splits_block = """
+              splits {
+                  abi {
+                      enable true
+                      reset()
+                      include 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+                      universalApk true
+                  }
+              }
+          """
+          # Append before the closing brace of android { ... }. Find the LAST }
+          # that matches the android block.
+          # Simpler: insert before "// React Native settings" or right at the
+          # top of android — but easiest is to append at the start of the block.
+          gradle = gradle.replace(
+              "android {" + signing_block,
+              "android {" + signing_block + splits_block,
+              1,
+          )
+
+          open(path, "w").write(gradle)
+          print("Patched build.gradle. Signing + splits config injected.")
+          PY
+
+      - name: Build release APKs
+        working-directory: packages/app/android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Collect APKs
+        id: apks
+        run: |
           tag="${GITHUB_REF_NAME:-app-vlocal}"
           version="${tag#app-v}"
-          out="webmux-${version}.apk"
-          cp "$apk" "$out"
-          echo "path=$out" >> "$GITHUB_OUTPUT"
-          ls -lh "$out"
+          mkdir -p artifacts
+          # Each ABI gets its own APK plus there's a universal one. Rename
+          # them with the version + ABI suffix for clarity in the release.
+          for src in $(find packages/app/android/app/build/outputs/apk/release -name "*.apk"); do
+            base=$(basename "$src" .apk)
+            # name pattern: app-<abi>-release.apk or app-universal-release.apk
+            abi=$(echo "$base" | sed -E 's/^app-//; s/-release$//')
+            cp "$src" "artifacts/webmux-${version}-${abi}.apk"
+          done
+          ls -lh artifacts/
+          {
+            echo "files<<EOF"
+            ls artifacts/*.apk
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.apk.outputs.path }}
-          path: ${{ steps.apk.outputs.path }}
+          name: webmux-android-apks
+          path: artifacts/*.apk
 
       - name: Create or update release
         if: startsWith(github.ref, 'refs/tags/')
@@ -84,6 +179,8 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" \
               --title "Mobile ${tag}" \
-              --notes "Debug-signed Android APK for $tag. Sideload via 'install from unknown sources'."
+              --notes "Sideload via 'install from unknown sources'. Most modern phones: pick the **arm64-v8a** APK. The **universal** APK works on any architecture but is larger. Note: each release is signed with a fresh keystore, so you must uninstall the previous version before installing a new one."
           fi
-          gh release upload "$tag" "${{ steps.apk.outputs.path }}" --clobber
+          for apk in artifacts/*.apk; do
+            gh release upload "$tag" "$apk" --clobber
+          done
