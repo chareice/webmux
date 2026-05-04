@@ -7,17 +7,23 @@ export interface ResolveServerUrlOptions {
   platformOs: string;
   isTauriRuntime: boolean;
   storedUrl: string | null;
+  configuredDefaultUrl?: string | null;
 }
 
 export function resolveServerUrl({
   platformOs,
   isTauriRuntime,
   storedUrl,
+  configuredDefaultUrl,
 }: ResolveServerUrlOptions): string {
   if (platformOs === "web" && !isTauriRuntime) {
     return "";
   }
-  return storedUrl?.replace(/\/+$/, "") || DEFAULT_SERVER_URL;
+  return (
+    storedUrl?.replace(/\/+$/, "") ||
+    configuredDefaultUrl?.replace(/\/+$/, "") ||
+    DEFAULT_SERVER_URL
+  );
 }
 
 function getRuntimePlatformOs(): string {
@@ -30,6 +36,32 @@ function getRuntimePlatformOs(): string {
   return "web";
 }
 
+function getConfiguredDefaultServerUrl(): string | null {
+  return (
+    process.env.EXPO_PUBLIC_WEBMUX_DEFAULT_SERVER_URL ||
+    process.env.WEBMUX_DEFAULT_SERVER_URL ||
+    getExpoConfiguredDefaultServerUrl() ||
+    null
+  );
+}
+
+function getExpoConfiguredDefaultServerUrl(): string | null {
+  try {
+    const Constants = require("expo-constants").default as {
+      expoConfig?: { extra?: Record<string, unknown> };
+      manifest?: { extra?: Record<string, unknown> };
+      manifest2?: { extra?: { expoClient?: { extra?: Record<string, unknown> } } };
+    };
+    const value =
+      Constants?.expoConfig?.extra?.defaultServerUrl ??
+      Constants?.manifest?.extra?.defaultServerUrl ??
+      Constants?.manifest2?.extra?.expoClient?.extra?.defaultServerUrl;
+    return typeof value === "string" && value.trim() ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getServerUrl(platformOs = getRuntimePlatformOs()): string {
   const storedUrl =
     typeof localStorage !== "undefined"
@@ -40,11 +72,12 @@ export function getServerUrl(platformOs = getRuntimePlatformOs()): string {
     platformOs,
     isTauriRuntime: isTauri(),
     storedUrl,
+    configuredDefaultUrl: getConfiguredDefaultServerUrl(),
   });
 }
 
 export function getDefaultServerUrl(): string {
-  return DEFAULT_SERVER_URL;
+  return getConfiguredDefaultServerUrl()?.replace(/\/+$/, "") || DEFAULT_SERVER_URL;
 }
 
 export function setServerUrl(url: string): void {
