@@ -17,117 +17,9 @@ import {
   readFileAsBase64,
   safeFilename,
 } from "@/lib/terminalImagePaste";
+import { ANDROID_TERMINAL_HTML } from "@/lib/nativeTerminalHtml";
 
 export type { TerminalViewRef, TerminalViewProps };
-
-const TERMINAL_HTML = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
-<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-html,body{width:100%;height:100%;overflow:hidden;background:#141413;}
-#terminal{width:100%;height:100%;}
-.xterm{padding:4px;}
-</style>
-</head>
-<body>
-<div id="terminal"></div>
-<script>
-(function(){
-  var term = new Terminal({
-    fontSize: 14,
-    fontFamily: "'JetBrains Mono','Fira Code','Cascadia Code',monospace",
-    theme: {
-      background: '#141413',
-      foreground: '#faf9f5',
-      cursor: '#d97757',
-      selectionBackground: 'rgba(217,119,87,0.3)',
-      black: '#141413', red: '#b53333', green: '#30d158',
-      yellow: '#d97757', blue: '#3898ec', magenta: '#cc5de8',
-      cyan: '#22b8cf', white: '#faf9f5',
-    },
-    cursorBlink: true,
-    scrollback: 5000,
-    allowTransparency: false,
-  });
-
-  var fitAddon = new FitAddon.FitAddon();
-  term.loadAddon(fitAddon);
-  term.open(document.getElementById('terminal'));
-
-  function doFit() {
-    try {
-      fitAddon.fit();
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'resize',
-        cols: term.cols,
-        rows: term.rows,
-      }));
-    } catch(e) {}
-  }
-
-  // Forward user input to RN
-  term.onData(function(data) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({
-      type: 'input',
-      data: data,
-    }));
-  });
-
-  // Forward binary input (e.g. from paste)
-  term.onBinary(function(data) {
-    window.ReactNativeWebView.postMessage(JSON.stringify({
-      type: 'input',
-      data: data,
-    }));
-  });
-
-  // Handle messages from RN
-  function handleMessage(e) {
-    try {
-      var msg = JSON.parse(e.data);
-      switch(msg.type) {
-        case 'write':
-          term.write(msg.data);
-          break;
-        case 'resize':
-          if (msg.cols && msg.rows) {
-            term.resize(msg.cols, msg.rows);
-          }
-          break;
-        case 'clear':
-          term.clear();
-          break;
-        case 'focus':
-          term.focus();
-          break;
-        case 'fit':
-          doFit();
-          break;
-      }
-    } catch(ex) {}
-  }
-
-  // Android WebView uses document 'message' event
-  document.addEventListener('message', handleMessage);
-  // Also listen on window for compatibility
-  window.addEventListener('message', handleMessage);
-
-  // Signal ready
-  window.ReactNativeWebView.postMessage(JSON.stringify({
-    type: 'ready',
-    cols: term.cols,
-    rows: term.rows,
-  }));
-})();
-</script>
-</body>
-</html>`;
 
 /**
  * Android terminal view using WebView + xterm.js.
@@ -367,7 +259,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       <View style={[styles.container, style as any]}>
         <WebView
           ref={webViewRef}
-          source={{ html: TERMINAL_HTML }}
+          source={{ html: ANDROID_TERMINAL_HTML }}
           style={styles.webview}
           onMessage={handleMessage}
           javaScriptEnabled
@@ -396,10 +288,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#141413",
+    backgroundColor: "#05060a",
   },
   webview: {
     flex: 1,
-    backgroundColor: "#141413",
+    backgroundColor: "#05060a",
   },
 });

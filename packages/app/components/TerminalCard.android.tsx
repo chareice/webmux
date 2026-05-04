@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import { TerminalView } from "./TerminalView.android";
 import type { TerminalViewRef } from "./TerminalView.types";
 import { TerminalToolbar } from "./TerminalToolbar";
 import { terminalWsUrl } from "@/lib/api";
-import { colors } from "@/lib/colors";
+import { colors, colorAlpha } from "@/lib/colors";
 
 interface TerminalCardProps {
   terminal: TerminalInfo;
@@ -59,6 +59,18 @@ export function TerminalCard({
     termViewRef.current?.focus();
   }, [isController, maximized]);
 
+  useEffect(() => {
+    if (!maximized || !isController) return;
+    const timers = [120, 420, 900].map((delay) =>
+      setTimeout(() => {
+        termViewRef.current?.fitToContainer();
+      }, delay),
+    );
+    return () => {
+      timers.forEach(clearTimeout);
+    };
+  }, [isController, maximized, terminal.id]);
+
   const wsUrl = terminalWsUrl(terminal.machine_id, terminal.id, deviceId ?? undefined);
 
   // Maximized terminal shown as a full-screen Modal
@@ -71,29 +83,19 @@ export function TerminalCard({
         statusBarTranslucent
       >
         <SafeAreaView style={styles.modalContainer}>
-          <StatusBar barStyle="light-content" backgroundColor={colors.backgroundSecondary} />
+          <StatusBar barStyle="light-content" backgroundColor={colors.bg2} />
 
-          {/* Title bar — close on left, minimize on right */}
           <View style={styles.modalTitleBar}>
-            <Pressable
-              onPress={isController ? onDestroy : undefined}
-              hitSlop={12}
-              style={styles.closeButton}
-            >
-              <Text
-                style={[
-                  styles.closeText,
-                  !isController && styles.disabledCloseText,
-                ]}
-              >
-                {"\u2715"}
-              </Text>
-            </Pressable>
             <View style={styles.titleRow}>
               <View style={styles.statusDot} />
-              <Text numberOfLines={1} style={styles.titleText}>
-                {terminal.title}
-              </Text>
+              <View style={styles.titleStack}>
+                <Text numberOfLines={1} style={styles.titleText}>
+                  {terminal.title || terminal.id.slice(0, 8)}
+                </Text>
+                <Text numberOfLines={1} style={styles.cwdText}>
+                  {shortenHome(terminal.cwd)}
+                </Text>
+              </View>
             </View>
             <View style={styles.headerActions}>
               <Pressable
@@ -122,7 +124,7 @@ export function TerminalCard({
                   hitSlop={12}
                   style={styles.fitButton}
                 >
-                  <Text style={styles.fitText}>Fit</Text>
+                  <Text style={styles.fitText}>{"\u2922"}</Text>
                 </Pressable>
               )}
               <Pressable
@@ -130,7 +132,7 @@ export function TerminalCard({
                 hitSlop={12}
                 style={styles.minimizeButton}
               >
-                <Text style={styles.minimizeText}>{"\u2921"}</Text>
+                <Text style={styles.minimizeText}>{"\u2715"}</Text>
               </Pressable>
             </View>
           </View>
@@ -250,22 +252,23 @@ const styles = StyleSheet.create({
   // ── Modal (maximized) ──
   modalContainer: {
     flex: 1,
-    backgroundColor: colors.backgroundSecondary,
+    backgroundColor: colors.termBg,
   },
   modalTitleBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    gap: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: "rgba(0,0,0,0.2)",
+    borderBottomColor: colors.lineSoft,
+    backgroundColor: colors.bg2,
   },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
     flex: 1,
     minWidth: 0,
   },
@@ -275,18 +278,27 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: colors.accent,
   },
+  titleStack: {
+    flex: 1,
+    minWidth: 0,
+  },
   titleText: {
     fontSize: 13,
-    color: colors.foreground,
-    flex: 1,
+    fontWeight: "600",
+    color: colors.fg0,
   },
-  closeButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  cwdText: {
+    marginTop: 1,
+    fontFamily: "monospace",
+    fontSize: 10,
+    color: colors.fg2,
   },
   minimizeButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    width: 32,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 4,
   },
   headerActions: {
     flexDirection: "row",
@@ -298,8 +310,8 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: colors.borderActive,
-    backgroundColor: "rgba(217, 119, 87, 0.14)",
+    borderColor: colorAlpha.accentLine,
+    backgroundColor: colorAlpha.accentSoft,
   },
   controlPillTake: {
     backgroundColor: colors.accent,
@@ -311,24 +323,23 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   controlPillTakeText: {
-    color: colors.background,
+    color: "#120904",
   },
   fitButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    width: 32,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 4,
   },
   minimizeText: {
-    fontSize: 16,
-    color: colors.foregroundSecondary,
+    fontSize: 15,
+    color: colors.fg1,
   },
   fitText: {
-    fontSize: 12,
+    fontSize: 15,
     color: colors.accent,
     fontWeight: "600",
-  },
-  closeText: {
-    fontSize: 14,
-    color: colors.danger,
   },
   disabledCloseText: {
     color: colors.foregroundMuted,
@@ -336,34 +347,38 @@ const styles = StyleSheet.create({
   },
   terminalContainer: {
     flex: 1,
+    minHeight: 0,
+    backgroundColor: colors.termBg,
     overflow: "hidden",
   },
   modalFooter: {
-    paddingVertical: 4,
-    paddingHorizontal: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: colors.lineSoft,
+    backgroundColor: colors.bg1,
   },
   footerText: {
     fontSize: 11,
-    color: colors.foregroundMuted,
+    color: colors.fg2,
   },
   siblingStrip: {
     gap: 6,
-    paddingTop: 8,
+    paddingTop: 7,
+    paddingBottom: 2,
   },
   siblingPill: {
     width: 130,
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    backgroundColor: colors.bg2,
     paddingVertical: 7,
     paddingHorizontal: 9,
   },
   siblingPillActive: {
     borderColor: colors.accent,
-    backgroundColor: "rgba(217, 119, 87, 0.14)",
+    backgroundColor: colorAlpha.accentSoft,
   },
   siblingTitle: {
     color: colors.foregroundSecondary,
@@ -381,10 +396,10 @@ const styles = StyleSheet.create({
 
   // ── Card (thumbnail) ──
   card: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.bg2,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.line,
     overflow: "hidden",
   },
   cardHeader: {
@@ -394,8 +409,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: "rgba(0,0,0,0.2)",
+    borderBottomColor: colors.lineSoft,
+    backgroundColor: colors.bg1,
   },
   cardTitle: {
     fontSize: 12,
@@ -413,6 +428,7 @@ const styles = StyleSheet.create({
   },
   previewContainer: {
     height: 160,
+    backgroundColor: colors.termBg,
     overflow: "hidden",
   },
   cardFooter: {
@@ -421,6 +437,10 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: colors.foregroundMuted,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: colors.lineSoft,
   },
 });
+
+function shortenHome(cwd: string): string {
+  return cwd.replace(/^\/home\/[^/]+/, "~");
+}

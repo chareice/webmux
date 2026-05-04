@@ -22,4 +22,26 @@ describe("resolveServerUrl", () => {
       }),
     ).toBe("https://webmux.nas.chareice.site");
   });
+
+  it("uses a configured native hub URL before the production fallback", () => {
+    expect(
+      resolveServerUrl({
+        platformOs: "android",
+        isTauriRuntime: false,
+        storedUrl: null,
+        configuredDefaultUrl: "http://10.0.2.2:4317/",
+      }),
+    ).toBe("http://10.0.2.2:4317");
+  });
+
+  it("keeps an explicitly saved hub URL above the configured default", () => {
+    expect(
+      resolveServerUrl({
+        platformOs: "android",
+        isTauriRuntime: false,
+        storedUrl: "https://saved.example/",
+        configuredDefaultUrl: "http://10.0.2.2:4317",
+      }),
+    ).toBe("https://saved.example");
+  });
 });
