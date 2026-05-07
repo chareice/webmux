@@ -43,6 +43,9 @@ test("native zellij sidebar entry opens the managed browser session", async ({
   await page.getByTestId("rail-native-zellij").click();
   await expect(page).toHaveURL(/\/machines\/e2e-node\/native-zellij$/);
   await expect(page.getByTestId("native-zellij-frame")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0);
+  const frameBox = await page.getByTestId("native-zellij-frame").boundingBox();
+  expect(frameBox?.y).toBe(0);
 
   await expect
     .poll(
@@ -125,6 +128,9 @@ test("mobile menu entry opens native zellij", async ({ browser }) => {
 
     await expect(page).toHaveURL(/\/machines\/e2e-node\/native-zellij$/);
     await expect(page.getByTestId("native-zellij-frame")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0);
+    const frameBox = await page.getByTestId("native-zellij-frame").boundingBox();
+    expect(frameBox?.y).toBe(0);
   } finally {
     await context.close();
   }

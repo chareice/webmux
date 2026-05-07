@@ -368,7 +368,15 @@ async fn probe_web_server(url: String) -> bool {
     };
 
     match client.get(url).send().await {
-        Ok(response) => response.status().is_success(),
+        Ok(response) => {
+            if !response.status().is_success() {
+                return false;
+            }
+            match response.text().await {
+                Ok(body) => looks_like_zellij_web_shell(&body),
+                Err(_) => false,
+            }
+        }
         Err(_) => false,
     }
 }
@@ -383,13 +391,17 @@ async fn wait_for_web_server(url: String) -> bool {
     false
 }
 
+fn looks_like_zellij_web_shell(body: &str) -> bool {
+    body.contains("<base href=\"/\" />")
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        ensure_config_file_at, parse_created_token, status_probe_ip, status_probe_url,
-        NativeZellijManager,
+        ensure_config_file_at, looks_like_zellij_web_shell, parse_created_token, probe_web_server,
+        status_probe_ip, status_probe_url, NativeZellijManager,
     };
 
     #[test]
@@ -417,6 +429,34 @@ mod tests {
             status_probe_url("127.0.0.1", 8082, false),
             "http://127.0.0.1:8082"
         );
+    }
+
+    #[tokio::test]
+    async fn probe_web_server_rejects_unrelated_successful_http_service() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            use tokio::io::AsyncWriteExt;
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: 64\r\n\r\n<html><body>not the Zellij web client shell</body></html>",
+                )
+                .await
+                .unwrap();
+        });
+
+        assert!(!probe_web_server(format!("http://{addr}")).await);
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn zellij_web_probe_matches_the_shell_that_proxy_rewrites() {
+        let html = r#"<html><head><base href="/" /></head><body></body></html>"#;
+        assert!(looks_like_zellij_web_shell(html));
+        assert!(!looks_like_zellij_web_shell(
+            "<html><body>not zellij</body></html>"
+        ));
     }
 
     #[test]

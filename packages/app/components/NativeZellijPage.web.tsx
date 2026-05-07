@@ -1,8 +1,7 @@
-import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 
 import type { NativeZellijBootstrapResponse } from "@webmux/shared";
-import { ArrowLeft, LoaderCircle, RefreshCcw } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 
 import { getNativeZellijBootstrap } from "@/lib/api";
 import { colors } from "@/lib/colors";
@@ -22,7 +21,6 @@ type LoadState =
 
 export function NativeZellijPage({ machineId }: NativeZellijPageProps) {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
-  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,72 +44,18 @@ export function NativeZellijPage({ machineId }: NativeZellijPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [machineId, reloadKey]);
-
-  const goBack = () => {
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-    window.location.href = "/";
-  };
+  }, [machineId]);
 
   return (
     <div
       style={{
-        minHeight: "100dvh",
-        background:
-          "radial-gradient(circle at top left, rgba(163, 178, 126, 0.18), transparent 28%), linear-gradient(180deg, #0f1110 0%, #171a17 100%)",
+        height: "100dvh",
+        background: "#000",
         color: colors.fg0,
         display: "flex",
         flexDirection: "column",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 16,
-          padding: "14px 18px",
-          borderBottom: `1px solid ${colors.lineSoft}`,
-          background: "rgba(9, 11, 10, 0.82)",
-          backdropFilter: "blur(12px)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button
-            onClick={goBack}
-            type="button"
-            style={toolbarButton()}
-          >
-            <ArrowLeft size={14} />
-            Back
-          </button>
-          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-            <span
-              style={{
-                fontSize: 11,
-                color: colors.fg3,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-              }}
-            >
-              Native Zellij
-            </span>
-            <span style={{ fontSize: 16, fontWeight: 600 }}>{machineId}</span>
-          </div>
-        </div>
-        <button
-          onClick={() => setReloadKey((value) => value + 1)}
-          type="button"
-          style={toolbarButton()}
-        >
-          <RefreshCcw size={14} />
-          Reload
-        </button>
-      </div>
-
       <div style={{ flex: 1, minHeight: 0 }}>
         {state.kind === "loading" && <CenteredState title="Opening Native Zellij…" />}
         {state.kind === "error" && (
@@ -261,20 +205,4 @@ function MessageCard({
       </div>
     </div>
   );
-}
-
-function toolbarButton(): CSSProperties {
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "8px 12px",
-    borderRadius: 999,
-    border: `1px solid ${colors.line}`,
-    background: colors.bg1,
-    color: colors.fg1,
-    cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 600,
-  };
 }
