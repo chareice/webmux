@@ -46,6 +46,17 @@ test("desktop workspace splits the active terminal into tiled panes", async ({
   const secondBox = await paneBox(page, secondId);
   expect(secondBox.x).toBeGreaterThan(firstBox.x + firstBox.width * 0.5);
   expect(Math.abs(secondBox.y - firstBox.y)).toBeLessThan(8);
+  await expect
+    .poll(() => paneTerminalScale(page, secondId), { timeout: 5_000 })
+    .toBeGreaterThan(0.95);
+  await expect
+    .poll(async () => {
+      const splitTerminal = (await listTerminals(page)).find(
+        (terminal) => terminal.id === secondId,
+      );
+      return splitTerminal?.cols ?? 999;
+    }, { timeout: 5_000 })
+    .toBeLessThan(140);
 
   await page.getByLabel("Split down").click();
   await expect.poll(async () => (await listTerminals(page)).length).toBe(3);
@@ -128,4 +139,13 @@ async function paneBox(page: Page, terminalId: string) {
     .boundingBox();
   expect(box).not.toBeNull();
   return box!;
+}
+
+async function paneTerminalScale(page: Page, terminalId: string) {
+  const scale = await page
+    .getByTestId(`workspace-pane-${terminalId}`)
+    .locator("[data-terminal-view-scale]")
+    .first()
+    .getAttribute("data-terminal-view-scale");
+  return Number(scale);
 }
