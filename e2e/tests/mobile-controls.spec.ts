@@ -3,6 +3,7 @@ import { test, expect, devices } from "@playwright/test";
 import {
   createTerminalViaApi,
   expectSingleTerminalCard,
+  getAuthHeaders,
   getImmersiveTerminal,
   listTerminals,
   openApp,
@@ -191,6 +192,60 @@ test("mobile terminal switch does not focus the new terminal automatically", asy
     .toBe(false);
 });
 
+test("mobile workspace has direct terminal close and group switching", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+
+  const firstGroup = await createWorkspaceGroupViaApi(
+    page,
+    `Mobile Alpha ${Date.now()}`,
+  );
+  const secondGroup = await createWorkspaceGroupViaApi(
+    page,
+    `Mobile Beta ${Date.now()}`,
+  );
+  const firstTerminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: firstGroup.id,
+  });
+  const secondTerminalId = await createTerminalViaApi(page, {
+    cwd: "/tmp",
+    workspaceGroupId: secondGroup.id,
+  });
+
+  await expect(
+    page.getByTestId(`mobile-term-card-${firstTerminalId}`),
+  ).toBeVisible();
+  await page.getByTestId(`mobile-term-card-${firstTerminalId}`).click();
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+
+  await expect(page.getByTestId(`workspace-mobile-group-tab-${firstGroup.id}`))
+    .toBeVisible();
+  await expect(page.getByTestId(`workspace-mobile-group-tab-${secondGroup.id}`))
+    .toBeVisible();
+
+  await page
+    .getByTestId(`workspace-mobile-group-tab-${secondGroup.id}`)
+    .click();
+  await expect(
+    page.getByTestId(`workspace-pane-${secondTerminalId}`),
+  ).toBeVisible();
+  await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
+    .toHaveCount(0);
+
+  await page.getByTestId("workspace-close-active-terminal").click();
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
+  await expect(page.getByTestId("expanded-terminal")).toHaveCount(0);
+  await expect(
+    page.getByTestId(`mobile-term-card-${firstTerminalId}`),
+  ).toBeVisible();
+  await expect(page.getByTestId(`mobile-term-card-${secondTerminalId}`))
+    .toHaveCount(0);
+});
+
 test("mobile live streams reconnect after returning from background", async ({
   page,
 }) => {
@@ -261,6 +316,21 @@ async function setPageVisibility(
     });
     document.dispatchEvent(new Event("visibilitychange"));
   }, visibilityState);
+}
+
+async function createWorkspaceGroupViaApi(
+  page: Parameters<typeof openApp>[0],
+  name: string,
+): Promise<{ id: string; name: string }> {
+  const response = await page.request.post(
+    "/api/machines/e2e-node/workspace-groups",
+    {
+      headers: await getAuthHeaders(page),
+      data: { name },
+    },
+  );
+  expect(response.ok()).toBeTruthy();
+  return response.json();
 }
 
 async function terminalHasKeyboardFocus(

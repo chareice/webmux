@@ -16,6 +16,7 @@ import {
   Minimize2,
   PanelBottom,
   Plus,
+  Trash2,
   X,
 } from "lucide-react";
 import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";
@@ -280,9 +281,19 @@ function TerminalWorkspaceComponent({
           onFit={handleFit}
           onToggleMaximize={() => {}}
           maximized={false}
+          onDestroyActive={() => {
+            if (activeTerminal) handleDestroy(activeTerminal);
+          }}
           onClose={onClose}
           onRequestControl={onRequestControl}
           onReleaseControl={onReleaseControl}
+        />
+        <MobileGroupTabs
+          groups={workspace.groups}
+          activeGroupId={workspace.activeGroupId}
+          isController={isController}
+          onGroupSelect={activateGroup}
+          onCreateGroup={handleCreateGroup}
         />
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
           {activeTerminal ? (
@@ -324,7 +335,10 @@ function TerminalWorkspaceComponent({
             terminalsById={terminalsById}
             isController={isController}
             onClose={() => setMobileDrawerOpen(false)}
-            onGroupPick={activateGroup}
+            onGroupPick={(id) => {
+              activateGroup(id);
+              setMobileDrawerOpen(false);
+            }}
             onPick={(id) => {
               activateTerminal(id);
               setMobileDrawerOpen(false);
@@ -372,6 +386,9 @@ function TerminalWorkspaceComponent({
           );
         }}
         maximized={Boolean(maximizedTerminalId)}
+        onDestroyActive={() => {
+          if (activeTerminal) handleDestroy(activeTerminal);
+        }}
         onClose={onClose}
         onRequestControl={onRequestControl}
         onReleaseControl={onReleaseControl}
@@ -448,6 +465,7 @@ function WorkspaceTopBar({
   onSplitDown,
   onFit,
   onToggleMaximize,
+  onDestroyActive,
   onClose,
   onRequestControl,
   onReleaseControl,
@@ -467,6 +485,7 @@ function WorkspaceTopBar({
   onSplitDown: () => void;
   onFit: () => void;
   onToggleMaximize: () => void;
+  onDestroyActive: () => void;
   onClose: () => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
@@ -495,12 +514,12 @@ function WorkspaceTopBar({
         <button
           type="button"
           onClick={onOpenDrawer}
-          style={mobileGroupButton}
+          style={mobileTitleButton}
           data-testid="workspace-mobile-groups"
+          title="Panes"
+          aria-label="Panes"
         >
-          <span style={truncateStyle}>
-            {activeGroup?.label ?? "workspace"}
-          </span>
+          <span style={truncateStyle}>{activeTitle}</span>
           <ChevronDown size={14} />
         </button>
       ) : (
@@ -546,25 +565,27 @@ function WorkspaceTopBar({
         </div>
       )}
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          minWidth: 0,
-          flex: 1,
-          color: colors.fg2,
-          fontFamily: "var(--font-mono)",
-          fontSize: 11,
-        }}
-      >
-        <span style={{ color: colors.fg1, ...truncateStyle }}>
-          {activeTitle}
-        </span>
-        {!isMobile && activeCwd && (
-          <span style={truncateStyle}>{shortenHome(activeCwd)}</span>
-        )}
-      </div>
+      {!isMobile && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            minWidth: 0,
+            flex: 1,
+            color: colors.fg2,
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+          }}
+        >
+          <span style={{ color: colors.fg1, ...truncateStyle }}>
+            {activeTitle}
+          </span>
+          {activeCwd && (
+            <span style={truncateStyle}>{shortenHome(activeCwd)}</span>
+          )}
+        </div>
+      )}
 
       {!isMobile && (
         <select
@@ -663,6 +684,14 @@ function WorkspaceTopBar({
           >
             <Plus size={15} />
           </IconButton>
+          <IconButton
+            disabled={!isController || !activeTerminal}
+            title="Close terminal"
+            testId="workspace-close-active-terminal"
+            onClick={onDestroyActive}
+          >
+            <Trash2 size={15} />
+          </IconButton>
         </>
       )}
       <IconButton
@@ -672,6 +701,92 @@ function WorkspaceTopBar({
       >
         <X size={15} />
       </IconButton>
+    </div>
+  );
+}
+
+function MobileGroupTabs({
+  groups,
+  activeGroupId,
+  isController,
+  onGroupSelect,
+  onCreateGroup,
+}: {
+  groups: WorkspaceGroup[];
+  activeGroupId: string | null;
+  isController: boolean;
+  onGroupSelect: (id: string) => void;
+  onCreateGroup: () => void;
+}) {
+  if (groups.length === 0) return null;
+  return (
+    <div
+      data-testid="workspace-mobile-group-tabs"
+      style={{
+        minHeight: 42,
+        display: "flex",
+        gap: 6,
+        alignItems: "center",
+        padding: "6px 8px",
+        borderBottom: `1px solid ${colors.lineSoft}`,
+        background: colors.bg1,
+        overflowX: "auto",
+        flexShrink: 0,
+      }}
+    >
+      {groups.map((group) => {
+        const active = group.id === activeGroupId;
+        return (
+          <button
+            key={group.id}
+            type="button"
+            data-testid={`workspace-mobile-group-tab-${group.id}`}
+            onClick={() => onGroupSelect(group.id)}
+            style={{
+              height: 30,
+              maxWidth: 170,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              borderRadius: 7,
+              border: `1px solid ${
+                active ? colorAlpha.accentLine : colors.lineSoft
+              }`,
+              background: active ? colors.bg2 : "transparent",
+              color: active ? colors.fg0 : colors.fg2,
+              padding: "0 10px",
+              fontSize: 12,
+              fontWeight: 700,
+              flexShrink: 0,
+              cursor: "pointer",
+            }}
+            title={group.label}
+            aria-label={`Switch to group ${group.label}`}
+          >
+            <span style={truncateStyle}>{group.label}</span>
+            <span style={{ color: active ? colors.accent : colors.fg3 }}>
+              {group.paneCount}
+            </span>
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        disabled={!isController}
+        onClick={onCreateGroup}
+        title="New tab"
+        aria-label="New tab"
+        style={{
+          ...mobilePaneTabStyle,
+          minWidth: 36,
+          width: 36,
+          padding: 0,
+          opacity: isController ? 1 : 0.45,
+          cursor: isController ? "pointer" : "not-allowed",
+        }}
+      >
+        <Plus size={14} />
+      </button>
     </div>
   );
 }
@@ -1250,9 +1365,8 @@ const controlPillStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-const mobileGroupButton: CSSProperties = {
+const mobileTitleButton: CSSProperties = {
   height: 30,
-  maxWidth: "42vw",
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
@@ -1264,6 +1378,8 @@ const mobileGroupButton: CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   minWidth: 0,
+  flex: 1,
+  cursor: "pointer",
 };
 
 const mobilePaneTabStyle: CSSProperties = {

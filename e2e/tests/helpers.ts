@@ -171,7 +171,13 @@ export async function selectHomeWorkpath(page: Page): Promise<void> {
  */
 export async function createTerminalViaApi(
   page: Page,
-  opts: { cwd?: string; startupCommand?: string; cols?: number; rows?: number } = {},
+  opts: {
+    cwd?: string;
+    startupCommand?: string;
+    cols?: number;
+    rows?: number;
+    workspaceGroupId?: string | null;
+  } = {},
 ): Promise<string> {
   const headers = await getAuthHeaders(page);
   const deviceId = await getDeviceId(page);
@@ -184,6 +190,9 @@ export async function createTerminalViaApi(
       ...(opts.startupCommand ? { startup_command: opts.startupCommand } : {}),
       ...(opts.cols !== undefined ? { cols: opts.cols } : {}),
       ...(opts.rows !== undefined ? { rows: opts.rows } : {}),
+      ...(opts.workspaceGroupId !== undefined
+        ? { workspace_group_id: opts.workspaceGroupId }
+        : {}),
     },
   });
   expect(resp.ok()).toBeTruthy();
