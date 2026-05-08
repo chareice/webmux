@@ -192,27 +192,7 @@ async fn create_terminal(
         }
     }
 
-    let startup_command = if req.startup_command.is_some() {
-        req.startup_command.clone()
-    } else {
-        let conn = state.db.get().map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("DB error: {}", e),
-            )
-        })?;
-        crate::db::settings::get_effective_setting(
-            &conn,
-            &auth_user.user_id,
-            "default_startup_command",
-        )
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("DB error: {}", e),
-            )
-        })?
-    };
+    let startup_command = req.startup_command.clone();
 
     let terminal = state
         .manager
@@ -525,7 +505,137 @@ pub fn router() -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
-    use super::control_action_allowed;
+    use std::sync::Arc;
+
+    use axum::{
+        extract::{Path, State},
+        Json,
+    };
+    use r2d2::Pool;
+    use r2d2_sqlite::SqliteConnectionManager;
+    use tc_protocol::{HubToMachine, MachineInfo, MachineToHub};
+
+    use super::{control_action_allowed, create_terminal, CreateTerminalRequest};
+    use crate::{
+        attach_router::HubRouter, auth::AuthUser, machine_manager::MachineManager, AppState,
+    };
+
+    fn test_state() -> AppState {
+        let pool = Pool::builder()
+            .max_size(1)
+            .build(SqliteConnectionManager::memory())
+            .unwrap();
+        let conn = pool.get().unwrap();
+        crate::db::init_db(&conn).unwrap();
+        crate::db::users::create_user(&conn, "user-a", "test", "user-a", "User A", None, "admin")
+            .unwrap();
+        drop(conn);
+
+        AppState {
+            manager: Arc::new(MachineManager::new(pool.clone())),
+            router: Arc::new(HubRouter::new()),
+            db: pool,
+            jwt_secret: "test-secret".to_string(),
+            base_url: "http://localhost:4317".to_string(),
+            dev_mode: false,
+            native_zellij_allow_insecure_tls: false,
+            native_zellij_ca_cert_pem: None,
+            github_client_id: None,
+            github_client_secret: None,
+            google_client_id: None,
+            google_client_secret: None,
+        }
+    }
+
+    fn machine(id: &str) -> MachineInfo {
+        MachineInfo {
+            id: id.to_string(),
+            name: format!("machine-{id}"),
+            os: "linux".to_string(),
+            home_dir: "/tmp".to_string(),
+        }
+    }
+
+    async fn receive_create_terminal_command(
+        state: &AppState,
+        cmd_rx: &mut tokio::sync::mpsc::Receiver<HubToMachine>,
+    ) -> Option<String> {
+        let command = cmd_rx.recv().await.unwrap();
+        let (request_id, startup_command) = match command {
+            HubToMachine::CreateTerminal {
+                request_id,
+                startup_command,
+                ..
+            } => (request_id, startup_command),
+            other => panic!("unexpected machine command: {other:?}"),
+        };
+
+        state
+            .manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::TerminalCreated {
+                    request_id: request_id.clone(),
+                    terminal_id: "terminal-a".to_string(),
+                    title: "Terminal terminal-a".to_string(),
+                    cwd: "/tmp".to_string(),
+                    cols: 80,
+                    rows: 24,
+                },
+            )
+            .await;
+
+        startup_command
+    }
+
+    async fn startup_command_sent_to_machine(
+        request_startup_command: Option<&str>,
+    ) -> Option<String> {
+        let state = test_state();
+        {
+            let conn = state.db.get().unwrap();
+            crate::db::settings::set_user_setting(
+                &conn,
+                "user-a",
+                "default_startup_command",
+                "echo should-not-run",
+            )
+            .unwrap();
+        }
+        let (_conn_id, mut cmd_rx) = state
+            .manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        state
+            .manager
+            .request_control("user-a", "machine-a", "device-a");
+
+        let state_for_request = state.clone();
+        let startup_command = request_startup_command.map(str::to_string);
+        let request = tokio::spawn(async move {
+            create_terminal(
+                State(state_for_request),
+                AuthUser {
+                    user_id: "user-a".to_string(),
+                },
+                Path("machine-a".to_string()),
+                Json(CreateTerminalRequest {
+                    cwd: "/tmp".to_string(),
+                    workspace_group_id: None,
+                    device_id: Some("device-a".to_string()),
+                    cols: 80,
+                    rows: 24,
+                    startup_command,
+                }),
+            )
+            .await
+        });
+
+        let startup_command = receive_create_terminal_command(&state, &mut cmd_rx).await;
+        let _ = request.await.unwrap().unwrap();
+
+        startup_command
+    }
 
     #[test]
     fn control_action_requires_matching_device_id() {
@@ -534,5 +644,17 @@ mod tests {
         assert!(!control_action_allowed(Some("device-a"), None));
         assert!(!control_action_allowed(Some("device-a"), Some("")));
         assert!(!control_action_allowed(None, Some("device-a")));
+    }
+
+    #[tokio::test]
+    async fn create_terminal_ignores_default_startup_command_when_request_has_none() {
+        let startup_command = startup_command_sent_to_machine(None).await;
+        assert_eq!(startup_command, None);
+    }
+
+    #[tokio::test]
+    async fn create_terminal_keeps_explicit_startup_command() {
+        let startup_command = startup_command_sent_to_machine(Some("echo explicit")).await;
+        assert_eq!(startup_command, Some("echo explicit".to_string()));
     }
 }
