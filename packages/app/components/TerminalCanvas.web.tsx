@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { TerminalInfo, Bookmark } from "@webmux/shared";
+import type { TerminalInfo, Bookmark, WorkspaceGroupInfo } from "@webmux/shared";
 import { useRouter } from "expo-router";
 import { AppTitleBar } from "./AppTitleBar.web";
 import { Rail } from "./Rail.web";
@@ -23,6 +23,8 @@ import {
   deleteBookmark,
   destroyTerminal,
   checkForegroundProcess,
+  createWorkspaceGroup,
+  assignTerminalWorkspaceGroup,
   eventsWsUrl,
   getBootstrap,
   listBookmarks,
@@ -74,6 +76,7 @@ const STATUS_BAR_KEY = "webmux:show-status-bar";
 
 interface CreateTerminalOptions {
   selectWorkpath?: boolean;
+  workspaceGroupId?: string | null;
 }
 
 function useViewportWidth() {
@@ -114,6 +117,23 @@ function upsertTerminalInfo(
   return next;
 }
 
+function upsertWorkspaceGroup(
+  groups: WorkspaceGroupInfo[],
+  group: WorkspaceGroupInfo,
+): WorkspaceGroupInfo[] {
+  const index = groups.findIndex((item) => item.id === group.id);
+  const next =
+    index === -1
+      ? [...groups, group]
+      : groups.map((item) => (item.id === group.id ? group : item));
+  return next.sort(
+    (a, b) =>
+      a.machine_id.localeCompare(b.machine_id) ||
+      a.sort_order - b.sort_order ||
+      a.name.localeCompare(b.name),
+  );
+}
+
 export function TerminalCanvas() {
   const router = useRouter();
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
@@ -152,6 +172,7 @@ export function TerminalCanvas() {
 
   const machines = browserState.machines;
   const terminals = browserState.terminals;
+  const workspaceGroups = browserState.workspaceGroups;
   const machineStats = browserState.machineStats;
   const controlLeases = browserState.controlLeases;
 
@@ -415,19 +436,35 @@ export function TerminalCanvas() {
   const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
 
   const scopeBookmark =
-    layout.selectedWorkpathId === "all"
+    layout.selectedWorkpathId === "all" || !activeMachine
       ? null
-      : bookmarks.find((b) => b.id === layout.selectedWorkpathId) ?? null;
+      : bookmarks.find(
+          (b) =>
+            b.id === layout.selectedWorkpathId &&
+            b.machine_id === activeMachine.id,
+        ) ?? null;
+
+  useEffect(() => {
+    if (layout.selectedWorkpathId === "all" || !activeMachine) return;
+    const selectedExistsOnActiveMachine = bookmarks.some(
+      (bookmark) =>
+        bookmark.id === layout.selectedWorkpathId &&
+        bookmark.machine_id === activeMachine.id,
+    );
+    if (!selectedExistsOnActiveMachine) {
+      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: "all" });
+    }
+  }, [activeMachine, bookmarks, layout.selectedWorkpathId]);
 
   const scopedTerminals = useMemo<TerminalInfo[]>(() => {
     if (!activeMachine) return [];
-    const hostTerminals = terminals.filter(
-      (t) => t.machine_id === activeMachine.id,
-    );
-    if (layout.selectedWorkpathId === "all") return hostTerminals;
-    if (!scopeBookmark) return [];
-    return hostTerminals.filter((t) => t.cwd === scopeBookmark.path);
-  }, [terminals, activeMachine, layout.selectedWorkpathId, scopeBookmark]);
+    return terminals.filter((t) => t.machine_id === activeMachine.id);
+  }, [terminals, activeMachine]);
+
+  const activeMachineWorkspaceGroups = useMemo<WorkspaceGroupInfo[]>(() => {
+    if (!activeMachine) return [];
+    return workspaceGroups.filter((group) => group.machine_id === activeMachine.id);
+  }, [workspaceGroups, activeMachine]);
 
   const expandedTerminal = layout.zoomedTerminalId
     ? terminals.find((t) => t.id === layout.zoomedTerminalId) ?? null
@@ -467,6 +504,7 @@ export function TerminalCanvas() {
         startupCommand,
         cols,
         rows,
+        options.workspaceGroupId ?? null,
       );
       setBrowserState((prev) => ({
         ...prev,
@@ -478,19 +516,25 @@ export function TerminalCanvas() {
           terminalId: newTerminal.id,
         });
       } else {
-        const match = bookmarks.find(
-          (b) => b.machine_id === machineId && b.path === cwd,
-        );
         dispatchLayout({
           type: "TERMINAL_CREATED",
           terminalId: newTerminal.id,
-          workpathId: match?.id ?? "all",
+          workpathId:
+            bookmarks.find((b) => b.machine_id === machineId && b.path === cwd)
+              ?.id ?? layout.selectedWorkpathId,
         });
       }
       window.history.pushState(null, "", `#/t/${newTerminal.id}`);
       return newTerminal;
     },
-    [deviceId, isMachineController, bookmarks, isMobile, viewportHeight],
+    [
+      deviceId,
+      isMachineController,
+      bookmarks,
+      isMobile,
+      layout.selectedWorkpathId,
+      viewportHeight,
+    ],
   );
 
   const handleRequestControl = useCallback(
@@ -592,9 +636,64 @@ export function TerminalCanvas() {
     async (terminal: TerminalInfo) => {
       return handleCreateTerminal(terminal.machine_id, terminal.cwd, undefined, {
         selectWorkpath: false,
+        workspaceGroupId: terminal.workspace_group_id ?? null,
       });
     },
     [handleCreateTerminal],
+  );
+
+  const handleCreateWorkspacePane = useCallback(
+    async (input: {
+      machineId: string;
+      cwd: string;
+      workspaceGroupId: string | null;
+    }) => {
+      return handleCreateTerminal(input.machineId, input.cwd, undefined, {
+        selectWorkpath: false,
+        workspaceGroupId: input.workspaceGroupId,
+      });
+    },
+    [handleCreateTerminal],
+  );
+
+  const handleCreateWorkspaceGroup = useCallback(
+    async (
+      machineId: string,
+      name: string,
+      terminal: TerminalInfo | null,
+    ) => {
+      const group = await createWorkspaceGroup(machineId, name);
+      setBrowserState((prev) => ({
+        ...prev,
+        workspaceGroups: upsertWorkspaceGroup(prev.workspaceGroups, group),
+      }));
+      if (!terminal) return;
+      const updated = await assignTerminalWorkspaceGroup(
+        terminal.machine_id,
+        terminal.id,
+        group.id,
+      );
+      setBrowserState((prev) => ({
+        ...prev,
+        terminals: upsertTerminalInfo(prev.terminals, updated),
+      }));
+    },
+    [],
+  );
+
+  const handleAssignWorkspaceGroup = useCallback(
+    async (terminal: TerminalInfo, workspaceGroupId: string | null) => {
+      const updated = await assignTerminalWorkspaceGroup(
+        terminal.machine_id,
+        terminal.id,
+        workspaceGroupId,
+      );
+      setBrowserState((prev) => ({
+        ...prev,
+        terminals: upsertTerminalInfo(prev.terminals, updated),
+      }));
+    },
+    [],
   );
 
   const handleNewTerminalFromHeader = useCallback(async () => {
@@ -607,7 +706,7 @@ export function TerminalCanvas() {
       );
       return;
     }
-    await handleCreateTerminal(scopeBookmark.machine_id, scopeBookmark.path);
+    await handleCreateTerminal(activeMachine.id, scopeBookmark.path);
   }, [
     activeMachine,
     deviceId,
@@ -715,10 +814,7 @@ export function TerminalCanvas() {
 
   // ---- render ----
 
-  const scopeLabel =
-    layout.selectedWorkpathId === "all"
-      ? "All"
-      : scopeBookmark?.label ?? "Workpath";
+  const scopeLabel = "All";
 
   return (
     <div
@@ -877,11 +973,9 @@ export function TerminalCanvas() {
                       terminal={t}
                       isController={isMachineController(t.machine_id)}
                       workpathLabel={
-                        layout.selectedWorkpathId === "all"
-                          ? workpathLabelByMachineAndCwd.get(
-                              `${t.machine_id}::${t.cwd}`,
-                            )
-                          : undefined
+                        workpathLabelByMachineAndCwd.get(
+                          `${t.machine_id}::${t.cwd}`,
+                        )
                       }
                       onExpand={handleZoomTerminal}
                       onDestroy={handleDestroyTerminal}
@@ -915,6 +1009,7 @@ export function TerminalCanvas() {
             siblings={
               scopedTerminals.length > 0 ? scopedTerminals : [expandedTerminal]
             }
+            workspaceGroups={activeMachineWorkspaceGroups}
             isController={isMachineController(expandedTerminal.machine_id)}
             deviceId={deviceId ?? ""}
             isMobile={isMobile}
@@ -922,6 +1017,9 @@ export function TerminalCanvas() {
             onPick={handleZoomTerminal}
             onDestroy={handleDestroyTerminal}
             onSplit={handleSplitWorkspacePane}
+            onCreatePane={handleCreateWorkspacePane}
+            onCreateGroup={handleCreateWorkspaceGroup}
+            onAssignGroup={handleAssignWorkspaceGroup}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
           />

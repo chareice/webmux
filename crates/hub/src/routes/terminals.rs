@@ -2,12 +2,12 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Router,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tc_protocol::{DirEntry, MachineInfo, TerminalInfo};
+use tc_protocol::{DirEntry, MachineInfo, TerminalInfo, WorkspaceGroupInfo};
 
 use crate::auth::AuthUser;
 use crate::AppState;
@@ -16,6 +16,8 @@ use crate::AppState;
 pub struct CreateTerminalRequest {
     pub cwd: String,
     #[serde(default)]
+    pub workspace_group_id: Option<String>,
+    #[serde(default)]
     pub device_id: Option<String>,
     #[serde(default = "default_cols")]
     pub cols: u16,
@@ -23,6 +25,16 @@ pub struct CreateTerminalRequest {
     pub rows: u16,
     #[serde(default)]
     pub startup_command: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CreateWorkspaceGroupRequest {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct AssignWorkspaceGroupRequest {
+    workspace_group_id: Option<String>,
 }
 
 fn default_cols() -> u16 {
@@ -40,6 +52,56 @@ fn control_action_allowed(controller_device_id: Option<&str>, device_id: Option<
         ),
         (Some(controller_device_id), Some(device_id)) if controller_device_id == device_id
     )
+}
+
+async fn ensure_machine_row(
+    state: &AppState,
+    user_id: &str,
+    machine_id: &str,
+) -> Result<MachineInfo, (StatusCode, String)> {
+    let conn = state.db.get().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    if let Some(machine) = state
+        .manager
+        .machine_info_for_user(user_id, machine_id)
+        .await
+    {
+        crate::db::machines::ensure_machine_for_user(
+            &conn,
+            &machine.id,
+            user_id,
+            &machine.name,
+            Some(&machine.os),
+            Some(&machine.home_dir),
+        )
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
+        return Ok(machine);
+    }
+
+    let machine = crate::db::machines::find_machine_by_id(&conn, machine_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?
+        .filter(|machine| machine.user_id == user_id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Machine not found".to_string()))?;
+    Ok(MachineInfo {
+        id: machine.id,
+        name: machine.name,
+        os: machine.os.unwrap_or_default(),
+        home_dir: machine.home_dir.unwrap_or_default(),
+    })
 }
 
 async fn list_machines(
@@ -71,13 +133,7 @@ async fn list_machine_terminals(
     auth_user: AuthUser,
     Path(machine_id): Path<String>,
 ) -> Result<Json<Vec<TerminalInfo>>, (StatusCode, String)> {
-    if !state
-        .manager
-        .user_can_access_machine(&auth_user.user_id, &machine_id)
-        .await
-    {
-        return Err((StatusCode::NOT_FOUND, "Machine not found".to_string()));
-    }
+    ensure_machine_row(&state, &auth_user.user_id, &machine_id).await?;
 
     Ok(Json(
         state
@@ -100,12 +156,40 @@ async fn create_terminal(
     {
         return Err((StatusCode::NOT_FOUND, "Machine not found".to_string()));
     }
+    ensure_machine_row(&state, &auth_user.user_id, &machine_id).await?;
 
     let controller_device_id = state
         .manager
         .get_controller(&auth_user.user_id, &machine_id);
     if !control_action_allowed(controller_device_id.as_deref(), req.device_id.as_deref()) {
         return Err((StatusCode::FORBIDDEN, "Control required".to_string()));
+    }
+
+    if let Some(group_id) = req.workspace_group_id.as_deref() {
+        let conn = state.db.get().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
+        let valid_group = crate::db::workspace_groups::workspace_group_belongs_to_machine(
+            &conn,
+            &auth_user.user_id,
+            &machine_id,
+            group_id,
+        )
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
+        if !valid_group {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Workspace tab not found".to_string(),
+            ));
+        }
     }
 
     let startup_command = if req.startup_command.is_some() {
@@ -130,9 +214,174 @@ async fn create_terminal(
         })?
     };
 
-    state
+    let terminal = state
         .manager
         .create_terminal(&machine_id, &req.cwd, req.cols, req.rows, startup_command)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    if let Some(group_id) = req.workspace_group_id {
+        return state
+            .manager
+            .set_terminal_workspace_group(
+                &auth_user.user_id,
+                &machine_id,
+                &terminal.id,
+                Some(group_id),
+            )
+            .await
+            .map(Json)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e));
+    }
+
+    Ok(Json(terminal))
+}
+
+async fn list_workspace_groups(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(machine_id): Path<String>,
+) -> Result<Json<Vec<WorkspaceGroupInfo>>, (StatusCode, String)> {
+    ensure_machine_row(&state, &auth_user.user_id, &machine_id).await?;
+
+    let conn = state.db.get().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    let groups = crate::db::workspace_groups::find_workspace_groups_by_machine(
+        &conn,
+        &auth_user.user_id,
+        &machine_id,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?
+    .into_iter()
+    .map(|group| WorkspaceGroupInfo {
+        id: group.id,
+        machine_id: group.machine_id,
+        name: group.name,
+        sort_order: group.sort_order,
+    })
+    .collect();
+
+    Ok(Json(groups))
+}
+
+async fn create_workspace_group(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(machine_id): Path<String>,
+    Json(req): Json<CreateWorkspaceGroupRequest>,
+) -> Result<Json<WorkspaceGroupInfo>, (StatusCode, String)> {
+    ensure_machine_row(&state, &auth_user.user_id, &machine_id).await?;
+
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Name is required".to_string()));
+    }
+
+    let conn = state.db.get().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    let sort_order = crate::db::workspace_groups::find_workspace_groups_by_machine(
+        &conn,
+        &auth_user.user_id,
+        &machine_id,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?
+    .len() as i64;
+    let id = uuid::Uuid::new_v4().to_string();
+    let row = crate::db::workspace_groups::create_workspace_group(
+        &conn,
+        &id,
+        &auth_user.user_id,
+        &machine_id,
+        name,
+        sort_order,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+
+    let group = WorkspaceGroupInfo {
+        id: row.id,
+        machine_id: row.machine_id,
+        name: row.name,
+        sort_order: row.sort_order,
+    };
+    state
+        .manager
+        .publish_workspace_group_created(&auth_user.user_id, group.clone());
+    Ok(Json(group))
+}
+
+async fn assign_terminal_workspace_group(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path((machine_id, terminal_id)): Path<(String, String)>,
+    Json(req): Json<AssignWorkspaceGroupRequest>,
+) -> Result<Json<TerminalInfo>, (StatusCode, String)> {
+    if !state
+        .manager
+        .user_can_access_terminal(&auth_user.user_id, &machine_id, &terminal_id)
+        .await
+    {
+        return Err((StatusCode::NOT_FOUND, "Terminal not found".to_string()));
+    }
+    ensure_machine_row(&state, &auth_user.user_id, &machine_id).await?;
+
+    if let Some(group_id) = req.workspace_group_id.as_deref() {
+        let conn = state.db.get().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
+        let valid_group = crate::db::workspace_groups::workspace_group_belongs_to_machine(
+            &conn,
+            &auth_user.user_id,
+            &machine_id,
+            group_id,
+        )
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
+        if !valid_group {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Workspace tab not found".to_string(),
+            ));
+        }
+    }
+
+    state
+        .manager
+        .set_terminal_workspace_group(
+            &auth_user.user_id,
+            &machine_id,
+            &terminal_id,
+            req.workspace_group_id,
+        )
         .await
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
@@ -253,6 +502,14 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/machines/{machine_id}/terminals",
             post(create_terminal),
+        )
+        .route(
+            "/api/machines/{machine_id}/workspace-groups",
+            get(list_workspace_groups).post(create_workspace_group),
+        )
+        .route(
+            "/api/machines/{machine_id}/terminals/{terminal_id}/workspace-group",
+            put(assign_terminal_workspace_group),
         )
         .route(
             "/api/machines/{machine_id}/terminals/{terminal_id}",

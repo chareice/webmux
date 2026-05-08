@@ -5,6 +5,7 @@ use std::time::Duration;
 use tc_protocol::{
     BrowserEvent, BrowserEventEnvelope, BrowserStateSnapshot, ControlLeaseSnapshot, DirEntry,
     HubToMachine, MachineInfo, MachineStatsSnapshot, MachineToHub, TerminalInfo,
+    WorkspaceGroupInfo,
 };
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 
@@ -116,6 +117,7 @@ impl MachineManager {
                         machine_id: row.machine_id,
                         title: row.title,
                         cwd: row.cwd,
+                        workspace_group_id: row.workspace_group_id,
                         cols: u16::try_from(row.cols).unwrap_or(80),
                         rows: u16::try_from(row.rows).unwrap_or(24),
                         reachable: false,
@@ -271,18 +273,42 @@ impl MachineManager {
         user_id: &str,
         machine_id: Option<&str>,
     ) -> Vec<TerminalInfo> {
-        let machines = self.machines.lock().await;
-        let mut result = Vec::new();
-        for (mid, conn) in machines.iter() {
-            if !connection_visible_to(conn, user_id) {
-                continue;
-            }
-            if let Some(filter) = machine_id {
-                if mid != filter {
+        let (mut result, visible_machine_ids) = {
+            let machines = self.machines.lock().await;
+            let mut result = Vec::new();
+            let mut visible_machine_ids = HashSet::new();
+            for (mid, conn) in machines.iter() {
+                if !connection_visible_to(conn, user_id) {
                     continue;
                 }
+                visible_machine_ids.insert(mid.clone());
+                if let Some(filter) = machine_id {
+                    if mid != filter {
+                        continue;
+                    }
+                }
+                result.extend(conn.terminals.values().cloned());
             }
-            result.extend(conn.terminals.values().cloned());
+            (result, visible_machine_ids)
+        };
+
+        let persisted_snapshot: Vec<(String, Vec<TerminalInfo>)> = {
+            let persisted = self.persisted_terminals.lock().await;
+            persisted
+                .iter()
+                .filter(|(mid, _)| !visible_machine_ids.contains(*mid))
+                .filter(|(mid, _)| {
+                    machine_id
+                        .map(|filter| filter == mid.as_str())
+                        .unwrap_or(true)
+                })
+                .map(|(mid, terminals)| (mid.clone(), terminals.clone()))
+                .collect()
+        };
+        for (mid, terminals) in persisted_snapshot {
+            if self.db_machine_belongs_to_user(user_id, &mid) {
+                result.extend(terminals);
+            }
         }
         result
     }
@@ -296,19 +322,123 @@ impl MachineManager {
             .unwrap_or(false)
     }
 
+    pub async fn machine_info_for_user(
+        &self,
+        user_id: &str,
+        machine_id: &str,
+    ) -> Option<MachineInfo> {
+        self.machines
+            .lock()
+            .await
+            .get(machine_id)
+            .filter(|conn| connection_visible_to(conn, user_id))
+            .map(|conn| conn.info.clone())
+    }
+
     pub async fn user_can_access_terminal(
         &self,
         user_id: &str,
         machine_id: &str,
         terminal_id: &str,
     ) -> bool {
-        self.machines
-            .lock()
-            .await
-            .get(machine_id)
-            .map(|conn| {
-                connection_visible_to(conn, user_id) && conn.terminals.contains_key(terminal_id)
-            })
+        {
+            let machines = self.machines.lock().await;
+            if let Some(conn) = machines.get(machine_id) {
+                return connection_visible_to(conn, user_id)
+                    && conn.terminals.contains_key(terminal_id);
+            }
+        }
+        let terminal_is_persisted = {
+            let persisted = self.persisted_terminals.lock().await;
+            persisted
+                .get(machine_id)
+                .map(|terminals| terminals.iter().any(|terminal| terminal.id == terminal_id))
+                .unwrap_or(false)
+        };
+        terminal_is_persisted && self.db_machine_belongs_to_user(user_id, machine_id)
+    }
+
+    pub async fn set_terminal_workspace_group(
+        &self,
+        user_id: &str,
+        machine_id: &str,
+        terminal_id: &str,
+        workspace_group_id: Option<String>,
+    ) -> Result<TerminalInfo, String> {
+        let mut updated: Option<TerminalInfo> = None;
+        {
+            let mut machines = self.machines.lock().await;
+            if let Some(conn) = machines.get_mut(machine_id) {
+                if !connection_visible_to(conn, user_id) {
+                    return Err("Terminal not found".to_string());
+                }
+                if let Some(terminal) = conn.terminals.get_mut(terminal_id) {
+                    terminal.workspace_group_id = workspace_group_id.clone();
+                    updated = Some(terminal.clone());
+                }
+            }
+        }
+
+        if updated.is_none() {
+            let mut persisted = self.persisted_terminals.lock().await;
+            if let Some(terminals) = persisted.get_mut(machine_id) {
+                if let Some(terminal) = terminals
+                    .iter_mut()
+                    .find(|terminal| terminal.id == terminal_id)
+                {
+                    terminal.workspace_group_id = workspace_group_id.clone();
+                    updated = Some(terminal.clone());
+                }
+            }
+        }
+
+        let Some(terminal) = updated else {
+            return Err("Terminal not found".to_string());
+        };
+
+        {
+            let conn = self.db.get().map_err(|e| format!("DB error: {e}"))?;
+            crate::db::terminal_sessions::insert(
+                &conn,
+                &terminal.id,
+                &terminal.machine_id,
+                &terminal.title,
+                &terminal.cwd,
+                terminal.cols,
+                terminal.rows,
+            )
+            .map_err(|e| format!("DB error: {e}"))?;
+            crate::db::terminal_sessions::assign_workspace_group(
+                &conn,
+                terminal_id,
+                workspace_group_id.as_deref(),
+            )
+            .map_err(|e| format!("DB error: {e}"))?;
+        }
+
+        self.send_event(
+            Some(user_id.to_string()),
+            BrowserEvent::TerminalUpdated {
+                terminal: terminal.clone(),
+            },
+        );
+        Ok(terminal)
+    }
+
+    pub fn publish_workspace_group_created(&self, user_id: &str, group: WorkspaceGroupInfo) {
+        self.send_event(
+            Some(user_id.to_string()),
+            BrowserEvent::WorkspaceGroupCreated { group },
+        );
+    }
+
+    fn db_machine_belongs_to_user(&self, user_id: &str, machine_id: &str) -> bool {
+        self.db
+            .get()
+            .ok()
+            .and_then(|conn| crate::db::machines::find_machine_by_id(&conn, machine_id).ok())
+            .flatten()
+            .map(|machine| machine.user_id == user_id)
             .unwrap_or(false)
     }
 
@@ -376,6 +506,7 @@ impl MachineManager {
                     machine_id: machine_id.to_string(),
                     title,
                     cwd,
+                    workspace_group_id: None,
                     cols,
                     rows,
                     reachable: true,
@@ -680,6 +811,7 @@ impl MachineManager {
                             machine_id: machine_id.to_string(),
                             title: title.clone(),
                             cwd: cwd.clone(),
+                            workspace_group_id: None,
                             cols,
                             rows,
                             reachable: true,
@@ -773,15 +905,22 @@ impl MachineManager {
                     .await
                     .remove(machine_id)
                     .unwrap_or_default();
-                let persisted_ids: HashSet<String> =
-                    persisted.iter().map(|t| t.id.clone()).collect();
+                let persisted_by_id: HashMap<String, TerminalInfo> = persisted
+                    .iter()
+                    .map(|terminal| (terminal.id.clone(), terminal.clone()))
+                    .collect();
+                let persisted_ids: HashSet<String> = persisted_by_id.keys().cloned().collect();
 
                 let mut machines = self.machines.lock().await;
                 if let Some(conn) = machines.get_mut(machine_id) {
                     let target_user_id = conn.user_id.clone();
 
                     // 1. Terminals reported by machine
-                    for terminal in terminals {
+                    for mut terminal in terminals {
+                        if let Some(persisted_terminal) = persisted_by_id.get(&terminal.id) {
+                            terminal.workspace_group_id =
+                                persisted_terminal.workspace_group_id.clone();
+                        }
                         conn.terminals.insert(terminal.id.clone(), terminal.clone());
 
                         if let Ok(db_conn) = self.db.get() {
@@ -1214,6 +1353,22 @@ impl MachineManager {
             .iter()
             .flat_map(|conn| conn.terminals.values().cloned())
             .collect();
+        let workspace_groups: Vec<WorkspaceGroupInfo> = self
+            .db
+            .get()
+            .ok()
+            .and_then(|conn| {
+                crate::db::workspace_groups::find_workspace_groups_by_user(&conn, user_id).ok()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .map(|group| WorkspaceGroupInfo {
+                id: group.id,
+                machine_id: group.machine_id,
+                name: group.name,
+                sort_order: group.sort_order,
+            })
+            .collect();
 
         // Include persisted terminals from offline machines owned by this user
         // Clone persisted terminal data and release lock before DB queries
@@ -1248,6 +1403,7 @@ impl MachineManager {
             snapshot_seq,
             machines: all_machines,
             terminals: all_terminals,
+            workspace_groups,
             machine_stats,
             control_leases: self
                 .get_control_leases(user_id)
@@ -1401,6 +1557,7 @@ mod tests {
             machine_id: machine_id.to_string(),
             title: format!("Terminal {id}"),
             cwd: "/tmp".to_string(),
+            workspace_group_id: None,
             cols: 80,
             rows: 24,
             reachable: true,
@@ -1896,6 +2053,68 @@ mod tests {
         assert!(!snapshot.terminals[0].reachable);
     }
 
+    #[tokio::test]
+    async fn offline_persisted_terminals_remain_listable_and_assignable() {
+        let pool = test_db();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO users (id, provider, provider_id, display_name, role, created_at) VALUES ('user-a', 'test', 'test', 'Test', 'user', 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES ('machine-a', 'user-a', 'Machine A', 'hash', 'offline', 0)",
+                [],
+            ).unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn,
+                "tab-main",
+                "user-a",
+                "machine-a",
+                "Main",
+                0,
+            )
+            .unwrap();
+            crate::db::terminal_sessions::insert(
+                &conn,
+                "term-a",
+                "machine-a",
+                "bash",
+                "/home",
+                80,
+                24,
+            )
+            .unwrap();
+        }
+
+        let manager = MachineManager::new(pool.clone());
+
+        assert!(
+            manager
+                .user_can_access_terminal("user-a", "machine-a", "term-a")
+                .await
+        );
+        let visible = manager.list_terminals_for_user("user-a", None).await;
+        assert_eq!(visible.len(), 1);
+        assert!(!visible[0].reachable);
+
+        let updated = manager
+            .set_terminal_workspace_group(
+                "user-a",
+                "machine-a",
+                "term-a",
+                Some("tab-main".to_string()),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(updated.workspace_group_id.as_deref(), Some("tab-main"));
+        let conn = pool.get().unwrap();
+        let active =
+            crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
+        assert_eq!(active[0].workspace_group_id.as_deref(), Some("tab-main"));
+    }
+
     fn seed_machine(pool: &crate::db::DbPool, user_id: &str, machine_id: &str) {
         let conn = pool.get().unwrap();
         conn.execute(
@@ -1931,6 +2150,31 @@ mod tests {
             crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].id, "term-a");
+    }
+
+    #[tokio::test]
+    async fn terminal_workspace_group_assignment_is_persisted_to_db() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "machine-a");
+        let conn = pool.get().unwrap();
+        let group = crate::db::workspace_groups::create_workspace_group(
+            &conn,
+            "tab-main",
+            "user-a",
+            "machine-a",
+            "Main",
+            0,
+        )
+        .unwrap();
+        crate::db::terminal_sessions::insert(&conn, "term-a", "machine-a", "bash", "/repo", 80, 24)
+            .unwrap();
+
+        crate::db::terminal_sessions::assign_workspace_group(&conn, "term-a", Some(&group.id))
+            .unwrap();
+
+        let active =
+            crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
+        assert_eq!(active[0].workspace_group_id.as_deref(), Some("tab-main"));
     }
 
     #[tokio::test]

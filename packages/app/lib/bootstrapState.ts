@@ -5,12 +5,14 @@ import type {
   MachineInfo,
   ResourceStats,
   TerminalInfo,
+  WorkspaceGroupInfo,
 } from "@webmux/shared";
 
 export interface BrowserSessionState {
   lastSeq: number;
   machines: MachineInfo[];
   terminals: TerminalInfo[];
+  workspaceGroups: WorkspaceGroupInfo[];
   machineStats: Record<string, ResourceStats>;
   controlLeases: Record<string, string>;
 }
@@ -19,6 +21,7 @@ export const EMPTY_BROWSER_SESSION_STATE: BrowserSessionState = {
   lastSeq: 0,
   machines: [],
   terminals: [],
+  workspaceGroups: [],
   machineStats: {},
   controlLeases: {},
 };
@@ -30,6 +33,7 @@ export function applyBootstrapSnapshot(
     lastSeq: snapshot.snapshot_seq,
     machines: snapshot.machines,
     terminals: snapshot.terminals,
+    workspaceGroups: snapshot.workspace_groups ?? [],
     machineStats: Object.fromEntries(
       snapshot.machine_stats.map(({ machine_id, stats }) => [machine_id, stats]),
     ),
@@ -87,10 +91,19 @@ function applyBrowserEvent(
       };
     }
     case "terminal_created":
+    case "terminal_updated":
     case "terminal_resized":
       return {
         ...state,
         terminals: upsertTerminal(state.terminals, event.terminal),
+      };
+    case "workspace_group_created":
+      return {
+        ...state,
+        workspaceGroups: upsertWorkspaceGroup(
+          state.workspaceGroups,
+          event.group,
+        ),
       };
     case "terminal_destroyed":
       return {
@@ -130,6 +143,8 @@ function applyBrowserEvent(
           [event.machine_id]: event.controller_device_id,
         },
       };
+    default:
+      return state;
   }
 }
 
@@ -171,4 +186,21 @@ function upsertTerminal(
   const next = terminals.slice();
   next[existingIndex] = terminal;
   return next;
+}
+
+function upsertWorkspaceGroup(
+  groups: WorkspaceGroupInfo[],
+  group: WorkspaceGroupInfo,
+): WorkspaceGroupInfo[] {
+  const existingIndex = groups.findIndex((item) => item.id === group.id);
+  const next =
+    existingIndex === -1
+      ? [...groups, group]
+      : groups.map((item) => (item.id === group.id ? group : item));
+  return next.sort(
+    (a, b) =>
+      a.machine_id.localeCompare(b.machine_id) ||
+      a.sort_order - b.sort_order ||
+      a.name.localeCompare(b.name),
+  );
 }

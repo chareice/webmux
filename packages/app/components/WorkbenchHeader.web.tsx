@@ -13,7 +13,7 @@ import { colors, colorAlpha } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
 
 interface WorkbenchHeaderProps {
-  scopeLabel: string; // "All" or a workpath label
+  scopeLabel: string;
   hostName: string;
   isController: boolean;
   terminalCount: number;

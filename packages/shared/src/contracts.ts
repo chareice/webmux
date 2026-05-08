@@ -12,9 +12,17 @@ export interface TerminalInfo {
   machine_id: string
   title: string
   cwd: string
+  workspace_group_id?: string | null
   cols: number
   rows: number
   reachable: boolean
+}
+
+export interface WorkspaceGroupInfo {
+  id: string
+  machine_id: string
+  name: string
+  sort_order: number
 }
 
 export interface DirEntry {
@@ -43,6 +51,7 @@ export interface BrowserStateSnapshot {
   snapshot_seq: number
   machines: MachineInfo[]
   terminals: TerminalInfo[]
+  workspace_groups?: WorkspaceGroupInfo[]
   machine_stats: MachineStatsSnapshot[]
   control_leases: ControlLeaseSnapshot[]
 }
@@ -221,9 +230,11 @@ export type BrowserEvent =
   | BrowserEvent.MachineOnline
   | BrowserEvent.MachineOffline
   | BrowserEvent.TerminalCreated
+  | BrowserEvent.TerminalUpdated
   | BrowserEvent.TerminalResized
   | BrowserEvent.TerminalDestroyed
   | BrowserEvent.TerminalReachableChanged
+  | BrowserEvent.WorkspaceGroupCreated
   | BrowserEvent.MachineStats
   | BrowserEvent.ModeChanged
 
@@ -243,6 +254,11 @@ export namespace BrowserEvent {
     terminal: TerminalInfo
   }
 
+  export interface TerminalUpdated {
+    type: 'terminal_updated'
+    terminal: TerminalInfo
+  }
+
   export interface TerminalResized {
     type: 'terminal_resized'
     terminal: TerminalInfo
@@ -259,6 +275,11 @@ export namespace BrowserEvent {
     machine_id: string
     terminal_id: string
     reachable: boolean
+  }
+
+  export interface WorkspaceGroupCreated {
+    type: 'workspace_group_created'
+    group: WorkspaceGroupInfo
   }
 
   export interface MachineStats {

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import * as Application from "expo-application";
 import {
   View,
@@ -93,15 +93,14 @@ export function TerminalCanvas() {
     ? bookmarks.filter((bookmark) => bookmark.machine_id === activeMachine.id)
     : [];
   const selectedBookmark =
-    selectedWorkpathId === "all"
+    selectedWorkpathId === "all" || !activeMachine
       ? null
-      : bookmarks.find((bookmark) => bookmark.id === selectedWorkpathId) ?? null;
-  const scopedTerminals = useMemo(() => {
-    if (!selectedBookmark) return activeMachineTerminals;
-    return activeMachineTerminals.filter(
-      (terminal) => terminal.cwd === selectedBookmark.path,
-    );
-  }, [activeMachineTerminals, selectedBookmark]);
+      : bookmarks.find(
+          (bookmark) =>
+            bookmark.id === selectedWorkpathId &&
+            bookmark.machine_id === activeMachine.id,
+        ) ?? null;
+  const scopedTerminals = activeMachineTerminals;
   const isActiveController = ownsMachineControl(
     controlLeases,
     activeMachine?.id ?? null,
@@ -579,7 +578,7 @@ export function TerminalCanvas() {
       {maximizedTerminal && (
         <TerminalCard
           terminal={maximizedTerminal}
-          siblings={scopedTerminals}
+          siblings={activeMachineTerminals}
           maximized
           isMobile
           isController={isMachineController(maximizedTerminal.machine_id)}

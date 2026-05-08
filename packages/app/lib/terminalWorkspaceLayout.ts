@@ -1,4 +1,4 @@
-import type { TerminalInfo } from "@webmux/shared";
+import type { TerminalInfo, WorkspaceGroupInfo } from "@webmux/shared";
 
 export type WorkspaceSplitDirection = "horizontal" | "vertical";
 export type WorkspaceSplitIntent = "right" | "down";
@@ -17,6 +17,8 @@ export interface WorkspaceGroup {
   id: string;
   label: string;
   cwd: string;
+  workspaceGroupId: string | null;
+  persistent: boolean;
   root: WorkspacePaneNode | null;
   paneCount: number;
 }
@@ -43,8 +45,9 @@ interface RemoveResult {
 export function createTerminalWorkspace(
   terminals: TerminalInfo[],
   activeTerminalId: string | null,
+  workspaceGroups: WorkspaceGroupInfo[] = [],
 ): TerminalWorkspace {
-  const groups = createGroups(terminals);
+  const groups = createGroups(terminals, workspaceGroups);
   const activeGroup =
     groups.find((group) =>
       collectPaneTerminalIds(group.root).includes(activeTerminalId ?? ""),
@@ -105,6 +108,34 @@ export function splitWorkspacePane(
   };
 }
 
+export function appendWorkspacePaneToGroup(
+  workspace: TerminalWorkspace,
+  input: {
+    groupId: string;
+    newTerminalId: string;
+  },
+): TerminalWorkspace {
+  const group = workspace.groups.find((candidate) => candidate.id === input.groupId);
+  if (!group) return workspace;
+  const groups = workspace.groups.map((candidate) => {
+    if (candidate.id !== group.id) return candidate;
+    const root = appendNode(candidate.root, {
+      type: "leaf",
+      terminalId: input.newTerminalId,
+    });
+    return {
+      ...candidate,
+      root,
+      paneCount: collectPaneTerminalIds(root).length,
+    };
+  });
+  return {
+    groups,
+    activeGroupId: group.id,
+    activeTerminalId: input.newTerminalId,
+  };
+}
+
 export function closeWorkspacePane(
   workspace: TerminalWorkspace,
   terminalId: string,
@@ -128,7 +159,7 @@ export function closeWorkspacePane(
         paneCount: paneIds.length,
       };
     })
-    .filter((group) => group.paneCount > 0);
+    .filter((group) => group.persistent || group.paneCount > 0);
 
   const activeGroup =
     groups.find((group) =>
@@ -150,8 +181,9 @@ export function reconcileTerminalWorkspace(
   workspace: TerminalWorkspace,
   terminals: TerminalInfo[],
   activeTerminalId: string | null,
+  workspaceGroups: WorkspaceGroupInfo[] = [],
 ): TerminalWorkspace {
-  const grouped = createGroups(terminals);
+  const grouped = createGroups(terminals, workspaceGroups);
   let fallbackForRemovedActive: string | null = null;
   const groups = grouped.map((group) => {
     const previous = workspace.groups.find(
@@ -255,24 +287,85 @@ export function collectPaneTerminalIds(root: WorkspacePaneNode | null): string[]
   ];
 }
 
-function createGroups(terminals: TerminalInfo[]): WorkspaceGroup[] {
-  const byCwd = new Map<string, TerminalInfo[]>();
-  for (const terminal of terminals) {
-    const list = byCwd.get(terminal.cwd) ?? [];
-    list.push(terminal);
-    byCwd.set(terminal.cwd, list);
+function createGroups(
+  terminals: TerminalInfo[],
+  workspaceGroups: WorkspaceGroupInfo[] = [],
+): WorkspaceGroup[] {
+  const byGroup = new Map<
+    string,
+    {
+      id: string;
+      label: string;
+      cwd: string;
+      workspaceGroupId: string | null;
+      persistent: boolean;
+      order: number;
+      terminals: TerminalInfo[];
+    }
+  >();
+  const sortedWorkspaceGroups = [...workspaceGroups].sort(
+    (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name),
+  );
+  for (const group of sortedWorkspaceGroups) {
+    byGroup.set(group.id, {
+      id: group.id,
+      label: group.name,
+      cwd: "",
+      workspaceGroupId: group.id,
+      persistent: true,
+      order: group.sort_order,
+      terminals: [],
+    });
   }
 
-  return Array.from(byCwd.entries()).map(([cwd, groupTerminals]) => {
-    const root = tileTerminals(groupTerminals.map((terminal) => terminal.id));
-    return {
-      id: `cwd:${cwd}`,
-      label: labelFromCwd(cwd),
-      cwd,
-      root,
-      paneCount: groupTerminals.length,
-    };
-  });
+  for (const terminal of terminals) {
+    const workspaceGroupId = terminal.workspace_group_id;
+    const persistedGroup =
+      workspaceGroupId && byGroup.get(workspaceGroupId)?.persistent
+        ? byGroup.get(workspaceGroupId)
+        : null;
+    if (persistedGroup) {
+      if (!persistedGroup.cwd) persistedGroup.cwd = terminal.cwd;
+      persistedGroup.terminals.push(terminal);
+      continue;
+    }
+
+    const key = `cwd:${terminal.cwd}`;
+    const fallbackGroup =
+      byGroup.get(key) ??
+      {
+        id: key,
+        label: labelFromCwd(terminal.cwd),
+        cwd: terminal.cwd,
+        workspaceGroupId: null,
+        persistent: false,
+        order: sortedWorkspaceGroups.length + byGroup.size,
+        terminals: [],
+      };
+    fallbackGroup.terminals.push(terminal);
+    byGroup.set(key, fallbackGroup);
+  }
+
+  return Array.from(byGroup.values())
+    .sort((a, b) => a.order - b.order)
+    .map((group) => {
+      const root = tileTerminals(
+        group.terminals.map((terminal) => terminal.id),
+      );
+      const cwd =
+        group.cwd ||
+        group.terminals.find((terminal) => terminal.cwd)?.cwd ||
+        "";
+      return {
+        id: group.id,
+        label: group.label,
+        cwd,
+        workspaceGroupId: group.workspaceGroupId,
+        persistent: group.persistent,
+        root,
+        paneCount: group.terminals.length,
+      };
+    });
 }
 
 function tileTerminals(ids: string[]): WorkspacePaneNode | null {

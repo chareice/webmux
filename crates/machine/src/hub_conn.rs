@@ -136,6 +136,7 @@ impl HubConnection {
                     machine_id: self.machine_id.clone(),
                     title: s.title.clone(),
                     cwd: s.cwd.clone(),
+                    workspace_group_id: None,
                     cols: s.cols,
                     rows: s.rows,
                     reachable: true,

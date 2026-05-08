@@ -62,6 +62,7 @@ export async function listTerminals(page: Page): Promise<Array<{
   machine_id: string;
   title: string;
   cwd: string;
+  workspace_group_id?: string | null;
   cols: number;
   rows: number;
 }>> {

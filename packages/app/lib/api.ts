@@ -5,6 +5,7 @@ import type {
   TerminalInfo,
   DirEntry,
   Bookmark,
+  WorkspaceGroupInfo,
   ResourceStats,
   NativeZellijBootstrapResponse,
 } from "@webmux/shared";
@@ -65,6 +66,7 @@ export const createTerminal = (
   startupCommand?: string,
   cols?: number,
   rows?: number,
+  workspaceGroupId?: string | null,
 ) =>
   request<TerminalInfo>("POST", `/api/machines/${machineId}/terminals`, {
     cwd,
@@ -72,6 +74,7 @@ export const createTerminal = (
     ...(startupCommand ? { startup_command: startupCommand } : {}),
     ...(cols !== undefined ? { cols } : {}),
     ...(rows !== undefined ? { rows } : {}),
+    ...(workspaceGroupId ? { workspace_group_id: workspaceGroupId } : {}),
   });
 export const destroyTerminal = (
   machineId: string,
@@ -112,6 +115,29 @@ export const createBookmark = (
   });
 export const deleteBookmark = (bookmarkId: string) =>
   request<void>("DELETE", `/api/bookmarks/${bookmarkId}`);
+
+// Workspace tabs
+export const listWorkspaceGroups = (machineId: string) =>
+  request<WorkspaceGroupInfo[]>(
+    "GET",
+    `/api/machines/${machineId}/workspace-groups`,
+  );
+export const createWorkspaceGroup = (machineId: string, name: string) =>
+  request<WorkspaceGroupInfo>(
+    "POST",
+    `/api/machines/${machineId}/workspace-groups`,
+    { name },
+  );
+export const assignTerminalWorkspaceGroup = (
+  machineId: string,
+  terminalId: string,
+  workspaceGroupId: string | null,
+) =>
+  request<TerminalInfo>(
+    "PUT",
+    `/api/machines/${machineId}/terminals/${terminalId}/workspace-group`,
+    { workspace_group_id: workspaceGroupId },
+  );
 
 // Registration
 export const createRegistrationToken = (name: string) =>

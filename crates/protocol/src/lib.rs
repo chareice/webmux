@@ -17,6 +17,8 @@ pub struct TerminalInfo {
     pub machine_id: String,
     pub title: String,
     pub cwd: String,
+    #[serde(default)]
+    pub workspace_group_id: Option<String>,
     pub cols: u16,
     pub rows: u16,
     #[serde(default = "default_reachable")]
@@ -66,6 +68,14 @@ pub struct ControlLeaseSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkspaceGroupInfo {
+    pub id: String,
+    pub machine_id: String,
+    pub name: String,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum NativeZellijStatus {
     Ready {
@@ -95,6 +105,7 @@ pub struct BrowserStateSnapshot {
     pub snapshot_seq: u64,
     pub machines: Vec<MachineInfo>,
     pub terminals: Vec<TerminalInfo>,
+    pub workspace_groups: Vec<WorkspaceGroupInfo>,
     pub machine_stats: Vec<MachineStatsSnapshot>,
     pub control_leases: Vec<ControlLeaseSnapshot>,
 }
@@ -229,6 +240,8 @@ pub enum BrowserEvent {
     MachineOffline { machine_id: String },
     #[serde(rename = "terminal_created")]
     TerminalCreated { terminal: TerminalInfo },
+    #[serde(rename = "terminal_updated")]
+    TerminalUpdated { terminal: TerminalInfo },
     #[serde(rename = "terminal_resized")]
     TerminalResized { terminal: TerminalInfo },
     #[serde(rename = "terminal_destroyed")]
@@ -242,6 +255,8 @@ pub enum BrowserEvent {
         terminal_id: String,
         reachable: bool,
     },
+    #[serde(rename = "workspace_group_created")]
+    WorkspaceGroupCreated { group: WorkspaceGroupInfo },
     #[serde(rename = "machine_stats")]
     MachineStats {
         machine_id: String,
@@ -384,8 +399,7 @@ mod tests {
 
     #[test]
     fn terminal_preview_output_frame_round_trips_without_loss() {
-        let frame =
-            encode_terminal_preview_output_frame("terminal-x", b"\x1b[32mpreview\x00\xff");
+        let frame = encode_terminal_preview_output_frame("terminal-x", b"\x1b[32mpreview\x00\xff");
         let (terminal_id, payload) = decode_terminal_preview_output_frame(&frame).unwrap();
         assert_eq!(terminal_id, "terminal-x");
         assert_eq!(payload.as_ref(), b"\x1b[32mpreview\x00\xff");

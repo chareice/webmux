@@ -80,6 +80,30 @@ pub fn create_machine(
     })
 }
 
+pub fn ensure_machine_for_user(
+    conn: &Connection,
+    id: &str,
+    user_id: &str,
+    name: &str,
+    os: Option<&str>,
+    home_dir: Option<&str>,
+) -> rusqlite::Result<()> {
+    let created_at = now_ms();
+    conn.execute(
+        "INSERT OR IGNORE INTO machines
+            (id, user_id, name, machine_secret_hash, status, os, home_dir, last_seen_at, created_at)
+         VALUES (?1, ?2, ?3, '', 'online', ?4, ?5, ?6, ?6)",
+        params![id, user_id, name, os, home_dir, created_at],
+    )?;
+    conn.execute(
+        "UPDATE machines
+         SET name = ?1, status = 'online', os = ?2, home_dir = ?3, last_seen_at = ?4
+         WHERE id = ?5 AND user_id = ?6",
+        params![name, os, home_dir, created_at, id, user_id],
+    )?;
+    Ok(())
+}
+
 pub fn update_machine_status(
     conn: &Connection,
     machine_id: &str,

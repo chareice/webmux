@@ -98,17 +98,8 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
 
   const scopedTerminals = useMemo(() => {
     if (!activeMachine) return [];
-    const base = terminals.filter((t) => t.machine_id === activeMachine.id);
-    if (selectedWorkpathId === "all") return base;
-    const bm = bookmarks.find((b) => b.id === selectedWorkpathId);
-    if (!bm) return [];
-    return base.filter((t) => t.cwd === bm.path);
-  }, [terminals, bookmarks, activeMachine, selectedWorkpathId]);
-
-  const scopedBookmark =
-    selectedWorkpathId === "all"
-      ? null
-      : bookmarks.find((b) => b.id === selectedWorkpathId) ?? null;
+    return terminals.filter((t) => t.machine_id === activeMachine.id);
+  }, [terminals, activeMachine]);
 
   return (
     <div
@@ -223,8 +214,8 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         {tab === "terminals" && (
           <TerminalsPage
             machine={activeMachine}
-            scopeLabel={scopedBookmark?.label ?? "All"}
-            scopePath={scopedBookmark?.path ?? null}
+            scopeLabel="All"
+            scopePath={null}
             terminals={scopedTerminals}
             isController={isController}
             canCreateTerminal={canCreateTerminal}
