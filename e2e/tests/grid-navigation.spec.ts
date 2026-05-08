@@ -76,11 +76,14 @@ test("grid → expand → sibling thumbnail navigation and URL sync", async ({
   // Reload while the remaining terminal is expanded → overlay is restored.
   // page.reload() preserves the hash, so the app picks up `#/t/{id}` on mount
   // and re-zooms. Don't call openApp() here — it would goto("/") and strip the
-  // hash before the app ever sees it.
+  // hash before the app ever sees it. Wait only for the navigation commit,
+  // then assert the app UI; the UI restoration is what matters for this SPA.
   await expandOnlyTerminal(page);
   expect(page.url()).toContain(`#/t/${tid2}`);
-  await page.reload();
-  await page.getByTestId("workbench-header").waitFor({ state: "visible", timeout: 20_000 });
+  await page.reload({ waitUntil: "commit" });
+  await page
+    .getByTestId("workbench-header")
+    .waitFor({ state: "visible", timeout: 20_000 });
   await expect(getExpandedOverlay(page)).toBeVisible();
 
   await closeExpandedOverlay(page);
