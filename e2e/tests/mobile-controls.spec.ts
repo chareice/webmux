@@ -239,6 +239,14 @@ test("mobile workspace has direct terminal close and group switching", async ({
 
   await page.getByTestId("workspace-close-active-terminal").click();
   await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
+  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
+  await expect(page.getByTestId(`workspace-mobile-group-tab-${secondGroup.id}`))
+    .toBeVisible();
+  await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
+  await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
+    .toHaveCount(0);
+
+  await page.getByTestId("expanded-close").click();
   await expect(page.getByTestId("expanded-terminal")).toHaveCount(0);
   await expect(
     page.getByTestId(`mobile-term-card-${firstTerminalId}`),

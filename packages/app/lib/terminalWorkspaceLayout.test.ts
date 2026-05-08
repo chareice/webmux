@@ -6,6 +6,7 @@ import {
   collectPaneTerminalIds,
   createTerminalWorkspace,
   getActiveWorkspaceGroup,
+  findAdjacentWorkspacePane,
   getMobileWorkspaceTabs,
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
@@ -126,6 +127,23 @@ describe("terminalWorkspaceLayout", () => {
     expect(next.groups.map((group) => [group.id, group.paneCount])).toEqual([
       ["tab-main", 0],
     ]);
+  });
+
+  it("keeps the active cwd group visible after closing its last pane", () => {
+    const workspace = createTerminalWorkspace([terminal("web-1", "/repo")], "web-1");
+
+    const closed = closeWorkspacePane(workspace, "web-1");
+    const reconciled = reconcileTerminalWorkspace(closed, [], closed.activeTerminalId);
+
+    expect(closed.groups.map((group) => [group.id, group.paneCount])).toEqual([
+      ["cwd:/repo", 0],
+    ]);
+    expect(closed.activeGroupId).toBe("cwd:/repo");
+    expect(closed.activeTerminalId).toBeNull();
+    expect(reconciled.groups.map((group) => [group.id, group.paneCount]))
+      .toEqual([["cwd:/repo", 0]]);
+    expect(reconciled.activeGroupId).toBe("cwd:/repo");
+    expect(reconciled.activeTerminalId).toBeNull();
   });
 
   it("keeps an empty persisted workspace tab active without falling back to another terminal", () => {
@@ -356,5 +374,38 @@ describe("terminalWorkspaceLayout", () => {
 
     expect(next.activeGroupId).toBe("cwd:/home/chareice/projects/zhuyang");
     expect(next.activeTerminalId).toBe("api-1");
+  });
+
+  it("finds adjacent panes by visual direction", () => {
+    const workspace = splitWorkspacePane(
+      createTerminalWorkspace([terminal("left", "/repo")], "left"),
+      {
+        activeTerminalId: "left",
+        newTerminalId: "right",
+        direction: "right",
+      },
+    );
+    const root = getActiveWorkspaceGroup(workspace)?.root ?? null;
+
+    expect(findAdjacentWorkspacePane(root, "right", "left")).toBe("right");
+    expect(findAdjacentWorkspacePane(root, "left", "right")).toBe("left");
+    expect(findAdjacentWorkspacePane(root, "up", "left")).toBeNull();
+  });
+
+  it("finds the closest pane in nested split layouts", () => {
+    const base = createTerminalWorkspace(
+      [terminal("left", "/repo"), terminal("top", "/repo")],
+      "top",
+    );
+    const nested = splitWorkspacePane(base, {
+      activeTerminalId: "top",
+      newTerminalId: "bottom",
+      direction: "down",
+    });
+    const root = getActiveWorkspaceGroup(nested)?.root ?? null;
+
+    expect(findAdjacentWorkspacePane(root, "down", "top")).toBe("bottom");
+    expect(findAdjacentWorkspacePane(root, "up", "bottom")).toBe("top");
+    expect(findAdjacentWorkspacePane(root, "left", "bottom")).toBe("left");
   });
 });

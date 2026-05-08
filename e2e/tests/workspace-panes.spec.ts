@@ -147,6 +147,43 @@ test("workspace remains mounted when terminal events are delayed", async ({
   await context.close();
 });
 
+test("workspace shortcuts focus panes by direction from the terminal", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const firstId = await createTerminalViaApi(page, { cwd: "/root" });
+  await expandTerminalById(page, firstId);
+  await page.getByLabel("Split right").click();
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(2);
+
+  const secondId = (await listTerminals(page)).find(
+    (terminal) => terminal.id !== firstId,
+  )!.id;
+  await expect(page.getByTestId(`workspace-pane-${secondId}`)).toHaveCSS(
+    "box-shadow",
+    /rgb/,
+  );
+
+  await page.keyboard.press("Control+ArrowLeft");
+  await expect(page.getByTestId(`workspace-pane-${firstId}`)).toHaveCSS(
+    "box-shadow",
+    /rgb/,
+  );
+  await expect(page.getByTestId(`workspace-pane-${secondId}`)).toHaveCSS(
+    "box-shadow",
+    "none",
+  );
+
+  await page.keyboard.press("Control+ArrowRight");
+  await expect(page.getByTestId(`workspace-pane-${secondId}`)).toHaveCSS(
+    "box-shadow",
+    /rgb/,
+  );
+});
+
 async function paneBox(page: Page, terminalId: string) {
   const box = await page
     .getByTestId(`workspace-pane-${terminalId}`)

@@ -2,6 +2,7 @@ import type { TerminalInfo, WorkspaceGroupInfo } from "@webmux/shared";
 
 export type WorkspaceSplitDirection = "horizontal" | "vertical";
 export type WorkspaceSplitIntent = "right" | "down";
+export type WorkspacePaneFocusDirection = "left" | "right" | "up" | "down";
 
 export type WorkspacePaneNode =
   | { type: "leaf"; terminalId: string }
@@ -40,6 +41,14 @@ interface RemoveResult {
   root: WorkspacePaneNode | null;
   fallbackTerminalId: string | null;
   removed: boolean;
+}
+
+interface PaneRect {
+  terminalId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export function createTerminalWorkspace(
@@ -159,7 +168,12 @@ export function closeWorkspacePane(
         paneCount: paneIds.length,
       };
     })
-    .filter((group) => group.persistent || group.paneCount > 0);
+    .filter(
+      (group) =>
+        group.persistent ||
+        group.paneCount > 0 ||
+        group.id === workspace.activeGroupId,
+    );
 
   const activeGroup =
     groups.find((group) =>
@@ -185,7 +199,7 @@ export function reconcileTerminalWorkspace(
 ): TerminalWorkspace {
   const grouped = createGroups(terminals, workspaceGroups);
   let fallbackForRemovedActive: string | null = null;
-  const groups = grouped.map((group) => {
+  let groups = grouped.map((group) => {
     const previous = workspace.groups.find(
       (candidate) => candidate.id === group.id,
     );
@@ -216,6 +230,7 @@ export function reconcileTerminalWorkspace(
       paneCount: collectPaneTerminalIds(root).length,
     };
   });
+  groups = preserveActiveEmptyGroup(groups, workspace);
 
   const requestedActive =
     activeTerminalId && terminalExists(terminals, activeTerminalId)
@@ -241,6 +256,26 @@ export function reconcileTerminalWorkspace(
     activeTerminalId:
       requestedActive ?? firstTerminalId(activeGroup?.root ?? null),
   };
+}
+
+function preserveActiveEmptyGroup(
+  groups: WorkspaceGroup[],
+  workspace: TerminalWorkspace,
+): WorkspaceGroup[] {
+  if (!workspace.activeGroupId) return groups;
+  if (groups.some((group) => group.id === workspace.activeGroupId)) return groups;
+  const activeGroup = workspace.groups.find(
+    (group) => group.id === workspace.activeGroupId,
+  );
+  if (!activeGroup || activeGroup.root || activeGroup.paneCount > 0) return groups;
+  return [
+    ...groups,
+    {
+      ...activeGroup,
+      root: null,
+      paneCount: 0,
+    },
+  ];
 }
 
 export function selectWorkspaceGroup(
@@ -285,6 +320,56 @@ export function collectPaneTerminalIds(root: WorkspacePaneNode | null): string[]
     ...collectPaneTerminalIds(root.first),
     ...collectPaneTerminalIds(root.second),
   ];
+}
+
+export function findAdjacentWorkspacePane(
+  root: WorkspacePaneNode | null,
+  direction: WorkspacePaneFocusDirection,
+  activeTerminalId: string | null,
+): string | null {
+  if (!root || !activeTerminalId) return null;
+  const panes = collectPaneRects(root, {
+    terminalId: "",
+    x: 0,
+    y: 0,
+    width: 1,
+    height: 1,
+  });
+  const active = panes.find((pane) => pane.terminalId === activeTerminalId);
+  if (!active) return null;
+
+  const activeCenterX = active.x + active.width / 2;
+  const activeCenterY = active.y + active.height / 2;
+  const candidates = panes
+    .filter((pane) => {
+      if (pane.terminalId === active.terminalId) return false;
+      const centerX = pane.x + pane.width / 2;
+      const centerY = pane.y + pane.height / 2;
+      if (direction === "left") {
+        return centerX < activeCenterX && rangesOverlap(active, pane, "y");
+      }
+      if (direction === "right") {
+        return centerX > activeCenterX && rangesOverlap(active, pane, "y");
+      }
+      if (direction === "up") {
+        return centerY < activeCenterY && rangesOverlap(active, pane, "x");
+      }
+      return centerY > activeCenterY && rangesOverlap(active, pane, "x");
+    })
+    .map((pane) => ({
+      pane,
+      edgeDistance: edgeDistance(active, pane, direction),
+      centerDistance: centerDistance(active, pane, direction),
+      perpendicularDistance: perpendicularDistance(active, pane, direction),
+    }))
+    .sort(
+      (a, b) =>
+        a.edgeDistance - b.edgeDistance ||
+        a.centerDistance - b.centerDistance ||
+        a.perpendicularDistance - b.perpendicularDistance,
+    );
+
+  return candidates[0]?.pane.terminalId ?? null;
 }
 
 function createGroups(
@@ -379,6 +464,79 @@ function tileTerminals(ids: string[]): WorkspacePaneNode | null {
     first: { type: "leaf", terminalId: first },
     second: tileTerminals(rest) ?? { type: "leaf", terminalId: first },
   };
+}
+
+function collectPaneRects(root: WorkspacePaneNode, rect: PaneRect): PaneRect[] {
+  if (root.type === "leaf") {
+    return [{ ...rect, terminalId: root.terminalId }];
+  }
+  if (root.direction === "horizontal") {
+    const firstWidth = rect.width * root.ratio;
+    return [
+      ...collectPaneRects(root.first, { ...rect, width: firstWidth }),
+      ...collectPaneRects(root.second, {
+        ...rect,
+        x: rect.x + firstWidth,
+        width: rect.width - firstWidth,
+      }),
+    ];
+  }
+  const firstHeight = rect.height * root.ratio;
+  return [
+    ...collectPaneRects(root.first, { ...rect, height: firstHeight }),
+    ...collectPaneRects(root.second, {
+      ...rect,
+      y: rect.y + firstHeight,
+      height: rect.height - firstHeight,
+    }),
+  ];
+}
+
+function rangesOverlap(a: PaneRect, b: PaneRect, axis: "x" | "y"): boolean {
+  const aStart = axis === "x" ? a.x : a.y;
+  const aEnd = aStart + (axis === "x" ? a.width : a.height);
+  const bStart = axis === "x" ? b.x : b.y;
+  const bEnd = bStart + (axis === "x" ? b.width : b.height);
+  return Math.min(aEnd, bEnd) - Math.max(aStart, bStart) > 0.0001;
+}
+
+function edgeDistance(
+  active: PaneRect,
+  pane: PaneRect,
+  direction: WorkspacePaneFocusDirection,
+): number {
+  switch (direction) {
+    case "left":
+      return Math.max(0, active.x - (pane.x + pane.width));
+    case "right":
+      return Math.max(0, pane.x - (active.x + active.width));
+    case "up":
+      return Math.max(0, active.y - (pane.y + pane.height));
+    case "down":
+      return Math.max(0, pane.y - (active.y + active.height));
+  }
+}
+
+function centerDistance(
+  active: PaneRect,
+  pane: PaneRect,
+  direction: WorkspacePaneFocusDirection,
+): number {
+  if (direction === "left" || direction === "right") {
+    return Math.abs(active.x + active.width / 2 - (pane.x + pane.width / 2));
+  }
+  return Math.abs(active.y + active.height / 2 - (pane.y + pane.height / 2));
+}
+
+function perpendicularDistance(
+  active: PaneRect,
+  pane: PaneRect,
+  direction: WorkspacePaneFocusDirection,
+): number {
+  if (direction === "left" || direction === "right") {
+    return Math.abs(active.y + active.height / 2 - (pane.y + pane.height / 2));
+  }
+  return Math.abs(active.x + active.width / 2 - (pane.x + pane.width / 2));
 }
 
 function splitNode(

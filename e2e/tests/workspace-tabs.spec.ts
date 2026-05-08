@@ -189,6 +189,131 @@ test("deleting a workspace tab keeps terminals open and clears their group", asy
     .toMatchObject({ workspace_group_id: null });
 });
 
+test("closing the last pane in a workspace tab keeps the empty group open", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const group = await createWorkspaceGroupViaApi(
+    page,
+    `Close Pane ${Date.now()}`,
+  );
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: group.id,
+  });
+
+  await expandTerminalById(page, terminalId);
+  await page.getByTestId(`expanded-thumb-close-${terminalId}`).click();
+
+  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
+  await expect(page.getByTestId(`workspace-group-${group.id}`)).toBeVisible();
+  await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
+  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(0);
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(0);
+});
+
+test("workspace close shortcut keeps an empty cwd group open", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
+
+  await expandTerminalById(page, terminalId);
+  await expect(page.getByTestId(`workspace-pane-${terminalId}`)).toBeVisible();
+  await page.keyboard.press("Control+W");
+
+  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
+  await expect(workspaceGroup(page, "root")).toBeVisible();
+  await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
+  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(0);
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(0);
+});
+
+test("canceling close for a busy workspace pane keeps the pane visible", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const group = await createWorkspaceGroupViaApi(
+    page,
+    `Busy Pane ${Date.now()}`,
+  );
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: group.id,
+  });
+  await page.route(
+    `**/api/machines/e2e-node/terminals/${terminalId}/foreground-process`,
+    async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          has_foreground_process: true,
+          process_name: "sleep",
+        }),
+      });
+    },
+  );
+
+  await expandTerminalById(page, terminalId);
+  await page.getByTestId(`expanded-thumb-close-${terminalId}`).click();
+  await expect(
+    page.getByRole("dialog", { name: "Close terminal?" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Cancel" }).click();
+
+  await expect(
+    page.getByRole("dialog", { name: "Close terminal?" }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId(`workspace-pane-${terminalId}`)).toBeVisible();
+  await expect(page.getByTestId("workspace-empty-group")).toHaveCount(0);
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
+});
+
+test("confirming close for a busy cwd pane keeps an empty cwd group open", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
+  await page.route(
+    `**/api/machines/e2e-node/terminals/${terminalId}/foreground-process`,
+    async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          has_foreground_process: true,
+          process_name: "sleep",
+        }),
+      });
+    },
+  );
+
+  await expandTerminalById(page, terminalId);
+  await page.getByTestId(`expanded-thumb-close-${terminalId}`).click();
+  await page
+    .getByRole("dialog", { name: "Close terminal?" })
+    .getByRole("button", { name: "Close terminal" })
+    .click();
+
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(0);
+  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
+  await expect(workspaceGroup(page, "root")).toBeVisible();
+  await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
+  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(0);
+});
+
 test("hovering a workspace group tab switches to that group", async ({ page }) => {
   await openApp(page);
   await resetMachineState(page);
@@ -251,6 +376,90 @@ test("hovering a workspace pane activates that terminal", async ({ page }) => {
     .toHaveCSS("box-shadow", /rgb/);
   await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
     .toHaveCSS("box-shadow", "none");
+});
+
+test("workspace shortcuts switch groups with a custom binding", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 960 },
+  });
+  await context.addInitScript(() => {
+    localStorage.setItem(
+      "webmux:workspace-shortcuts",
+      JSON.stringify({
+        groupNext: "Mod+Alt+KeyG",
+        groupPrevious: "Mod+Alt+KeyF",
+      }),
+    );
+  });
+  const page = await context.newPage();
+
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const firstGroup = await createWorkspaceGroupViaApi(
+    page,
+    `Key Group A ${Date.now()}`,
+  );
+  const secondGroup = await createWorkspaceGroupViaApi(
+    page,
+    `Key Group B ${Date.now()}`,
+  );
+  const firstTerminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: firstGroup.id,
+  });
+  const secondTerminalId = await createTerminalViaApi(page, {
+    cwd: "/tmp",
+    workspaceGroupId: secondGroup.id,
+  });
+
+  await expandTerminalById(page, firstTerminalId);
+  await page.keyboard.press("Control+Alt+KeyG");
+  await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
+    .toBeVisible();
+  await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
+    .toHaveCount(0);
+
+  await page.keyboard.press("Control+Alt+KeyF");
+  await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
+    .toBeVisible();
+
+  await context.close();
+});
+
+test("settings can record workspace shortcut bindings", async ({ page }) => {
+  await openApp(page);
+
+  await page.getByTestId("rail-open-settings").click();
+  const recorder = page.getByTestId("workspace-shortcut-recorder-groupNext");
+  await recorder.click();
+  await page.keyboard.press("Control+Alt+KeyG");
+
+  await expect(recorder).toHaveText("Ctrl/Cmd + Alt + G");
+  const stored = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("webmux:workspace-shortcuts") ?? "{}"),
+  );
+  expect(stored.groupNext).toBe("Mod+Alt+KeyG");
+});
+
+test("settings reject duplicate workspace shortcut bindings", async ({ page }) => {
+  await openApp(page);
+
+  await page.getByTestId("rail-open-settings").click();
+  const recorder = page.getByTestId("workspace-shortcut-recorder-groupNext");
+  await recorder.click();
+  await page.keyboard.press("Control+ArrowLeft");
+
+  await expect(page.getByTestId("workspace-shortcut-conflict"))
+    .toContainText("Focus pane left");
+  await expect(recorder).toHaveText("Press keys...");
+  const stored = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("webmux:workspace-shortcuts") ?? "{}"),
+  );
+  expect(stored.groupNext).toBeUndefined();
 });
 
 function workspaceGroup(page: import("@playwright/test").Page, label: string) {
