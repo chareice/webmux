@@ -67,12 +67,24 @@ pub fn update_metadata(
     Ok(())
 }
 
+pub fn assign_workspace_group(
+    conn: &Connection,
+    id: &str,
+    workspace_group_id: Option<&str>,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE terminal_sessions SET workspace_group_id = ?1 WHERE id = ?2",
+        params![workspace_group_id, id],
+    )?;
+    Ok(())
+}
+
 pub fn find_active_by_machine(
     conn: &Connection,
     machine_id: &str,
 ) -> rusqlite::Result<Vec<TerminalSessionRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, machine_id, title, cwd, cols, rows, created_at, destroyed_at
+        "SELECT id, machine_id, title, cwd, workspace_group_id, cols, rows, created_at, destroyed_at
          FROM terminal_sessions WHERE machine_id = ?1 AND destroyed_at IS NULL",
     )?;
     let rows = stmt.query_map(params![machine_id], |row| {
@@ -81,10 +93,11 @@ pub fn find_active_by_machine(
             machine_id: row.get(1)?,
             title: row.get(2)?,
             cwd: row.get(3)?,
-            cols: row.get(4)?,
-            rows: row.get(5)?,
-            created_at: row.get(6)?,
-            destroyed_at: row.get(7)?,
+            workspace_group_id: row.get(4)?,
+            cols: row.get(5)?,
+            rows: row.get(6)?,
+            created_at: row.get(7)?,
+            destroyed_at: row.get(8)?,
         })
     })?;
     rows.collect()
@@ -92,7 +105,7 @@ pub fn find_active_by_machine(
 
 pub fn find_all_active(conn: &Connection) -> rusqlite::Result<Vec<TerminalSessionRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, machine_id, title, cwd, cols, rows, created_at, destroyed_at
+        "SELECT id, machine_id, title, cwd, workspace_group_id, cols, rows, created_at, destroyed_at
          FROM terminal_sessions WHERE destroyed_at IS NULL",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -101,10 +114,11 @@ pub fn find_all_active(conn: &Connection) -> rusqlite::Result<Vec<TerminalSessio
             machine_id: row.get(1)?,
             title: row.get(2)?,
             cwd: row.get(3)?,
-            cols: row.get(4)?,
-            rows: row.get(5)?,
-            created_at: row.get(6)?,
-            destroyed_at: row.get(7)?,
+            workspace_group_id: row.get(4)?,
+            cols: row.get(5)?,
+            rows: row.get(6)?,
+            created_at: row.get(7)?,
+            destroyed_at: row.get(8)?,
         })
     })?;
     rows.collect()

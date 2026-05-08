@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TerminalInfo } from "@webmux/shared";
 import {
+  appendWorkspacePaneToGroup,
   closeWorkspacePane,
   collectPaneTerminalIds,
   createTerminalWorkspace,
@@ -21,6 +22,17 @@ function terminal(id: string, cwd: string): TerminalInfo {
     rows: 40,
     reachable: true,
   };
+}
+
+function groupedTerminal(
+  id: string,
+  cwd: string,
+  workspaceGroupId: string | null,
+): TerminalInfo {
+  return {
+    ...terminal(id, cwd),
+    workspace_group_id: workspaceGroupId,
+  } as TerminalInfo;
 }
 
 describe("terminalWorkspaceLayout", () => {
@@ -45,6 +57,125 @@ describe("terminalWorkspaceLayout", () => {
       "web-1",
       "web-2",
     ]);
+  });
+
+  it("groups panes by persisted workspace tab before falling back to cwd", () => {
+    const workspace = createTerminalWorkspace(
+      [
+        groupedTerminal("web-1", "/home/chareice/projects/webmux", "tab-agents"),
+        groupedTerminal("api-1", "/home/chareice/projects/zhuyang", "tab-agents"),
+        terminal("ops-1", "/home/chareice/projects/ops"),
+      ],
+      "api-1",
+      [
+        {
+          id: "tab-agents",
+          machine_id: "m1",
+          name: "Agents",
+          sort_order: 0,
+        },
+      ],
+    );
+
+    expect(workspace.activeGroupId).toBe("tab-agents");
+    expect(workspace.groups.map((group) => group.label)).toEqual([
+      "Agents",
+      "ops",
+    ]);
+    expect(collectPaneTerminalIds(workspace.groups[0].root)).toEqual([
+      "web-1",
+      "api-1",
+    ]);
+  });
+
+  it("keeps empty persisted workspace tabs visible after reconcile", () => {
+    const workspace = createTerminalWorkspace(
+      [groupedTerminal("web-1", "/repo", "tab-main")],
+      "web-1",
+      [
+        { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
+        { id: "tab-empty", machine_id: "m1", name: "Scratch", sort_order: 1 },
+      ],
+    );
+
+    const next = reconcileTerminalWorkspace(
+      workspace,
+      [],
+      null,
+      [
+        { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
+        { id: "tab-empty", machine_id: "m1", name: "Scratch", sort_order: 1 },
+      ],
+    );
+
+    expect(next.groups.map((group) => [group.id, group.paneCount])).toEqual([
+      ["tab-main", 0],
+      ["tab-empty", 0],
+    ]);
+  });
+
+  it("keeps a persisted workspace tab visible after closing its last pane", () => {
+    const workspace = createTerminalWorkspace(
+      [groupedTerminal("web-1", "/repo", "tab-main")],
+      "web-1",
+      [{ id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 }],
+    );
+
+    const next = closeWorkspacePane(workspace, "web-1");
+
+    expect(next.groups.map((group) => [group.id, group.paneCount])).toEqual([
+      ["tab-main", 0],
+    ]);
+  });
+
+  it("keeps an empty persisted workspace tab active without falling back to another terminal", () => {
+    const workspace = createTerminalWorkspace(
+      [groupedTerminal("web-1", "/repo", "tab-main")],
+      "web-1",
+      [
+        { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
+        { id: "tab-empty", machine_id: "m1", name: "Scratch", sort_order: 1 },
+      ],
+    );
+
+    const selected = selectWorkspaceGroup(workspace, "tab-empty");
+    const reconciled = reconcileTerminalWorkspace(
+      selected,
+      [groupedTerminal("web-1", "/repo", "tab-main")],
+      selected.activeTerminalId,
+      [
+        { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
+        { id: "tab-empty", machine_id: "m1", name: "Scratch", sort_order: 1 },
+      ],
+    );
+
+    expect(reconciled.activeGroupId).toBe("tab-empty");
+    expect(reconciled.activeTerminalId).toBeNull();
+  });
+
+  it("can add the first pane to an empty persisted workspace tab", () => {
+    const workspace = createTerminalWorkspace(
+      [groupedTerminal("web-1", "/repo", "tab-main")],
+      "web-1",
+      [
+        { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
+        { id: "tab-empty", machine_id: "m1", name: "Scratch", sort_order: 1 },
+      ],
+    );
+    const selected = selectWorkspaceGroup(workspace, "tab-empty");
+
+    const next = appendWorkspacePaneToGroup(selected, {
+      groupId: "tab-empty",
+      newTerminalId: "web-2",
+    });
+
+    expect(next.activeGroupId).toBe("tab-empty");
+    expect(next.activeTerminalId).toBe("web-2");
+    expect(
+      collectPaneTerminalIds(
+        next.groups.find((group) => group.id === "tab-empty")?.root ?? null,
+      ),
+    ).toEqual(["web-2"]);
   });
 
   it("splits the active pane without moving terminals to another group", () => {

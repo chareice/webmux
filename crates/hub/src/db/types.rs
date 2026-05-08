@@ -30,6 +30,15 @@ pub struct BookmarkRow {
     pub created_at: i64,
 }
 
+pub struct WorkspaceGroupRow {
+    pub id: String,
+    pub user_id: String,
+    pub machine_id: String,
+    pub name: String,
+    pub sort_order: i64,
+    pub created_at: i64,
+}
+
 pub struct ApiTokenRow {
     pub id: String,
     pub user_id: String,
@@ -54,6 +63,7 @@ pub struct TerminalSessionRow {
     pub machine_id: String,
     pub title: String,
     pub cwd: String,
+    pub workspace_group_id: Option<String>,
     pub cols: i64,
     pub rows: i64,
     pub created_at: i64,

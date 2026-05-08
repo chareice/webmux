@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { TerminalInfo } from "@webmux/shared";
+import type { TerminalInfo, WorkspaceGroupInfo } from "@webmux/shared";
 import {
   ChevronDown,
   Columns2,
@@ -24,6 +24,7 @@ import {
   type WorkspaceGroup,
   type WorkspacePaneNode,
   type WorkspaceSplitIntent,
+  appendWorkspacePaneToGroup,
   closeWorkspacePane,
   createTerminalWorkspace,
   getActiveWorkspaceGroup,
@@ -35,6 +36,7 @@ import {
 interface TerminalWorkspaceProps {
   terminal: TerminalInfo;
   siblings: TerminalInfo[];
+  workspaceGroups: WorkspaceGroupInfo[];
   isController: boolean;
   deviceId: string;
   isMobile: boolean;
@@ -45,6 +47,20 @@ interface TerminalWorkspaceProps {
     terminal: TerminalInfo,
     direction: WorkspaceSplitIntent,
   ) => Promise<TerminalInfo | null>;
+  onCreatePane: (input: {
+    machineId: string;
+    cwd: string;
+    workspaceGroupId: string | null;
+  }) => Promise<TerminalInfo | null>;
+  onCreateGroup: (
+    machineId: string,
+    name: string,
+    terminal: TerminalInfo | null,
+  ) => Promise<void>;
+  onAssignGroup: (
+    terminal: TerminalInfo,
+    workspaceGroupId: string | null,
+  ) => Promise<void>;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
 }
@@ -52,6 +68,7 @@ interface TerminalWorkspaceProps {
 function TerminalWorkspaceComponent({
   terminal,
   siblings,
+  workspaceGroups,
   isController,
   deviceId,
   isMobile,
@@ -59,11 +76,14 @@ function TerminalWorkspaceComponent({
   onPick,
   onDestroy,
   onSplit,
+  onCreatePane,
+  onCreateGroup,
+  onAssignGroup,
   onRequestControl,
   onReleaseControl,
 }: TerminalWorkspaceProps) {
   const [workspace, setWorkspace] = useState(() =>
-    createTerminalWorkspace(siblings, terminal.id),
+    createTerminalWorkspace(siblings, terminal.id, workspaceGroups),
   );
   const activeCardRef = useRef<TerminalCardRef | null>(null);
   const [maximizedTerminalId, setMaximizedTerminalId] = useState<string | null>(
@@ -76,15 +96,25 @@ function TerminalWorkspaceComponent({
     return map;
   }, [siblings]);
 
+  const previousTerminalIdRef = useRef(terminal.id);
   useEffect(() => {
+    const externalTerminalChanged = previousTerminalIdRef.current !== terminal.id;
+    previousTerminalIdRef.current = terminal.id;
     setWorkspace((prev) =>
-      reconcileTerminalWorkspace(prev, siblings, terminal.id),
+      reconcileTerminalWorkspace(
+        prev,
+        siblings,
+        externalTerminalChanged ? terminal.id : prev.activeTerminalId,
+        workspaceGroups,
+      ),
     );
-  }, [siblings, terminal.id]);
+  }, [siblings, terminal.id, workspaceGroups]);
 
   const activeGroup = getActiveWorkspaceGroup(workspace);
-  const activeTerminal =
-    terminalsById.get(workspace.activeTerminalId ?? "") ?? terminal;
+  const activeTerminal = workspace.activeTerminalId
+    ? terminalsById.get(workspace.activeTerminalId) ?? null
+    : null;
+  const commandMachineId = activeTerminal?.machine_id ?? terminal.machine_id;
 
   const fitActivePaneAfterLayout = useCallback(() => {
     requestAnimationFrame(() => {
@@ -139,6 +169,25 @@ function TerminalWorkspaceComponent({
   const handleSplit = useCallback(
     async (direction: WorkspaceSplitIntent) => {
       if (!isController) return;
+      if (!activeTerminal) {
+        if (!activeGroup) return;
+        const created = await onCreatePane({
+          machineId: commandMachineId,
+          cwd: activeGroup.cwd || terminal.cwd,
+          workspaceGroupId: activeGroup.workspaceGroupId,
+        });
+        if (!created) return;
+        setMaximizedTerminalId(null);
+        setWorkspace((prev) =>
+          appendWorkspacePaneToGroup(prev, {
+            groupId: activeGroup.id,
+            newTerminalId: created.id,
+          }),
+        );
+        onPick(created.id);
+        fitActivePaneAfterLayout();
+        return;
+      }
       const created = await onSplit(activeTerminal, direction);
       if (!created) return;
       setMaximizedTerminalId(null);
@@ -152,12 +201,37 @@ function TerminalWorkspaceComponent({
       onPick(created.id);
       fitActivePaneAfterLayout();
     },
-    [activeTerminal, fitActivePaneAfterLayout, isController, onPick, onSplit],
+    [
+      activeGroup,
+      activeTerminal,
+      commandMachineId,
+      fitActivePaneAfterLayout,
+      isController,
+      onCreatePane,
+      onPick,
+      onSplit,
+      terminal.cwd,
+    ],
   );
 
   const handleFit = useCallback(() => {
     activeCardRef.current?.fitToContainer();
   }, []);
+
+  const handleCreateGroup = useCallback(async () => {
+    const name = window.prompt("New tab name", activeGroup?.label ?? "");
+    const trimmed = name?.trim();
+    if (!trimmed) return;
+    await onCreateGroup(commandMachineId, trimmed, activeTerminal);
+  }, [activeGroup?.label, activeTerminal, commandMachineId, onCreateGroup]);
+
+  const handleAssignGroup = useCallback(
+    async (workspaceGroupId: string | null) => {
+      if (!activeTerminal) return;
+      await onAssignGroup(activeTerminal, workspaceGroupId);
+    },
+    [activeTerminal, onAssignGroup],
+  );
 
   const handleDestroy = useCallback(
     (target: TerminalInfo) => {
@@ -194,9 +268,12 @@ function TerminalWorkspaceComponent({
           groups={workspace.groups}
           activeGroupId={workspace.activeGroupId}
           activeTerminal={activeTerminal}
+          machineId={commandMachineId}
           isController={isController}
           isMobile
           onGroupSelect={activateGroup}
+          onCreateGroup={handleCreateGroup}
+          onAssignGroup={handleAssignGroup}
           onOpenDrawer={() => setMobileDrawerOpen(true)}
           onSplitRight={() => void handleSplit("right")}
           onSplitDown={() => void handleSplit("down")}
@@ -208,25 +285,33 @@ function TerminalWorkspaceComponent({
           onReleaseControl={onReleaseControl}
         />
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-          <WorkspacePaneLeaf
-            terminal={activeTerminal}
-            isActive
-            isController={isController}
-            deviceId={deviceId}
-            isMobile
-            onActiveRef={(ref) => {
-              activeCardRef.current = ref;
-            }}
-            onFocus={activateTerminal}
-            onDestroy={handleDestroy}
-            onRequestControl={onRequestControl}
-            onReleaseControl={onReleaseControl}
-          />
+          {activeTerminal ? (
+            <WorkspacePaneLeaf
+              terminal={activeTerminal}
+              isActive
+              isController={isController}
+              deviceId={deviceId}
+              isMobile
+              onActiveRef={(ref) => {
+                activeCardRef.current = ref;
+              }}
+              onFocus={activateTerminal}
+              onDestroy={handleDestroy}
+              onRequestControl={onRequestControl}
+              onReleaseControl={onReleaseControl}
+            />
+          ) : (
+            <EmptyWorkspaceGroup
+              group={activeGroup}
+              isController={isController}
+              onNewPane={() => void handleSplit("right")}
+            />
+          )}
         </div>
         <MobilePaneTabs
           group={activeGroup}
           terminalsById={terminalsById}
-          activeTerminalId={activeTerminal.id}
+          activeTerminalId={activeTerminal?.id ?? null}
           isController={isController}
           onPick={activateTerminal}
           onNew={() => void handleSplit("right")}
@@ -235,7 +320,7 @@ function TerminalWorkspaceComponent({
           <MobilePaneDrawer
             groups={workspace.groups}
             activeGroupId={workspace.activeGroupId}
-            activeTerminalId={activeTerminal.id}
+            activeTerminalId={activeTerminal?.id ?? null}
             terminalsById={terminalsById}
             isController={isController}
             onClose={() => setMobileDrawerOpen(false)}
@@ -270,18 +355,22 @@ function TerminalWorkspaceComponent({
         groups={workspace.groups}
         activeGroupId={workspace.activeGroupId}
         activeTerminal={activeTerminal}
+        machineId={commandMachineId}
         isController={isController}
         isMobile={false}
         onGroupSelect={activateGroup}
+        onCreateGroup={handleCreateGroup}
+        onAssignGroup={handleAssignGroup}
         onOpenDrawer={() => {}}
         onSplitRight={() => void handleSplit("right")}
         onSplitDown={() => void handleSplit("down")}
         onFit={handleFit}
-        onToggleMaximize={() =>
+        onToggleMaximize={() => {
+          if (!activeTerminal) return;
           setMaximizedTerminalId((value) =>
             value === activeTerminal.id ? null : activeTerminal.id,
-          )
-        }
+          );
+        }}
         maximized={Boolean(maximizedTerminalId)}
         onClose={onClose}
         onRequestControl={onRequestControl}
@@ -297,7 +386,11 @@ function TerminalWorkspaceComponent({
       >
         {maximizedTerminalId ? (
           <WorkspacePaneLeaf
-            terminal={terminalsById.get(maximizedTerminalId) ?? activeTerminal}
+            terminal={
+              terminalsById.get(maximizedTerminalId) ??
+              activeTerminal ??
+              terminal
+            }
             isActive
             isController={isController}
             deviceId={deviceId}
@@ -314,7 +407,7 @@ function TerminalWorkspaceComponent({
           <WorkspacePaneTree
             node={activeGroup.root}
             terminalsById={terminalsById}
-            activeTerminalId={activeTerminal.id}
+            activeTerminalId={activeTerminal?.id ?? null}
             isController={isController}
             deviceId={deviceId}
             onActiveRef={(ref) => {
@@ -325,7 +418,13 @@ function TerminalWorkspaceComponent({
             onRequestControl={onRequestControl}
             onReleaseControl={onReleaseControl}
           />
-        ) : null}
+        ) : (
+          <EmptyWorkspaceGroup
+            group={activeGroup}
+            isController={isController}
+            onNewPane={() => void handleSplit("right")}
+          />
+        )}
       </div>
     </div>
   );
@@ -337,10 +436,13 @@ function WorkspaceTopBar({
   groups,
   activeGroupId,
   activeTerminal,
+  machineId,
   isController,
   isMobile,
   maximized,
   onGroupSelect,
+  onCreateGroup,
+  onAssignGroup,
   onOpenDrawer,
   onSplitRight,
   onSplitDown,
@@ -352,11 +454,14 @@ function WorkspaceTopBar({
 }: {
   groups: WorkspaceGroup[];
   activeGroupId: string | null;
-  activeTerminal: TerminalInfo;
+  activeTerminal: TerminalInfo | null;
+  machineId: string;
   isController: boolean;
   isMobile: boolean;
   maximized: boolean;
   onGroupSelect: (id: string) => void;
+  onCreateGroup: () => void;
+  onAssignGroup: (workspaceGroupId: string | null) => void;
   onOpenDrawer: () => void;
   onSplitRight: () => void;
   onSplitDown: () => void;
@@ -366,6 +471,12 @@ function WorkspaceTopBar({
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
 }) {
+  const activeGroup =
+    groups.find((group) => group.id === activeGroupId) ?? null;
+  const activeTitle =
+    activeTerminal?.title || activeTerminal?.id.slice(0, 8) || "No panes";
+  const activeCwd = activeTerminal?.cwd ?? activeGroup?.cwd ?? "";
+
   return (
     <div
       style={{
@@ -388,8 +499,7 @@ function WorkspaceTopBar({
           data-testid="workspace-mobile-groups"
         >
           <span style={truncateStyle}>
-            {groups.find((group) => group.id === activeGroupId)?.label ??
-              "workspace"}
+            {activeGroup?.label ?? "workspace"}
           </span>
           <ChevronDown size={14} />
         </button>
@@ -424,6 +534,15 @@ function WorkspaceTopBar({
               <span style={{ color: colors.fg3 }}>{group.paneCount}</span>
             </button>
           ))}
+          <button
+            type="button"
+            onClick={onCreateGroup}
+            title="New tab"
+            aria-label="New tab"
+            style={groupAddButtonStyle}
+          >
+            <Plus size={13} />
+          </button>
         </div>
       )}
 
@@ -440,18 +559,38 @@ function WorkspaceTopBar({
         }}
       >
         <span style={{ color: colors.fg1, ...truncateStyle }}>
-          {activeTerminal.title || activeTerminal.id.slice(0, 8)}
+          {activeTitle}
         </span>
-        {!isMobile && (
-          <span style={truncateStyle}>{shortenHome(activeTerminal.cwd)}</span>
+        {!isMobile && activeCwd && (
+          <span style={truncateStyle}>{shortenHome(activeCwd)}</span>
         )}
       </div>
+
+      {!isMobile && (
+        <select
+          value={activeTerminal?.workspace_group_id ?? ""}
+          onChange={(event) => onAssignGroup(event.target.value || null)}
+          disabled={!activeTerminal || !isController}
+          title="Move pane to tab"
+          aria-label="Move pane to tab"
+          style={groupSelectStyle}
+        >
+          <option value="">cwd</option>
+          {groups
+            .filter((group) => group.persistent && group.workspaceGroupId)
+            .map((group) => (
+              <option key={group.id} value={group.workspaceGroupId ?? ""}>
+                {group.label}
+              </option>
+            ))}
+        </select>
+      )}
 
       {isController ? (
         <button
           type="button"
           data-testid="terminal-mode-toggle"
-          onClick={() => onReleaseControl?.(activeTerminal.machine_id)}
+          onClick={() => onReleaseControl?.(activeTerminal?.machine_id ?? machineId)}
           style={controlPillStyle}
           title="Release control"
         >
@@ -461,7 +600,7 @@ function WorkspaceTopBar({
         <button
           type="button"
           data-testid="terminal-mode-toggle"
-          onClick={() => onRequestControl?.(activeTerminal.machine_id)}
+          onClick={() => onRequestControl?.(activeTerminal?.machine_id ?? machineId)}
           style={{
             ...controlPillStyle,
             background: colors.accent,
@@ -489,10 +628,16 @@ function WorkspaceTopBar({
           >
             <PanelBottom size={14} />
           </IconButton>
-          <IconButton title="Fit" testId="terminal-fit-button" onClick={onFit}>
+          <IconButton
+            disabled={!activeTerminal}
+            title="Fit"
+            testId="terminal-fit-button"
+            onClick={onFit}
+          >
             <Expand size={14} />
           </IconButton>
           <IconButton
+            disabled={!activeTerminal}
             title={maximized ? "Restore panes" : "Maximize pane"}
             onClick={onToggleMaximize}
           >
@@ -502,7 +647,7 @@ function WorkspaceTopBar({
       )}
       {isMobile && (
         <>
-          {isController && (
+          {isController && activeTerminal && (
             <IconButton
               title="Fit"
               testId="terminal-fit-button"
@@ -545,7 +690,7 @@ function WorkspacePaneTree({
 }: {
   node: WorkspacePaneNode;
   terminalsById: Map<string, TerminalInfo>;
-  activeTerminalId: string;
+  activeTerminalId: string | null;
   isController: boolean;
   deviceId: string;
   onActiveRef: (ref: TerminalCardRef | null) => void;
@@ -754,6 +899,45 @@ function WorkspacePaneLeaf({
   );
 }
 
+function EmptyWorkspaceGroup({
+  group,
+  isController,
+  onNewPane,
+}: {
+  group: WorkspaceGroup | null;
+  isController: boolean;
+  onNewPane: () => void;
+}) {
+  return (
+    <div
+      data-testid="workspace-empty-group"
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: colors.bg0,
+        border: `1px solid ${colors.lineSoft}`,
+      }}
+    >
+      <button
+        type="button"
+        disabled={!isController || !group}
+        onClick={onNewPane}
+        style={{
+          ...drawerNewButtonStyle,
+          opacity: isController && group ? 1 : 0.5,
+          cursor: isController && group ? "pointer" : "not-allowed",
+        }}
+      >
+        <Plus size={14} />
+        New pane
+      </button>
+    </div>
+  );
+}
+
 function MobilePaneTabs({
   group,
   terminalsById,
@@ -764,7 +948,7 @@ function MobilePaneTabs({
 }: {
   group: WorkspaceGroup | null;
   terminalsById: Map<string, TerminalInfo>;
-  activeTerminalId: string;
+  activeTerminalId: string | null;
   isController: boolean;
   onPick: (id: string) => void;
   onNew: () => void;
@@ -832,7 +1016,7 @@ function MobilePaneDrawer({
 }: {
   groups: WorkspaceGroup[];
   activeGroupId: string | null;
-  activeTerminalId: string;
+  activeTerminalId: string | null;
   terminalsById: Map<string, TerminalInfo>;
   isController: boolean;
   onClose: () => void;
@@ -1023,6 +1207,33 @@ const groupTabStyle: CSSProperties = {
   fontSize: 12,
   flexShrink: 0,
   cursor: "pointer",
+};
+
+const groupAddButtonStyle: CSSProperties = {
+  width: 28,
+  height: 28,
+  borderRadius: 6,
+  border: `1px solid ${colors.lineSoft}`,
+  background: colors.bg2,
+  color: colors.fg2,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+  flexShrink: 0,
+  cursor: "pointer",
+};
+
+const groupSelectStyle: CSSProperties = {
+  height: 28,
+  maxWidth: 150,
+  borderRadius: 6,
+  border: `1px solid ${colors.lineSoft}`,
+  background: colors.bg2,
+  color: colors.fg1,
+  fontSize: 12,
+  padding: "0 6px",
+  flexShrink: 0,
 };
 
 const controlPillStyle: CSSProperties = {

@@ -30,6 +30,7 @@ describe("applyBootstrapSnapshot", () => {
       snapshot_seq: 5,
       machines: [],
       terminals: [],
+      workspace_groups: [],
       machine_stats: [],
       control_leases: [
         { machine_id: "m1", controller_device_id: "d1" },
@@ -38,6 +39,80 @@ describe("applyBootstrapSnapshot", () => {
     });
     expect(state.controlLeases).toEqual({ m1: "d1" });
     expect(state.lastSeq).toBe(5);
+  });
+
+  it("maps workspace groups from snapshot", () => {
+    const state = applyBootstrapSnapshot({
+      snapshot_seq: 5,
+      machines: [],
+      terminals: [],
+      workspace_groups: [
+        { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
+      ],
+      machine_stats: [],
+      control_leases: [],
+    });
+
+    expect(state.workspaceGroups).toEqual([
+      { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
+    ]);
+  });
+});
+
+describe("workspace tab events", () => {
+  it("adds newly created workspace groups", () => {
+    const state = applyBrowserEventEnvelope(
+      { ...EMPTY_BROWSER_SESSION_STATE, lastSeq: 1 },
+      envelope(2, {
+        type: "workspace_group_created",
+        group: {
+          id: "tab-main",
+          machine_id: "m1",
+          name: "Main",
+          sort_order: 0,
+        },
+      } as BrowserEvent),
+    );
+
+    expect(state.workspaceGroups).toEqual([
+      { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
+    ]);
+  });
+
+  it("updates terminal workspace group assignment", () => {
+    const state = applyBrowserEventEnvelope(
+      {
+        ...EMPTY_BROWSER_SESSION_STATE,
+        lastSeq: 1,
+        terminals: [
+          {
+            id: "term-1",
+            machine_id: "m1",
+            title: "Terminal term-1",
+            cwd: "/repo",
+            workspace_group_id: null,
+            cols: 80,
+            rows: 24,
+            reachable: true,
+          },
+        ],
+      },
+      envelope(2, {
+        type: "terminal_updated",
+        terminal: {
+          id: "term-1",
+          machine_id: "m1",
+          title: "Terminal term-1",
+          cwd: "/repo",
+          workspace_group_id: "tab-main",
+          cols: 80,
+          rows: 24,
+          reachable: true,
+        },
+      } as BrowserEvent),
+    );
+
+    expect(state.terminals[0]?.workspace_group_id).toBe("tab-main");
   });
 });
 

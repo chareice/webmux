@@ -10,6 +10,7 @@ pub mod terminal_sessions;
 pub mod tokens;
 pub mod types;
 pub mod users;
+pub mod workspace_groups;
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
@@ -66,6 +67,15 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             created_at INTEGER NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS workspace_groups (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS api_tokens (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -93,12 +103,15 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
         CREATE INDEX IF NOT EXISTS idx_bookmarks_machine ON bookmarks(machine_id);
         CREATE INDEX IF NOT EXISTS idx_user_settings_user ON user_settings(user_id);
+        CREATE INDEX IF NOT EXISTS idx_workspace_groups_machine
+            ON workspace_groups(user_id, machine_id, sort_order);
 
         CREATE TABLE IF NOT EXISTS terminal_sessions (
             id TEXT PRIMARY KEY,
             machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
             title TEXT NOT NULL,
             cwd TEXT NOT NULL,
+            workspace_group_id TEXT REFERENCES workspace_groups(id) ON DELETE SET NULL,
             cols INTEGER NOT NULL,
             rows INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
@@ -118,10 +131,28 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     ",
     )?;
 
+    if !column_exists(conn, "terminal_sessions", "workspace_group_id")? {
+        conn.execute(
+            "ALTER TABLE terminal_sessions ADD COLUMN workspace_group_id TEXT REFERENCES workspace_groups(id) ON DELETE SET NULL",
+            [],
+        )?;
+    }
+
     // Startup recovery: mark all machines offline
     conn.execute("UPDATE machines SET status = 'offline'", [])?;
 
     Ok(())
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for name in rows {
+        if name? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn now_ms() -> i64 {

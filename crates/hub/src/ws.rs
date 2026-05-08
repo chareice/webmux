@@ -321,11 +321,7 @@ async fn terminal_previews_ws_handler(
     ws.on_upgrade(move |socket| handle_terminal_previews_ws(socket, user_id, state))
 }
 
-async fn handle_terminal_previews_ws(
-    socket: WebSocket,
-    user_id: Option<String>,
-    state: AppState,
-) {
+async fn handle_terminal_previews_ws(socket: WebSocket, user_id: Option<String>, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
     let (out_tx, mut out_rx) = mpsc::channel::<Vec<u8>>(128);
 
