@@ -14,7 +14,7 @@ import { AppTitleBar } from "./AppTitleBar.web";
 import { Rail } from "./Rail.web";
 import { WorkbenchHeader } from "./WorkbenchHeader.web";
 import { TerminalGridCard } from "./TerminalGridCard.web";
-import { ExpandedTerminal } from "./ExpandedTerminal.web";
+import { TerminalWorkspace } from "./TerminalWorkspace.web";
 import { MobileWorkbench } from "./MobileWorkbench.web";
 import { Terminal as TerminalIcon } from "lucide-react";
 import {
@@ -426,8 +426,8 @@ export function TerminalCanvas() {
 
   const handleCreateTerminal = useCallback(
     async (machineId: string, cwd: string, startupCommand?: string) => {
-      if (!deviceId) return;
-      if (!isMachineController(machineId)) return;
+      if (!deviceId) return null;
+      if (!isMachineController(machineId)) return null;
       // Estimate initial cols/rows from the current viewport so the tmux
       // session is born at roughly the size it will be displayed at.
       // Without this the server defaults to 80x24 and TUIs (notably Claude
@@ -457,6 +457,7 @@ export function TerminalCanvas() {
         workpathId: match?.id ?? "all",
       });
       window.history.pushState(null, "", `#/t/${newTerminal.id}`);
+      return newTerminal;
     },
     [deviceId, isMachineController, bookmarks, isMobile, viewportHeight],
   );
@@ -555,6 +556,13 @@ export function TerminalCanvas() {
     const t = terminals.find((x) => x.id === layout.zoomedTerminalId);
     if (t) await handleDestroyTerminal(t);
   }, [layout.zoomedTerminalId, terminals, handleDestroyTerminal]);
+
+  const handleSplitWorkspacePane = useCallback(
+    async (terminal: TerminalInfo) => {
+      return handleCreateTerminal(terminal.machine_id, terminal.cwd);
+    },
+    [handleCreateTerminal],
+  );
 
   const handleNewTerminalFromHeader = useCallback(async () => {
     if (!activeMachine || !deviceId) return;
@@ -869,7 +877,7 @@ export function TerminalCanvas() {
         )}
 
         {expandedTerminal && (
-          <ExpandedTerminal
+          <TerminalWorkspace
             terminal={expandedTerminal}
             siblings={
               scopedTerminals.length > 0 ? scopedTerminals : [expandedTerminal]
@@ -880,6 +888,7 @@ export function TerminalCanvas() {
             onClose={handleUnzoom}
             onPick={handleZoomTerminal}
             onDestroy={handleDestroyTerminal}
+            onSplit={handleSplitWorkspacePane}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
           />
