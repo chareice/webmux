@@ -79,6 +79,81 @@ describe("workspace tab events", () => {
     ]);
   });
 
+  it("updates existing workspace groups", () => {
+    const state = applyBrowserEventEnvelope(
+      {
+        ...EMPTY_BROWSER_SESSION_STATE,
+        lastSeq: 1,
+        workspaceGroups: [
+          { id: "tab-a", machine_id: "m1", name: "A", sort_order: 0 },
+          { id: "tab-b", machine_id: "m1", name: "B", sort_order: 1 },
+        ],
+      },
+      envelope(2, {
+        type: "workspace_group_updated",
+        group: {
+          id: "tab-b",
+          machine_id: "m1",
+          name: "B",
+          sort_order: -1,
+        },
+      } as BrowserEvent),
+    );
+
+    expect(state.workspaceGroups.map((group) => group.id)).toEqual([
+      "tab-b",
+      "tab-a",
+    ]);
+  });
+
+  it("removes deleted workspace groups and clears local terminal assignments", () => {
+    const state = applyBrowserEventEnvelope(
+      {
+        ...EMPTY_BROWSER_SESSION_STATE,
+        lastSeq: 1,
+        workspaceGroups: [
+          { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
+          { id: "tab-other", machine_id: "m1", name: "Other", sort_order: 1 },
+        ],
+        terminals: [
+          {
+            id: "term-1",
+            machine_id: "m1",
+            title: "Terminal term-1",
+            cwd: "/repo",
+            workspace_group_id: "tab-main",
+            cols: 80,
+            rows: 24,
+            reachable: true,
+          },
+          {
+            id: "term-2",
+            machine_id: "m1",
+            title: "Terminal term-2",
+            cwd: "/repo",
+            workspace_group_id: "tab-other",
+            cols: 80,
+            rows: 24,
+            reachable: true,
+          },
+        ],
+      },
+      envelope(2, {
+        type: "workspace_group_deleted",
+        machine_id: "m1",
+        group_id: "tab-main",
+      } as BrowserEvent),
+    );
+
+    expect(state.workspaceGroups.map((group) => group.id)).toEqual([
+      "tab-other",
+    ]);
+    expect(state.terminals.find((terminal) => terminal.id === "term-1"))
+      .toMatchObject({ workspace_group_id: null });
+    expect(state.terminals.find((terminal) => terminal.id === "term-2"))
+      .toMatchObject({ workspace_group_id: "tab-other" });
+  });
+
   it("updates terminal workspace group assignment", () => {
     const state = applyBrowserEventEnvelope(
       {

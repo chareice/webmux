@@ -1,11 +1,12 @@
 import { test, expect, devices } from "@playwright/test";
 
 import {
+  createWorkspaceGroupViaApi,
   createTerminalViaApi,
   expectSingleTerminalCard,
-  getAuthHeaders,
   getImmersiveTerminal,
   listTerminals,
+  listWorkspaceGroupsViaApi,
   openApp,
   requestMachineControl,
   resetMachineState,
@@ -246,6 +247,44 @@ test("mobile workspace has direct terminal close and group switching", async ({
     .toHaveCount(0);
 });
 
+test("mobile workspace can delete a group without closing its terminal", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+
+  const group = await createWorkspaceGroupViaApi(
+    page,
+    `Mobile Delete ${Date.now()}`,
+  );
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/tmp",
+    workspaceGroupId: group.id,
+  });
+
+  await page.getByTestId(`mobile-term-card-${terminalId}`).click();
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+  await page.getByTestId(`workspace-mobile-group-delete-${group.id}`).click();
+  await page.getByRole("button", { name: "Delete group", exact: true }).click();
+
+  await expect
+    .poll(async () => {
+      const terminals = await listTerminals(page);
+      return terminals.find((terminal) => terminal.id === terminalId)
+        ?.workspace_group_id;
+    })
+    .toBeNull();
+  await expect(page.getByTestId(`workspace-pane-${terminalId}`)).toBeVisible();
+  await expect
+    .poll(async () =>
+      (await listWorkspaceGroupsViaApi(page)).some(
+        (candidate) => candidate.id === group.id,
+      ),
+    )
+    .toBe(false);
+});
+
 test("mobile live streams reconnect after returning from background", async ({
   page,
 }) => {
@@ -316,21 +355,6 @@ async function setPageVisibility(
     });
     document.dispatchEvent(new Event("visibilitychange"));
   }, visibilityState);
-}
-
-async function createWorkspaceGroupViaApi(
-  page: Parameters<typeof openApp>[0],
-  name: string,
-): Promise<{ id: string; name: string }> {
-  const response = await page.request.post(
-    "/api/machines/e2e-node/workspace-groups",
-    {
-      headers: await getAuthHeaders(page),
-      data: { name },
-    },
-  );
-  expect(response.ok()).toBeTruthy();
-  return response.json();
 }
 
 async function terminalHasKeyboardFocus(

@@ -42,7 +42,9 @@ async function request<T>(
     throw new Error(`${res.status}: ${text}`);
   }
 
-  return res.json();
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 // Auth
@@ -127,6 +129,17 @@ export const createWorkspaceGroup = (machineId: string, name: string) =>
     "POST",
     `/api/machines/${machineId}/workspace-groups`,
     { name },
+  );
+export const reorderWorkspaceGroups = (machineId: string, groupIds: string[]) =>
+  request<WorkspaceGroupInfo[]>(
+    "PUT",
+    `/api/machines/${machineId}/workspace-groups/order`,
+    { group_ids: groupIds },
+  );
+export const deleteWorkspaceGroup = (machineId: string, groupId: string) =>
+  request<void>(
+    "DELETE",
+    `/api/machines/${machineId}/workspace-groups/${groupId}`,
   );
 export const assignTerminalWorkspaceGroup = (
   machineId: string,

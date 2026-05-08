@@ -6,7 +6,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tc_protocol::{DirEntry, MachineInfo, TerminalInfo, WorkspaceGroupInfo};
 
 use crate::auth::AuthUser;
@@ -33,6 +33,11 @@ struct CreateWorkspaceGroupRequest {
 }
 
 #[derive(Deserialize)]
+struct ReorderWorkspaceGroupsRequest {
+    group_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
 struct AssignWorkspaceGroupRequest {
     workspace_group_id: Option<String>,
 }
@@ -42,6 +47,15 @@ fn default_cols() -> u16 {
 }
 fn default_rows() -> u16 {
     24
+}
+
+fn workspace_group_info(row: crate::db::types::WorkspaceGroupRow) -> WorkspaceGroupInfo {
+    WorkspaceGroupInfo {
+        id: row.id,
+        machine_id: row.machine_id,
+        name: row.name,
+        sort_order: row.sort_order,
+    }
 }
 
 fn control_action_allowed(controller_device_id: Option<&str>, device_id: Option<&str>) -> bool {
@@ -242,12 +256,7 @@ async fn list_workspace_groups(
         )
     })?
     .into_iter()
-    .map(|group| WorkspaceGroupInfo {
-        id: group.id,
-        machine_id: group.machine_id,
-        name: group.name,
-        sort_order: group.sort_order,
-    })
+    .map(workspace_group_info)
     .collect();
 
     Ok(Json(groups))
@@ -283,7 +292,10 @@ async fn create_workspace_group(
             format!("DB error: {}", e),
         )
     })?
-    .len() as i64;
+    .iter()
+    .map(|group| group.sort_order)
+    .max()
+    .map_or(0, |sort_order| sort_order + 1);
     let id = uuid::Uuid::new_v4().to_string();
     let row = crate::db::workspace_groups::create_workspace_group(
         &conn,
@@ -310,6 +322,140 @@ async fn create_workspace_group(
         .manager
         .publish_workspace_group_created(&auth_user.user_id, group.clone());
     Ok(Json(group))
+}
+
+async fn reorder_workspace_groups(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(machine_id): Path<String>,
+    Json(req): Json<ReorderWorkspaceGroupsRequest>,
+) -> Result<Json<Vec<WorkspaceGroupInfo>>, (StatusCode, String)> {
+    ensure_machine_row(&state, &auth_user.user_id, &machine_id).await?;
+
+    let conn = state.db.get().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    let existing = crate::db::workspace_groups::find_workspace_groups_by_machine(
+        &conn,
+        &auth_user.user_id,
+        &machine_id,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    let existing_ids: HashSet<&str> = existing.iter().map(|group| group.id.as_str()).collect();
+    let requested_ids: HashSet<&str> = req.group_ids.iter().map(String::as_str).collect();
+    if existing_ids != requested_ids || existing.len() != req.group_ids.len() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Workspace tab order must include each tab exactly once".to_string(),
+        ));
+    }
+
+    for (sort_order, group_id) in req.group_ids.iter().enumerate() {
+        crate::db::workspace_groups::update_workspace_group_sort_order(
+            &conn,
+            &auth_user.user_id,
+            &machine_id,
+            group_id,
+            sort_order as i64,
+        )
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
+    }
+
+    let groups: Vec<WorkspaceGroupInfo> =
+        crate::db::workspace_groups::find_workspace_groups_by_machine(
+            &conn,
+            &auth_user.user_id,
+            &machine_id,
+        )
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?
+        .into_iter()
+        .map(workspace_group_info)
+        .collect();
+
+    for group in &groups {
+        state
+            .manager
+            .publish_workspace_group_updated(&auth_user.user_id, group.clone());
+    }
+
+    Ok(Json(groups))
+}
+
+async fn delete_workspace_group(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path((machine_id, group_id)): Path<(String, String)>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    ensure_machine_row(&state, &auth_user.user_id, &machine_id).await?;
+
+    let conn = state.db.get().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    let valid_group = crate::db::workspace_groups::workspace_group_belongs_to_machine(
+        &conn,
+        &auth_user.user_id,
+        &machine_id,
+        &group_id,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    if !valid_group {
+        return Err((StatusCode::NOT_FOUND, "Workspace tab not found".to_string()));
+    }
+
+    crate::db::terminal_sessions::clear_workspace_group(&conn, &group_id).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    crate::db::workspace_groups::delete_workspace_group(
+        &conn,
+        &auth_user.user_id,
+        &machine_id,
+        &group_id,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+
+    state
+        .manager
+        .clear_workspace_group_assignments(&auth_user.user_id, &machine_id, &group_id)
+        .await;
+    state
+        .manager
+        .publish_workspace_group_deleted(&auth_user.user_id, &machine_id, &group_id);
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn assign_terminal_workspace_group(
@@ -488,6 +634,14 @@ pub fn router() -> Router<AppState> {
             get(list_workspace_groups).post(create_workspace_group),
         )
         .route(
+            "/api/machines/{machine_id}/workspace-groups/order",
+            put(reorder_workspace_groups),
+        )
+        .route(
+            "/api/machines/{machine_id}/workspace-groups/{group_id}",
+            delete(delete_workspace_group),
+        )
+        .route(
             "/api/machines/{machine_id}/terminals/{terminal_id}/workspace-group",
             put(assign_terminal_workspace_group),
         )
@@ -515,7 +669,10 @@ mod tests {
     use r2d2_sqlite::SqliteConnectionManager;
     use tc_protocol::{HubToMachine, MachineInfo, MachineToHub};
 
-    use super::{control_action_allowed, create_terminal, CreateTerminalRequest};
+    use super::{
+        control_action_allowed, create_terminal, create_workspace_group, CreateTerminalRequest,
+        CreateWorkspaceGroupRequest,
+    };
     use crate::{
         attach_router::HubRouter, auth::AuthUser, machine_manager::MachineManager, AppState,
     };
@@ -656,5 +813,55 @@ mod tests {
     async fn create_terminal_keeps_explicit_startup_command() {
         let startup_command = startup_command_sent_to_machine(Some("echo explicit")).await;
         assert_eq!(startup_command, Some("echo explicit".to_string()));
+    }
+
+    #[tokio::test]
+    async fn create_workspace_group_appends_after_deleted_order_gaps() {
+        let state = test_state();
+        {
+            let conn = state.db.get().unwrap();
+            crate::db::machines::ensure_machine_for_user(
+                &conn,
+                "machine-a",
+                "user-a",
+                "Machine A",
+                Some("linux"),
+                Some("/tmp"),
+            )
+            .unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn,
+                "group-a",
+                "user-a",
+                "machine-a",
+                "First",
+                0,
+            )
+            .unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn,
+                "group-c",
+                "user-a",
+                "machine-a",
+                "Third",
+                2,
+            )
+            .unwrap();
+        }
+
+        let Json(group) = create_workspace_group(
+            State(state),
+            AuthUser {
+                user_id: "user-a".to_string(),
+            },
+            Path("machine-a".to_string()),
+            Json(CreateWorkspaceGroupRequest {
+                name: "New".to_string(),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(group.sort_order, 3);
     }
 }

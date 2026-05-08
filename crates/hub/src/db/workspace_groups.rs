@@ -69,6 +69,33 @@ pub fn create_workspace_group(
     })
 }
 
+pub fn update_workspace_group_sort_order(
+    conn: &Connection,
+    user_id: &str,
+    machine_id: &str,
+    group_id: &str,
+    sort_order: i64,
+) -> rusqlite::Result<usize> {
+    conn.execute(
+        "UPDATE workspace_groups SET sort_order = ?1
+         WHERE id = ?2 AND user_id = ?3 AND machine_id = ?4",
+        params![sort_order, group_id, user_id, machine_id],
+    )
+}
+
+pub fn delete_workspace_group(
+    conn: &Connection,
+    user_id: &str,
+    machine_id: &str,
+    group_id: &str,
+) -> rusqlite::Result<usize> {
+    conn.execute(
+        "DELETE FROM workspace_groups
+         WHERE id = ?1 AND user_id = ?2 AND machine_id = ?3",
+        params![group_id, user_id, machine_id],
+    )
+}
+
 fn workspace_group_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceGroupRow> {
     Ok(WorkspaceGroupRow {
         id: row.get(0)?,

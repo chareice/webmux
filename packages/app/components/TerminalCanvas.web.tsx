@@ -24,11 +24,13 @@ import {
   destroyTerminal,
   checkForegroundProcess,
   createWorkspaceGroup,
+  deleteWorkspaceGroup,
   assignTerminalWorkspaceGroup,
   eventsWsUrl,
   getBootstrap,
   listBookmarks,
   requestControl,
+  reorderWorkspaceGroups,
   releaseControl,
 } from "@/lib/api";
 import {
@@ -127,6 +129,20 @@ function upsertWorkspaceGroup(
       ? [...groups, group]
       : groups.map((item) => (item.id === group.id ? group : item));
   return next.sort(
+    (a, b) =>
+      a.machine_id.localeCompare(b.machine_id) ||
+      a.sort_order - b.sort_order ||
+      a.name.localeCompare(b.name),
+  );
+}
+
+function replaceMachineWorkspaceGroups(
+  groups: WorkspaceGroupInfo[],
+  machineId: string,
+  nextGroups: WorkspaceGroupInfo[],
+): WorkspaceGroupInfo[] {
+  const otherGroups = groups.filter((group) => group.machine_id !== machineId);
+  return [...otherGroups, ...nextGroups].sort(
     (a, b) =>
       a.machine_id.localeCompare(b.machine_id) ||
       a.sort_order - b.sort_order ||
@@ -657,25 +673,47 @@ export function TerminalCanvas() {
   );
 
   const handleCreateWorkspaceGroup = useCallback(
-    async (
-      machineId: string,
-      name: string,
-      terminal: TerminalInfo | null,
-    ) => {
+    async (machineId: string, name: string) => {
       const group = await createWorkspaceGroup(machineId, name);
       setBrowserState((prev) => ({
         ...prev,
         workspaceGroups: upsertWorkspaceGroup(prev.workspaceGroups, group),
       }));
-      if (!terminal) return;
-      const updated = await assignTerminalWorkspaceGroup(
-        terminal.machine_id,
-        terminal.id,
-        group.id,
-      );
+      return group;
+    },
+    [],
+  );
+
+  const handleReorderWorkspaceGroups = useCallback(
+    async (machineId: string, groupIds: string[]) => {
+      const groups = await reorderWorkspaceGroups(machineId, groupIds);
       setBrowserState((prev) => ({
         ...prev,
-        terminals: upsertTerminalInfo(prev.terminals, updated),
+        workspaceGroups: replaceMachineWorkspaceGroups(
+          prev.workspaceGroups,
+          machineId,
+          groups,
+        ),
+      }));
+      return groups;
+    },
+    [],
+  );
+
+  const handleDeleteWorkspaceGroup = useCallback(
+    async (machineId: string, groupId: string) => {
+      await deleteWorkspaceGroup(machineId, groupId);
+      setBrowserState((prev) => ({
+        ...prev,
+        workspaceGroups: prev.workspaceGroups.filter(
+          (group) => !(group.machine_id === machineId && group.id === groupId),
+        ),
+        terminals: prev.terminals.map((terminal) =>
+          terminal.machine_id === machineId &&
+          terminal.workspace_group_id === groupId
+            ? { ...terminal, workspace_group_id: null }
+            : terminal,
+        ),
       }));
     },
     [],
@@ -1019,6 +1057,8 @@ export function TerminalCanvas() {
             onSplit={handleSplitWorkspacePane}
             onCreatePane={handleCreateWorkspacePane}
             onCreateGroup={handleCreateWorkspaceGroup}
+            onReorderGroups={handleReorderWorkspaceGroups}
+            onDeleteGroup={handleDeleteWorkspaceGroup}
             onAssignGroup={handleAssignWorkspaceGroup}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}
