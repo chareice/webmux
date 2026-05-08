@@ -115,6 +115,54 @@ describe("terminalWorkspaceLayout", () => {
     expect(next.activeTerminalId).toBe("a");
   });
 
+  it("activates the adjacent pane when closing an active pane in a nested split", () => {
+    const base = createTerminalWorkspace(
+      [
+        terminal("a", "/repo"),
+        terminal("b", "/repo"),
+        terminal("c", "/repo"),
+      ],
+      "b",
+    );
+    const nested = splitWorkspacePane(base, {
+      activeTerminalId: "b",
+      newTerminalId: "c",
+      direction: "down",
+    });
+
+    const next = closeWorkspacePane(nested, "c");
+
+    expect(next.activeTerminalId).toBe("b");
+    expect(collectPaneTerminalIds(getActiveWorkspaceGroup(next)?.root ?? null))
+      .toEqual(["a", "b"]);
+  });
+
+  it("activates the adjacent pane when refresh removes the active pane", () => {
+    const base = createTerminalWorkspace(
+      [
+        terminal("a", "/repo"),
+        terminal("b", "/repo"),
+        terminal("c", "/repo"),
+      ],
+      "b",
+    );
+    const nested = splitWorkspacePane(base, {
+      activeTerminalId: "b",
+      newTerminalId: "c",
+      direction: "down",
+    });
+
+    const next = reconcileTerminalWorkspace(
+      nested,
+      [terminal("a", "/repo"), terminal("b", "/repo")],
+      "c",
+    );
+
+    expect(next.activeTerminalId).toBe("b");
+    expect(collectPaneTerminalIds(getActiveWorkspaceGroup(next)?.root ?? null))
+      .toEqual(["a", "b"]);
+  });
+
   it("uses group tabs on mobile instead of exposing the split tree", () => {
     const workspace = createTerminalWorkspace(terminals, "web-2");
 

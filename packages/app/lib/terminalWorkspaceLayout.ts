@@ -34,6 +34,12 @@ export interface MobileWorkspaceTab {
   active: boolean;
 }
 
+interface RemoveResult {
+  root: WorkspacePaneNode | null;
+  fallbackTerminalId: string | null;
+  removed: boolean;
+}
+
 export function createTerminalWorkspace(
   terminals: TerminalInfo[],
   activeTerminalId: string | null,
@@ -109,10 +115,12 @@ export function closeWorkspacePane(
       if (!collectPaneTerminalIds(group.root).includes(terminalId)) {
         return group;
       }
-      const nextRoot = removeNode(group.root, terminalId);
+      const result = removeNodeWithFallback(group.root, terminalId);
+      const nextRoot = result.root;
       const paneIds = collectPaneTerminalIds(nextRoot);
       if (workspace.activeTerminalId === terminalId) {
-        nextActiveTerminalId = paneIds[0] ?? null;
+        nextActiveTerminalId =
+          result.fallbackTerminalId ?? paneIds[0] ?? null;
       }
       return {
         ...group,
@@ -144,6 +152,7 @@ export function reconcileTerminalWorkspace(
   activeTerminalId: string | null,
 ): TerminalWorkspace {
   const grouped = createGroups(terminals);
+  let fallbackForRemovedActive: string | null = null;
   const groups = grouped.map((group) => {
     const previous = workspace.groups.find(
       (candidate) => candidate.id === group.id,
@@ -154,7 +163,12 @@ export function reconcileTerminalWorkspace(
     let root = previous.root;
     for (const id of collectPaneTerminalIds(root)) {
       if (!groupTerminalIds.has(id)) {
-        root = removeNode(root, id);
+        const result = removeNodeWithFallback(root, id);
+        root = result.root;
+        if (id === workspace.activeTerminalId || id === activeTerminalId) {
+          fallbackForRemovedActive =
+            fallbackForRemovedActive ?? result.fallbackTerminalId;
+        }
       }
     }
     const existingIds = new Set(collectPaneTerminalIds(root));
@@ -177,7 +191,10 @@ export function reconcileTerminalWorkspace(
       : workspace.activeTerminalId &&
           terminalExists(terminals, workspace.activeTerminalId)
         ? workspace.activeTerminalId
-        : null;
+        : fallbackForRemovedActive &&
+            terminalExists(terminals, fallbackForRemovedActive)
+          ? fallbackForRemovedActive
+          : null;
   const activeGroup =
     groups.find((group) =>
       collectPaneTerminalIds(group.root).includes(requestedActive ?? ""),
@@ -303,15 +320,46 @@ function removeNode(
   root: WorkspacePaneNode | null,
   terminalId: string,
 ): WorkspacePaneNode | null {
-  if (!root) return null;
+  return removeNodeWithFallback(root, terminalId).root;
+}
+
+function removeNodeWithFallback(
+  root: WorkspacePaneNode | null,
+  terminalId: string,
+): RemoveResult {
+  if (!root) return { root: null, fallbackTerminalId: null, removed: false };
   if (root.type === "leaf") {
-    return root.terminalId === terminalId ? null : root;
+    return root.terminalId === terminalId
+      ? { root: null, fallbackTerminalId: null, removed: true }
+      : { root, fallbackTerminalId: null, removed: false };
   }
-  const first = removeNode(root.first, terminalId);
-  const second = removeNode(root.second, terminalId);
-  if (!first) return second;
-  if (!second) return first;
-  return { ...root, first, second };
+  const first = removeNodeWithFallback(root.first, terminalId);
+  const second = removeNodeWithFallback(root.second, terminalId);
+  if (!first.removed && !second.removed) {
+    return { root, fallbackTerminalId: null, removed: false };
+  }
+  if (!first.root) {
+    return {
+      root: second.root,
+      fallbackTerminalId:
+        first.fallbackTerminalId ?? firstTerminalId(second.root),
+      removed: true,
+    };
+  }
+  if (!second.root) {
+    return {
+      root: first.root,
+      fallbackTerminalId:
+        second.fallbackTerminalId ?? firstTerminalId(first.root),
+      removed: true,
+    };
+  }
+  return {
+    root: { ...root, first: first.root, second: second.root },
+    fallbackTerminalId:
+      first.removed ? first.fallbackTerminalId : second.fallbackTerminalId,
+    removed: true,
+  };
 }
 
 function appendNode(

@@ -24,6 +24,7 @@ import {
   type WorkspaceGroup,
   type WorkspacePaneNode,
   type WorkspaceSplitIntent,
+  closeWorkspacePane,
   createTerminalWorkspace,
   getActiveWorkspaceGroup,
   reconcileTerminalWorkspace,
@@ -95,6 +96,8 @@ function TerminalWorkspaceComponent({
 
   const activateTerminal = useCallback(
     (terminalId: string) => {
+      const changedTerminal = terminalId !== workspace.activeTerminalId;
+      if (changedTerminal) setMaximizedTerminalId(null);
       setWorkspace((prev) => {
         const group =
           prev.groups.find((candidate) =>
@@ -107,11 +110,7 @@ function TerminalWorkspaceComponent({
         };
       });
       onPick(terminalId);
-      if (
-        !isMobile &&
-        isController &&
-        terminalId !== workspace.activeTerminalId
-      ) {
+      if (!isMobile && isController && changedTerminal) {
         fitActivePaneAfterLayout();
       }
     },
@@ -126,13 +125,15 @@ function TerminalWorkspaceComponent({
 
   const activateGroup = useCallback(
     (groupId: string) => {
+      setMaximizedTerminalId(null);
       setWorkspace((prev) => {
         const next = selectWorkspaceGroup(prev, groupId);
         if (next.activeTerminalId) onPick(next.activeTerminalId);
         return next;
       });
+      if (!isMobile && isController) fitActivePaneAfterLayout();
     },
-    [onPick],
+    [fitActivePaneAfterLayout, isController, isMobile, onPick],
   );
 
   const handleSplit = useCallback(
@@ -140,6 +141,7 @@ function TerminalWorkspaceComponent({
       if (!isController) return;
       const created = await onSplit(activeTerminal, direction);
       if (!created) return;
+      setMaximizedTerminalId(null);
       setWorkspace((prev) =>
         splitWorkspacePane(prev, {
           activeTerminalId: activeTerminal.id,
@@ -160,10 +162,18 @@ function TerminalWorkspaceComponent({
   const handleDestroy = useCallback(
     (target: TerminalInfo) => {
       if (!isController) return;
-      onDestroy(target);
+      const nextWorkspace = closeWorkspacePane(workspace, target.id);
+      if (
+        workspace.activeTerminalId === target.id &&
+        nextWorkspace.activeTerminalId &&
+        nextWorkspace.activeTerminalId !== target.id
+      ) {
+        onPick(nextWorkspace.activeTerminalId);
+      }
       if (maximizedTerminalId === target.id) setMaximizedTerminalId(null);
+      onDestroy(target);
     },
-    [isController, maximizedTerminalId, onDestroy],
+    [isController, maximizedTerminalId, onDestroy, onPick, workspace],
   );
 
   if (isMobile) {
@@ -710,7 +720,9 @@ function WorkspacePaneLeaf({
           <div style={{ flex: 1 }} />
           <button
             type="button"
+            data-testid={`expanded-thumb-close-${terminal.id}`}
             disabled={!isController}
+            onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
               onDestroy(terminal);
@@ -911,7 +923,11 @@ function MobilePaneDrawer({
                   <button
                     type="button"
                     disabled={!isController}
-                    onClick={() => onDestroy(terminal)}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDestroy(terminal);
+                    }}
                     style={smallIconButtonStyle}
                     title="Close pane"
                   >

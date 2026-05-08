@@ -72,6 +72,10 @@ const ConfirmDialog = lazy(() =>
 
 const STATUS_BAR_KEY = "webmux:show-status-bar";
 
+interface CreateTerminalOptions {
+  selectWorkpath?: boolean;
+}
+
 function useViewportWidth() {
   const [w, setW] = useState(
     typeof window !== "undefined" ? window.innerWidth : 1280,
@@ -97,6 +101,17 @@ function useStatusBarPref() {
     return () => window.removeEventListener("storage", handler);
   }, []);
   return visible;
+}
+
+function upsertTerminalInfo(
+  terminals: TerminalInfo[],
+  terminal: TerminalInfo,
+): TerminalInfo[] {
+  const index = terminals.findIndex((item) => item.id === terminal.id);
+  if (index === -1) return [...terminals, terminal];
+  const next = terminals.slice();
+  next[index] = terminal;
+  return next;
 }
 
 export function TerminalCanvas() {
@@ -425,7 +440,12 @@ export function TerminalCanvas() {
   }, [bookmarks]);
 
   const handleCreateTerminal = useCallback(
-    async (machineId: string, cwd: string, startupCommand?: string) => {
+    async (
+      machineId: string,
+      cwd: string,
+      startupCommand?: string,
+      options: CreateTerminalOptions = {},
+    ) => {
       if (!deviceId) return null;
       if (!isMachineController(machineId)) return null;
       // Estimate initial cols/rows from the current viewport so the tmux
@@ -448,14 +468,25 @@ export function TerminalCanvas() {
         cols,
         rows,
       );
-      const match = bookmarks.find(
-        (b) => b.machine_id === machineId && b.path === cwd,
-      );
-      dispatchLayout({
-        type: "TERMINAL_CREATED",
-        terminalId: newTerminal.id,
-        workpathId: match?.id ?? "all",
-      });
+      setBrowserState((prev) => ({
+        ...prev,
+        terminals: upsertTerminalInfo(prev.terminals, newTerminal),
+      }));
+      if (options.selectWorkpath === false) {
+        dispatchLayout({
+          type: "ZOOM_TERMINAL",
+          terminalId: newTerminal.id,
+        });
+      } else {
+        const match = bookmarks.find(
+          (b) => b.machine_id === machineId && b.path === cwd,
+        );
+        dispatchLayout({
+          type: "TERMINAL_CREATED",
+          terminalId: newTerminal.id,
+          workpathId: match?.id ?? "all",
+        });
+      }
       window.history.pushState(null, "", `#/t/${newTerminal.id}`);
       return newTerminal;
     },
@@ -559,7 +590,9 @@ export function TerminalCanvas() {
 
   const handleSplitWorkspacePane = useCallback(
     async (terminal: TerminalInfo) => {
-      return handleCreateTerminal(terminal.machine_id, terminal.cwd);
+      return handleCreateTerminal(terminal.machine_id, terminal.cwd, undefined, {
+        selectWorkpath: false,
+      });
     },
     [handleCreateTerminal],
   );
