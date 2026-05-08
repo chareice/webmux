@@ -57,6 +57,9 @@ test("desktop workspace splits the active terminal into tiled panes", async ({
       return splitTerminal?.cols ?? 999;
     }, { timeout: 5_000 })
     .toBeLessThan(140);
+  await expect
+    .poll(() => paneXtermScrollbarWidth(page, secondId), { timeout: 5_000 })
+    .toBe("none");
 
   await page.getByLabel("Split down").click();
   await expect.poll(async () => (await listTerminals(page)).length).toBe(3);
@@ -148,4 +151,12 @@ async function paneTerminalScale(page: Page, terminalId: string) {
     .first()
     .getAttribute("data-terminal-view-scale");
   return Number(scale);
+}
+
+async function paneXtermScrollbarWidth(page: Page, terminalId: string) {
+  return page
+    .getByTestId(`workspace-pane-${terminalId}`)
+    .locator(".xterm-viewport")
+    .first()
+    .evaluate((element) => getComputedStyle(element).scrollbarWidth);
 }
