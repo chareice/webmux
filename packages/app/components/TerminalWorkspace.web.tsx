@@ -717,6 +717,10 @@ function WorkspaceTopBar({
             <div
               key={group.id}
               draggable={group.persistent}
+              onMouseEnter={(event) => {
+                if (event.buttons !== 0) return;
+                if (!active) onGroupSelect(group.id);
+              }}
               onDragStart={(event) => {
                 if (!group.persistent) return;
                 event.dataTransfer.effectAllowed = "move";
