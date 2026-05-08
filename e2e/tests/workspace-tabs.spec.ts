@@ -189,6 +189,41 @@ test("deleting a workspace tab keeps terminals open and clears their group", asy
     .toMatchObject({ workspace_group_id: null });
 });
 
+test("hovering a workspace group tab switches to that group", async ({ page }) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const firstGroup = await createWorkspaceGroupViaApi(
+    page,
+    `Hover Group A ${Date.now()}`,
+  );
+  const secondGroup = await createWorkspaceGroupViaApi(
+    page,
+    `Hover Group B ${Date.now()}`,
+  );
+  const firstTerminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: firstGroup.id,
+  });
+  const secondTerminalId = await createTerminalViaApi(page, {
+    cwd: "/tmp",
+    workspaceGroupId: secondGroup.id,
+  });
+
+  await expandTerminalById(page, firstTerminalId);
+  await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
+    .toBeVisible();
+  await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
+    .toHaveCount(0);
+
+  await page.getByTestId(`workspace-group-${secondGroup.id}`).hover();
+  await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
+    .toBeVisible();
+  await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
+    .toHaveCount(0);
+});
+
 test("hovering a workspace pane activates that terminal", async ({ page }) => {
   await openApp(page);
   await resetMachineState(page);
