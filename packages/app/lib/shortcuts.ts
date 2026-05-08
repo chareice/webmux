@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { findWorkspaceShortcutAction } from "./workspaceShortcuts";
 
 interface ShortcutActions {
   newTerminal?: () => void;
@@ -16,8 +17,11 @@ interface ShortcutActions {
 }
 
 export function isAppShortcut(event: KeyboardEvent): boolean {
+  if (findWorkspaceShortcutAction(event)) return true;
+
   const mod = event.ctrlKey || event.metaKey;
   if (!mod) return false;
+  if (event.altKey) return false;
 
   if (event.shiftKey && event.code === "KeyT") return true;
   if (!event.shiftKey && event.code === "KeyW") return true;
@@ -49,6 +53,7 @@ export function useShortcuts(actions: ShortcutActions) {
 
       const mod = event.ctrlKey || event.metaKey;
       if (!mod) return;
+      if (event.altKey) return;
 
       const a = actionsRef.current;
 

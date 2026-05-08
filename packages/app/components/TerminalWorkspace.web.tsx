@@ -25,16 +25,23 @@ import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import {
   type WorkspaceGroup,
+  type WorkspacePaneFocusDirection,
   type WorkspacePaneNode,
   type WorkspaceSplitIntent,
   appendWorkspacePaneToGroup,
   closeWorkspacePane,
   createTerminalWorkspace,
+  findAdjacentWorkspacePane,
   getActiveWorkspaceGroup,
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
   splitWorkspacePane,
 } from "@/lib/terminalWorkspaceLayout";
+import {
+  findWorkspaceShortcutAction,
+  getWorkspaceGroupShortcutIndex,
+  isEditableShortcutTarget,
+} from "@/lib/workspaceShortcuts";
 
 interface TerminalWorkspaceProps {
   terminal: TerminalInfo;
@@ -45,7 +52,10 @@ interface TerminalWorkspaceProps {
   isMobile: boolean;
   onClose: () => void;
   onPick: (id: string) => void;
-  onDestroy: (terminal: TerminalInfo) => void;
+  onDestroy: (
+    terminal: TerminalInfo,
+    options?: WorkspaceDestroyOptions,
+  ) => Promise<"accepted" | "pending">;
   onSplit: (
     terminal: TerminalInfo,
     direction: WorkspaceSplitIntent,
@@ -76,6 +86,11 @@ interface WorkspaceFitRequest {
   terminalIds: string[];
   focusTerminalId: string | null;
   nonce: number;
+}
+
+interface WorkspaceDestroyOptions {
+  keepWorkspaceOpen?: boolean;
+  afterAccepted?: () => void;
 }
 
 function TerminalWorkspaceComponent({
@@ -362,22 +377,148 @@ function TerminalWorkspaceComponent({
     [activeTerminal, onAssignGroup],
   );
 
+  const focusPaneByDirection = useCallback(
+    (direction: WorkspacePaneFocusDirection) => {
+      if (maximizedTerminalId) return;
+      const root = getActiveWorkspaceGroup(workspace)?.root ?? null;
+      const nextTerminalId = findAdjacentWorkspacePane(
+        root,
+        direction,
+        workspace.activeTerminalId,
+      );
+      if (nextTerminalId) activateTerminal(nextTerminalId);
+    },
+    [activateTerminal, maximizedTerminalId, workspace],
+  );
+
+  const switchGroupByOffset = useCallback(
+    (offset: number) => {
+      const groups = workspace.groups;
+      if (groups.length === 0) return;
+      const currentIndex = Math.max(
+        0,
+        groups.findIndex((group) => group.id === workspace.activeGroupId),
+      );
+      const nextIndex = (currentIndex + offset + groups.length) % groups.length;
+      const nextGroup = groups[nextIndex];
+      if (nextGroup && nextGroup.id !== workspace.activeGroupId) {
+        activateGroup(nextGroup.id);
+      }
+    },
+    [activateGroup, workspace.activeGroupId, workspace.groups],
+  );
+
+  const switchGroupByIndex = useCallback(
+    (index: number) => {
+      const group = workspace.groups[index];
+      if (group && group.id !== workspace.activeGroupId) activateGroup(group.id);
+    },
+    [activateGroup, workspace.activeGroupId, workspace.groups],
+  );
+
+  useEffect(() => {
+    if (isMobile) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.type !== "keydown") return;
+      const insideTerminal =
+        event.target instanceof Element &&
+        Boolean(event.target.closest(".xterm"));
+      if (!insideTerminal && isEditableShortcutTarget(event.target)) return;
+
+      const action = findWorkspaceShortcutAction(event);
+      if (!action) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+
+      if (action === "paneLeft") {
+        focusPaneByDirection("left");
+        return;
+      }
+      if (action === "paneRight") {
+        focusPaneByDirection("right");
+        return;
+      }
+      if (action === "paneUp") {
+        focusPaneByDirection("up");
+        return;
+      }
+      if (action === "paneDown") {
+        focusPaneByDirection("down");
+        return;
+      }
+      if (action === "groupPrevious") {
+        switchGroupByOffset(-1);
+        return;
+      }
+      if (action === "groupNext") {
+        switchGroupByOffset(1);
+        return;
+      }
+
+      const groupIndex = getWorkspaceGroupShortcutIndex(action);
+      if (groupIndex !== null) switchGroupByIndex(groupIndex);
+    };
+
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [
+    focusPaneByDirection,
+    isMobile,
+    switchGroupByIndex,
+    switchGroupByOffset,
+  ]);
+
   const handleDestroy = useCallback(
     (target: TerminalInfo) => {
       if (!isController) return;
       const nextWorkspace = closeWorkspacePane(workspace, target.id);
-      if (
-        workspace.activeTerminalId === target.id &&
-        nextWorkspace.activeTerminalId &&
-        nextWorkspace.activeTerminalId !== target.id
-      ) {
-        onPick(nextWorkspace.activeTerminalId);
-      }
-      if (maximizedTerminalId === target.id) setMaximizedTerminalId(null);
-      onDestroy(target);
+      const applyClosedWorkspace = () => {
+        setWorkspace(nextWorkspace);
+        if (
+          workspace.activeTerminalId === target.id &&
+          nextWorkspace.activeTerminalId &&
+          nextWorkspace.activeTerminalId !== target.id
+        ) {
+          onPick(nextWorkspace.activeTerminalId);
+        }
+        if (maximizedTerminalId === target.id) setMaximizedTerminalId(null);
+      };
+      void (async () => {
+        const result = await onDestroy(target, {
+          keepWorkspaceOpen:
+            workspace.activeTerminalId === target.id &&
+            !nextWorkspace.activeTerminalId &&
+            Boolean(nextWorkspace.activeGroupId),
+          afterAccepted: applyClosedWorkspace,
+        });
+        if (result !== "accepted") return;
+        applyClosedWorkspace();
+      })().catch((error) => {
+        console.error("Failed to close workspace pane", error);
+      });
     },
     [isController, maximizedTerminalId, onDestroy, onPick, workspace],
   );
+
+  useEffect(() => {
+    if (isMobile) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.type !== "keydown") return;
+      const mod = event.ctrlKey || event.metaKey;
+      if (!mod || event.altKey || event.shiftKey || event.code !== "KeyW") return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+
+      if (activeTerminal) handleDestroy(activeTerminal);
+    };
+
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [activeTerminal, handleDestroy, isMobile]);
 
   if (isMobile) {
     return (

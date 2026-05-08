@@ -3,6 +3,17 @@ import { colors } from "@/lib/colors";
 import { isTauri } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import { getSettings, updateSettings } from "@/lib/api";
+import {
+  DEFAULT_WORKSPACE_SHORTCUTS,
+  WORKSPACE_SHORTCUT_DEFINITIONS,
+  type WorkspaceShortcutActionId,
+  eventToShortcut,
+  formatShortcut,
+  getWorkspaceShortcutConflict,
+  loadWorkspaceShortcuts,
+  resetWorkspaceShortcuts,
+  saveWorkspaceShortcut,
+} from "@/lib/workspaceShortcuts";
 import { ArrowLeft } from "lucide-react";
 
 // Common UI (proportional) fonts
@@ -251,6 +262,12 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
 
   // Server URL (desktop only)
   const [serverUrl, setServerUrlState] = useState(() => getServerUrl());
+  const [workspaceShortcuts, setWorkspaceShortcuts] = useState(() =>
+    loadWorkspaceShortcuts(),
+  );
+  const [recordingShortcut, setRecordingShortcut] =
+    useState<WorkspaceShortcutActionId | null>(null);
+  const [shortcutConflict, setShortcutConflict] = useState<string | null>(null);
 
   // Load quick commands
   useEffect(() => {
@@ -372,6 +389,65 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     setServerUrl(serverUrl);
     window.location.reload();
   }, [serverUrl]);
+
+  const handleShortcutRecordKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (!recordingShortcut) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === "Escape") {
+        setRecordingShortcut(null);
+        setShortcutConflict(null);
+        return;
+      }
+
+      if (event.key === "Backspace" || event.key === "Delete") {
+        const next = saveWorkspaceShortcut(
+          recordingShortcut,
+          DEFAULT_WORKSPACE_SHORTCUTS[recordingShortcut],
+        );
+        setWorkspaceShortcuts(next);
+        setRecordingShortcut(null);
+        setShortcutConflict(null);
+        return;
+      }
+
+      const shortcut = eventToShortcut(event.nativeEvent);
+      if (!shortcut) return;
+      const conflict = getWorkspaceShortcutConflict(
+        recordingShortcut,
+        shortcut,
+        workspaceShortcuts,
+      );
+      if (conflict) {
+        const conflictLabel =
+          WORKSPACE_SHORTCUT_DEFINITIONS.find(
+            (definition) => definition.id === conflict,
+          )?.label ?? "another shortcut";
+        setShortcutConflict(`Already used by ${conflictLabel}`);
+        return;
+      }
+      const next = saveWorkspaceShortcut(recordingShortcut, shortcut);
+      setWorkspaceShortcuts(next);
+      setRecordingShortcut(null);
+      setShortcutConflict(null);
+    },
+    [recordingShortcut, workspaceShortcuts],
+  );
+
+  const handleResetShortcut = useCallback((id: WorkspaceShortcutActionId) => {
+    const next = saveWorkspaceShortcut(id, DEFAULT_WORKSPACE_SHORTCUTS[id]);
+    setWorkspaceShortcuts(next);
+    setRecordingShortcut(null);
+    setShortcutConflict(null);
+  }, []);
+
+  const handleResetAllShortcuts = useCallback(() => {
+    setWorkspaceShortcuts(resetWorkspaceShortcuts());
+    setRecordingShortcut(null);
+    setShortcutConflict(null);
+  }, []);
 
   const inputStyle: React.CSSProperties = {
     background: colors.surface,
@@ -558,6 +634,127 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               <option value="wterm">wterm</option>
             </select>
           </SettingRow>
+        </section>
+
+        {/* Workspace Shortcuts Section */}
+        <section style={{ marginBottom: 32 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              marginBottom: 16,
+            }}
+          >
+            <SectionTitle>Workspace Shortcuts</SectionTitle>
+            <div style={{ flex: 1 }} />
+            <button
+              type="button"
+              onClick={handleResetAllShortcuts}
+              style={{
+                background: "none",
+                border: `1px solid ${colors.border}`,
+                borderRadius: 6,
+                color: colors.foregroundSecondary,
+                cursor: "pointer",
+                padding: "6px 10px",
+                fontSize: 12,
+              }}
+            >
+              Reset all
+            </button>
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              color: colors.foregroundMuted,
+              marginBottom: 12,
+            }}
+          >
+            Click a shortcut, then press the new key combination. Backspace
+            restores the default.
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {WORKSPACE_SHORTCUT_DEFINITIONS.map((shortcut) => {
+              const recording = recordingShortcut === shortcut.id;
+              return (
+                <div
+                  key={shortcut.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) minmax(170px, auto) 58px",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      minWidth: 0,
+                      fontSize: 13,
+                      color: colors.foreground,
+                    }}
+                  >
+                    {shortcut.label}
+                  </div>
+                  <button
+                    type="button"
+                    data-testid={`workspace-shortcut-recorder-${shortcut.id}`}
+                    onClick={() => {
+                      setRecordingShortcut(shortcut.id);
+                      setShortcutConflict(null);
+                    }}
+                    onKeyDown={handleShortcutRecordKeyDown}
+                    style={{
+                      minHeight: 32,
+                      borderRadius: 6,
+                      border: `1px solid ${
+                        recording ? colors.accent : colors.border
+                      }`,
+                      background: recording ? "#2a1a0f" : colors.surface,
+                      color: recording
+                        ? colors.accent
+                        : colors.foregroundSecondary,
+                      cursor: "pointer",
+                      padding: "6px 10px",
+                      fontSize: 12,
+                      fontFamily: "var(--font-mono)",
+                      textAlign: "center",
+                    }}
+                  >
+                    {recording
+                      ? "Press keys..."
+                      : formatShortcut(workspaceShortcuts[shortcut.id])}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleResetShortcut(shortcut.id)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: colors.foregroundMuted,
+                      cursor: "pointer",
+                      padding: "6px 4px",
+                      fontSize: 12,
+                    }}
+                  >
+                    Reset
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {shortcutConflict && (
+            <div
+              data-testid="workspace-shortcut-conflict"
+              style={{
+                marginTop: 10,
+                fontSize: 12,
+                color: colors.danger,
+              }}
+            >
+              {shortcutConflict}
+            </div>
+          )}
         </section>
 
         {/* Quick Commands Section */}

@@ -81,6 +81,13 @@ interface CreateTerminalOptions {
   workspaceGroupId?: string | null;
 }
 
+interface DestroyTerminalOptions {
+  keepWorkspaceOpen?: boolean;
+  afterAccepted?: () => void;
+}
+
+type DestroyTerminalRequestResult = "accepted" | "pending";
+
 function useViewportWidth() {
   const [w, setW] = useState(
     typeof window !== "undefined" ? window.innerWidth : 1280,
@@ -180,9 +187,16 @@ export function TerminalCanvas() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
   const lastSeqRef = useRef(0);
+  const keepWorkspaceOpenDestroyedTerminalIdsRef = useRef(new Set<string>());
+  const [workspaceAnchorTerminal, setWorkspaceAnchorTerminal] =
+    useState<TerminalInfo | null>(null);
 
   const [closeConfirmation, setCloseConfirmation] = useState<
-    | { terminal: TerminalInfo; processName: string }
+    | {
+        terminal: TerminalInfo;
+        processName: string;
+        options?: DestroyTerminalOptions;
+      }
     | null
   >(null);
 
@@ -397,12 +411,18 @@ export function TerminalCanvas() {
             next !== prev &&
             envelope.event?.type === "terminal_destroyed"
           ) {
-            dispatchLayout({
-              type: "TERMINAL_DESTROYED",
-              terminalId: envelope.event.terminal_id,
-            });
+            const keepWorkspaceOpen =
+              keepWorkspaceOpenDestroyedTerminalIdsRef.current.delete(
+                envelope.event.terminal_id,
+              );
+            if (!keepWorkspaceOpen) {
+              dispatchLayout({
+                type: "TERMINAL_DESTROYED",
+                terminalId: envelope.event.terminal_id,
+              });
+            }
             if (zoomedTerminalIdRef.current === envelope.event.terminal_id) {
-              window.history.pushState(null, "", window.location.pathname);
+              window.history.replaceState(null, "", window.location.pathname);
             }
           }
           return next;
@@ -485,6 +505,20 @@ export function TerminalCanvas() {
   const expandedTerminal = layout.zoomedTerminalId
     ? terminals.find((t) => t.id === layout.zoomedTerminalId) ?? null
     : null;
+  const workspaceTerminal =
+    expandedTerminal ??
+    (layout.zoomedTerminalId &&
+    workspaceAnchorTerminal?.machine_id === activeMachine?.id
+      ? workspaceAnchorTerminal
+      : null);
+
+  useEffect(() => {
+    if (expandedTerminal) {
+      setWorkspaceAnchorTerminal(expandedTerminal);
+    } else if (!layout.zoomedTerminalId) {
+      setWorkspaceAnchorTerminal(null);
+    }
+  }, [expandedTerminal, layout.zoomedTerminalId]);
 
   const workpathLabelByMachineAndCwd = useMemo(() => {
     const m = new Map<string, string>();
@@ -592,9 +626,12 @@ export function TerminalCanvas() {
   );
 
   const handleDestroyTerminal = useCallback(
-    async (terminal: TerminalInfo) => {
-      if (!deviceId) return;
-      if (!isMachineController(terminal.machine_id)) return;
+    async (
+      terminal: TerminalInfo,
+      options: DestroyTerminalOptions = {},
+    ): Promise<DestroyTerminalRequestResult> => {
+      if (!deviceId) return "pending";
+      if (!isMachineController(terminal.machine_id)) return "pending";
       try {
         const result = await checkForegroundProcess(
           terminal.machine_id,
@@ -604,22 +641,43 @@ export function TerminalCanvas() {
           setCloseConfirmation({
             terminal,
             processName: result.process_name ?? "unknown",
+            options,
           });
-          return;
+          return "pending";
         }
       } catch {
         /* fall through */
       }
-      await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
+      if (options.keepWorkspaceOpen) {
+        keepWorkspaceOpenDestroyedTerminalIdsRef.current.add(terminal.id);
+        setWorkspaceAnchorTerminal(terminal);
+      }
+      try {
+        await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
+      } catch (error) {
+        keepWorkspaceOpenDestroyedTerminalIdsRef.current.delete(terminal.id);
+        throw error;
+      }
+      return "accepted";
     },
     [deviceId, isMachineController],
   );
 
   const confirmClosePending = useCallback(async () => {
     if (!closeConfirmation || !deviceId) return;
-    const { terminal } = closeConfirmation;
+    const { terminal, options } = closeConfirmation;
     setCloseConfirmation(null);
-    await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
+    if (options?.keepWorkspaceOpen) {
+      keepWorkspaceOpenDestroyedTerminalIdsRef.current.add(terminal.id);
+      setWorkspaceAnchorTerminal(terminal);
+    }
+    try {
+      await destroyTerminal(terminal.machine_id, terminal.id, deviceId);
+    } catch (error) {
+      keepWorkspaceOpenDestroyedTerminalIdsRef.current.delete(terminal.id);
+      throw error;
+    }
+    options?.afterAccepted?.();
   }, [closeConfirmation, deviceId]);
 
   const handleZoomTerminal = useCallback((id: string) => {
@@ -1041,14 +1099,18 @@ export function TerminalCanvas() {
           </Suspense>
         )}
 
-        {expandedTerminal && (
+        {workspaceTerminal && (
           <TerminalWorkspace
-            terminal={expandedTerminal}
+            terminal={workspaceTerminal}
             siblings={
-              scopedTerminals.length > 0 ? scopedTerminals : [expandedTerminal]
+              scopedTerminals.length > 0
+                ? scopedTerminals
+                : expandedTerminal
+                  ? [expandedTerminal]
+                  : []
             }
             workspaceGroups={activeMachineWorkspaceGroups}
-            isController={isMachineController(expandedTerminal.machine_id)}
+            isController={isMachineController(workspaceTerminal.machine_id)}
             deviceId={deviceId ?? ""}
             isMobile={isMobile}
             onClose={handleUnzoom}
