@@ -199,6 +199,34 @@ export async function createTerminalViaApi(
   return ((await resp.json()) as { id: string }).id;
 }
 
+export async function createWorkspaceGroupViaApi(
+  page: Page,
+  name: string,
+): Promise<{ id: string; machine_id: string; name: string; sort_order: number }> {
+  const response = await page.request.post(
+    `/api/machines/${MACHINE_ID}/workspace-groups`,
+    {
+      headers: await getAuthHeaders(page),
+      data: { name },
+    },
+  );
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
+export async function listWorkspaceGroupsViaApi(
+  page: Page,
+): Promise<Array<{ id: string; machine_id: string; name: string; sort_order: number }>> {
+  const response = await page.request.get(
+    `/api/machines/${MACHINE_ID}/workspace-groups`,
+    {
+      headers: await getAuthHeaders(page),
+    },
+  );
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
 export async function expectSingleTerminalCard(page: Page): Promise<Locator> {
   const cards = getTerminalCards(page);
   await expect(cards).toHaveCount(1);

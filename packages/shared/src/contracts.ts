@@ -235,6 +235,8 @@ export type BrowserEvent =
   | BrowserEvent.TerminalDestroyed
   | BrowserEvent.TerminalReachableChanged
   | BrowserEvent.WorkspaceGroupCreated
+  | BrowserEvent.WorkspaceGroupUpdated
+  | BrowserEvent.WorkspaceGroupDeleted
   | BrowserEvent.MachineStats
   | BrowserEvent.ModeChanged
 
@@ -280,6 +282,17 @@ export namespace BrowserEvent {
   export interface WorkspaceGroupCreated {
     type: 'workspace_group_created'
     group: WorkspaceGroupInfo
+  }
+
+  export interface WorkspaceGroupUpdated {
+    type: 'workspace_group_updated'
+    group: WorkspaceGroupInfo
+  }
+
+  export interface WorkspaceGroupDeleted {
+    type: 'workspace_group_deleted'
+    machine_id: string
+    group_id: string
   }
 
   export interface MachineStats {

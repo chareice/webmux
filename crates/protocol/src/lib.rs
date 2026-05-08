@@ -257,6 +257,13 @@ pub enum BrowserEvent {
     },
     #[serde(rename = "workspace_group_created")]
     WorkspaceGroupCreated { group: WorkspaceGroupInfo },
+    #[serde(rename = "workspace_group_updated")]
+    WorkspaceGroupUpdated { group: WorkspaceGroupInfo },
+    #[serde(rename = "workspace_group_deleted")]
+    WorkspaceGroupDeleted {
+        machine_id: String,
+        group_id: String,
+    },
     #[serde(rename = "machine_stats")]
     MachineStats {
         machine_id: String,

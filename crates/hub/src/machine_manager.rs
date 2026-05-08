@@ -432,6 +432,64 @@ impl MachineManager {
         );
     }
 
+    pub fn publish_workspace_group_updated(&self, user_id: &str, group: WorkspaceGroupInfo) {
+        self.send_event(
+            Some(user_id.to_string()),
+            BrowserEvent::WorkspaceGroupUpdated { group },
+        );
+    }
+
+    pub fn publish_workspace_group_deleted(&self, user_id: &str, machine_id: &str, group_id: &str) {
+        self.send_event(
+            Some(user_id.to_string()),
+            BrowserEvent::WorkspaceGroupDeleted {
+                machine_id: machine_id.to_string(),
+                group_id: group_id.to_string(),
+            },
+        );
+    }
+
+    pub async fn clear_workspace_group_assignments(
+        &self,
+        user_id: &str,
+        machine_id: &str,
+        group_id: &str,
+    ) {
+        let mut updated = Vec::new();
+        {
+            let mut machines = self.machines.lock().await;
+            if let Some(conn) = machines.get_mut(machine_id) {
+                if connection_visible_to(conn, user_id) {
+                    for terminal in conn.terminals.values_mut() {
+                        if terminal.workspace_group_id.as_deref() == Some(group_id) {
+                            terminal.workspace_group_id = None;
+                            updated.push(terminal.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        {
+            let mut persisted = self.persisted_terminals.lock().await;
+            if let Some(terminals) = persisted.get_mut(machine_id) {
+                for terminal in terminals.iter_mut() {
+                    if terminal.workspace_group_id.as_deref() == Some(group_id) {
+                        terminal.workspace_group_id = None;
+                        updated.push(terminal.clone());
+                    }
+                }
+            }
+        }
+
+        for terminal in updated {
+            self.send_event(
+                Some(user_id.to_string()),
+                BrowserEvent::TerminalUpdated { terminal },
+            );
+        }
+    }
+
     fn db_machine_belongs_to_user(&self, user_id: &str, machine_id: &str) -> bool {
         self.db
             .get()

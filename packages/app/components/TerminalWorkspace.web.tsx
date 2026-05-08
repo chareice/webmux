@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Columns2,
   Expand,
+  GripVertical,
   Maximize2,
   Minimize2,
   PanelBottom,
@@ -19,6 +20,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import {
@@ -56,8 +58,12 @@ interface TerminalWorkspaceProps {
   onCreateGroup: (
     machineId: string,
     name: string,
-    terminal: TerminalInfo | null,
-  ) => Promise<void>;
+  ) => Promise<WorkspaceGroupInfo | null | void>;
+  onReorderGroups: (
+    machineId: string,
+    groupIds: string[],
+  ) => Promise<WorkspaceGroupInfo[] | null | void>;
+  onDeleteGroup: (machineId: string, groupId: string) => Promise<void>;
   onAssignGroup: (
     terminal: TerminalInfo,
     workspaceGroupId: string | null,
@@ -79,6 +85,8 @@ function TerminalWorkspaceComponent({
   onSplit,
   onCreatePane,
   onCreateGroup,
+  onReorderGroups,
+  onDeleteGroup,
   onAssignGroup,
   onRequestControl,
   onReleaseControl,
@@ -96,6 +104,7 @@ function TerminalWorkspaceComponent({
     null,
   );
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [deleteGroup, setDeleteGroup] = useState<WorkspaceGroup | null>(null);
   const terminalsById = useMemo(() => {
     const map = new Map<string, TerminalInfo>();
     for (const sibling of siblings) map.set(sibling.id, sibling);
@@ -232,8 +241,80 @@ function TerminalWorkspaceComponent({
     const name = window.prompt("New tab name", activeGroup?.label ?? "");
     const trimmed = name?.trim();
     if (!trimmed) return;
-    await onCreateGroup(commandMachineId, trimmed, activeTerminal);
-  }, [activeGroup?.label, activeTerminal, commandMachineId, onCreateGroup]);
+    const group = await onCreateGroup(commandMachineId, trimmed);
+    if (!group) return;
+    const nextWorkspaceGroups = [
+      ...workspaceGroups.filter((candidate) => candidate.id !== group.id),
+      group,
+    ];
+    setMaximizedTerminalId(null);
+    setWorkspace((prev) =>
+      selectWorkspaceGroup(
+        reconcileTerminalWorkspace(
+          prev,
+          siblings,
+          prev.activeTerminalId,
+          nextWorkspaceGroups,
+        ),
+        group.id,
+      ),
+    );
+  }, [
+    activeGroup?.label,
+    commandMachineId,
+    onCreateGroup,
+    siblings,
+    workspaceGroups,
+  ]);
+
+  const handleReorderGroups = useCallback(
+    async (sourceGroupId: string, targetGroupId: string) => {
+      if (sourceGroupId === targetGroupId) return;
+      const nextIds = reorderedPersistentGroupIds(
+        workspace.groups,
+        sourceGroupId,
+        targetGroupId,
+      );
+      if (!nextIds) return;
+      setWorkspace((prev) => ({
+        ...prev,
+        groups: reorderWorkspaceGroupsForDisplay(
+          prev.groups,
+          sourceGroupId,
+          targetGroupId,
+        ),
+      }));
+      const groups = await onReorderGroups(commandMachineId, nextIds);
+      if (!groups) return;
+      setWorkspace((prev) =>
+        reconcileTerminalWorkspace(prev, siblings, prev.activeTerminalId, groups),
+      );
+    },
+    [commandMachineId, onReorderGroups, siblings, workspace.groups],
+  );
+
+  const confirmDeleteGroup = useCallback(async () => {
+    const group = deleteGroup;
+    if (!group?.workspaceGroupId) return;
+    setDeleteGroup(null);
+    await onDeleteGroup(commandMachineId, group.workspaceGroupId);
+    const nextWorkspaceGroups = workspaceGroups.filter(
+      (candidate) => candidate.id !== group.workspaceGroupId,
+    );
+    const nextSiblings = siblings.map((sibling) =>
+      sibling.workspace_group_id === group.workspaceGroupId
+        ? { ...sibling, workspace_group_id: null }
+        : sibling,
+    );
+    setWorkspace((prev) =>
+      reconcileTerminalWorkspace(
+        prev,
+        nextSiblings,
+        prev.activeTerminalId,
+        nextWorkspaceGroups,
+      ),
+    );
+  }, [commandMachineId, deleteGroup, onDeleteGroup, siblings, workspaceGroups]);
 
   const handleAssignGroup = useCallback(
     async (workspaceGroupId: string | null) => {
@@ -283,6 +364,8 @@ function TerminalWorkspaceComponent({
           isMobile
           onGroupSelect={activateGroup}
           onCreateGroup={handleCreateGroup}
+          onReorderGroups={handleReorderGroups}
+          onDeleteGroup={setDeleteGroup}
           onAssignGroup={handleAssignGroup}
           onOpenDrawer={() => setMobileDrawerOpen(true)}
           onSplitRight={() => void handleSplit("right")}
@@ -303,6 +386,7 @@ function TerminalWorkspaceComponent({
           isController={isController}
           onGroupSelect={activateGroup}
           onCreateGroup={handleCreateGroup}
+          onDeleteGroup={setDeleteGroup}
         />
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
           {activeTerminal ? (
@@ -360,8 +444,19 @@ function TerminalWorkspaceComponent({
             }}
             onDestroy={handleDestroy}
             onNew={() => void handleSplit("right")}
+            onDeleteGroup={setDeleteGroup}
           />
         )}
+        <ConfirmDialog
+          open={Boolean(deleteGroup)}
+          title="Delete group"
+          message={`Delete "${deleteGroup?.label ?? "this group"}"? Terminals stay open and move back to cwd grouping.`}
+          confirmLabel="Delete group"
+          cancelLabel="Cancel"
+          variant="danger"
+          onConfirm={() => void confirmDeleteGroup()}
+          onCancel={() => setDeleteGroup(null)}
+        />
       </div>
     );
   }
@@ -389,6 +484,8 @@ function TerminalWorkspaceComponent({
         isMobile={false}
         onGroupSelect={activateGroup}
         onCreateGroup={handleCreateGroup}
+        onReorderGroups={handleReorderGroups}
+        onDeleteGroup={setDeleteGroup}
         onAssignGroup={handleAssignGroup}
         onOpenDrawer={() => {}}
         onSplitRight={() => void handleSplit("right")}
@@ -466,6 +563,16 @@ function TerminalWorkspaceComponent({
           />
         )}
       </div>
+      <ConfirmDialog
+        open={Boolean(deleteGroup)}
+        title="Delete group"
+        message={`Delete "${deleteGroup?.label ?? "this group"}"? Terminals stay open and move back to cwd grouping.`}
+        confirmLabel="Delete group"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={() => void confirmDeleteGroup()}
+        onCancel={() => setDeleteGroup(null)}
+      />
     </div>
   );
 }
@@ -482,6 +589,8 @@ function WorkspaceTopBar({
   maximized,
   onGroupSelect,
   onCreateGroup,
+  onReorderGroups,
+  onDeleteGroup,
   onAssignGroup,
   onOpenDrawer,
   onSplitRight,
@@ -502,6 +611,8 @@ function WorkspaceTopBar({
   maximized: boolean;
   onGroupSelect: (id: string) => void;
   onCreateGroup: () => void;
+  onReorderGroups: (sourceGroupId: string, targetGroupId: string) => void;
+  onDeleteGroup: (group: WorkspaceGroup) => void;
   onAssignGroup: (workspaceGroupId: string | null) => void;
   onOpenDrawer: () => void;
   onSplitRight: () => void;
@@ -555,27 +666,67 @@ function WorkspaceTopBar({
             minWidth: 0,
           }}
         >
-          {groups.map((group) => (
-            <button
+          {groups.map((group) => {
+            const active = group.id === activeGroupId;
+            return (
+            <div
               key={group.id}
-              type="button"
-              onClick={() => onGroupSelect(group.id)}
-              data-testid={`workspace-group-${group.id}`}
+              draggable={group.persistent}
+              onDragStart={(event) => {
+                if (!group.persistent) return;
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", group.id);
+              }}
+              onDragOver={(event) => {
+                if (group.persistent) event.preventDefault();
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const sourceGroupId = event.dataTransfer.getData("text/plain");
+                if (sourceGroupId) onReorderGroups(sourceGroupId, group.id);
+              }}
               style={{
-                ...groupTabStyle,
-                color: group.id === activeGroupId ? colors.fg0 : colors.fg2,
-                background:
-                  group.id === activeGroupId ? colors.bg2 : "transparent",
+                ...groupTabShellStyle,
+                background: active ? colors.bg2 : "transparent",
                 borderColor:
-                  group.id === activeGroupId
-                    ? colorAlpha.accentLine
-                    : colors.lineSoft,
+                  active ? colorAlpha.accentLine : colors.lineSoft,
               }}
             >
-              <span style={truncateStyle}>{group.label}</span>
-              <span style={{ color: colors.fg3 }}>{group.paneCount}</span>
-            </button>
-          ))}
+              {group.persistent && (
+                <GripVertical
+                  size={13}
+                  style={{ color: colors.fg3, flexShrink: 0 }}
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => onGroupSelect(group.id)}
+                data-testid={`workspace-group-${group.id}`}
+                style={{
+                  ...groupTabSelectStyle,
+                  color: active ? colors.fg0 : colors.fg2,
+                }}
+              >
+                <span style={truncateStyle}>{group.label}</span>
+                <span style={{ color: colors.fg3 }}>{group.paneCount}</span>
+              </button>
+              {group.persistent && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDeleteGroup(group);
+                  }}
+                  data-testid={`workspace-group-delete-${group.id}`}
+                  title="Delete group"
+                  aria-label={`Delete group ${group.label}`}
+                  style={groupDeleteButtonStyle}
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </div>
+          );})}
           <button
             type="button"
             onClick={onCreateGroup}
@@ -734,12 +885,14 @@ function MobileGroupTabs({
   isController,
   onGroupSelect,
   onCreateGroup,
+  onDeleteGroup,
 }: {
   groups: WorkspaceGroup[];
   activeGroupId: string | null;
   isController: boolean;
   onGroupSelect: (id: string) => void;
   onCreateGroup: () => void;
+  onDeleteGroup: (group: WorkspaceGroup) => void;
 }) {
   if (groups.length === 0) return null;
   return (
@@ -760,37 +913,55 @@ function MobileGroupTabs({
       {groups.map((group) => {
         const active = group.id === activeGroupId;
         return (
-          <button
+          <div
             key={group.id}
-            type="button"
-            data-testid={`workspace-mobile-group-tab-${group.id}`}
-            onClick={() => onGroupSelect(group.id)}
             style={{
-              height: 30,
-              maxWidth: 170,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 7,
+              ...mobileGroupTabShellStyle,
               borderRadius: 7,
               border: `1px solid ${
                 active ? colorAlpha.accentLine : colors.lineSoft
               }`,
               background: active ? colors.bg2 : "transparent",
-              color: active ? colors.fg0 : colors.fg2,
-              padding: "0 10px",
-              fontSize: 12,
-              fontWeight: 700,
-              flexShrink: 0,
-              cursor: "pointer",
             }}
-            title={group.label}
-            aria-label={`Switch to group ${group.label}`}
           >
-            <span style={truncateStyle}>{group.label}</span>
-            <span style={{ color: active ? colors.accent : colors.fg3 }}>
-              {group.paneCount}
-            </span>
-          </button>
+            <button
+              type="button"
+              data-testid={`workspace-mobile-group-tab-${group.id}`}
+              onClick={() => onGroupSelect(group.id)}
+              style={{
+                ...mobileGroupTabSelectStyle,
+                color: active ? colors.fg0 : colors.fg2,
+              }}
+              title={group.label}
+              aria-label={`Switch to group ${group.label}`}
+            >
+              <span style={truncateStyle}>{group.label}</span>
+              <span style={{ color: active ? colors.accent : colors.fg3 }}>
+                {group.paneCount}
+              </span>
+            </button>
+            {group.persistent && (
+              <button
+                type="button"
+                data-testid={`workspace-mobile-group-delete-${group.id}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDeleteGroup(group);
+                }}
+                style={{
+                  ...smallIconButtonStyle,
+                  width: 20,
+                  height: 20,
+                  color: active ? colors.fg2 : colors.fg3,
+                  flexShrink: 0,
+                }}
+                title="Delete group"
+                aria-label={`Delete group ${group.label}`}
+              >
+                <Trash2 size={12} />
+              </button>
+            )}
+          </div>
         );
       })}
       <button
@@ -980,6 +1151,12 @@ function WorkspacePaneLeaf({
     <div
       data-testid={`workspace-pane-${terminal.id}`}
       onMouseDown={() => onFocus(terminal.id)}
+      onMouseMove={(event) => {
+        if (isMobile || isActive) return;
+        const target = event.target;
+        if (target instanceof Element && target.closest("button")) return;
+        onFocus(terminal.id);
+      }}
       style={{
         width: "100%",
         height: "100%",
@@ -1184,6 +1361,7 @@ function MobilePaneDrawer({
   onPick,
   onDestroy,
   onNew,
+  onDeleteGroup,
 }: {
   groups: WorkspaceGroup[];
   activeGroupId: string | null;
@@ -1195,6 +1373,7 @@ function MobilePaneDrawer({
   onPick: (terminalId: string) => void;
   onDestroy: (terminal: TerminalInfo) => void;
   onNew: () => void;
+  onDeleteGroup: (group: WorkspaceGroup) => void;
 }) {
   return (
     <div
@@ -1241,6 +1420,25 @@ function MobilePaneDrawer({
               {group.label}
               <span style={{ color: colors.fg3 }}>{group.paneCount}</span>
             </button>
+            {group.persistent && (
+              <button
+                type="button"
+                disabled={!isController}
+                onClick={() => onDeleteGroup(group)}
+                data-testid={`workspace-drawer-group-delete-${group.id}`}
+                style={{
+                  ...drawerNewButtonStyle,
+                  height: 30,
+                  marginBottom: 6,
+                  justifyContent: "flex-start",
+                  color: isController ? colors.danger : colors.fg3,
+                  opacity: isController ? 1 : 0.45,
+                }}
+              >
+                <Trash2 size={13} />
+                Delete group
+              </button>
+            )}
             {collectIds(group.root).map((id) => {
               const terminal = terminalsById.get(id);
               if (!terminal) return null;
@@ -1366,18 +1564,39 @@ const smallIconButtonStyle: CSSProperties = {
   color: colors.fg2,
 };
 
-const groupTabStyle: CSSProperties = {
+const groupTabShellStyle: CSSProperties = {
   height: 28,
   maxWidth: 150,
   display: "inline-flex",
   alignItems: "center",
-  gap: 7,
+  gap: 4,
   borderRadius: 6,
   border: `1px solid ${colors.lineSoft}`,
-  padding: "0 9px",
+  padding: "0 4px 0 6px",
   fontSize: 12,
   flexShrink: 0,
+  cursor: "grab",
+};
+
+const groupTabSelectStyle: CSSProperties = {
+  minWidth: 0,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 7,
+  border: "none",
+  background: "transparent",
+  padding: "0 2px",
+  fontSize: 12,
   cursor: "pointer",
+};
+
+const groupDeleteButtonStyle: CSSProperties = {
+  ...smallIconButtonStyle,
+  width: 20,
+  height: 20,
+  color: colors.fg3,
+  cursor: "pointer",
+  flexShrink: 0,
 };
 
 const groupAddButtonStyle: CSSProperties = {
@@ -1454,6 +1673,30 @@ const mobilePaneTabStyle: CSSProperties = {
   flexShrink: 0,
 };
 
+const mobileGroupTabShellStyle: CSSProperties = {
+  height: 30,
+  maxWidth: 170,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+  padding: "0 4px",
+  flexShrink: 0,
+};
+
+const mobileGroupTabSelectStyle: CSSProperties = {
+  minWidth: 0,
+  height: "100%",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 7,
+  border: "none",
+  background: "transparent",
+  padding: "0 5px",
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
 const drawerDoneButtonStyle: CSSProperties = {
   height: 30,
   borderRadius: 6,
@@ -1512,6 +1755,51 @@ function collectIds(root: WorkspacePaneNode | null): string[] {
   if (!root) return [];
   if (root.type === "leaf") return [root.terminalId];
   return [...collectIds(root.first), ...collectIds(root.second)];
+}
+
+function reorderedPersistentGroupIds(
+  groups: WorkspaceGroup[],
+  sourceGroupId: string,
+  targetGroupId: string,
+): string[] | null {
+  const persistentIds = groups
+    .filter((group) => group.persistent && group.workspaceGroupId)
+    .map((group) => group.workspaceGroupId as string);
+  if (
+    !persistentIds.includes(sourceGroupId) ||
+    !persistentIds.includes(targetGroupId)
+  ) {
+    return null;
+  }
+  return moveBefore(persistentIds, sourceGroupId, targetGroupId);
+}
+
+function reorderWorkspaceGroupsForDisplay(
+  groups: WorkspaceGroup[],
+  sourceGroupId: string,
+  targetGroupId: string,
+): WorkspaceGroup[] {
+  const sourceIndex = groups.findIndex((group) => group.id === sourceGroupId);
+  const targetIndex = groups.findIndex((group) => group.id === targetGroupId);
+  if (sourceIndex === -1 || targetIndex === -1) return groups;
+  const next = groups.slice();
+  const [source] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex > sourceIndex ? targetIndex - 1 : targetIndex, 0, source);
+  return next;
+}
+
+function moveBefore(
+  ids: string[],
+  sourceGroupId: string,
+  targetGroupId: string,
+): string[] {
+  const next = ids.slice();
+  const sourceIndex = next.indexOf(sourceGroupId);
+  const targetIndex = next.indexOf(targetGroupId);
+  if (sourceIndex === -1 || targetIndex === -1) return ids;
+  const [source] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex > sourceIndex ? targetIndex - 1 : targetIndex, 0, source);
+  return next;
 }
 
 function containsTerminal(root: WorkspacePaneNode | null, terminalId: string) {

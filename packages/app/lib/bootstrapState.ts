@@ -98,11 +98,29 @@ function applyBrowserEvent(
         terminals: upsertTerminal(state.terminals, event.terminal),
       };
     case "workspace_group_created":
+    case "workspace_group_updated":
       return {
         ...state,
         workspaceGroups: upsertWorkspaceGroup(
           state.workspaceGroups,
           event.group,
+        ),
+      };
+    case "workspace_group_deleted":
+      return {
+        ...state,
+        workspaceGroups: state.workspaceGroups.filter(
+          (group) =>
+            !(
+              group.machine_id === event.machine_id &&
+              group.id === event.group_id
+            ),
+        ),
+        terminals: state.terminals.map((terminal) =>
+          terminal.machine_id === event.machine_id &&
+          terminal.workspace_group_id === event.group_id
+            ? { ...terminal, workspace_group_id: null }
+            : terminal,
         ),
       };
     case "terminal_destroyed":

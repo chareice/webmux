@@ -79,6 +79,14 @@ pub fn assign_workspace_group(
     Ok(())
 }
 
+pub fn clear_workspace_group(conn: &Connection, workspace_group_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE terminal_sessions SET workspace_group_id = NULL WHERE workspace_group_id = ?1",
+        params![workspace_group_id],
+    )?;
+    Ok(())
+}
+
 pub fn find_active_by_machine(
     conn: &Connection,
     machine_id: &str,
