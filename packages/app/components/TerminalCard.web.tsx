@@ -16,7 +16,10 @@ const FIT_REF_RETRY_LIMIT = 10;
 const FIT_REF_RETRY_DELAY_MS = 100;
 
 export interface TerminalCardRef {
-  fitToContainer: (opts?: { skipIfUnchanged?: boolean }) => void;
+  fitToContainer: (opts?: {
+    skipIfUnchanged?: boolean;
+    focusAfterFit?: boolean;
+  }) => void;
   focus: () => void;
   blur: () => void;
   sendInput: (data: string) => void;
@@ -64,10 +67,15 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
 
   const fitToContainer = useCallback(
     (
-      opts: { attempt?: number; skipIfUnchanged?: boolean } = {},
+      opts: {
+        attempt?: number;
+        skipIfUnchanged?: boolean;
+        focusAfterFit?: boolean;
+      } = {},
     ) => {
       const attempt = opts.attempt ?? 0;
       const skipIfUnchanged = opts.skipIfUnchanged ?? false;
+      const focusAfterFit = opts.focusAfterFit ?? true;
       if (!isController || !isTab) return;
       const view = termViewRef.current;
       if (!view) {
@@ -75,13 +83,17 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         clearFitRefRetryTimer();
         fitRefRetryTimer.current = window.setTimeout(() => {
           fitRefRetryTimer.current = null;
-          fitToContainer({ attempt: attempt + 1, skipIfUnchanged });
+          fitToContainer({
+            attempt: attempt + 1,
+            skipIfUnchanged,
+            focusAfterFit,
+          });
         }, FIT_REF_RETRY_DELAY_MS);
         return;
       }
       clearFitRefRetryTimer();
       view.fitToContainer({ skipIfUnchanged });
-      if (!isMobile) {
+      if (!isMobile && focusAfterFit) {
         view.focus();
       }
     },

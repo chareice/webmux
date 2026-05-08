@@ -50,11 +50,22 @@ test("desktop workspace splits the active terminal into tiled panes", async ({
     .poll(() => paneTerminalScale(page, secondId), { timeout: 5_000 })
     .toBeGreaterThan(0.95);
   await expect
+    .poll(() => paneTerminalScale(page, firstId), { timeout: 5_000 })
+    .toBeGreaterThan(0.95);
+  await expect
     .poll(async () => {
       const splitTerminal = (await listTerminals(page)).find(
         (terminal) => terminal.id === secondId,
       );
       return splitTerminal?.cols ?? 999;
+    }, { timeout: 5_000 })
+    .toBeLessThan(140);
+  await expect
+    .poll(async () => {
+      const originalTerminal = (await listTerminals(page)).find(
+        (terminal) => terminal.id === firstId,
+      );
+      return originalTerminal?.cols ?? 999;
     }, { timeout: 5_000 })
     .toBeLessThan(140);
   await expect

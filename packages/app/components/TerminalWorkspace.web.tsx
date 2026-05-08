@@ -72,6 +72,12 @@ interface TerminalWorkspaceProps {
   onReleaseControl?: (machineId: string) => void;
 }
 
+interface WorkspaceFitRequest {
+  terminalIds: string[];
+  focusTerminalId: string | null;
+  nonce: number;
+}
+
 function TerminalWorkspaceComponent({
   terminal,
   siblings,
@@ -96,10 +102,9 @@ function TerminalWorkspaceComponent({
   );
   const activeCardRef = useRef<TerminalCardRef | null>(null);
   const fitRequestCounterRef = useRef(0);
-  const [fitRequest, setFitRequest] = useState<{
-    terminalId: string;
-    nonce: number;
-  } | null>(null);
+  const [fitRequest, setFitRequest] = useState<WorkspaceFitRequest | null>(
+    null,
+  );
   const [maximizedTerminalId, setMaximizedTerminalId] = useState<string | null>(
     null,
   );
@@ -131,19 +136,44 @@ function TerminalWorkspaceComponent({
     : null;
   const commandMachineId = activeTerminal?.machine_id ?? terminal.machine_id;
 
-  const requestPaneFit = useCallback((terminalId: string | null) => {
-    if (!terminalId) return;
-    fitRequestCounterRef.current += 1;
-    setFitRequest({
-      terminalId,
-      nonce: fitRequestCounterRef.current,
-    });
-  }, []);
-  const handleFitRequestHandled = useCallback((nonce: number) => {
-    setFitRequest((current) =>
-      current?.nonce === nonce ? null : current,
-    );
-  }, []);
+  const requestPaneFit = useCallback(
+    (
+      terminalIds: string | string[] | null,
+      options: { focusTerminalId?: string | null } = {},
+    ) => {
+      const ids = Array.isArray(terminalIds)
+        ? terminalIds
+        : terminalIds
+          ? [terminalIds]
+          : [];
+      const uniqueIds = [...new Set(ids)];
+      if (uniqueIds.length === 0) return;
+      fitRequestCounterRef.current += 1;
+      setFitRequest({
+        terminalIds: uniqueIds,
+        focusTerminalId: options.focusTerminalId ?? uniqueIds[0] ?? null,
+        nonce: fitRequestCounterRef.current,
+      });
+    },
+    [],
+  );
+  const handleFitRequestHandled = useCallback(
+    (nonce: number, terminalId: string) => {
+      setFitRequest((current) => {
+        if (current?.nonce !== nonce) return current;
+        const terminalIds = current.terminalIds.filter(
+          (id) => id !== terminalId,
+        );
+        return terminalIds.length === 0
+          ? null
+          : {
+              ...current,
+              terminalIds,
+            };
+      });
+    },
+    [],
+  );
 
   const activateTerminal = useCallback(
     (terminalId: string) => {
@@ -162,7 +192,7 @@ function TerminalWorkspaceComponent({
       });
       onPick(terminalId);
       if (!isMobile && isController && changedTerminal) {
-        requestPaneFit(terminalId);
+        requestPaneFit(terminalId, { focusTerminalId: terminalId });
       }
     },
     [
@@ -180,7 +210,11 @@ function TerminalWorkspaceComponent({
       const next = selectWorkspaceGroup(workspace, groupId);
       setWorkspace(next);
       if (next.activeTerminalId) onPick(next.activeTerminalId);
-      if (!isMobile && isController) requestPaneFit(next.activeTerminalId);
+      if (!isMobile && isController) {
+        requestPaneFit(collectIds(getActiveWorkspaceGroup(next)?.root ?? null), {
+          focusTerminalId: next.activeTerminalId,
+        });
+      }
     },
     [isController, isMobile, onPick, requestPaneFit, workspace],
   );
@@ -197,28 +231,31 @@ function TerminalWorkspaceComponent({
         });
         if (!created) return;
         setMaximizedTerminalId(null);
-        setWorkspace((prev) =>
-          appendWorkspacePaneToGroup(prev, {
-            groupId: activeGroup.id,
-            newTerminalId: created.id,
-          }),
-        );
+        const nextWorkspace = appendWorkspacePaneToGroup(workspace, {
+          groupId: activeGroup.id,
+          newTerminalId: created.id,
+        });
+        setWorkspace(nextWorkspace);
         onPick(created.id);
-        requestPaneFit(created.id);
+        requestPaneFit(collectIds(activeGroup.root).concat(created.id), {
+          focusTerminalId: created.id,
+        });
         return;
       }
       const created = await onSplit(activeTerminal, direction);
       if (!created) return;
       setMaximizedTerminalId(null);
-      setWorkspace((prev) =>
-        splitWorkspacePane(prev, {
-          activeTerminalId: activeTerminal.id,
-          newTerminalId: created.id,
-          direction,
-        }),
-      );
+      const nextWorkspace = splitWorkspacePane(workspace, {
+        activeTerminalId: activeTerminal.id,
+        newTerminalId: created.id,
+        direction,
+      });
+      setWorkspace(nextWorkspace);
       onPick(created.id);
-      requestPaneFit(created.id);
+      requestPaneFit(
+        collectIds(getActiveWorkspaceGroup(nextWorkspace)?.root ?? null),
+        { focusTerminalId: created.id },
+      );
     },
     [
       activeGroup,
@@ -230,6 +267,7 @@ function TerminalWorkspaceComponent({
       onSplit,
       requestPaneFit,
       terminal.cwd,
+      workspace,
     ],
   );
 
@@ -397,9 +435,12 @@ function TerminalWorkspaceComponent({
               deviceId={deviceId}
               isMobile
               fitRequestNonce={
-                fitRequest?.terminalId === activeTerminal.id
+                fitRequest?.terminalIds.includes(activeTerminal.id)
                   ? fitRequest.nonce
                   : null
+              }
+              fitRequestShouldFocus={
+                fitRequest?.focusTerminalId === activeTerminal.id
               }
               onActiveRef={(ref) => {
                 activeCardRef.current = ref;
@@ -525,9 +566,13 @@ function TerminalWorkspaceComponent({
             deviceId={deviceId}
             isMobile={false}
             fitRequestNonce={
-              fitRequest?.terminalId === maximizedTerminalId
+              maximizedTerminalId &&
+              fitRequest?.terminalIds.includes(maximizedTerminalId)
                 ? fitRequest.nonce
                 : null
+            }
+            fitRequestShouldFocus={
+              fitRequest?.focusTerminalId === maximizedTerminalId
             }
             onActiveRef={(ref) => {
               activeCardRef.current = ref;
@@ -1004,9 +1049,9 @@ function WorkspacePaneTree({
   activeTerminalId: string | null;
   isController: boolean;
   deviceId: string;
-  fitRequest: { terminalId: string; nonce: number } | null;
+  fitRequest: WorkspaceFitRequest | null;
   onActiveRef: (ref: TerminalCardRef | null) => void;
-  onFitRequestHandled: (nonce: number) => void;
+  onFitRequestHandled: (nonce: number, terminalId: string) => void;
   onFocus: (id: string) => void;
   onDestroy: (terminal: TerminalInfo) => void;
   onRequestControl?: (machineId: string) => void;
@@ -1023,8 +1068,11 @@ function WorkspacePaneTree({
         deviceId={deviceId}
         isMobile={false}
         fitRequestNonce={
-          fitRequest?.terminalId === terminal.id ? fitRequest.nonce : null
+          fitRequest?.terminalIds.includes(terminal.id)
+            ? fitRequest.nonce
+            : null
         }
+        fitRequestShouldFocus={fitRequest?.focusTerminalId === terminal.id}
         onActiveRef={onActiveRef}
         onFitRequestHandled={onFitRequestHandled}
         onFocus={onFocus}
@@ -1090,6 +1138,7 @@ function WorkspacePaneLeaf({
   deviceId,
   isMobile,
   fitRequestNonce,
+  fitRequestShouldFocus,
   onActiveRef,
   onFitRequestHandled,
   onFocus,
@@ -1103,8 +1152,9 @@ function WorkspacePaneLeaf({
   deviceId: string;
   isMobile: boolean;
   fitRequestNonce: number | null;
+  fitRequestShouldFocus: boolean;
   onActiveRef: (ref: TerminalCardRef | null) => void;
-  onFitRequestHandled: (nonce: number) => void;
+  onFitRequestHandled: (nonce: number, terminalId: string) => void;
   onFocus: (id: string) => void;
   onDestroy: (terminal: TerminalInfo) => void;
   onRequestControl?: (machineId: string) => void;
@@ -1125,21 +1175,30 @@ function WorkspacePaneLeaf({
   }, [isActive, isController, isMobile, terminal.id]);
 
   useEffect(() => {
-    if (!isActive || !isController || fitRequestNonce === null) return;
+    if (!isController || fitRequestNonce === null) return;
     let secondFrame = 0;
     const firstFrame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
         const card = cardRef.current;
         if (!card) return;
-        card.fitToContainer({ skipIfUnchanged: true });
-        onFitRequestHandled(fitRequestNonce);
+        card.fitToContainer({
+          skipIfUnchanged: true,
+          focusAfterFit: fitRequestShouldFocus,
+        });
+        onFitRequestHandled(fitRequestNonce, terminal.id);
       });
     });
     return () => {
       cancelAnimationFrame(firstFrame);
       if (secondFrame) cancelAnimationFrame(secondFrame);
     };
-  }, [fitRequestNonce, isActive, isController, onFitRequestHandled]);
+  }, [
+    fitRequestNonce,
+    fitRequestShouldFocus,
+    isController,
+    onFitRequestHandled,
+    terminal.id,
+  ]);
 
   useEffect(() => {
     if (!isActive) return;
