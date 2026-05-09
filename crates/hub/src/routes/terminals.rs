@@ -334,6 +334,8 @@ async fn save_workspace_layout(
             machine_id,
             group_key: group_key.to_string(),
             root: None,
+            mode: Default::default(),
+            scrollable: None,
             updated_at: row.updated_at,
         };
         state
@@ -362,6 +364,8 @@ async fn save_workspace_layout(
         machine_id: row.machine_id,
         group_key: row.group_key,
         root: req.root,
+        mode: Default::default(),
+        scrollable: None,
         updated_at: row.updated_at,
     };
     state

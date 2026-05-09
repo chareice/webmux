@@ -1337,6 +1337,8 @@ impl MachineManager {
                         machine_id: row.machine_id,
                         group_key: row.group_key,
                         root,
+                        mode: Default::default(),
+                        scrollable: None,
                         updated_at: row.updated_at,
                     }),
                     Err(error) => {
