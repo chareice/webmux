@@ -334,6 +334,28 @@ export function reconcileTerminalWorkspace(
     if (!previous) return group;
 
     const groupTerminalIds = new Set(collectPaneTerminalIds(group.root));
+
+    // Scrollable mode: reconcile the columns array
+    if (previous.layoutMode === "scrollable") {
+      const surviving = (previous.scrollable?.columns ?? []).filter((c) =>
+        groupTerminalIds.has(c.terminalId),
+      );
+      const survivingIds = new Set(surviving.map((c) => c.terminalId));
+      const additions = Array.from(groupTerminalIds)
+        .filter((id) => !survivingIds.has(id))
+        .map((id) => ({
+          terminalId: id,
+          width: { kind: "preset", value: "half" } as WorkspaceColumnWidth,
+        }));
+      return {
+        ...group,
+        scrollable: { columns: [...surviving, ...additions] },
+        layoutMode: "scrollable" as const,
+        auxRoot: previous.auxRoot,
+        paneCount: surviving.length + additions.length,
+      };
+    }
+
     let root = previous.root;
     for (const id of collectPaneTerminalIds(root)) {
       if (!groupTerminalIds.has(id)) {
@@ -371,9 +393,7 @@ export function reconcileTerminalWorkspace(
           ? fallbackForRemovedActive
           : null;
   const activeGroup =
-    groups.find((group) =>
-      collectPaneTerminalIds(group.root).includes(requestedActive ?? ""),
-    ) ??
+    groups.find((group) => groupContainsTerminal(group, requestedActive ?? "")) ??
     groups.find((group) => group.id === workspace.activeGroupId) ??
     groups[0] ??
     null;

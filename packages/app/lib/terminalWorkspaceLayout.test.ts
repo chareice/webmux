@@ -737,3 +737,23 @@ describe("scrollable adjacency", () => {
     ).toBeNull();
   });
 });
+
+describe("reconcile in scrollable mode", () => {
+  it("removes destroyed terminals and appends new ones", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x")],
+      "a",
+    );
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    const next = reconcileTerminalWorkspace(
+      ws,
+      [terminal("b", "/x"), terminal("c", "/x")],
+      "c",
+    );
+    expect(next.groups[0].scrollable!.columns.map((c) => c.terminalId)).toEqual([
+      "b",
+      "c",
+    ]);
+    expect(next.activeTerminalId).toBe("c");
+  });
+});
