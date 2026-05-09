@@ -2,7 +2,11 @@ import type {
   TerminalInfo,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
+  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
+  WorkspaceScrollableColumn,
+  WorkspaceScrollableLayout,
+  WorkspaceColumnWidth,
 } from "@webmux/shared";
 
 export type WorkspaceSplitDirection = "horizontal" | "vertical";
@@ -19,6 +23,9 @@ export interface WorkspaceGroup {
   persistent: boolean;
   root: WorkspacePaneNode | null;
   paneCount: number;
+  layoutMode: WorkspaceLayoutMode;
+  scrollable: WorkspaceScrollableLayout | null;
+  auxRoot: WorkspacePaneNode | null;
 }
 
 export interface TerminalWorkspace {
@@ -313,6 +320,9 @@ function preserveActiveEmptyGroup(
       ...activeGroup,
       root: null,
       paneCount: 0,
+      layoutMode: activeGroup.layoutMode,
+      scrollable: activeGroup.scrollable,
+      auxRoot: activeGroup.auxRoot,
     },
   ];
 }
@@ -411,14 +421,92 @@ export function findAdjacentWorkspacePane(
   return candidates[0]?.pane.terminalId ?? null;
 }
 
+export function flattenTreeToColumns(
+  root: WorkspacePaneNode | null,
+): WorkspaceScrollableColumn[] {
+  const ids = collectPaneTerminalIds(root);
+  return ids.map((terminalId) => ({
+    terminalId,
+    width: { kind: "preset", value: "half" } as WorkspaceColumnWidth,
+  }));
+}
+
+export function buildTreeFromColumns(
+  columns: WorkspaceScrollableColumn[],
+): WorkspacePaneNode | null {
+  if (columns.length === 0) return null;
+  if (columns.length === 1) {
+    return { type: "leaf", terminalId: columns[0].terminalId };
+  }
+  const [first, ...rest] = columns;
+  return {
+    type: "split",
+    direction: "horizontal",
+    ratio: 0.5,
+    first: { type: "leaf", terminalId: first.terminalId },
+    second: buildTreeFromColumns(rest)!,
+  };
+}
+
+export function setWorkspaceLayoutMode(
+  workspace: TerminalWorkspace,
+  groupId: string,
+  nextMode: WorkspaceLayoutMode,
+): TerminalWorkspace {
+  const groups = workspace.groups.map((group) => {
+    if (group.id !== groupId) return group;
+    if (group.layoutMode === nextMode) return group;
+    if (nextMode === "scrollable") {
+      return {
+        ...group,
+        layoutMode: nextMode,
+        scrollable: { columns: flattenTreeToColumns(group.root) },
+        auxRoot: group.root,
+      };
+    }
+    // scrollable -> tiling
+    const restored = group.auxRoot ?? buildTreeFromColumns(group.scrollable?.columns ?? []);
+    // Append columns added while in scrollable mode that aren't in the restored tree
+    const restoredIds = new Set(collectPaneTerminalIds(restored));
+    let merged = restored;
+    for (const column of group.scrollable?.columns ?? []) {
+      if (!restoredIds.has(column.terminalId)) {
+        merged = appendNode(merged, { type: "leaf", terminalId: column.terminalId });
+      }
+    }
+    return {
+      ...group,
+      layoutMode: nextMode,
+      root: merged,
+      scrollable: group.scrollable, // keep so re-toggle is cheap
+      auxRoot: null,
+    };
+  });
+  return { ...workspace, groups };
+}
+
 function createGroups(
   terminals: TerminalInfo[],
   workspaceGroups: WorkspaceGroupInfo[] = [],
   workspaceLayouts: WorkspaceLayoutInfo[] = [],
 ): WorkspaceGroup[] {
   const byGroup = new Map<string, CreatedWorkspaceGroup>();
-  const layoutsByGroupKey = new Map(
-    workspaceLayouts.map((layout) => [layout.group_key, layout.root] as const),
+  const layoutsByGroupKey = new Map<
+    string,
+    {
+      root: WorkspaceLayoutNode | null;
+      mode: WorkspaceLayoutMode;
+      scrollable: WorkspaceScrollableLayout | null;
+    }
+  >(
+    workspaceLayouts.map((layout) => [
+      layout.group_key,
+      {
+        root: layout.root,
+        mode: layout.mode ?? "tiling",
+        scrollable: layout.scrollable ?? null,
+      },
+    ]),
   );
   const sortedWorkspaceGroups = [...workspaceGroups].sort(
     (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name),
@@ -467,9 +555,10 @@ function createGroups(
     .sort(compareCreatedGroups)
     .map((group) => {
       const terminalIds = group.terminals.map((terminal) => terminal.id);
+      const layoutEntry = layoutsByGroupKey.get(group.id);
       const root = restorePaneLayout(
         terminalIds,
-        layoutsByGroupKey.get(group.id),
+        layoutEntry?.root,
       );
       const cwd =
         group.cwd ||
@@ -483,6 +572,9 @@ function createGroups(
         persistent: group.persistent,
         root,
         paneCount: group.terminals.length,
+        layoutMode: layoutEntry?.mode ?? "tiling" as WorkspaceLayoutMode,
+        scrollable: layoutEntry?.scrollable ?? null,
+        auxRoot: null,
       };
     });
 }

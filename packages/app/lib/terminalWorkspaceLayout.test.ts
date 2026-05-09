@@ -12,7 +12,11 @@ import {
   selectWorkspaceGroup,
   splitWorkspacePane,
   swapWorkspacePanes,
+  flattenTreeToColumns,
+  buildTreeFromColumns,
+  setWorkspaceLayoutMode,
 } from "./terminalWorkspaceLayout";
+import type { WorkspacePaneNode } from "./terminalWorkspaceLayout";
 
 function terminal(id: string, cwd: string): TerminalInfo {
   return {
@@ -568,5 +572,71 @@ describe("terminalWorkspaceLayout", () => {
     expect(findAdjacentWorkspacePane(root, "down", "top")).toBe("bottom");
     expect(findAdjacentWorkspacePane(root, "up", "bottom")).toBe("top");
     expect(findAdjacentWorkspacePane(root, "left", "bottom")).toBe("left");
+  });
+});
+
+describe("layout mode helpers", () => {
+  it("flattens a 2D tree to ordered columns (DFS first then second)", () => {
+    const root: WorkspacePaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.4,
+      first: { type: "leaf", terminalId: "A" },
+      second: {
+        type: "split",
+        direction: "vertical",
+        ratio: 0.5,
+        first: { type: "leaf", terminalId: "B" },
+        second: {
+          type: "split",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: { type: "leaf", terminalId: "C" },
+          second: { type: "leaf", terminalId: "D" },
+        },
+      },
+    };
+    expect(flattenTreeToColumns(root).map((c) => c.terminalId)).toEqual([
+      "A",
+      "B",
+      "C",
+      "D",
+    ]);
+  });
+
+  it("buildTreeFromColumns produces a left-leaning right-only horizontal tree", () => {
+    const root = buildTreeFromColumns([
+      { terminalId: "A", width: { kind: "preset", value: "half" } },
+      { terminalId: "B", width: { kind: "preset", value: "half" } },
+      { terminalId: "C", width: { kind: "preset", value: "half" } },
+    ]);
+    expect(root).toEqual({
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: { type: "leaf", terminalId: "A" },
+      second: {
+        type: "split",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: { type: "leaf", terminalId: "B" },
+        second: { type: "leaf", terminalId: "C" },
+      },
+    });
+  });
+
+  it("setWorkspaceLayoutMode preserves the previous representation in aux", () => {
+    const ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x")],
+      "a",
+    );
+    const groupId = ws.groups[0].id;
+    const next = setWorkspaceLayoutMode(ws, groupId, "scrollable");
+    expect(next.groups[0].layoutMode).toBe("scrollable");
+    expect(next.groups[0].scrollable?.columns.map((c) => c.terminalId)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(next.groups[0].auxRoot).toEqual(ws.groups[0].root); // tree preserved
   });
 });
