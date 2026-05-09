@@ -775,8 +775,11 @@ export function TerminalCanvas() {
         ...prev,
         workspaceGroups: upsertWorkspaceGroup(prev.workspaceGroups, group),
       }));
+      // Default new groups to scrollable mode so the DB row is created with the right layout_mode.
+      await handleSaveWorkspaceLayout(machineId, group.id, null, "scrollable", { columns: [] });
       return group;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
