@@ -20,7 +20,7 @@ pub fn find_workspace_layouts_by_user(
     user_id: &str,
 ) -> rusqlite::Result<Vec<WorkspaceLayoutRow>> {
     let mut stmt = conn.prepare(
-        "SELECT user_id, machine_id, group_key, root_json, updated_at
+        "SELECT user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at
          FROM workspace_layouts WHERE user_id = ?1
          ORDER BY machine_id ASC, group_key ASC",
     )?;
@@ -34,7 +34,7 @@ pub fn find_workspace_layouts_by_machine(
     machine_id: &str,
 ) -> rusqlite::Result<Vec<WorkspaceLayoutRow>> {
     let mut stmt = conn.prepare(
-        "SELECT user_id, machine_id, group_key, root_json, updated_at
+        "SELECT user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at
          FROM workspace_layouts WHERE user_id = ?1 AND machine_id = ?2
          ORDER BY group_key ASC",
     )?;
@@ -49,7 +49,7 @@ pub fn find_workspace_layout(
     group_key: &str,
 ) -> rusqlite::Result<Option<WorkspaceLayoutRow>> {
     let mut stmt = conn.prepare(
-        "SELECT user_id, machine_id, group_key, root_json, updated_at
+        "SELECT user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at
          FROM workspace_layouts
          WHERE user_id = ?1 AND machine_id = ?2 AND group_key = ?3",
     )?;
@@ -84,6 +84,8 @@ pub fn upsert_workspace_layout(
         machine_id: machine_id.to_string(),
         group_key: group_key.to_string(),
         root_json: root_json.to_string(),
+        layout_mode: None,
+        aux_json: None,
         updated_at,
     })
 }
@@ -121,6 +123,8 @@ pub fn upsert_workspace_layout_checked(
         machine_id: machine_id.to_string(),
         group_key: group_key.to_string(),
         root_json: root_json.to_string(),
+        layout_mode: None,
+        aux_json: None,
         updated_at,
     })
 }
@@ -171,6 +175,8 @@ pub fn delete_workspace_layout_checked(
         machine_id: machine_id.to_string(),
         group_key: group_key.to_string(),
         root_json: root_json.to_string(),
+        layout_mode: None,
+        aux_json: None,
         updated_at,
     })
 }
@@ -190,7 +196,9 @@ fn workspace_layout_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Worksp
         machine_id: row.get(1)?,
         group_key: row.get(2)?,
         root_json: row.get(3)?,
-        updated_at: row.get(4)?,
+        layout_mode: row.get(4)?,
+        aux_json: row.get(5)?,
+        updated_at: row.get(6)?,
     })
 }
 
@@ -200,6 +208,23 @@ mod tests {
     use tc_protocol::{WorkspaceLayoutNode, WorkspaceSplitDirection};
 
     use super::{find_workspace_layouts_by_machine, upsert_workspace_layout};
+
+    #[test]
+    fn legacy_workspace_layout_rows_backfill_to_tiling() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::init_db(&conn).unwrap();
+        crate::db::users::create_user(&conn, "u1", "test", "u1", "U", None, "admin").unwrap();
+        crate::db::machines::ensure_machine_for_user(&conn, "m1", "u1", "M", None, None).unwrap();
+        // Simulate a row written by an earlier version (before mode/aux columns existed)
+        conn.execute(
+            "INSERT INTO workspace_layouts (user_id, machine_id, group_key, root_json, updated_at) VALUES (?1,?2,?3,?4,?5)",
+            rusqlite::params!["u1","m1","cwd:/x","null", 1234i64],
+        ).unwrap();
+        let rows = find_workspace_layouts_by_machine(&conn, "u1", "m1").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].layout_mode.as_deref(), None); // NULL means legacy / tiling
+        assert!(rows[0].aux_json.is_none());
+    }
 
     #[test]
     fn upsert_round_trips_workspace_layout_json() {

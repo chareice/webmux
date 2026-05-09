@@ -82,6 +82,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
             group_key TEXT NOT NULL,
             root_json TEXT NOT NULL,
+            layout_mode TEXT,
+            aux_json TEXT,
             updated_at INTEGER NOT NULL,
             PRIMARY KEY (user_id, machine_id, group_key)
         );
@@ -150,10 +152,32 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
+    // Migrate workspace_layouts: add layout_mode and aux_json for existing databases
+    add_column_if_missing(
+        conn,
+        "ALTER TABLE workspace_layouts ADD COLUMN layout_mode TEXT",
+    )?;
+    add_column_if_missing(
+        conn,
+        "ALTER TABLE workspace_layouts ADD COLUMN aux_json TEXT",
+    )?;
+
     // Startup recovery: mark all machines offline
     conn.execute("UPDATE machines SET status = 'offline'", [])?;
 
     Ok(())
+}
+
+fn add_column_if_missing(conn: &Connection, ddl: &str) -> rusqlite::Result<()> {
+    match conn.execute(ddl, []) {
+        Ok(_) => Ok(()),
+        Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+            if msg.contains("duplicate column name") =>
+        {
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn column_exists(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
