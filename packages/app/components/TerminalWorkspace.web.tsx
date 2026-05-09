@@ -13,6 +13,7 @@ import type {
 } from "react";
 import type {
   TerminalInfo,
+  WorkspaceColumnWidth,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
   WorkspaceLayoutNode,
@@ -45,9 +46,11 @@ import {
   getActiveWorkspaceGroup,
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
+  setWorkspaceColumnWidth,
   splitWorkspacePane,
   swapWorkspacePanes,
 } from "@/lib/terminalWorkspaceLayout";
+import { ScrollableWorkspace } from "./ScrollableWorkspace";
 import {
   findWorkspaceShortcutAction,
   getWorkspaceGroupShortcutIndex,
@@ -540,6 +543,21 @@ function TerminalWorkspaceComponent({
     ],
   );
 
+  const handleResizeColumn = useCallback(
+    (terminalId: string, width: WorkspaceColumnWidth) => {
+      setWorkspace((prev) => setWorkspaceColumnWidth(prev, terminalId, width));
+      // Persistence wiring for column width changes is handled in Phase 5 (Task 17).
+    },
+    [],
+  );
+
+  const handleReorderColumns = useCallback(
+    (sourceTerminalId: string, targetTerminalId: string) => {
+      setWorkspace((prev) => swapWorkspacePanes(prev, sourceTerminalId, targetTerminalId));
+    },
+    [],
+  );
+
   const removeDocumentPaneDragEnd = useCallback(() => {
     const cleanup = documentPaneDragCleanupRef.current;
     if (!cleanup) return;
@@ -813,7 +831,27 @@ function TerminalWorkspaceComponent({
           onDeleteGroup={setDeleteGroup}
         />
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-          {activeTerminal ? (
+          {activeGroup?.layoutMode === "scrollable" ? (
+            <ScrollableWorkspace
+              columns={activeGroup.scrollable?.columns ?? []}
+              terminalsById={terminalsById}
+              activeTerminalId={activeTerminal?.id ?? null}
+              isController={isController}
+              deviceId={deviceId}
+              isMobile
+              fitRequest={fitRequest}
+              onActiveRef={(ref) => {
+                activeCardRef.current = ref;
+              }}
+              onFitRequestHandled={handleFitRequestHandled}
+              onFocus={activateTerminal}
+              onDestroy={handleDestroy}
+              onResizeColumn={handleResizeColumn}
+              onReorderColumns={handleReorderColumns}
+              onRequestControl={onRequestControl}
+              onReleaseControl={onReleaseControl}
+            />
+          ) : activeTerminal ? (
             <WorkspacePaneLeaf
               terminal={activeTerminal}
               isActive
@@ -968,6 +1006,26 @@ function TerminalWorkspaceComponent({
             onFocus={activateTerminal}
             onDestroy={handleDestroy}
             draggingPaneId={null}
+            onRequestControl={onRequestControl}
+            onReleaseControl={onReleaseControl}
+          />
+        ) : activeGroup?.layoutMode === "scrollable" ? (
+          <ScrollableWorkspace
+            columns={activeGroup.scrollable?.columns ?? []}
+            terminalsById={terminalsById}
+            activeTerminalId={activeTerminal?.id ?? null}
+            isController={isController}
+            deviceId={deviceId}
+            isMobile={false}
+            fitRequest={fitRequest}
+            onActiveRef={(ref) => {
+              activeCardRef.current = ref;
+            }}
+            onFitRequestHandled={handleFitRequestHandled}
+            onFocus={activateTerminal}
+            onDestroy={handleDestroy}
+            onResizeColumn={handleResizeColumn}
+            onReorderColumns={handleReorderColumns}
             onRequestControl={onRequestControl}
             onReleaseControl={onReleaseControl}
           />
