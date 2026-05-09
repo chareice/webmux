@@ -953,7 +953,8 @@ function TerminalWorkspaceComponent({
           onDeleteGroup={setDeleteGroup}
         />
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-          {activeGroup?.layoutMode === "scrollable" ? (
+          {activeGroup?.layoutMode === "scrollable" &&
+          (activeGroup.scrollable?.columns?.length ?? 0) > 0 ? (
             <ScrollableWorkspace
               columns={activeGroup.scrollable?.columns ?? []}
               terminalsById={terminalsById}
@@ -1133,7 +1134,8 @@ function TerminalWorkspaceComponent({
             onRequestControl={onRequestControl}
             onReleaseControl={onReleaseControl}
           />
-        ) : activeGroup?.layoutMode === "scrollable" ? (
+        ) : activeGroup?.layoutMode === "scrollable" &&
+          (activeGroup.scrollable?.columns?.length ?? 0) > 0 ? (
           <ScrollableWorkspace
             columns={activeGroup.scrollable?.columns ?? []}
             terminalsById={terminalsById}
