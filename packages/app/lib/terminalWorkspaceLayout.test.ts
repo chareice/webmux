@@ -60,6 +60,34 @@ describe("terminalWorkspaceLayout", () => {
     ]);
   });
 
+  it("keeps cwd fallback group order stable when terminal snapshots arrive in a different order", () => {
+    const firstSnapshot = createTerminalWorkspace(
+      [
+        terminal("api-1", "/home/chareice/projects/zhuyang"),
+        terminal("web-1", "/home/chareice/projects/webmux"),
+        terminal("ops-1", "/home/chareice/projects/ops"),
+      ],
+      "api-1",
+    );
+    const secondSnapshot = createTerminalWorkspace(
+      [
+        terminal("ops-1", "/home/chareice/projects/ops"),
+        terminal("web-1", "/home/chareice/projects/webmux"),
+        terminal("api-1", "/home/chareice/projects/zhuyang"),
+      ],
+      "api-1",
+    );
+
+    expect(firstSnapshot.groups.map((group) => group.label)).toEqual([
+      "ops",
+      "webmux",
+      "zhuyang",
+    ]);
+    expect(secondSnapshot.groups.map((group) => group.label)).toEqual(
+      firstSnapshot.groups.map((group) => group.label),
+    );
+  });
+
   it("groups panes by persisted workspace tab before falling back to cwd", () => {
     const workspace = createTerminalWorkspace(
       [

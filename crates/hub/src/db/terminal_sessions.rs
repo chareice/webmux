@@ -93,7 +93,8 @@ pub fn find_active_by_machine(
 ) -> rusqlite::Result<Vec<TerminalSessionRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, machine_id, title, cwd, workspace_group_id, cols, rows, created_at, destroyed_at
-         FROM terminal_sessions WHERE machine_id = ?1 AND destroyed_at IS NULL",
+         FROM terminal_sessions WHERE machine_id = ?1 AND destroyed_at IS NULL
+         ORDER BY created_at ASC, id ASC",
     )?;
     let rows = stmt.query_map(params![machine_id], |row| {
         Ok(TerminalSessionRow {
@@ -114,7 +115,8 @@ pub fn find_active_by_machine(
 pub fn find_all_active(conn: &Connection) -> rusqlite::Result<Vec<TerminalSessionRow>> {
     let mut stmt = conn.prepare(
         "SELECT id, machine_id, title, cwd, workspace_group_id, cols, rows, created_at, destroyed_at
-         FROM terminal_sessions WHERE destroyed_at IS NULL",
+         FROM terminal_sessions WHERE destroyed_at IS NULL
+         ORDER BY machine_id ASC, created_at ASC, id ASC",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(TerminalSessionRow {
@@ -130,4 +132,64 @@ pub fn find_all_active(conn: &Connection) -> rusqlite::Result<Vec<TerminalSessio
         })
     })?;
     rows.collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::{params, Connection};
+
+    use super::{find_active_by_machine, find_all_active};
+
+    fn insert_session(conn: &Connection, id: &str, created_at: i64) {
+        conn.execute(
+            "INSERT INTO terminal_sessions
+                (id, machine_id, title, cwd, cols, rows, created_at)
+             VALUES (?1, 'machine-a', ?2, '/tmp', 80, 24, ?3)",
+            params![id, format!("Terminal {id}"), created_at],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn active_sessions_are_returned_in_stable_creation_order() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::init_db(&conn).unwrap();
+        crate::db::users::create_user(
+            &conn,
+            "user-a",
+            "test",
+            "user-a",
+            "User A",
+            None,
+            "admin",
+        )
+        .unwrap();
+        crate::db::machines::ensure_machine_for_user(
+            &conn,
+            "machine-a",
+            "user-a",
+            "Machine A",
+            Some("linux"),
+            Some("/tmp"),
+        )
+        .unwrap();
+
+        insert_session(&conn, "late", 200);
+        insert_session(&conn, "same-b", 100);
+        insert_session(&conn, "same-a", 100);
+
+        let machine_ids: Vec<String> = find_active_by_machine(&conn, "machine-a")
+            .unwrap()
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
+        assert_eq!(machine_ids, ["same-a", "same-b", "late"]);
+
+        let all_ids: Vec<String> = find_all_active(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
+        assert_eq!(all_ids, ["same-a", "same-b", "late"]);
+    }
 }

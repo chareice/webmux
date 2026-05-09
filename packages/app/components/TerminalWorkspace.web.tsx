@@ -6,7 +6,11 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type {
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+} from "react";
 import type { TerminalInfo, WorkspaceGroupInfo } from "@webmux/shared";
 import {
   ChevronDown,
@@ -81,6 +85,8 @@ interface TerminalWorkspaceProps {
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
 }
+
+type GroupDropPlacement = "before" | "after";
 
 interface WorkspaceFitRequest {
   terminalIds: string[];
@@ -321,12 +327,17 @@ function TerminalWorkspaceComponent({
   ]);
 
   const handleReorderGroups = useCallback(
-    async (sourceGroupId: string, targetGroupId: string) => {
+    async (
+      sourceGroupId: string,
+      targetGroupId: string,
+      placement: GroupDropPlacement,
+    ) => {
       if (sourceGroupId === targetGroupId) return;
       const nextIds = reorderedPersistentGroupIds(
         workspace.groups,
         sourceGroupId,
         targetGroupId,
+        placement,
       );
       if (!nextIds) return;
       setWorkspace((prev) => ({
@@ -335,6 +346,7 @@ function TerminalWorkspaceComponent({
           prev.groups,
           sourceGroupId,
           targetGroupId,
+          placement,
         ),
       }));
       const groups = await onReorderGroups(commandMachineId, nextIds);
@@ -797,7 +809,11 @@ function WorkspaceTopBar({
   maximized: boolean;
   onGroupSelect: (id: string) => void;
   onCreateGroup: () => void;
-  onReorderGroups: (sourceGroupId: string, targetGroupId: string) => void;
+  onReorderGroups: (
+    sourceGroupId: string,
+    targetGroupId: string,
+    placement: GroupDropPlacement,
+  ) => void;
   onDeleteGroup: (group: WorkspaceGroup) => void;
   onAssignGroup: (workspaceGroupId: string | null) => void;
   onOpenDrawer: () => void;
@@ -810,11 +826,70 @@ function WorkspaceTopBar({
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
 }) {
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
+  const groupDragRef = useRef<{ sourceGroupId: string } | null>(null);
+  const documentGroupDragCleanupRef = useRef<(() => void) | null>(null);
   const activeGroup =
     groups.find((group) => group.id === activeGroupId) ?? null;
   const activeTitle =
     activeTerminal?.title || activeTerminal?.id.slice(0, 8) || "No panes";
   const activeCwd = activeTerminal?.cwd ?? activeGroup?.cwd ?? "";
+  const removeDocumentGroupDragEnd = useCallback(() => {
+    const cleanup = documentGroupDragCleanupRef.current;
+    if (!cleanup) return;
+    cleanup();
+    documentGroupDragCleanupRef.current = null;
+  }, []);
+  const resetGroupDrag = useCallback(() => {
+    removeDocumentGroupDragEnd();
+    groupDragRef.current = null;
+    setDraggingGroupId(null);
+  }, [removeDocumentGroupDragEnd]);
+  const finishGroupDrag = useCallback(
+    (clientX: number, clientY: number) => {
+      const drag = groupDragRef.current;
+      resetGroupDrag();
+      if (!drag) return;
+      const target = document
+        .elementFromPoint(clientX, clientY)
+        ?.closest<HTMLElement>("[data-workspace-group-drop-id]");
+      const targetGroupId = target?.dataset.workspaceGroupDropId;
+      if (!targetGroupId || targetGroupId === drag.sourceGroupId) return;
+      const rect = target.getBoundingClientRect();
+      const placement: GroupDropPlacement =
+        clientX < rect.left + rect.width / 2 ? "before" : "after";
+      onReorderGroups(drag.sourceGroupId, targetGroupId, placement);
+    },
+    [onReorderGroups, resetGroupDrag],
+  );
+  const startGroupMouseDrag = useCallback(
+    (sourceGroupId: string, event: ReactMouseEvent<HTMLElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      removeDocumentGroupDragEnd();
+      groupDragRef.current = { sourceGroupId };
+      setDraggingGroupId(sourceGroupId);
+      const handleMouseUp = (mouseEvent: MouseEvent) => {
+        removeDocumentGroupDragEnd();
+        finishGroupDrag(mouseEvent.clientX, mouseEvent.clientY);
+      };
+      const handleWindowBlur = () => resetGroupDrag();
+      documentGroupDragCleanupRef.current = () => {
+        document.removeEventListener("mouseup", handleMouseUp, true);
+        window.removeEventListener("blur", handleWindowBlur, true);
+      };
+      document.addEventListener("mouseup", handleMouseUp, true);
+      window.addEventListener("blur", handleWindowBlur, true);
+    },
+    [finishGroupDrag, removeDocumentGroupDragEnd, resetGroupDrag],
+  );
+  useEffect(
+    () => () => {
+      removeDocumentGroupDragEnd();
+    },
+    [removeDocumentGroupDragEnd],
+  );
 
   return (
     <div
@@ -855,68 +930,72 @@ function WorkspaceTopBar({
           {groups.map((group) => {
             const active = group.id === activeGroupId;
             return (
-            <div
-              key={group.id}
-              draggable={group.persistent}
-              onMouseEnter={(event) => {
-                if (event.buttons !== 0) return;
-                if (!active) onGroupSelect(group.id);
-              }}
-              onDragStart={(event) => {
-                if (!group.persistent) return;
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/plain", group.id);
-              }}
-              onDragOver={(event) => {
-                if (group.persistent) event.preventDefault();
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                const sourceGroupId = event.dataTransfer.getData("text/plain");
-                if (sourceGroupId) onReorderGroups(sourceGroupId, group.id);
-              }}
-              style={{
-                ...groupTabShellStyle,
-                background: active ? colors.bg2 : "transparent",
-                borderColor:
-                  active ? colorAlpha.accentLine : colors.lineSoft,
-              }}
-            >
-              {group.persistent && (
-                <GripVertical
-                  size={13}
-                  style={{ color: colors.fg3, flexShrink: 0 }}
-                />
-              )}
-              <button
-                type="button"
-                onClick={() => onGroupSelect(group.id)}
-                data-testid={`workspace-group-${group.id}`}
+              <div
+                key={group.id}
+                data-workspace-group-drop-id={
+                  group.persistent ? group.id : undefined
+                }
+                onMouseEnter={(event) => {
+                  if (draggingGroupId) return;
+                  if (event.buttons !== 0) return;
+                  if (!active) onGroupSelect(group.id);
+                }}
                 style={{
-                  ...groupTabSelectStyle,
-                  color: active ? colors.fg0 : colors.fg2,
+                  ...groupTabShellStyle,
+                  background: active ? colors.bg2 : "transparent",
+                  borderColor:
+                    active ? colorAlpha.accentLine : colors.lineSoft,
+                  cursor: group.persistent ? "default" : "pointer",
                 }}
               >
-                <span style={truncateStyle}>{group.label}</span>
-                <span style={{ color: colors.fg3 }}>{group.paneCount}</span>
-              </button>
-              {group.persistent && (
+                {group.persistent && (
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    data-testid={`workspace-group-drag-${group.id}`}
+                    title="Drag group"
+                    aria-label={`Drag group ${group.label}`}
+                    onMouseDown={(event) =>
+                      startGroupMouseDrag(group.id, event)
+                    }
+                    style={groupDragHandleStyle}
+                  >
+                    <GripVertical
+                      size={13}
+                      style={{ color: colors.fg3, pointerEvents: "none" }}
+                    />
+                  </span>
+                )}
                 <button
                   type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDeleteGroup(group);
+                  onClick={() => onGroupSelect(group.id)}
+                  data-testid={`workspace-group-${group.id}`}
+                  style={{
+                    ...groupTabSelectStyle,
+                    color: active ? colors.fg0 : colors.fg2,
                   }}
-                  data-testid={`workspace-group-delete-${group.id}`}
-                  title="Delete group"
-                  aria-label={`Delete group ${group.label}`}
-                  style={groupDeleteButtonStyle}
                 >
-                  <Trash2 size={12} />
+                  <span style={truncateStyle}>{group.label}</span>
+                  <span style={{ color: colors.fg3 }}>{group.paneCount}</span>
                 </button>
-              )}
-            </div>
-          );})}
+                {group.persistent && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDeleteGroup(group);
+                    }}
+                    data-testid={`workspace-group-delete-${group.id}`}
+                    title="Delete group"
+                    aria-label={`Delete group ${group.label}`}
+                    style={groupDeleteButtonStyle}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
           <button
             type="button"
             onClick={onCreateGroup}
@@ -1794,6 +1873,19 @@ const groupTabSelectStyle: CSSProperties = {
   cursor: "pointer",
 };
 
+const groupDragHandleStyle: CSSProperties = {
+  width: 16,
+  height: 20,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: colors.fg3,
+  cursor: "grab",
+  flexShrink: 0,
+  touchAction: "none",
+  userSelect: "none",
+};
+
 const groupDeleteButtonStyle: CSSProperties = {
   ...smallIconButtonStyle,
   width: 20,
@@ -1965,6 +2057,7 @@ function reorderedPersistentGroupIds(
   groups: WorkspaceGroup[],
   sourceGroupId: string,
   targetGroupId: string,
+  placement: GroupDropPlacement,
 ): string[] | null {
   const persistentIds = groups
     .filter((group) => group.persistent && group.workspaceGroupId)
@@ -1975,34 +2068,44 @@ function reorderedPersistentGroupIds(
   ) {
     return null;
   }
-  return moveBefore(persistentIds, sourceGroupId, targetGroupId);
+  return moveRelative(
+    persistentIds,
+    sourceGroupId,
+    targetGroupId,
+    placement,
+    (id) => id,
+  );
 }
 
 function reorderWorkspaceGroupsForDisplay(
   groups: WorkspaceGroup[],
   sourceGroupId: string,
   targetGroupId: string,
+  placement: GroupDropPlacement,
 ): WorkspaceGroup[] {
-  const sourceIndex = groups.findIndex((group) => group.id === sourceGroupId);
-  const targetIndex = groups.findIndex((group) => group.id === targetGroupId);
-  if (sourceIndex === -1 || targetIndex === -1) return groups;
-  const next = groups.slice();
-  const [source] = next.splice(sourceIndex, 1);
-  next.splice(targetIndex > sourceIndex ? targetIndex - 1 : targetIndex, 0, source);
-  return next;
+  return moveRelative(
+    groups,
+    sourceGroupId,
+    targetGroupId,
+    placement,
+    (group) => group.id,
+  );
 }
 
-function moveBefore(
-  ids: string[],
+function moveRelative<T>(
+  items: T[],
   sourceGroupId: string,
   targetGroupId: string,
-): string[] {
-  const next = ids.slice();
-  const sourceIndex = next.indexOf(sourceGroupId);
-  const targetIndex = next.indexOf(targetGroupId);
-  if (sourceIndex === -1 || targetIndex === -1) return ids;
+  placement: GroupDropPlacement,
+  getId: (item: T) => string,
+): T[] {
+  const next = items.slice();
+  const sourceIndex = next.findIndex((item) => getId(item) === sourceGroupId);
+  if (sourceIndex === -1) return items;
   const [source] = next.splice(sourceIndex, 1);
-  next.splice(targetIndex > sourceIndex ? targetIndex - 1 : targetIndex, 0, source);
+  const targetIndex = next.findIndex((item) => getId(item) === targetGroupId);
+  if (targetIndex === -1) return items;
+  next.splice(placement === "after" ? targetIndex + 1 : targetIndex, 0, source);
   return next;
 }
 
