@@ -421,6 +421,61 @@ export function findAdjacentWorkspacePane(
   return candidates[0]?.pane.terminalId ?? null;
 }
 
+const PRESET_ORDER: WorkspaceColumnWidth["value"][] = ["half", "two_thirds", "full"] as const;
+type WorkspaceColumnPreset = "half" | "two_thirds" | "full";
+
+export function setWorkspaceColumnWidth(
+  workspace: TerminalWorkspace,
+  terminalId: string,
+  width: WorkspaceColumnWidth,
+): TerminalWorkspace {
+  const groups = workspace.groups.map((group) => {
+    if (!group.scrollable) return group;
+    const idx = group.scrollable.columns.findIndex(
+      (c) => c.terminalId === terminalId,
+    );
+    if (idx === -1) return group;
+    const columns = group.scrollable.columns.slice();
+    columns[idx] = { ...columns[idx], width };
+    return { ...group, scrollable: { columns } };
+  });
+  return { ...workspace, groups };
+}
+
+export function cycleWorkspaceColumnWidth(
+  workspace: TerminalWorkspace,
+  terminalId: string,
+  direction: "grow" | "shrink",
+): TerminalWorkspace {
+  for (const group of workspace.groups) {
+    if (!group.scrollable) continue;
+    const column = group.scrollable.columns.find(
+      (c) => c.terminalId === terminalId,
+    );
+    if (!column) continue;
+    const currentPreset: WorkspaceColumnPreset =
+      column.width.kind === "preset"
+        ? column.width.value
+        : nearestPreset(column.width.value as number);
+    const idx = PRESET_ORDER.indexOf(currentPreset);
+    const next =
+      direction === "grow"
+        ? PRESET_ORDER[Math.min(idx + 1, PRESET_ORDER.length - 1)]
+        : PRESET_ORDER[Math.max(idx - 1, 0)];
+    return setWorkspaceColumnWidth(workspace, terminalId, {
+      kind: "preset",
+      value: next as WorkspaceColumnPreset,
+    });
+  }
+  return workspace;
+}
+
+function nearestPreset(fraction: number): WorkspaceColumnPreset {
+  if (fraction >= 0.85) return "full";
+  if (fraction >= 0.6) return "two_thirds";
+  return "half";
+}
+
 export function flattenTreeToColumns(
   root: WorkspacePaneNode | null,
 ): WorkspaceScrollableColumn[] {

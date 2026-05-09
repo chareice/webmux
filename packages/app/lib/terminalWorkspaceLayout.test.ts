@@ -15,6 +15,8 @@ import {
   flattenTreeToColumns,
   buildTreeFromColumns,
   setWorkspaceLayoutMode,
+  setWorkspaceColumnWidth,
+  cycleWorkspaceColumnWidth,
 } from "./terminalWorkspaceLayout";
 import type { WorkspacePaneNode } from "./terminalWorkspaceLayout";
 
@@ -638,5 +640,42 @@ describe("layout mode helpers", () => {
       "b",
     ]);
     expect(next.groups[0].auxRoot).toEqual(ws.groups[0].root); // tree preserved
+  });
+});
+
+describe("column width helpers", () => {
+  it("setWorkspaceColumnWidth updates only the matching column", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x")],
+      "a",
+    );
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    const updated = setWorkspaceColumnWidth(ws, "b", {
+      kind: "preset",
+      value: "two_thirds",
+    });
+    const cols = updated.groups[0].scrollable!.columns;
+    expect(cols[0].width).toEqual({ kind: "preset", value: "half" });
+    expect(cols[1].width).toEqual({ kind: "preset", value: "two_thirds" });
+  });
+
+  it("cycleWorkspaceColumnWidth steps through presets and stops at full", () => {
+    let ws = createTerminalWorkspace([terminal("a", "/x")], "a");
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    ws = cycleWorkspaceColumnWidth(ws, "a", "grow");
+    expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
+      kind: "preset",
+      value: "two_thirds",
+    });
+    ws = cycleWorkspaceColumnWidth(ws, "a", "grow");
+    expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
+      kind: "preset",
+      value: "full",
+    });
+    ws = cycleWorkspaceColumnWidth(ws, "a", "grow");
+    expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
+      kind: "preset",
+      value: "full",
+    });
   });
 });
