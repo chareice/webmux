@@ -189,6 +189,40 @@ export function closeWorkspacePane(
   };
 }
 
+export function swapWorkspacePanes(
+  workspace: TerminalWorkspace,
+  sourceTerminalId: string,
+  targetTerminalId: string,
+): TerminalWorkspace {
+  if (sourceTerminalId === targetTerminalId) return workspace;
+  const group = workspace.groups.find((candidate) => {
+    const ids = collectPaneTerminalIds(candidate.root);
+    return ids.includes(sourceTerminalId) && ids.includes(targetTerminalId);
+  });
+  if (!group?.root) return workspace;
+
+  const root = swapLeafTerminalIds(
+    group.root,
+    sourceTerminalId,
+    targetTerminalId,
+  );
+  const groups = workspace.groups.map((candidate) =>
+    candidate.id === group.id
+      ? {
+          ...candidate,
+          root,
+          paneCount: collectPaneTerminalIds(root).length,
+        }
+      : candidate,
+  );
+
+  return {
+    groups,
+    activeGroupId: group.id,
+    activeTerminalId: sourceTerminalId,
+  };
+}
+
 export function reconcileTerminalWorkspace(
   workspace: TerminalWorkspace,
   terminals: TerminalInfo[],
@@ -656,6 +690,27 @@ function removeNode(
   terminalId: string,
 ): WorkspacePaneNode | null {
   return removeNodeWithFallback(root, terminalId).root;
+}
+
+function swapLeafTerminalIds(
+  root: WorkspacePaneNode,
+  sourceTerminalId: string,
+  targetTerminalId: string,
+): WorkspacePaneNode {
+  if (root.type === "leaf") {
+    if (root.terminalId === sourceTerminalId) {
+      return { ...root, terminalId: targetTerminalId };
+    }
+    if (root.terminalId === targetTerminalId) {
+      return { ...root, terminalId: sourceTerminalId };
+    }
+    return root;
+  }
+  return {
+    ...root,
+    first: swapLeafTerminalIds(root.first, sourceTerminalId, targetTerminalId),
+    second: swapLeafTerminalIds(root.second, sourceTerminalId, targetTerminalId),
+  };
 }
 
 function removeNodeWithFallback(

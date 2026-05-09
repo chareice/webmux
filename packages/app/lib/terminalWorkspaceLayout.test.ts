@@ -11,6 +11,7 @@ import {
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
   splitWorkspacePane,
+  swapWorkspacePanes,
 } from "./terminalWorkspaceLayout";
 
 function terminal(id: string, cwd: string): TerminalInfo {
@@ -371,6 +372,38 @@ describe("terminalWorkspaceLayout", () => {
     expect(
       collectPaneTerminalIds(getActiveWorkspaceGroup(next)?.root ?? null),
     ).toEqual(["web-1", "web-2"]);
+  });
+
+  it("swaps two panes inside the active split tree", () => {
+    const base = createTerminalWorkspace(
+      [
+        terminal("left", "/repo"),
+        terminal("top", "/repo"),
+        terminal("bottom", "/repo"),
+      ],
+      "bottom",
+    );
+    const nested = splitWorkspacePane(base, {
+      activeTerminalId: "top",
+      newTerminalId: "bottom",
+      direction: "down",
+    });
+
+    const next = swapWorkspacePanes(nested, "left", "bottom");
+
+    expect(next.activeTerminalId).toBe("left");
+    expect(getActiveWorkspaceGroup(next)?.root).toMatchObject({
+      type: "split",
+      first: { type: "leaf", terminalId: "bottom" },
+      second: {
+        type: "split",
+        direction: "vertical",
+        first: { type: "leaf", terminalId: "top" },
+        second: { type: "leaf", terminalId: "left" },
+      },
+    });
+    expect(collectPaneTerminalIds(getActiveWorkspaceGroup(next)?.root ?? null))
+      .toEqual(["bottom", "top", "left"]);
   });
 
   it("collapses a split when a pane is closed", () => {

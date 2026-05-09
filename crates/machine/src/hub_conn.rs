@@ -10,7 +10,6 @@ use crate::attach::{AttachEvent, AttachManager};
 use crate::pty::{tmux_resize_window, PtyManager};
 use crate::session_watcher::SessionWatcher;
 use crate::stats::should_emit_stats;
-use crate::zellij::NativeZellijManager;
 
 const HUB_OUTBOUND_CAPACITY: usize = 256;
 
@@ -25,7 +24,6 @@ pub struct HubConnection {
     pub machine_secret: String,
     pub hub_url: String,
     pub pty_manager: Arc<PtyManager>,
-    pub native_zellij_manager: Arc<NativeZellijManager>,
 }
 
 impl HubConnection {
@@ -218,7 +216,6 @@ impl HubConnection {
         let pty_recv = pty.clone();
         let send_tx_recv = send_tx.clone();
         let attach_mgr_recv = attach_mgr.clone();
-        let native_zellij_recv = self.native_zellij_manager.clone();
         let mut recv_task = tokio::spawn(async move {
             loop {
                 match tokio::time::timeout(Duration::from_secs(90), ws_rx.next()).await {
@@ -230,7 +227,6 @@ impl HubConnection {
                                     &pty_recv,
                                     &send_tx_recv,
                                     &attach_mgr_recv,
-                                    &native_zellij_recv,
                                 )
                                 .await;
                             }
@@ -277,7 +273,6 @@ async fn handle_hub_message(
     pty: &Arc<PtyManager>,
     send_tx: &mpsc::Sender<OutboundHubMessage>,
     attach_mgr: &Arc<AttachManager>,
-    native_zellij: &Arc<NativeZellijManager>,
 ) {
     match msg {
         HubToMachine::CreateTerminal {
@@ -487,27 +482,6 @@ async fn handle_hub_message(
                 }
             }
         }
-        HubToMachine::EnsureNativeZellij {
-            request_id,
-            user_id,
-        } => match native_zellij.ensure_for_user(&user_id).await {
-            Ok(status) => {
-                let _ = send_tx
-                    .send(OutboundHubMessage::Json(MachineToHub::NativeZellijReady {
-                        request_id,
-                        status,
-                    }))
-                    .await;
-            }
-            Err(error) => {
-                let _ = send_tx
-                    .send(OutboundHubMessage::Json(MachineToHub::NativeZellijError {
-                        request_id,
-                        error,
-                    }))
-                    .await;
-            }
-        },
     }
 }
 

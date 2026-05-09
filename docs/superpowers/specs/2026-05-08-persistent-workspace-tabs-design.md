@@ -2,7 +2,7 @@
 
 ## Goal
 
-Expanded terminal workspaces should use user-owned persistent tabs, similar to zellij tabs. A tab is a workspace group. Terminals in different working directories can belong to the same tab when the user chooses that grouping. Workpaths are launch shortcuts only: they pick the `cwd` for a new terminal so the user does not have to start and then run `cd`.
+Expanded terminal workspaces should use user-owned persistent tabs. A tab is a workspace group. Terminals in different working directories can belong to the same tab when the user chooses that grouping. Workpaths are launch shortcuts only: they pick the `cwd` for a new terminal so the user does not have to start and then run `cd`.
 
 ## Behavior
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add long-lived zellij-like workspace tabs that group panes by user choice, while keeping workpaths as launch-directory shortcuts only.
+**Goal:** Add long-lived workspace tabs that group panes by user choice, while keeping workpaths as launch-directory shortcuts only.
 
 **Architecture:** Persist tab metadata in the hub database, carry tab ids on terminal sessions, expose workspace groups in browser state, and make the expanded workspace layout prefer persisted tab ids over cwd fallback groups.
 
