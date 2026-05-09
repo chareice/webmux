@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   createTerminalViaApi,
   expandTerminalById,
+  getAuthHeaders,
   getExpandedOverlay,
   listTerminals,
   openApp,
@@ -214,6 +215,54 @@ test("workspace shortcuts focus panes by direction from the terminal", async ({
   );
 });
 
+test("desktop workspace restores pane layout after reload", async ({ page }) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const firstId = await createTerminalViaApi(page, { cwd: "/root" });
+  await expandTerminalById(page, firstId);
+  await page.getByLabel("Split right").click();
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(2);
+  const firstSplitTerminals = await listTerminals(page);
+  const secondId = firstSplitTerminals.find(
+    (terminal) => terminal.id !== firstId,
+  )!.id;
+
+  await page.getByTestId(`workspace-pane-${firstId}`).hover();
+  await page.getByLabel("Split down").click();
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(3);
+  const thirdId = (await listTerminals(page)).find(
+    (terminal) =>
+      terminal.id !== firstId && terminal.id !== secondId,
+  )!.id;
+  const expectedOrder = [firstId, thirdId, secondId];
+
+  await expect.poll(() => paneOrder(page)).toEqual(expectedOrder);
+  await expect
+    .poll(() => savedPaneOrder(page, "cwd:/root"), { timeout: 5_000 })
+    .toEqual(expectedOrder);
+
+  await page.reload();
+  await page
+    .getByTestId("workbench-header")
+    .waitFor({ state: "visible", timeout: 20_000 });
+  await expect(getExpandedOverlay(page)).toBeVisible();
+  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(3);
+  await expect.poll(() => paneOrder(page)).toEqual(expectedOrder);
+  const reloadedFirstBox = await paneBox(page, firstId);
+  const reloadedThirdBox = await paneBox(page, thirdId);
+  const reloadedSecondBox = await paneBox(page, secondId);
+  expect(Math.abs(reloadedThirdBox.x - reloadedFirstBox.x)).toBeLessThan(8);
+  expect(reloadedThirdBox.y).toBeGreaterThan(
+    reloadedFirstBox.y + reloadedFirstBox.height * 0.5,
+  );
+  expect(reloadedSecondBox.x).toBeGreaterThan(
+    reloadedFirstBox.x + reloadedFirstBox.width * 0.5,
+  );
+  expect(Math.abs(reloadedSecondBox.y - reloadedFirstBox.y)).toBeLessThan(8);
+});
+
 async function paneBox(page: Page, terminalId: string) {
   const box = await page
     .getByTestId(`workspace-pane-${terminalId}`)
@@ -245,4 +294,46 @@ async function paneWtermScrollbarWidth(page: Page, terminalId: string) {
     .locator(".wterm")
     .first()
     .evaluate((element) => getComputedStyle(element).scrollbarWidth);
+}
+
+async function paneOrder(page: Page): Promise<string[]> {
+  return page
+    .locator("[data-testid^='workspace-pane-']")
+    .evaluateAll((elements) =>
+      elements.map((element) =>
+        (element.getAttribute("data-testid") ?? "").replace(
+          "workspace-pane-",
+          "",
+        ),
+      ),
+    );
+}
+
+async function savedPaneOrder(page: Page, groupKey: string): Promise<string[]> {
+  const response = await page.request.get("/api/bootstrap", {
+    headers: await getAuthHeaders(page),
+  });
+  expect(response.ok()).toBeTruthy();
+  const snapshot = await response.json();
+  const layout = snapshot.workspace_layouts?.find(
+    (candidate: { machine_id: string; group_key: string }) =>
+      candidate.machine_id === "e2e-node" && candidate.group_key === groupKey,
+  );
+  return collectLayoutIds(layout?.root ?? null);
+}
+
+function collectLayoutIds(root: unknown): string[] {
+  if (!root || typeof root !== "object") return [];
+  const node = root as {
+    type?: string;
+    terminalId?: string;
+    first?: unknown;
+    second?: unknown;
+  };
+  if (node.type === "leaf" && node.terminalId) return [node.terminalId];
+  if (node.type !== "split") return [];
+  return [
+    ...collectLayoutIds(node.first),
+    ...collectLayoutIds(node.second),
+  ];
 }

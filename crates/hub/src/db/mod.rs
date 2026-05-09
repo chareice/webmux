@@ -11,6 +11,7 @@ pub mod tokens;
 pub mod types;
 pub mod users;
 pub mod workspace_groups;
+pub mod workspace_layouts;
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
@@ -76,6 +77,15 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             created_at INTEGER NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS workspace_layouts (
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+            group_key TEXT NOT NULL,
+            root_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (user_id, machine_id, group_key)
+        );
+
         CREATE TABLE IF NOT EXISTS api_tokens (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -105,6 +115,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_user_settings_user ON user_settings(user_id);
         CREATE INDEX IF NOT EXISTS idx_workspace_groups_machine
             ON workspace_groups(user_id, machine_id, sort_order);
+        CREATE INDEX IF NOT EXISTS idx_workspace_layouts_machine
+            ON workspace_layouts(user_id, machine_id);
 
         CREATE TABLE IF NOT EXISTS terminal_sessions (
             id TEXT PRIMARY KEY,

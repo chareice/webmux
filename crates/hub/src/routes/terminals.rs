@@ -7,7 +7,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use tc_protocol::{DirEntry, MachineInfo, TerminalInfo, WorkspaceGroupInfo};
+use tc_protocol::{
+    DirEntry, MachineInfo, TerminalInfo, WorkspaceGroupInfo, WorkspaceLayoutInfo,
+    WorkspaceLayoutNode,
+};
 
 use crate::auth::AuthUser;
 use crate::AppState;
@@ -40,6 +43,14 @@ struct ReorderWorkspaceGroupsRequest {
 #[derive(Deserialize)]
 struct AssignWorkspaceGroupRequest {
     workspace_group_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SaveWorkspaceLayoutRequest {
+    group_key: String,
+    root: Option<WorkspaceLayoutNode>,
+    #[serde(default)]
+    base_updated_at: Option<i64>,
 }
 
 fn default_cols() -> u16 {
@@ -262,6 +273,189 @@ async fn list_workspace_groups(
     Ok(Json(groups))
 }
 
+async fn save_workspace_layout(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(machine_id): Path<String>,
+    Json(req): Json<SaveWorkspaceLayoutRequest>,
+) -> Result<Json<WorkspaceLayoutInfo>, (StatusCode, String)> {
+    ensure_machine_row(&state, &auth_user.user_id, &machine_id).await?;
+
+    let group_key = req.group_key.trim();
+    if group_key.is_empty() || group_key.len() > 1024 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Workspace layout group key is invalid".to_string(),
+        ));
+    }
+
+    let terminals = state
+        .manager
+        .list_terminals_for_user(&auth_user.user_id, Some(&machine_id))
+        .await;
+    let mut conn = state.db.get().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    let allowed_terminal_ids = workspace_layout_terminal_ids_for_group_key(
+        &conn,
+        &auth_user.user_id,
+        &machine_id,
+        group_key,
+        &terminals,
+        req.root.is_some(),
+    )
+    .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+
+    if let Some(root) = req.root.as_ref() {
+        let mut seen = HashSet::new();
+        validate_workspace_layout_node(root, &allowed_terminal_ids, &mut seen, 0)
+            .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+    }
+    let base_updated_at = req.base_updated_at.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Workspace layout base revision is required".to_string(),
+        )
+    })?;
+
+    if req.root.is_none() {
+        let row = crate::db::workspace_layouts::delete_workspace_layout_checked(
+            &mut conn,
+            &auth_user.user_id,
+            &machine_id,
+            group_key,
+            base_updated_at,
+        )
+        .map_err(workspace_layout_save_error)?;
+        let layout = WorkspaceLayoutInfo {
+            machine_id,
+            group_key: group_key.to_string(),
+            root: None,
+            updated_at: row.updated_at,
+        };
+        state
+            .manager
+            .publish_workspace_layout_updated(&auth_user.user_id, layout.clone());
+        return Ok(Json(layout));
+    }
+
+    let root_json = serde_json::to_string(&req.root).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Workspace layout is invalid: {}", e),
+        )
+    })?;
+    let row = crate::db::workspace_layouts::upsert_workspace_layout_checked(
+        &mut conn,
+        &auth_user.user_id,
+        &machine_id,
+        group_key,
+        &root_json,
+        base_updated_at,
+    )
+    .map_err(workspace_layout_save_error)?;
+
+    let layout = WorkspaceLayoutInfo {
+        machine_id: row.machine_id,
+        group_key: row.group_key,
+        root: req.root,
+        updated_at: row.updated_at,
+    };
+    state
+        .manager
+        .publish_workspace_layout_updated(&auth_user.user_id, layout.clone());
+    Ok(Json(layout))
+}
+
+fn workspace_layout_save_error(
+    error: crate::db::workspace_layouts::WorkspaceLayoutSaveError,
+) -> (StatusCode, String) {
+    match error {
+        crate::db::workspace_layouts::WorkspaceLayoutSaveError::Conflict => (
+            StatusCode::CONFLICT,
+            "Workspace layout has changed; reload before saving".to_string(),
+        ),
+        crate::db::workspace_layouts::WorkspaceLayoutSaveError::Db(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", error),
+        ),
+    }
+}
+
+fn workspace_layout_terminal_ids_for_group_key(
+    conn: &rusqlite::Connection,
+    user_id: &str,
+    machine_id: &str,
+    group_key: &str,
+    terminals: &[TerminalInfo],
+    requires_existing_group: bool,
+) -> Result<HashSet<String>, String> {
+    if crate::db::workspace_groups::workspace_group_belongs_to_machine(
+        conn, user_id, machine_id, group_key,
+    )
+    .map_err(|e| format!("DB error: {}", e))?
+    {
+        return Ok(terminals
+            .iter()
+            .filter(|terminal| terminal.workspace_group_id.as_deref() == Some(group_key))
+            .map(|terminal| terminal.id.clone())
+            .collect());
+    }
+
+    let cwd_terminal_ids: Option<HashSet<String>> = group_key.strip_prefix("cwd:").map(|cwd| {
+        terminals
+            .iter()
+            .filter(|terminal| terminal.workspace_group_id.is_none() && terminal.cwd == cwd)
+            .map(|terminal| terminal.id.clone())
+            .collect()
+    });
+    if let Some(terminal_ids) = cwd_terminal_ids {
+        if !terminal_ids.is_empty() || !requires_existing_group {
+            return Ok(terminal_ids);
+        }
+    }
+
+    Err("Workspace layout group key does not match this machine".to_string())
+}
+
+fn validate_workspace_layout_node(
+    node: &WorkspaceLayoutNode,
+    terminal_ids: &HashSet<String>,
+    seen: &mut HashSet<String>,
+    depth: usize,
+) -> Result<(), String> {
+    if depth > 64 {
+        return Err("Workspace layout is too deep".to_string());
+    }
+
+    match node {
+        WorkspaceLayoutNode::Leaf { terminal_id } => {
+            if !terminal_ids.contains(terminal_id) {
+                return Err("Workspace layout references a missing terminal".to_string());
+            }
+            if !seen.insert(terminal_id.clone()) {
+                return Err("Workspace layout references a terminal more than once".to_string());
+            }
+            Ok(())
+        }
+        WorkspaceLayoutNode::Split {
+            ratio,
+            first,
+            second,
+            ..
+        } => {
+            if !ratio.is_finite() || *ratio < 0.05 || *ratio > 0.95 {
+                return Err("Workspace layout split ratio is invalid".to_string());
+            }
+            validate_workspace_layout_node(first, terminal_ids, seen, depth + 1)?;
+            validate_workspace_layout_node(second, terminal_ids, seen, depth + 1)
+        }
+    }
+}
+
 async fn create_workspace_group(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -429,6 +623,18 @@ async fn delete_workspace_group(
     }
 
     crate::db::terminal_sessions::clear_workspace_group(&conn, &group_id).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    crate::db::workspace_layouts::delete_workspace_layout(
+        &conn,
+        &auth_user.user_id,
+        &machine_id,
+        &group_id,
+    )
+    .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("DB error: {}", e),
@@ -638,6 +844,10 @@ pub fn router() -> Router<AppState> {
             put(reorder_workspace_groups),
         )
         .route(
+            "/api/machines/{machine_id}/workspace-layouts",
+            put(save_workspace_layout),
+        )
+        .route(
             "/api/machines/{machine_id}/workspace-groups/{group_id}",
             delete(delete_workspace_group),
         )
@@ -662,19 +872,27 @@ mod tests {
     use std::sync::Arc;
 
     use axum::{
+        body::{to_bytes, Body},
         extract::{Path, State},
+        http::{header, Method, Request, StatusCode},
         Json,
     };
     use r2d2::Pool;
     use r2d2_sqlite::SqliteConnectionManager;
-    use tc_protocol::{HubToMachine, MachineInfo, MachineToHub};
+    use serde_json::{json, Value};
+    use tc_protocol::{HubToMachine, MachineInfo, MachineToHub, TerminalInfo, WorkspaceLayoutNode};
+    use tower::ServiceExt;
 
     use super::{
-        control_action_allowed, create_terminal, create_workspace_group, CreateTerminalRequest,
-        CreateWorkspaceGroupRequest,
+        control_action_allowed, create_terminal, create_workspace_group,
+        validate_workspace_layout_node, workspace_layout_terminal_ids_for_group_key,
+        CreateTerminalRequest, CreateWorkspaceGroupRequest,
     };
     use crate::{
-        attach_router::HubRouter, auth::AuthUser, machine_manager::MachineManager, AppState,
+        attach_router::HubRouter,
+        auth::{sign_jwt, AuthUser},
+        machine_manager::MachineManager,
+        AppState,
     };
 
     fn test_state() -> AppState {
@@ -711,6 +929,70 @@ mod tests {
             os: "linux".to_string(),
             home_dir: "/tmp".to_string(),
         }
+    }
+
+    fn terminal(id: &str, cwd: &str, workspace_group_id: Option<&str>) -> TerminalInfo {
+        TerminalInfo {
+            id: id.to_string(),
+            machine_id: "machine-a".to_string(),
+            title: format!("Terminal {id}"),
+            cwd: cwd.to_string(),
+            workspace_group_id: workspace_group_id.map(str::to_string),
+            cols: 80,
+            rows: 24,
+            reachable: true,
+        }
+    }
+
+    async fn state_with_terminals(terminals: Vec<TerminalInfo>) -> AppState {
+        let state = test_state();
+        {
+            let conn = state.db.get().unwrap();
+            crate::db::machines::ensure_machine_for_user(
+                &conn,
+                "machine-a",
+                "user-a",
+                "Machine A",
+                Some("linux"),
+                Some("/tmp"),
+            )
+            .unwrap();
+        }
+        state
+            .manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        state
+            .manager
+            .handle_machine_message("machine-a", MachineToHub::ExistingTerminals { terminals })
+            .await;
+        state
+    }
+
+    async fn put_workspace_layout(state: &AppState, body: Value) -> (StatusCode, Value) {
+        let token = sign_jwt("user-a", &state.jwt_secret);
+        let response = super::router()
+            .with_state(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri("/api/machines/machine-a/workspace-layouts")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes)
+                .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).to_string()))
+        };
+        (status, body)
     }
 
     async fn receive_create_terminal_command(
@@ -801,6 +1083,331 @@ mod tests {
         assert!(!control_action_allowed(Some("device-a"), None));
         assert!(!control_action_allowed(Some("device-a"), Some("")));
         assert!(!control_action_allowed(None, Some("device-a")));
+    }
+
+    #[test]
+    fn workspace_layout_cwd_key_only_allows_matching_ungrouped_terminals() {
+        let state = test_state();
+        let conn = state.db.get().unwrap();
+        crate::db::machines::ensure_machine_for_user(
+            &conn,
+            "machine-a",
+            "user-a",
+            "Machine A",
+            Some("linux"),
+            Some("/tmp"),
+        )
+        .unwrap();
+        let terminals = vec![
+            terminal("repo-a", "/repo", None),
+            terminal("repo-grouped", "/repo", Some("group-a")),
+            terminal("other-a", "/other", None),
+        ];
+
+        let allowed = workspace_layout_terminal_ids_for_group_key(
+            &conn,
+            "user-a",
+            "machine-a",
+            "cwd:/repo",
+            &terminals,
+            true,
+        )
+        .unwrap();
+
+        assert!(allowed.contains("repo-a"));
+        assert!(!allowed.contains("repo-grouped"));
+        assert!(!allowed.contains("other-a"));
+        let mut seen = Default::default();
+        assert!(validate_workspace_layout_node(
+            &WorkspaceLayoutNode::Leaf {
+                terminal_id: "repo-grouped".to_string(),
+            },
+            &allowed,
+            &mut seen,
+            0,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn workspace_layout_tab_key_only_allows_terminals_in_that_tab() {
+        let state = test_state();
+        let conn = state.db.get().unwrap();
+        crate::db::machines::ensure_machine_for_user(
+            &conn,
+            "machine-a",
+            "user-a",
+            "Machine A",
+            Some("linux"),
+            Some("/tmp"),
+        )
+        .unwrap();
+        crate::db::workspace_groups::create_workspace_group(
+            &conn,
+            "group-a",
+            "user-a",
+            "machine-a",
+            "Group A",
+            0,
+        )
+        .unwrap();
+        let terminals = vec![
+            terminal("tab-a", "/repo", Some("group-a")),
+            terminal("cwd-a", "/repo", None),
+            terminal("other-tab-a", "/repo", Some("group-b")),
+        ];
+
+        let allowed = workspace_layout_terminal_ids_for_group_key(
+            &conn,
+            "user-a",
+            "machine-a",
+            "group-a",
+            &terminals,
+            true,
+        )
+        .unwrap();
+
+        assert!(allowed.contains("tab-a"));
+        assert!(!allowed.contains("cwd-a"));
+        assert!(!allowed.contains("other-tab-a"));
+        let mut seen = Default::default();
+        assert!(validate_workspace_layout_node(
+            &WorkspaceLayoutNode::Leaf {
+                terminal_id: "cwd-a".to_string(),
+            },
+            &allowed,
+            &mut seen,
+            0,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn workspace_layout_rejects_unknown_non_empty_cwd_key() {
+        let state = test_state();
+        let conn = state.db.get().unwrap();
+        crate::db::machines::ensure_machine_for_user(
+            &conn,
+            "machine-a",
+            "user-a",
+            "Machine A",
+            Some("linux"),
+            Some("/tmp"),
+        )
+        .unwrap();
+        let terminals = vec![terminal("repo-a", "/repo", None)];
+
+        assert!(workspace_layout_terminal_ids_for_group_key(
+            &conn,
+            "user-a",
+            "machine-a",
+            "cwd:/missing",
+            &terminals,
+            true,
+        )
+        .is_err());
+        assert!(workspace_layout_terminal_ids_for_group_key(
+            &conn,
+            "user-a",
+            "machine-a",
+            "cwd:/missing",
+            &terminals,
+            false,
+        )
+        .is_ok());
+    }
+
+    #[tokio::test]
+    async fn workspace_layout_route_saves_and_deletes_cwd_layout() {
+        let state = state_with_terminals(vec![
+            terminal("repo-a", "/repo", None),
+            terminal("repo-b", "/repo", None),
+        ])
+        .await;
+
+        let (status, body) = put_workspace_layout(
+            &state,
+            json!({
+                "group_key": "cwd:/repo",
+                "root": {
+                    "type": "split",
+                    "direction": "horizontal",
+                    "ratio": 0.5,
+                    "first": { "type": "leaf", "terminalId": "repo-a" },
+                    "second": { "type": "leaf", "terminalId": "repo-b" }
+                },
+                "base_updated_at": -1
+            }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["group_key"], "cwd:/repo");
+        let updated_at = body["updated_at"].as_i64().unwrap();
+        let conn = state.db.get().unwrap();
+        assert!(crate::db::workspace_layouts::find_workspace_layout(
+            &conn,
+            "user-a",
+            "machine-a",
+            "cwd:/repo"
+        )
+        .unwrap()
+        .is_some());
+        drop(conn);
+
+        let (status, body) = put_workspace_layout(
+            &state,
+            json!({
+                "group_key": "cwd:/repo",
+                "root": null,
+                "base_updated_at": updated_at
+            }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["root"].is_null());
+        let conn = state.db.get().unwrap();
+        let row = crate::db::workspace_layouts::find_workspace_layout(
+            &conn,
+            "user-a",
+            "machine-a",
+            "cwd:/repo",
+        )
+        .unwrap()
+        .unwrap();
+        let decoded: Option<WorkspaceLayoutNode> = serde_json::from_str(&row.root_json).unwrap();
+        assert!(decoded.is_none());
+        drop(conn);
+
+        let (status, _) = put_workspace_layout(
+            &state,
+            json!({
+                "group_key": "cwd:/repo",
+                "root": { "type": "leaf", "terminalId": "repo-a" },
+                "base_updated_at": updated_at
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        let (status, _) = put_workspace_layout(
+            &state,
+            json!({
+                "group_key": "cwd:/repo",
+                "root": { "type": "leaf", "terminalId": "repo-a" }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn workspace_layout_route_rejects_terminals_outside_group_key() {
+        let state = state_with_terminals(vec![
+            terminal("tab-a", "/repo", Some("group-a")),
+            terminal("tab-b", "/repo", Some("group-b")),
+            terminal("cwd-a", "/repo", None),
+        ])
+        .await;
+        {
+            let conn = state.db.get().unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn,
+                "group-a",
+                "user-a",
+                "machine-a",
+                "Group A",
+                0,
+            )
+            .unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn,
+                "group-b",
+                "user-a",
+                "machine-a",
+                "Group B",
+                1,
+            )
+            .unwrap();
+        }
+
+        let (status, _) = put_workspace_layout(
+            &state,
+            json!({
+                "group_key": "group-a",
+                "root": { "type": "leaf", "terminalId": "tab-b" },
+                "base_updated_at": -1
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (status, _) = put_workspace_layout(
+            &state,
+            json!({
+                "group_key": "cwd:/repo",
+                "root": { "type": "leaf", "terminalId": "tab-a" },
+                "base_updated_at": -1
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn workspace_layout_route_rejects_stale_save_revision() {
+        let state = state_with_terminals(vec![
+            terminal("repo-a", "/repo", None),
+            terminal("repo-b", "/repo", None),
+        ])
+        .await;
+
+        let (status, first) = put_workspace_layout(
+            &state,
+            json!({
+                "group_key": "cwd:/repo",
+                "root": { "type": "leaf", "terminalId": "repo-a" },
+                "base_updated_at": -1
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let first_updated_at = first["updated_at"].as_i64().unwrap();
+
+        let (status, _) = put_workspace_layout(
+            &state,
+            json!({
+                "group_key": "cwd:/repo",
+                "root": { "type": "leaf", "terminalId": "repo-b" },
+                "base_updated_at": -1
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        let (status, second) = put_workspace_layout(
+            &state,
+            json!({
+                "group_key": "cwd:/repo",
+                "root": { "type": "leaf", "terminalId": "repo-b" },
+                "base_updated_at": first_updated_at
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(second["updated_at"].as_i64().unwrap() > first_updated_at);
+
+        let (status, _) = put_workspace_layout(
+            &state,
+            json!({
+                "group_key": "cwd:/repo",
+                "root": { "type": "leaf", "terminalId": "repo-a" },
+                "base_updated_at": first_updated_at
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
     }
 
     #[tokio::test]

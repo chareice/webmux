@@ -25,6 +25,25 @@ export interface WorkspaceGroupInfo {
   sort_order: number
 }
 
+export type WorkspaceSplitDirection = "horizontal" | "vertical"
+
+export type WorkspaceLayoutNode =
+  | { type: "leaf"; terminalId: string }
+  | {
+      type: "split"
+      direction: WorkspaceSplitDirection
+      ratio: number
+      first: WorkspaceLayoutNode
+      second: WorkspaceLayoutNode
+    }
+
+export interface WorkspaceLayoutInfo {
+  machine_id: string
+  group_key: string
+  root: WorkspaceLayoutNode | null
+  updated_at: number
+}
+
 export interface DirEntry {
   name: string
   path: string
@@ -52,6 +71,7 @@ export interface BrowserStateSnapshot {
   machines: MachineInfo[]
   terminals: TerminalInfo[]
   workspace_groups?: WorkspaceGroupInfo[]
+  workspace_layouts?: WorkspaceLayoutInfo[]
   machine_stats: MachineStatsSnapshot[]
   control_leases: ControlLeaseSnapshot[]
 }
@@ -237,6 +257,7 @@ export type BrowserEvent =
   | BrowserEvent.WorkspaceGroupCreated
   | BrowserEvent.WorkspaceGroupUpdated
   | BrowserEvent.WorkspaceGroupDeleted
+  | BrowserEvent.WorkspaceLayoutUpdated
   | BrowserEvent.MachineStats
   | BrowserEvent.ModeChanged
 
@@ -293,6 +314,11 @@ export namespace BrowserEvent {
     type: 'workspace_group_deleted'
     machine_id: string
     group_id: string
+  }
+
+  export interface WorkspaceLayoutUpdated {
+    type: 'workspace_layout_updated'
+    layout: WorkspaceLayoutInfo
   }
 
   export interface MachineStats {

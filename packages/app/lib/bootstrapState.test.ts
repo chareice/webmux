@@ -57,6 +57,34 @@ describe("applyBootstrapSnapshot", () => {
       { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
     ]);
   });
+
+  it("maps workspace layouts from snapshot", () => {
+    const state = applyBootstrapSnapshot({
+      snapshot_seq: 5,
+      machines: [],
+      terminals: [],
+      workspace_groups: [],
+      workspace_layouts: [
+        {
+          machine_id: "m1",
+          group_key: "cwd:/repo",
+          root: { type: "leaf", terminalId: "term-1" },
+          updated_at: 10,
+        },
+      ],
+      machine_stats: [],
+      control_leases: [],
+    });
+
+    expect(state.workspaceLayouts).toEqual([
+      {
+        machine_id: "m1",
+        group_key: "cwd:/repo",
+        root: { type: "leaf", terminalId: "term-1" },
+        updated_at: 10,
+      },
+    ]);
+  });
 });
 
 describe("workspace tab events", () => {
@@ -188,6 +216,30 @@ describe("workspace tab events", () => {
     );
 
     expect(state.terminals[0]?.workspace_group_id).toBe("tab-main");
+  });
+
+  it("updates saved workspace layouts", () => {
+    const state = applyBrowserEventEnvelope(
+      { ...EMPTY_BROWSER_SESSION_STATE, lastSeq: 1 },
+      envelope(2, {
+        type: "workspace_layout_updated",
+        layout: {
+          machine_id: "m1",
+          group_key: "cwd:/repo",
+          root: { type: "leaf", terminalId: "term-1" },
+          updated_at: 20,
+        },
+      } as BrowserEvent),
+    );
+
+    expect(state.workspaceLayouts).toEqual([
+      {
+        machine_id: "m1",
+        group_key: "cwd:/repo",
+        root: { type: "leaf", terminalId: "term-1" },
+        updated_at: 20,
+      },
+    ]);
   });
 });
 

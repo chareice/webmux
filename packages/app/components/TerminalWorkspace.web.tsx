@@ -11,7 +11,12 @@ import type {
   MouseEvent as ReactMouseEvent,
   ReactNode,
 } from "react";
-import type { TerminalInfo, WorkspaceGroupInfo } from "@webmux/shared";
+import type {
+  TerminalInfo,
+  WorkspaceGroupInfo,
+  WorkspaceLayoutInfo,
+  WorkspaceLayoutNode,
+} from "@webmux/shared";
 import {
   ChevronDown,
   Columns2,
@@ -32,6 +37,7 @@ import {
   type WorkspacePaneFocusDirection,
   type WorkspacePaneNode,
   type WorkspaceSplitIntent,
+  type TerminalWorkspace as TerminalWorkspaceState,
   appendWorkspacePaneToGroup,
   closeWorkspacePane,
   createTerminalWorkspace,
@@ -51,6 +57,7 @@ interface TerminalWorkspaceProps {
   terminal: TerminalInfo;
   siblings: TerminalInfo[];
   workspaceGroups: WorkspaceGroupInfo[];
+  workspaceLayouts: WorkspaceLayoutInfo[];
   isController: boolean;
   deviceId: string;
   isMobile: boolean;
@@ -78,6 +85,11 @@ interface TerminalWorkspaceProps {
     groupIds: string[],
   ) => Promise<WorkspaceGroupInfo[] | null | void>;
   onDeleteGroup: (machineId: string, groupId: string) => Promise<void>;
+  onSaveWorkspaceLayout: (
+    machineId: string,
+    groupKey: string,
+    root: WorkspaceLayoutNode | null,
+  ) => Promise<WorkspaceLayoutInfo | null | void>;
   onAssignGroup: (
     terminal: TerminalInfo,
     workspaceGroupId: string | null,
@@ -103,6 +115,7 @@ function TerminalWorkspaceComponent({
   terminal,
   siblings,
   workspaceGroups,
+  workspaceLayouts,
   isController,
   deviceId,
   isMobile,
@@ -114,12 +127,29 @@ function TerminalWorkspaceComponent({
   onCreateGroup,
   onReorderGroups,
   onDeleteGroup,
+  onSaveWorkspaceLayout,
   onAssignGroup,
   onRequestControl,
   onReleaseControl,
 }: TerminalWorkspaceProps) {
   const [workspace, setWorkspace] = useState(() =>
-    createTerminalWorkspace(siblings, terminal.id, workspaceGroups),
+    createTerminalWorkspace(
+      siblings,
+      terminal.id,
+      workspaceGroups,
+      workspaceLayouts,
+    ),
+  );
+  const workspaceRef = useRef(workspace);
+  const commitWorkspace = useCallback((next: TerminalWorkspaceState) => {
+    workspaceRef.current = next;
+    setWorkspace(next);
+    return next;
+  }, []);
+  const updateWorkspace = useCallback(
+    (producer: (current: TerminalWorkspaceState) => TerminalWorkspaceState) =>
+      commitWorkspace(producer(workspaceRef.current)),
+    [commitWorkspace],
   );
   const activeCardRef = useRef<TerminalCardRef | null>(null);
   const fitRequestCounterRef = useRef(0);
@@ -141,21 +171,55 @@ function TerminalWorkspaceComponent({
   useEffect(() => {
     const externalTerminalChanged = previousTerminalIdRef.current !== terminal.id;
     previousTerminalIdRef.current = terminal.id;
-    setWorkspace((prev) =>
-      reconcileTerminalWorkspace(
+    setWorkspace((prev) => {
+      const next = reconcileTerminalWorkspace(
         prev,
         siblings,
         externalTerminalChanged ? terminal.id : prev.activeTerminalId,
         workspaceGroups,
-      ),
-    );
-  }, [siblings, terminal.id, workspaceGroups]);
+        workspaceLayouts,
+      );
+      workspaceRef.current = next;
+      return next;
+    });
+  }, [siblings, terminal.id, workspaceGroups, workspaceLayouts]);
 
   const activeGroup = getActiveWorkspaceGroup(workspace);
   const activeTerminal = workspace.activeTerminalId
     ? terminalsById.get(workspace.activeTerminalId) ?? null
     : null;
   const commandMachineId = activeTerminal?.machine_id ?? terminal.machine_id;
+  const layoutSaveQueuesRef = useRef(new Map<string, Promise<void>>());
+
+  const persistGroupLayout = useCallback(
+    async (nextWorkspace: TerminalWorkspaceState, groupId: string | null) => {
+      if (!groupId) return;
+      const group = nextWorkspace.groups.find(
+        (candidate) => candidate.id === groupId,
+      );
+      if (!group) return;
+      const queueKey = `${commandMachineId}\u0000${group.id}`;
+      const previous =
+        layoutSaveQueuesRef.current.get(queueKey) ?? Promise.resolve();
+      const save = previous
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await onSaveWorkspaceLayout(commandMachineId, group.id, group.root);
+          } catch (error) {
+            console.error("Failed to save workspace pane layout", error);
+          }
+        });
+      layoutSaveQueuesRef.current.set(queueKey, save);
+      void save.finally(() => {
+        if (layoutSaveQueuesRef.current.get(queueKey) === save) {
+          layoutSaveQueuesRef.current.delete(queueKey);
+        }
+      });
+      await save;
+    },
+    [commandMachineId, onSaveWorkspaceLayout],
+  );
 
   const requestPaneFit = useCallback(
     (
@@ -198,9 +262,9 @@ function TerminalWorkspaceComponent({
 
   const activateTerminal = useCallback(
     (terminalId: string) => {
-      const changedTerminal = terminalId !== workspace.activeTerminalId;
+      const changedTerminal = terminalId !== workspaceRef.current.activeTerminalId;
       if (changedTerminal) setMaximizedTerminalId(null);
-      setWorkspace((prev) => {
+      updateWorkspace((prev) => {
         const group =
           prev.groups.find((candidate) =>
             containsTerminal(candidate.root, terminalId),
@@ -221,15 +285,16 @@ function TerminalWorkspaceComponent({
       isMobile,
       onPick,
       requestPaneFit,
-      workspace.activeTerminalId,
+      updateWorkspace,
     ],
   );
 
   const activateGroup = useCallback(
     (groupId: string) => {
       setMaximizedTerminalId(null);
-      const next = selectWorkspaceGroup(workspace, groupId);
-      setWorkspace(next);
+      const next = updateWorkspace((current) =>
+        selectWorkspaceGroup(current, groupId),
+      );
       if (next.activeTerminalId) onPick(next.activeTerminalId);
       if (!isMobile && isController) {
         requestPaneFit(collectIds(getActiveWorkspaceGroup(next)?.root ?? null), {
@@ -237,7 +302,7 @@ function TerminalWorkspaceComponent({
         });
       }
     },
-    [isController, isMobile, onPick, requestPaneFit, workspace],
+    [isController, isMobile, onPick, requestPaneFit, updateWorkspace],
   );
 
   const handleSplit = useCallback(
@@ -252,31 +317,55 @@ function TerminalWorkspaceComponent({
         });
         if (!created) return;
         setMaximizedTerminalId(null);
-        const nextWorkspace = appendWorkspacePaneToGroup(workspace, {
-          groupId: activeGroup.id,
-          newTerminalId: created.id,
-        });
-        setWorkspace(nextWorkspace);
+        const groupId = activeGroup.id;
+        const nextWorkspace = updateWorkspace((current) =>
+          appendWorkspacePaneToGroup(current, {
+            groupId,
+            newTerminalId: created.id,
+          }),
+        );
         onPick(created.id);
-        requestPaneFit(collectIds(activeGroup.root).concat(created.id), {
+        requestPaneFit(collectIds(getActiveWorkspaceGroup(nextWorkspace)?.root ?? null), {
           focusTerminalId: created.id,
         });
+        await persistGroupLayout(nextWorkspace, groupId);
         return;
       }
+      const sourceTerminal = activeTerminal;
+      const sourceGroupId = activeGroup?.id ?? workspaceRef.current.activeGroupId;
       const created = await onSplit(activeTerminal, direction);
       if (!created) return;
       setMaximizedTerminalId(null);
-      const nextWorkspace = splitWorkspacePane(workspace, {
-        activeTerminalId: activeTerminal.id,
-        newTerminalId: created.id,
-        direction,
+      let savedGroupId: string | null = null;
+      const nextWorkspace = updateWorkspace((current) => {
+        let next = splitWorkspacePane(current, {
+          activeTerminalId: sourceTerminal.id,
+          newTerminalId: created.id,
+          direction,
+        });
+        if (!next.groups.some((group) => containsTerminal(group.root, created.id))) {
+          const fallbackGroupId =
+            sourceGroupId && next.groups.some((group) => group.id === sourceGroupId)
+              ? sourceGroupId
+              : next.activeGroupId;
+          if (fallbackGroupId) {
+            next = appendWorkspacePaneToGroup(next, {
+              groupId: fallbackGroupId,
+              newTerminalId: created.id,
+            });
+          }
+        }
+        savedGroupId =
+          next.groups.find((group) => containsTerminal(group.root, created.id))
+            ?.id ?? next.activeGroupId;
+        return next;
       });
-      setWorkspace(nextWorkspace);
       onPick(created.id);
       requestPaneFit(
         collectIds(getActiveWorkspaceGroup(nextWorkspace)?.root ?? null),
         { focusTerminalId: created.id },
       );
+      await persistGroupLayout(nextWorkspace, savedGroupId);
     },
     [
       activeGroup,
@@ -286,9 +375,10 @@ function TerminalWorkspaceComponent({
       onCreatePane,
       onPick,
       onSplit,
+      persistGroupLayout,
       requestPaneFit,
       terminal.cwd,
-      workspace,
+      updateWorkspace,
     ],
   );
 
@@ -307,13 +397,14 @@ function TerminalWorkspaceComponent({
       group,
     ];
     setMaximizedTerminalId(null);
-    setWorkspace((prev) =>
+    updateWorkspace((prev) =>
       selectWorkspaceGroup(
         reconcileTerminalWorkspace(
           prev,
           siblings,
           prev.activeTerminalId,
           nextWorkspaceGroups,
+          workspaceLayouts,
         ),
         group.id,
       ),
@@ -323,7 +414,9 @@ function TerminalWorkspaceComponent({
     commandMachineId,
     onCreateGroup,
     siblings,
+    updateWorkspace,
     workspaceGroups,
+    workspaceLayouts,
   ]);
 
   const handleReorderGroups = useCallback(
@@ -334,13 +427,13 @@ function TerminalWorkspaceComponent({
     ) => {
       if (sourceGroupId === targetGroupId) return;
       const nextIds = reorderedPersistentGroupIds(
-        workspace.groups,
+        workspaceRef.current.groups,
         sourceGroupId,
         targetGroupId,
         placement,
       );
       if (!nextIds) return;
-      setWorkspace((prev) => ({
+      updateWorkspace((prev) => ({
         ...prev,
         groups: reorderWorkspaceGroupsForDisplay(
           prev.groups,
@@ -351,11 +444,23 @@ function TerminalWorkspaceComponent({
       }));
       const groups = await onReorderGroups(commandMachineId, nextIds);
       if (!groups) return;
-      setWorkspace((prev) =>
-        reconcileTerminalWorkspace(prev, siblings, prev.activeTerminalId, groups),
+      updateWorkspace((prev) =>
+        reconcileTerminalWorkspace(
+          prev,
+          siblings,
+          prev.activeTerminalId,
+          groups,
+          workspaceLayouts,
+        ),
       );
     },
-    [commandMachineId, onReorderGroups, siblings, workspace.groups],
+    [
+      commandMachineId,
+      onReorderGroups,
+      siblings,
+      updateWorkspace,
+      workspaceLayouts,
+    ],
   );
 
   const confirmDeleteGroup = useCallback(async () => {
@@ -371,15 +476,24 @@ function TerminalWorkspaceComponent({
         ? { ...sibling, workspace_group_id: null }
         : sibling,
     );
-    setWorkspace((prev) =>
+    updateWorkspace((prev) =>
       reconcileTerminalWorkspace(
         prev,
         nextSiblings,
         prev.activeTerminalId,
         nextWorkspaceGroups,
+        workspaceLayouts,
       ),
     );
-  }, [commandMachineId, deleteGroup, onDeleteGroup, siblings, workspaceGroups]);
+  }, [
+    commandMachineId,
+    deleteGroup,
+    onDeleteGroup,
+    siblings,
+    updateWorkspace,
+    workspaceGroups,
+    workspaceLayouts,
+  ]);
 
   const handleAssignGroup = useCallback(
     async (workspaceGroupId: string | null) => {
@@ -485,24 +599,33 @@ function TerminalWorkspaceComponent({
   const handleDestroy = useCallback(
     (target: TerminalInfo) => {
       if (!isController) return;
-      const nextWorkspace = closeWorkspacePane(workspace, target.id);
+      const currentWorkspace = workspaceRef.current;
+      const targetGroupId =
+        currentWorkspace.groups.find((group) =>
+          containsTerminal(group.root, target.id),
+        )?.id ?? null;
+      const previewWorkspace = closeWorkspacePane(currentWorkspace, target.id);
       const applyClosedWorkspace = () => {
-        setWorkspace(nextWorkspace);
+        const before = workspaceRef.current;
+        const nextWorkspace = updateWorkspace((current) =>
+          closeWorkspacePane(current, target.id),
+        );
         if (
-          workspace.activeTerminalId === target.id &&
+          before.activeTerminalId === target.id &&
           nextWorkspace.activeTerminalId &&
           nextWorkspace.activeTerminalId !== target.id
         ) {
           onPick(nextWorkspace.activeTerminalId);
         }
         if (maximizedTerminalId === target.id) setMaximizedTerminalId(null);
+        void persistGroupLayout(nextWorkspace, targetGroupId);
       };
       void (async () => {
         const result = await onDestroy(target, {
           keepWorkspaceOpen:
-            workspace.activeTerminalId === target.id &&
-            !nextWorkspace.activeTerminalId &&
-            Boolean(nextWorkspace.activeGroupId),
+            currentWorkspace.activeTerminalId === target.id &&
+            !previewWorkspace.activeTerminalId &&
+            Boolean(previewWorkspace.activeGroupId),
           afterAccepted: applyClosedWorkspace,
         });
         if (result !== "accepted") return;
@@ -511,7 +634,14 @@ function TerminalWorkspaceComponent({
         console.error("Failed to close workspace pane", error);
       });
     },
-    [isController, maximizedTerminalId, onDestroy, onPick, workspace],
+    [
+      isController,
+      maximizedTerminalId,
+      onDestroy,
+      onPick,
+      persistGroupLayout,
+      updateWorkspace,
+    ],
   );
 
   useEffect(() => {

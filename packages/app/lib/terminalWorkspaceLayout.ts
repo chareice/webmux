@@ -1,18 +1,15 @@
-import type { TerminalInfo, WorkspaceGroupInfo } from "@webmux/shared";
+import type {
+  TerminalInfo,
+  WorkspaceGroupInfo,
+  WorkspaceLayoutInfo,
+  WorkspaceLayoutNode,
+} from "@webmux/shared";
 
 export type WorkspaceSplitDirection = "horizontal" | "vertical";
 export type WorkspaceSplitIntent = "right" | "down";
 export type WorkspacePaneFocusDirection = "left" | "right" | "up" | "down";
 
-export type WorkspacePaneNode =
-  | { type: "leaf"; terminalId: string }
-  | {
-      type: "split";
-      direction: WorkspaceSplitDirection;
-      ratio: number;
-      first: WorkspacePaneNode;
-      second: WorkspacePaneNode;
-    };
+export type WorkspacePaneNode = WorkspaceLayoutNode;
 
 export interface WorkspaceGroup {
   id: string;
@@ -55,8 +52,9 @@ export function createTerminalWorkspace(
   terminals: TerminalInfo[],
   activeTerminalId: string | null,
   workspaceGroups: WorkspaceGroupInfo[] = [],
+  workspaceLayouts: WorkspaceLayoutInfo[] = [],
 ): TerminalWorkspace {
-  const groups = createGroups(terminals, workspaceGroups);
+  const groups = createGroups(terminals, workspaceGroups, workspaceLayouts);
   const activeGroup =
     groups.find((group) =>
       collectPaneTerminalIds(group.root).includes(activeTerminalId ?? ""),
@@ -196,8 +194,9 @@ export function reconcileTerminalWorkspace(
   terminals: TerminalInfo[],
   activeTerminalId: string | null,
   workspaceGroups: WorkspaceGroupInfo[] = [],
+  workspaceLayouts: WorkspaceLayoutInfo[] = [],
 ): TerminalWorkspace {
-  const grouped = createGroups(terminals, workspaceGroups);
+  const grouped = createGroups(terminals, workspaceGroups, workspaceLayouts);
   let fallbackForRemovedActive: string | null = null;
   let groups = grouped.map((group) => {
     const previous = workspace.groups.find(
@@ -230,7 +229,7 @@ export function reconcileTerminalWorkspace(
       paneCount: collectPaneTerminalIds(root).length,
     };
   });
-  groups = preserveActiveEmptyGroup(groups, workspace);
+  groups = preserveActiveEmptyGroup(groups, workspace, terminals);
 
   const requestedActive =
     activeTerminalId && terminalExists(terminals, activeTerminalId)
@@ -261,13 +260,19 @@ export function reconcileTerminalWorkspace(
 function preserveActiveEmptyGroup(
   groups: WorkspaceGroup[],
   workspace: TerminalWorkspace,
+  terminals: TerminalInfo[],
 ): WorkspaceGroup[] {
   if (!workspace.activeGroupId) return groups;
   if (groups.some((group) => group.id === workspace.activeGroupId)) return groups;
   const activeGroup = workspace.groups.find(
     (group) => group.id === workspace.activeGroupId,
   );
-  if (!activeGroup || activeGroup.root || activeGroup.paneCount > 0) return groups;
+  if (!activeGroup) return groups;
+  const availableIds = new Set(terminals.map((terminal) => terminal.id));
+  const hasRemainingPane = collectPaneTerminalIds(activeGroup.root).some((id) =>
+    availableIds.has(id),
+  );
+  if (hasRemainingPane) return groups;
   return [
     ...groups,
     {
@@ -375,8 +380,12 @@ export function findAdjacentWorkspacePane(
 function createGroups(
   terminals: TerminalInfo[],
   workspaceGroups: WorkspaceGroupInfo[] = [],
+  workspaceLayouts: WorkspaceLayoutInfo[] = [],
 ): WorkspaceGroup[] {
   const byGroup = new Map<string, CreatedWorkspaceGroup>();
+  const layoutsByGroupKey = new Map(
+    workspaceLayouts.map((layout) => [layout.group_key, layout.root] as const),
+  );
   const sortedWorkspaceGroups = [...workspaceGroups].sort(
     (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name),
   );
@@ -423,8 +432,10 @@ function createGroups(
   return Array.from(byGroup.values())
     .sort(compareCreatedGroups)
     .map((group) => {
-      const root = tileTerminals(
-        group.terminals.map((terminal) => terminal.id),
+      const terminalIds = group.terminals.map((terminal) => terminal.id);
+      const root = restorePaneLayout(
+        terminalIds,
+        layoutsByGroupKey.get(group.id),
       );
       const cwd =
         group.cwd ||
@@ -469,6 +480,61 @@ function compareCreatedGroups(
     a.cwd.localeCompare(b.cwd) ||
     a.id.localeCompare(b.id)
   );
+}
+
+function restorePaneLayout(
+  ids: string[],
+  savedRoot: WorkspacePaneNode | null | undefined,
+): WorkspacePaneNode | null {
+  const available = new Set(ids);
+  const consumed = new Set<string>();
+  let root = savedRoot
+    ? sanitizePaneNode(savedRoot, available, consumed, 0)
+    : null;
+  for (const id of ids) {
+    if (!consumed.has(id)) {
+      root = appendNode(root, { type: "leaf", terminalId: id });
+      consumed.add(id);
+    }
+  }
+  return root;
+}
+
+function sanitizePaneNode(
+  node: WorkspacePaneNode,
+  available: Set<string>,
+  consumed: Set<string>,
+  depth: number,
+): WorkspacePaneNode | null {
+  if (depth > 64) return null;
+  if (node.type === "leaf") {
+    if (!available.has(node.terminalId) || consumed.has(node.terminalId)) {
+      return null;
+    }
+    consumed.add(node.terminalId);
+    return { type: "leaf", terminalId: node.terminalId };
+  }
+
+  const first = sanitizePaneNode(node.first, available, consumed, depth + 1);
+  const second = sanitizePaneNode(node.second, available, consumed, depth + 1);
+  if (first && second) {
+    return {
+      type: "split",
+      direction:
+        node.direction === "vertical" || node.direction === "horizontal"
+          ? node.direction
+          : "horizontal",
+      ratio: normalizeSplitRatio(node.ratio),
+      first,
+      second,
+    };
+  }
+  return first ?? second;
+}
+
+function normalizeSplitRatio(ratio: number): number {
+  if (!Number.isFinite(ratio)) return 0.5;
+  return Math.min(0.95, Math.max(0.05, ratio));
 }
 
 function tileTerminals(ids: string[]): WorkspacePaneNode | null {
