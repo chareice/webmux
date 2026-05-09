@@ -323,6 +323,29 @@ async fn save_workspace_layout(
         validate_workspace_layout_node(root, &allowed_terminal_ids, &mut seen, 0)
             .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     }
+    if let Some(scrollable) = req.scrollable.as_ref() {
+        let mut seen = HashSet::new();
+        for column in &scrollable.columns {
+            if !allowed_terminal_ids.contains(column.terminal_id.as_str()) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "Workspace layout references terminal {} that does not belong to this group",
+                        column.terminal_id
+                    ),
+                ));
+            }
+            if !seen.insert(column.terminal_id.as_str()) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "Workspace layout references terminal {} more than once",
+                        column.terminal_id
+                    ),
+                ));
+            }
+        }
+    }
     let base_updated_at = req.base_updated_at.ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -356,7 +379,7 @@ async fn save_workspace_layout(
     let aux_json_owned = req
         .scrollable
         .as_ref()
-        .map(|s| serde_json::to_string(s))
+        .map(serde_json::to_string)
         .transpose()
         .map_err(|e| {
             (
@@ -1465,6 +1488,22 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(value["mode"], "scrollable");
         assert_eq!(value["scrollable"]["columns"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn put_workspace_layout_rejects_scrollable_columns_with_unknown_terminal() {
+        let state = state_with_terminals(vec![]).await;
+        let body = serde_json::json!({
+            "group_key": "cwd:/x",
+            "root": null,
+            "mode": "scrollable",
+            "scrollable": {"columns": [
+                {"terminalId": "ghost", "width": {"kind": "preset", "value": "half"}}
+            ]},
+            "base_updated_at": -1,
+        });
+        let (status, _value) = put_workspace_layout(&state, body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

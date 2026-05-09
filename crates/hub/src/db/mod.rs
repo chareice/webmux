@@ -152,32 +152,23 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
-    // Migrate workspace_layouts: add layout_mode and aux_json for existing databases
-    add_column_if_missing(
-        conn,
-        "ALTER TABLE workspace_layouts ADD COLUMN layout_mode TEXT",
-    )?;
-    add_column_if_missing(
-        conn,
-        "ALTER TABLE workspace_layouts ADD COLUMN aux_json TEXT",
-    )?;
+    if !column_exists(conn, "workspace_layouts", "layout_mode")? {
+        conn.execute(
+            "ALTER TABLE workspace_layouts ADD COLUMN layout_mode TEXT",
+            [],
+        )?;
+    }
+    if !column_exists(conn, "workspace_layouts", "aux_json")? {
+        conn.execute(
+            "ALTER TABLE workspace_layouts ADD COLUMN aux_json TEXT",
+            [],
+        )?;
+    }
 
     // Startup recovery: mark all machines offline
     conn.execute("UPDATE machines SET status = 'offline'", [])?;
 
     Ok(())
-}
-
-fn add_column_if_missing(conn: &Connection, ddl: &str) -> rusqlite::Result<()> {
-    match conn.execute(ddl, []) {
-        Ok(_) => Ok(()),
-        Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
-            if msg.contains("duplicate column name") =>
-        {
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
 }
 
 fn column_exists(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {

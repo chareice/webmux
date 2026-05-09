@@ -94,6 +94,7 @@ pub fn upsert_workspace_layout_full(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn upsert_workspace_layout_full_checked(
     conn: &mut Connection,
     user_id: &str,
@@ -198,7 +199,10 @@ pub fn delete_workspace_layout_checked(
         .map(|row| (row.updated_at + 1).max(now))
         .unwrap_or(now);
     let root_json = "null";
-    let layout_mode: Option<&str> = None;
+    // Preserve the previous mode so consumers branching on it after a delete
+    // still see the layout's most recent kind. aux_json stays NULL because the
+    // scrollable payload (if any) was specific to the deleted layout's content.
+    let layout_mode = existing.as_ref().and_then(|row| row.layout_mode.clone());
     let aux_json: Option<&str> = None;
     tx.execute(
         "INSERT INTO workspace_layouts (user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at)
@@ -208,7 +212,7 @@ pub fn delete_workspace_layout_checked(
              layout_mode = excluded.layout_mode,
              aux_json = excluded.aux_json,
              updated_at = excluded.updated_at",
-        params![user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at],
+        params![user_id, machine_id, group_key, root_json, layout_mode.as_deref(), aux_json, updated_at],
     )?;
     tx.commit()?;
     Ok(WorkspaceLayoutRow {
@@ -216,7 +220,7 @@ pub fn delete_workspace_layout_checked(
         machine_id: machine_id.to_string(),
         group_key: group_key.to_string(),
         root_json: root_json.to_string(),
-        layout_mode: None,
+        layout_mode,
         aux_json: None,
         updated_at,
     })
