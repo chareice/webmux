@@ -124,4 +124,11 @@ describe("workspaceShortcuts", () => {
       getWorkspaceShortcutConflict("groupNext", "Mod+Alt+KeyG", shortcuts),
     ).toBeNull();
   });
+
+  it("loads new defaults when storage is empty", () => {
+    const shortcuts = loadWorkspaceShortcuts(null);
+    expect(shortcuts.columnWidthShrink).toBe("Mod+Comma");
+    expect(shortcuts.columnWidthGrow).toBe("Mod+Period");
+    expect(shortcuts.layoutModeToggle).toBe("Mod+Alt+KeyT");
+  });
 });

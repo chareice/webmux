@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tc_protocol::{
     DirEntry, MachineInfo, TerminalInfo, WorkspaceGroupInfo, WorkspaceLayoutInfo,
-    WorkspaceLayoutNode,
+    WorkspaceLayoutMode, WorkspaceLayoutNode, WorkspaceScrollableLayout,
 };
 
 use crate::auth::AuthUser;
@@ -49,6 +49,10 @@ struct AssignWorkspaceGroupRequest {
 struct SaveWorkspaceLayoutRequest {
     group_key: String,
     root: Option<WorkspaceLayoutNode>,
+    #[serde(default)]
+    mode: Option<WorkspaceLayoutMode>,
+    #[serde(default)]
+    scrollable: Option<WorkspaceScrollableLayout>,
     #[serde(default)]
     base_updated_at: Option<i64>,
 }
@@ -299,6 +303,11 @@ async fn save_workspace_layout(
             format!("DB error: {}", e),
         )
     })?;
+    // When mode is explicitly scrollable and scrollable data is provided,
+    // root may be null; otherwise require root to determine group key context.
+    let is_scrollable_save = matches!(req.mode, Some(WorkspaceLayoutMode::Scrollable))
+        && req.scrollable.is_some();
+
     let allowed_terminal_ids = workspace_layout_terminal_ids_for_group_key(
         &conn,
         &auth_user.user_id,
@@ -314,6 +323,29 @@ async fn save_workspace_layout(
         validate_workspace_layout_node(root, &allowed_terminal_ids, &mut seen, 0)
             .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     }
+    if let Some(scrollable) = req.scrollable.as_ref() {
+        let mut seen = HashSet::new();
+        for column in &scrollable.columns {
+            if !allowed_terminal_ids.contains(column.terminal_id.as_str()) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "Workspace layout references terminal {} that does not belong to this group",
+                        column.terminal_id
+                    ),
+                ));
+            }
+            if !seen.insert(column.terminal_id.as_str()) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "Workspace layout references terminal {} more than once",
+                        column.terminal_id
+                    ),
+                ));
+            }
+        }
+    }
     let base_updated_at = req.base_updated_at.ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -321,7 +353,8 @@ async fn save_workspace_layout(
         )
     })?;
 
-    if req.root.is_none() {
+    // Delete path: root is null and not a scrollable save
+    if req.root.is_none() && !is_scrollable_save {
         let row = crate::db::workspace_layouts::delete_workspace_layout_checked(
             &mut conn,
             &auth_user.user_id,
@@ -330,12 +363,7 @@ async fn save_workspace_layout(
             base_updated_at,
         )
         .map_err(workspace_layout_save_error)?;
-        let layout = WorkspaceLayoutInfo {
-            machine_id,
-            group_key: group_key.to_string(),
-            root: None,
-            updated_at: row.updated_at,
-        };
+        let layout = workspace_layout_info_from_row(row);
         state
             .manager
             .publish_workspace_layout_updated(&auth_user.user_id, layout.clone());
@@ -348,26 +376,64 @@ async fn save_workspace_layout(
             format!("Workspace layout is invalid: {}", e),
         )
     })?;
-    let row = crate::db::workspace_layouts::upsert_workspace_layout_checked(
+    let aux_json_owned = req
+        .scrollable
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Scrollable layout is invalid: {}", e),
+            )
+        })?;
+    let mode_str = req.mode.map(|m| match m {
+        WorkspaceLayoutMode::Tiling => "tiling",
+        WorkspaceLayoutMode::Scrollable => "scrollable",
+    });
+    let row = crate::db::workspace_layouts::upsert_workspace_layout_full_checked(
         &mut conn,
         &auth_user.user_id,
         &machine_id,
         group_key,
         &root_json,
+        mode_str,
+        aux_json_owned.as_deref(),
         base_updated_at,
     )
     .map_err(workspace_layout_save_error)?;
 
-    let layout = WorkspaceLayoutInfo {
-        machine_id: row.machine_id,
-        group_key: row.group_key,
-        root: req.root,
-        updated_at: row.updated_at,
-    };
+    let layout = workspace_layout_info_from_row(row);
     state
         .manager
         .publish_workspace_layout_updated(&auth_user.user_id, layout.clone());
     Ok(Json(layout))
+}
+
+fn workspace_layout_info_from_row(
+    row: crate::db::types::WorkspaceLayoutRow,
+) -> WorkspaceLayoutInfo {
+    let root = serde_json::from_str(&row.root_json).unwrap_or(None);
+    let mode = row
+        .layout_mode
+        .as_deref()
+        .map(|s| match s {
+            "scrollable" => WorkspaceLayoutMode::Scrollable,
+            _ => WorkspaceLayoutMode::Tiling,
+        })
+        .unwrap_or_default();
+    let scrollable = row
+        .aux_json
+        .as_deref()
+        .and_then(|s| serde_json::from_str::<WorkspaceScrollableLayout>(s).ok());
+    WorkspaceLayoutInfo {
+        machine_id: row.machine_id,
+        group_key: row.group_key,
+        root,
+        mode,
+        scrollable,
+        updated_at: row.updated_at,
+    }
 }
 
 fn workspace_layout_save_error(
@@ -1406,6 +1472,74 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn put_workspace_layout_round_trips_scrollable_mode() {
+        let state = state_with_terminals(vec![]).await;
+        let body = serde_json::json!({
+            "group_key": "cwd:/x",
+            "root": null,
+            "mode": "scrollable",
+            "scrollable": {"columns": []},
+            "base_updated_at": -1,
+        });
+        let (status, value) = put_workspace_layout(&state, body).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(value["mode"], "scrollable");
+        assert_eq!(value["scrollable"]["columns"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn put_workspace_layout_rejects_scrollable_columns_with_unknown_terminal() {
+        let state = state_with_terminals(vec![]).await;
+        let body = serde_json::json!({
+            "group_key": "cwd:/x",
+            "root": null,
+            "mode": "scrollable",
+            "scrollable": {"columns": [
+                {"terminalId": "ghost", "width": {"kind": "preset", "value": "half"}}
+            ]},
+            "base_updated_at": -1,
+        });
+        let (status, _value) = put_workspace_layout(&state, body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn workspace_layout_round_trip_scrollable_then_tiling() {
+        let state = state_with_terminals(vec![terminal("t1", "/x", None)]).await;
+        let group_key = "cwd:/x";
+
+        let body1 = serde_json::json!({
+            "group_key": group_key,
+            "root": null,
+            "mode": "scrollable",
+            "scrollable": {"columns": [
+                {"terminalId": "t1", "width": {"kind": "preset", "value": "half"}}
+            ]},
+            "base_updated_at": -1,
+        });
+        let (s1, v1) = put_workspace_layout(&state, body1).await;
+        assert_eq!(s1, StatusCode::OK);
+        assert_eq!(v1["mode"], "scrollable");
+        assert_eq!(v1["scrollable"]["columns"].as_array().unwrap().len(), 1);
+        let updated_at = v1["updated_at"].as_i64().unwrap();
+
+        let body2 = serde_json::json!({
+            "group_key": group_key,
+            "root": {"type": "leaf", "terminalId": "t1"},
+            "mode": "tiling",
+            "scrollable": {"columns": [
+                {"terminalId": "t1", "width": {"kind": "preset", "value": "half"}}
+            ]},
+            "base_updated_at": updated_at,
+        });
+        let (s2, v2) = put_workspace_layout(&state, body2).await;
+        assert_eq!(s2, StatusCode::OK);
+        assert_eq!(v2["mode"], "tiling");
+        assert_eq!(v2["root"]["type"], "leaf");
+        assert_eq!(v2["scrollable"]["columns"].as_array().unwrap().len(), 1);
     }
 
     #[tokio::test]

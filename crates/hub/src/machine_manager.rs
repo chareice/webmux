@@ -1337,6 +1337,17 @@ impl MachineManager {
                         machine_id: row.machine_id,
                         group_key: row.group_key,
                         root,
+                        mode: row
+                            .layout_mode
+                            .as_deref()
+                            .map(|s| match s {
+                                "scrollable" => tc_protocol::WorkspaceLayoutMode::Scrollable,
+                                _ => tc_protocol::WorkspaceLayoutMode::Tiling,
+                            })
+                            .unwrap_or_default(),
+                        scrollable: row.aux_json.as_deref().and_then(|s| {
+                            serde_json::from_str::<tc_protocol::WorkspaceScrollableLayout>(s).ok()
+                        }),
                         updated_at: row.updated_at,
                     }),
                     Err(error) => {

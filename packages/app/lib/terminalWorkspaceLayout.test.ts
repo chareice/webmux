@@ -7,12 +7,19 @@ import {
   createTerminalWorkspace,
   getActiveWorkspaceGroup,
   findAdjacentWorkspacePane,
+  findAdjacentScrollableColumn,
   getMobileWorkspaceTabs,
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
   splitWorkspacePane,
   swapWorkspacePanes,
+  flattenTreeToColumns,
+  buildTreeFromColumns,
+  setWorkspaceLayoutMode,
+  setWorkspaceColumnWidth,
+  cycleWorkspaceColumnWidth,
 } from "./terminalWorkspaceLayout";
+import type { WorkspacePaneNode } from "./terminalWorkspaceLayout";
 
 function terminal(id: string, cwd: string): TerminalInfo {
   return {
@@ -568,5 +575,229 @@ describe("terminalWorkspaceLayout", () => {
     expect(findAdjacentWorkspacePane(root, "down", "top")).toBe("bottom");
     expect(findAdjacentWorkspacePane(root, "up", "bottom")).toBe("top");
     expect(findAdjacentWorkspacePane(root, "left", "bottom")).toBe("left");
+  });
+});
+
+describe("layout mode helpers", () => {
+  it("flattens a 2D tree to ordered columns (DFS first then second)", () => {
+    const root: WorkspacePaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.4,
+      first: { type: "leaf", terminalId: "A" },
+      second: {
+        type: "split",
+        direction: "vertical",
+        ratio: 0.5,
+        first: { type: "leaf", terminalId: "B" },
+        second: {
+          type: "split",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: { type: "leaf", terminalId: "C" },
+          second: { type: "leaf", terminalId: "D" },
+        },
+      },
+    };
+    expect(flattenTreeToColumns(root).map((c) => c.terminalId)).toEqual([
+      "A",
+      "B",
+      "C",
+      "D",
+    ]);
+  });
+
+  it("buildTreeFromColumns produces a left-leaning right-only horizontal tree", () => {
+    const root = buildTreeFromColumns([
+      { terminalId: "A", width: { kind: "preset", value: "half" } },
+      { terminalId: "B", width: { kind: "preset", value: "half" } },
+      { terminalId: "C", width: { kind: "preset", value: "half" } },
+    ]);
+    expect(root).toEqual({
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: { type: "leaf", terminalId: "A" },
+      second: {
+        type: "split",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: { type: "leaf", terminalId: "B" },
+        second: { type: "leaf", terminalId: "C" },
+      },
+    });
+  });
+
+  it("setWorkspaceLayoutMode preserves the previous representation in aux", () => {
+    const ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x")],
+      "a",
+    );
+    const groupId = ws.groups[0].id;
+    const next = setWorkspaceLayoutMode(ws, groupId, "scrollable");
+    expect(next.groups[0].layoutMode).toBe("scrollable");
+    expect(next.groups[0].scrollable?.columns.map((c) => c.terminalId)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(next.groups[0].auxRoot).toEqual(ws.groups[0].root); // tree preserved
+  });
+
+  it("scrollable->tiling restores auxRoot and appends scrollable-only columns", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x")],
+      "a",
+    );
+    const groupId = ws.groups[0].id;
+    const originalRoot = ws.groups[0].root;
+    ws = setWorkspaceLayoutMode(ws, groupId, "scrollable");
+    // Add a third column while in scrollable mode
+    ws = splitWorkspacePane(ws, {
+      activeTerminalId: "a",
+      newTerminalId: "c",
+      direction: "right",
+    });
+    // Toggle back to tiling — auxRoot restores; "c" is appended to the right
+    ws = setWorkspaceLayoutMode(ws, groupId, "tiling");
+    expect(ws.groups[0].layoutMode).toBe("tiling");
+    expect(ws.groups[0].auxRoot).toBeNull();
+    expect(collectPaneTerminalIds(ws.groups[0].root)).toEqual(["a", "b", "c"]);
+    expect(ws.groups[0].root).not.toEqual(originalRoot); // "c" is now part of the tree
+  });
+});
+
+describe("column width helpers", () => {
+  it("setWorkspaceColumnWidth updates only the matching column", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x")],
+      "a",
+    );
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    const updated = setWorkspaceColumnWidth(ws, "b", {
+      kind: "preset",
+      value: "two_thirds",
+    });
+    const cols = updated.groups[0].scrollable!.columns;
+    expect(cols[0].width).toEqual({ kind: "preset", value: "half" });
+    expect(cols[1].width).toEqual({ kind: "preset", value: "two_thirds" });
+  });
+
+  it("cycleWorkspaceColumnWidth steps through presets and stops at full", () => {
+    let ws = createTerminalWorkspace([terminal("a", "/x")], "a");
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    ws = cycleWorkspaceColumnWidth(ws, "a", "grow");
+    expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
+      kind: "preset",
+      value: "two_thirds",
+    });
+    ws = cycleWorkspaceColumnWidth(ws, "a", "grow");
+    expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
+      kind: "preset",
+      value: "full",
+    });
+    ws = cycleWorkspaceColumnWidth(ws, "a", "grow");
+    expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
+      kind: "preset",
+      value: "full",
+    });
+  });
+
+  it("cycleWorkspaceColumnWidth shrinking stops at half", () => {
+    let ws = createTerminalWorkspace([terminal("a", "/x")], "a");
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    ws = cycleWorkspaceColumnWidth(ws, "a", "shrink");
+    expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
+      kind: "preset",
+      value: "half",
+    });
+  });
+
+  it("cycleWorkspaceColumnWidth maps a fraction width to the nearest preset before stepping", () => {
+    let ws = createTerminalWorkspace([terminal("a", "/x")], "a");
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    ws = setWorkspaceColumnWidth(ws, "a", { kind: "fraction", value: 0.7 });
+    // 0.7 is nearest to two_thirds; growing once should land on full
+    ws = cycleWorkspaceColumnWidth(ws, "a", "grow");
+    expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
+      kind: "preset",
+      value: "full",
+    });
+  });
+});
+
+describe("scrollable mutators", () => {
+  it("splitWorkspacePane in scrollable mode appends a column at the end", () => {
+    let ws = createTerminalWorkspace([terminal("a", "/x")], "a");
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    ws = splitWorkspacePane(ws, {
+      activeTerminalId: "a",
+      newTerminalId: "b",
+      direction: "down", // down → still appends; mode collapses both intents
+    });
+    expect(ws.groups[0].scrollable!.columns.map((c) => c.terminalId)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(ws.activeTerminalId).toBe("b");
+  });
+
+  it("closeWorkspacePane in scrollable mode removes the column", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x")],
+      "a",
+    );
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    ws = splitWorkspacePane(ws, {
+      activeTerminalId: "a",
+      newTerminalId: "b",
+      direction: "right",
+    });
+    ws = closeWorkspacePane(ws, "a");
+    expect(ws.groups[0].scrollable!.columns.map((c) => c.terminalId)).toEqual([
+      "b",
+    ]);
+  });
+});
+
+describe("scrollable adjacency", () => {
+  it("findAdjacentScrollableColumn left/right walks columns; up/down is null", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x"), terminal("c", "/x")],
+      "b",
+    );
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    const group = ws.groups[0];
+    expect(
+      findAdjacentScrollableColumn(group.scrollable!, "left", "b"),
+    ).toBe("a");
+    expect(
+      findAdjacentScrollableColumn(group.scrollable!, "right", "b"),
+    ).toBe("c");
+    expect(
+      findAdjacentScrollableColumn(group.scrollable!, "up", "b"),
+    ).toBeNull();
+    expect(
+      findAdjacentScrollableColumn(group.scrollable!, "down", "b"),
+    ).toBeNull();
+  });
+});
+
+describe("reconcile in scrollable mode", () => {
+  it("removes destroyed terminals and appends new ones", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x")],
+      "a",
+    );
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    const next = reconcileTerminalWorkspace(
+      ws,
+      [terminal("b", "/x"), terminal("c", "/x")],
+      "c",
+    );
+    expect(next.groups[0].scrollable!.columns.map((c) => c.terminalId)).toEqual([
+      "b",
+      "c",
+    ]);
+    expect(next.activeTerminalId).toBe("c");
   });
 });

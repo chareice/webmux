@@ -13,7 +13,9 @@ import type {
   Bookmark,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
+  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
+  WorkspaceScrollableLayout,
 } from "@webmux/shared";
 import { AppTitleBar } from "./AppTitleBar.web";
 import { Rail } from "./Rail.web";
@@ -773,8 +775,11 @@ export function TerminalCanvas() {
         ...prev,
         workspaceGroups: upsertWorkspaceGroup(prev.workspaceGroups, group),
       }));
+      // Default new groups to scrollable mode so the DB row is created with the right layout_mode.
+      await handleSaveWorkspaceLayout(machineId, group.id, null, "scrollable", { columns: [] });
       return group;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -822,6 +827,8 @@ export function TerminalCanvas() {
       machineId: string,
       groupKey: string,
       root: WorkspaceLayoutNode | null,
+      mode: WorkspaceLayoutMode | null,
+      scrollable: WorkspaceScrollableLayout | null,
     ) => {
       const baseUpdatedAt =
         workspaceLayoutsRef.current.find(
@@ -833,6 +840,8 @@ export function TerminalCanvas() {
         groupKey,
         root,
         baseUpdatedAt,
+        mode,
+        scrollable,
       );
       setBrowserState((prev) => ({
         ...prev,

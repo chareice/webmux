@@ -13,15 +13,20 @@ import type {
 } from "react";
 import type {
   TerminalInfo,
+  WorkspaceColumnWidth,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
+  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
+  WorkspaceScrollableLayout,
 } from "@webmux/shared";
 import {
   ChevronDown,
   Columns2,
+  Columns3,
   Expand,
   GripVertical,
+  LayoutGrid,
   Maximize2,
   Minimize2,
   PanelBottom,
@@ -41,13 +46,18 @@ import {
   appendWorkspacePaneToGroup,
   closeWorkspacePane,
   createTerminalWorkspace,
+  cycleWorkspaceColumnWidth,
+  findAdjacentScrollableColumn,
   findAdjacentWorkspacePane,
   getActiveWorkspaceGroup,
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
+  setWorkspaceColumnWidth,
+  setWorkspaceLayoutMode,
   splitWorkspacePane,
   swapWorkspacePanes,
 } from "@/lib/terminalWorkspaceLayout";
+import { ScrollableWorkspace } from "./ScrollableWorkspace";
 import {
   findWorkspaceShortcutAction,
   getWorkspaceGroupShortcutIndex,
@@ -90,6 +100,8 @@ interface TerminalWorkspaceProps {
     machineId: string,
     groupKey: string,
     root: WorkspaceLayoutNode | null,
+    mode: WorkspaceLayoutMode | null,
+    scrollable: WorkspaceScrollableLayout | null,
   ) => Promise<WorkspaceLayoutInfo | null | void>;
   onAssignGroup: (
     terminal: TerminalInfo,
@@ -101,7 +113,7 @@ interface TerminalWorkspaceProps {
 
 type GroupDropPlacement = "before" | "after";
 
-interface WorkspaceFitRequest {
+export interface WorkspaceFitRequest {
   terminalIds: string[];
   focusTerminalId: string | null;
   nonce: number;
@@ -209,7 +221,7 @@ function TerminalWorkspaceComponent({
         .catch(() => undefined)
         .then(async () => {
           try {
-            await onSaveWorkspaceLayout(commandMachineId, group.id, group.root);
+            await onSaveWorkspaceLayout(commandMachineId, group.id, group.root, null, null);
           } catch (error) {
             console.error("Failed to save workspace pane layout", error);
           }
@@ -540,6 +552,80 @@ function TerminalWorkspaceComponent({
     ],
   );
 
+  const persistColumnsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistColumnsPendingRef = useRef<WorkspaceGroup | null>(null);
+
+  const schedulePersistColumns = useCallback(
+    (group: WorkspaceGroup) => {
+      persistColumnsPendingRef.current = group;
+      if (persistColumnsTimerRef.current) return;
+      persistColumnsTimerRef.current = setTimeout(() => {
+        persistColumnsTimerRef.current = null;
+        const pending = persistColumnsPendingRef.current;
+        persistColumnsPendingRef.current = null;
+        if (!pending || !commandMachineId) return;
+        void onSaveWorkspaceLayout(
+          commandMachineId,
+          pending.id,
+          pending.root,
+          pending.layoutMode,
+          pending.scrollable,
+        );
+      }, 200);
+    },
+    [commandMachineId, onSaveWorkspaceLayout],
+  );
+
+  useEffect(
+    () => () => {
+      if (persistColumnsTimerRef.current) clearTimeout(persistColumnsTimerRef.current);
+    },
+    [],
+  );
+
+  const handleResizeColumn = useCallback(
+    (terminalId: string, width: WorkspaceColumnWidth) => {
+      setWorkspace((prev) => {
+        const next = setWorkspaceColumnWidth(prev, terminalId, width);
+        const group = next.groups.find((g) =>
+          g.scrollable?.columns.some((c) => c.terminalId === terminalId),
+        );
+        if (group && commandMachineId) {
+          schedulePersistColumns(group);
+        }
+        return next;
+      });
+    },
+    [commandMachineId, schedulePersistColumns],
+  );
+
+  const handleReorderColumns = useCallback(
+    (sourceTerminalId: string, targetTerminalId: string) => {
+      setWorkspace((prev) => swapWorkspacePanes(prev, sourceTerminalId, targetTerminalId));
+    },
+    [],
+  );
+
+  const handleToggleLayoutMode = useCallback(() => {
+    if (!activeGroup) return;
+    const nextMode: WorkspaceLayoutMode =
+      activeGroup.layoutMode === "scrollable" ? "tiling" : "scrollable";
+    setWorkspace((prev) => {
+      const next = setWorkspaceLayoutMode(prev, activeGroup.id, nextMode);
+      const nextGroup = next.groups.find((g) => g.id === activeGroup.id);
+      if (nextGroup && commandMachineId) {
+        void onSaveWorkspaceLayout(
+          commandMachineId,
+          activeGroup.id,
+          nextGroup.root,
+          nextMode,
+          nextGroup.scrollable,
+        );
+      }
+      return next;
+    });
+  }, [activeGroup, commandMachineId, onSaveWorkspaceLayout]);
+
   const removeDocumentPaneDragEnd = useCallback(() => {
     const cleanup = documentPaneDragCleanupRef.current;
     if (!cleanup) return;
@@ -662,19 +748,39 @@ function TerminalWorkspaceComponent({
       event.stopImmediatePropagation();
 
       if (action === "paneLeft") {
-        focusPaneByDirection("left");
+        if (activeGroup?.layoutMode === "scrollable") {
+          const nextId = activeGroup.scrollable
+            ? findAdjacentScrollableColumn(activeGroup.scrollable, "left", workspace.activeTerminalId)
+            : null;
+          if (nextId) activateTerminal(nextId);
+        } else {
+          focusPaneByDirection("left");
+        }
         return;
       }
       if (action === "paneRight") {
-        focusPaneByDirection("right");
+        if (activeGroup?.layoutMode === "scrollable") {
+          const nextId = activeGroup.scrollable
+            ? findAdjacentScrollableColumn(activeGroup.scrollable, "right", workspace.activeTerminalId)
+            : null;
+          if (nextId) activateTerminal(nextId);
+        } else {
+          focusPaneByDirection("right");
+        }
         return;
       }
       if (action === "paneUp") {
-        focusPaneByDirection("up");
+        // No-op in scrollable mode; columns have no vertical neighbour concept
+        if (activeGroup?.layoutMode !== "scrollable") {
+          focusPaneByDirection("up");
+        }
         return;
       }
       if (action === "paneDown") {
-        focusPaneByDirection("down");
+        // No-op in scrollable mode; columns have no vertical neighbour concept
+        if (activeGroup?.layoutMode !== "scrollable") {
+          focusPaneByDirection("down");
+        }
         return;
       }
       if (action === "groupPrevious") {
@@ -685,6 +791,32 @@ function TerminalWorkspaceComponent({
         switchGroupByOffset(1);
         return;
       }
+      if (action === "columnWidthShrink") {
+        if (activeTerminal && activeGroup?.layoutMode === "scrollable") {
+          setWorkspace((prev) => {
+            const next = cycleWorkspaceColumnWidth(prev, activeTerminal.id, "shrink");
+            const nextGroup = next.groups.find((g) => g.id === activeGroup.id);
+            if (nextGroup) schedulePersistColumns(nextGroup);
+            return next;
+          });
+        }
+        return;
+      }
+      if (action === "columnWidthGrow") {
+        if (activeTerminal && activeGroup?.layoutMode === "scrollable") {
+          setWorkspace((prev) => {
+            const next = cycleWorkspaceColumnWidth(prev, activeTerminal.id, "grow");
+            const nextGroup = next.groups.find((g) => g.id === activeGroup.id);
+            if (nextGroup) schedulePersistColumns(nextGroup);
+            return next;
+          });
+        }
+        return;
+      }
+      if (action === "layoutModeToggle") {
+        handleToggleLayoutMode();
+        return;
+      }
 
       const groupIndex = getWorkspaceGroupShortcutIndex(action);
       if (groupIndex !== null) switchGroupByIndex(groupIndex);
@@ -693,10 +825,16 @@ function TerminalWorkspaceComponent({
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
   }, [
+    activeGroup,
+    activeTerminal,
+    activateTerminal,
     focusPaneByDirection,
+    handleToggleLayoutMode,
     isMobile,
+    schedulePersistColumns,
     switchGroupByIndex,
     switchGroupByOffset,
+    workspace.activeTerminalId,
   ]);
 
   const handleDestroy = useCallback(
@@ -803,6 +941,8 @@ function TerminalWorkspaceComponent({
           onClose={onClose}
           onRequestControl={onRequestControl}
           onReleaseControl={onReleaseControl}
+          layoutMode={activeGroup?.layoutMode ?? "tiling"}
+          onToggleLayoutMode={handleToggleLayoutMode}
         />
         <MobileGroupTabs
           groups={workspace.groups}
@@ -813,7 +953,28 @@ function TerminalWorkspaceComponent({
           onDeleteGroup={setDeleteGroup}
         />
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-          {activeTerminal ? (
+          {activeGroup?.layoutMode === "scrollable" &&
+          (activeGroup.scrollable?.columns?.length ?? 0) > 0 ? (
+            <ScrollableWorkspace
+              columns={activeGroup.scrollable?.columns ?? []}
+              terminalsById={terminalsById}
+              activeTerminalId={activeTerminal?.id ?? null}
+              isController={isController}
+              deviceId={deviceId}
+              isMobile
+              fitRequest={fitRequest}
+              onActiveRef={(ref) => {
+                activeCardRef.current = ref;
+              }}
+              onFitRequestHandled={handleFitRequestHandled}
+              onFocus={activateTerminal}
+              onDestroy={handleDestroy}
+              onResizeColumn={handleResizeColumn}
+              onReorderColumns={handleReorderColumns}
+              onRequestControl={onRequestControl}
+              onReleaseControl={onReleaseControl}
+            />
+          ) : activeTerminal ? (
             <WorkspacePaneLeaf
               terminal={activeTerminal}
               isActive
@@ -932,6 +1093,8 @@ function TerminalWorkspaceComponent({
         onClose={onClose}
         onRequestControl={onRequestControl}
         onReleaseControl={onReleaseControl}
+        layoutMode={activeGroup?.layoutMode ?? "tiling"}
+        onToggleLayoutMode={handleToggleLayoutMode}
       />
       <div
         style={{
@@ -968,6 +1131,27 @@ function TerminalWorkspaceComponent({
             onFocus={activateTerminal}
             onDestroy={handleDestroy}
             draggingPaneId={null}
+            onRequestControl={onRequestControl}
+            onReleaseControl={onReleaseControl}
+          />
+        ) : activeGroup?.layoutMode === "scrollable" &&
+          (activeGroup.scrollable?.columns?.length ?? 0) > 0 ? (
+          <ScrollableWorkspace
+            columns={activeGroup.scrollable?.columns ?? []}
+            terminalsById={terminalsById}
+            activeTerminalId={activeTerminal?.id ?? null}
+            isController={isController}
+            deviceId={deviceId}
+            isMobile={false}
+            fitRequest={fitRequest}
+            onActiveRef={(ref) => {
+              activeCardRef.current = ref;
+            }}
+            onFitRequestHandled={handleFitRequestHandled}
+            onFocus={activateTerminal}
+            onDestroy={handleDestroy}
+            onResizeColumn={handleResizeColumn}
+            onReorderColumns={handleReorderColumns}
             onRequestControl={onRequestControl}
             onReleaseControl={onReleaseControl}
           />
@@ -1036,6 +1220,8 @@ function WorkspaceTopBar({
   onClose,
   onRequestControl,
   onReleaseControl,
+  layoutMode,
+  onToggleLayoutMode,
 }: {
   groups: WorkspaceGroup[];
   activeGroupId: string | null;
@@ -1062,6 +1248,8 @@ function WorkspaceTopBar({
   onClose: () => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
+  layoutMode: WorkspaceLayoutMode;
+  onToggleLayoutMode: () => void;
 }) {
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const groupDragRef = useRef<{ sourceGroupId: string } | null>(null);
@@ -1328,6 +1516,13 @@ function WorkspaceTopBar({
             onClick={onSplitDown}
           >
             <PanelBottom size={14} />
+          </IconButton>
+          <IconButton
+            title={layoutMode === "scrollable" ? "Switch to tiling" : "Switch to scrollable"}
+            testId="layout-mode-toggle"
+            onClick={onToggleLayoutMode}
+          >
+            {layoutMode === "scrollable" ? <Columns3 size={14} /> : <LayoutGrid size={14} />}
           </IconButton>
           <IconButton
             disabled={!activeTerminal}
@@ -1605,7 +1800,7 @@ function WorkspacePaneTree({
   );
 }
 
-function WorkspacePaneLeaf({
+export function WorkspacePaneLeaf({
   terminal,
   isActive,
   isController,

@@ -96,11 +96,57 @@ pub enum WorkspaceLayoutNode {
     },
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceLayoutMode {
+    #[default]
+    Tiling,
+    Scrollable,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceColumnPreset {
+    Half,
+    TwoThirds,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum WorkspaceColumnWidth {
+    Preset(WorkspaceColumnPreset),
+    Fraction(f64),
+}
+
+impl WorkspaceColumnWidth {
+    /// Returns the default column width for a new scrollable column.
+    pub fn default_preset() -> Self {
+        WorkspaceColumnWidth::Preset(WorkspaceColumnPreset::Half)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceScrollableColumn {
+    pub terminal_id: String,
+    pub width: WorkspaceColumnWidth,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkspaceScrollableLayout {
+    pub columns: Vec<WorkspaceScrollableColumn>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkspaceLayoutInfo {
     pub machine_id: String,
     pub group_key: String,
     pub root: Option<WorkspaceLayoutNode>,
+    #[serde(default)]
+    pub mode: WorkspaceLayoutMode,
+    #[serde(default)]
+    pub scrollable: Option<WorkspaceScrollableLayout>,
     pub updated_at: i64,
 }
 
@@ -377,7 +423,40 @@ mod tests {
     use super::{
         decode_attach_output_frame, decode_terminal_preview_output_frame,
         encode_attach_output_frame, encode_terminal_preview_output_frame,
+        WorkspaceColumnPreset, WorkspaceColumnWidth, WorkspaceLayoutInfo, WorkspaceLayoutMode,
+        WorkspaceScrollableColumn, WorkspaceScrollableLayout,
     };
+
+    #[test]
+    fn scrollable_layout_round_trips_json() {
+        let info = WorkspaceLayoutInfo {
+            machine_id: "m1".into(),
+            group_key: "g1".into(),
+            root: None,
+            mode: WorkspaceLayoutMode::Scrollable,
+            scrollable: Some(WorkspaceScrollableLayout {
+                columns: vec![WorkspaceScrollableColumn {
+                    terminal_id: "t1".into(),
+                    width: WorkspaceColumnWidth::Preset(WorkspaceColumnPreset::Half),
+                }],
+            }),
+            updated_at: 0,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let decoded: WorkspaceLayoutInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, info);
+        assert!(json.contains("\"mode\":\"scrollable\""));
+        assert!(json.contains("\"kind\":\"preset\""));
+        assert!(json.contains("\"value\":\"half\""));
+    }
+
+    #[test]
+    fn workspace_layout_info_deserializes_legacy_json_without_new_fields() {
+        let legacy = r#"{"machine_id":"m1","group_key":"g1","root":null,"updated_at":0}"#;
+        let decoded: WorkspaceLayoutInfo = serde_json::from_str(legacy).unwrap();
+        assert_eq!(decoded.mode, WorkspaceLayoutMode::Tiling);
+        assert!(decoded.scrollable.is_none());
+    }
 
     #[test]
     fn attach_output_frame_round_trips_without_loss() {

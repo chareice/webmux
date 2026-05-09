@@ -44,6 +44,8 @@ pub struct WorkspaceLayoutRow {
     pub machine_id: String,
     pub group_key: String,
     pub root_json: String,
+    pub layout_mode: Option<String>,
+    pub aux_json: Option<String>,
     pub updated_at: i64,
 }
 
