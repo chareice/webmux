@@ -111,6 +111,7 @@ export async function destroyAllTerminals(page: Page): Promise<void> {
 export async function resetMachineState(page: Page): Promise<void> {
   await requestMachineControl(page);
   await destroyAllTerminals(page);
+  await deleteAllWorkspaceGroups(page);
   await expectTerminalCount(page, 0);
   // Release control via API (works on both desktop and mobile — mobile has no
   // header toggle). Then wait for the UI to pick up the mode change so
@@ -120,6 +121,17 @@ export async function resetMachineState(page: Page): Promise<void> {
   const header = page.getByTestId("workbench-header");
   if (await header.isVisible().catch(() => false)) {
     await expect(page.getByTestId("workbench-request-control")).toBeVisible();
+  }
+}
+
+export async function deleteAllWorkspaceGroups(page: Page): Promise<void> {
+  const headers = await getAuthHeaders(page);
+  for (const group of await listWorkspaceGroupsViaApi(page)) {
+    const response = await page.request.delete(
+      `/api/machines/${MACHINE_ID}/workspace-groups/${group.id}`,
+      { headers },
+    );
+    expect(response.ok()).toBeTruthy();
   }
 }
 

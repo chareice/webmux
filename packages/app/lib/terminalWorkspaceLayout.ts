@@ -376,18 +376,7 @@ function createGroups(
   terminals: TerminalInfo[],
   workspaceGroups: WorkspaceGroupInfo[] = [],
 ): WorkspaceGroup[] {
-  const byGroup = new Map<
-    string,
-    {
-      id: string;
-      label: string;
-      cwd: string;
-      workspaceGroupId: string | null;
-      persistent: boolean;
-      order: number;
-      terminals: TerminalInfo[];
-    }
-  >();
+  const byGroup = new Map<string, CreatedWorkspaceGroup>();
   const sortedWorkspaceGroups = [...workspaceGroups].sort(
     (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name),
   );
@@ -432,7 +421,7 @@ function createGroups(
   }
 
   return Array.from(byGroup.values())
-    .sort((a, b) => a.order - b.order)
+    .sort(compareCreatedGroups)
     .map((group) => {
       const root = tileTerminals(
         group.terminals.map((terminal) => terminal.id),
@@ -451,6 +440,35 @@ function createGroups(
         paneCount: group.terminals.length,
       };
     });
+}
+
+interface CreatedWorkspaceGroup {
+  id: string;
+  label: string;
+  cwd: string;
+  workspaceGroupId: string | null;
+  persistent: boolean;
+  order: number;
+  terminals: TerminalInfo[];
+}
+
+function compareCreatedGroups(
+  a: CreatedWorkspaceGroup,
+  b: CreatedWorkspaceGroup,
+): number {
+  if (a.persistent !== b.persistent) return a.persistent ? -1 : 1;
+  if (a.persistent) {
+    return (
+      a.order - b.order ||
+      a.label.localeCompare(b.label) ||
+      a.id.localeCompare(b.id)
+    );
+  }
+  return (
+    a.label.localeCompare(b.label) ||
+    a.cwd.localeCompare(b.cwd) ||
+    a.id.localeCompare(b.id)
+  );
 }
 
 function tileTerminals(ids: string[]): WorkspacePaneNode | null {

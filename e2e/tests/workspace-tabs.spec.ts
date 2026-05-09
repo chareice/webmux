@@ -147,10 +147,10 @@ test("workspace tabs can be reordered by dragging", async ({ page }) => {
   await expandTerminalById(page, terminalId);
   await expect(page.getByTestId(`workspace-group-${first.id}`)).toBeVisible();
   await expect(page.getByTestId(`workspace-group-${second.id}`)).toBeVisible();
+  await expect(page.getByTestId(`workspace-group-drag-${second.id}`))
+    .toBeVisible();
 
-  await page
-    .getByTestId(`workspace-group-${second.id}`)
-    .dragTo(page.getByTestId(`workspace-group-${first.id}`));
+  await dragWorkspaceGroupBefore(page, second.id, first.id);
 
   await expect
     .poll(async () =>
@@ -159,6 +159,45 @@ test("workspace tabs can be reordered by dragging", async ({ page }) => {
         .filter((id) => id === first.id || id === second.id),
     )
     .toEqual([second.id, first.id]);
+
+  await expect
+    .poll(async () =>
+      (await visibleWorkspaceGroupIds(page)).filter(
+        (id) => id === first.id || id === second.id,
+      ),
+    )
+    .toEqual([second.id, first.id]);
+
+  await dragWorkspaceGroupAfter(page, second.id, first.id);
+
+  await expect
+    .poll(async () =>
+      (await listWorkspaceGroupsViaApi(page))
+        .map((group) => group.id)
+        .filter((id) => id === first.id || id === second.id),
+    )
+    .toEqual([first.id, second.id]);
+
+  await expect
+    .poll(async () =>
+      (await visibleWorkspaceGroupIds(page)).filter(
+        (id) => id === first.id || id === second.id,
+      ),
+    )
+    .toEqual([first.id, second.id]);
+
+  await page.reload();
+  await page.getByTestId("workbench-header").waitFor({ state: "visible" });
+  if (!(await page.getByTestId("expanded-terminal").isVisible())) {
+    await expandTerminalById(page, terminalId);
+  }
+  await expect
+    .poll(async () =>
+      (await visibleWorkspaceGroupIds(page)).filter(
+        (id) => id === first.id || id === second.id,
+      ),
+    )
+    .toEqual([first.id, second.id]);
 });
 
 test("deleting a workspace tab keeps terminals open and clears their group", async ({
@@ -466,4 +505,66 @@ function workspaceGroup(page: import("@playwright/test").Page, label: string) {
   return page
     .locator("[data-testid^='workspace-group-']")
     .filter({ hasText: label });
+}
+
+async function visibleWorkspaceGroupIds(
+  page: import("@playwright/test").Page,
+): Promise<string[]> {
+  return page
+    .locator(
+      "button[data-testid^='workspace-group-']:not([data-testid^='workspace-group-delete-'])",
+    )
+    .evaluateAll((buttons) =>
+      buttons
+        .map((button) => button.getAttribute("data-testid") ?? "")
+        .map((testId) => testId.replace(/^workspace-group-/, ""))
+        .filter(Boolean),
+    );
+}
+
+async function dragWorkspaceGroupBefore(
+  page: import("@playwright/test").Page,
+  sourceGroupId: string,
+  targetGroupId: string,
+): Promise<void> {
+  await dragWorkspaceGroupTo(page, sourceGroupId, targetGroupId, "before");
+}
+
+async function dragWorkspaceGroupAfter(
+  page: import("@playwright/test").Page,
+  sourceGroupId: string,
+  targetGroupId: string,
+): Promise<void> {
+  await dragWorkspaceGroupTo(page, sourceGroupId, targetGroupId, "after");
+}
+
+async function dragWorkspaceGroupTo(
+  page: import("@playwright/test").Page,
+  sourceGroupId: string,
+  targetGroupId: string,
+  placement: "before" | "after",
+): Promise<void> {
+  const source = page.getByTestId(`workspace-group-drag-${sourceGroupId}`);
+  const target = page.getByTestId(`workspace-group-${targetGroupId}`);
+  await source.scrollIntoViewIfNeeded();
+  await target.scrollIntoViewIfNeeded();
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  expect(sourceBox).toBeTruthy();
+  expect(targetBox).toBeTruthy();
+  const targetX =
+    placement === "before"
+      ? targetBox!.x + Math.min(8, targetBox!.width / 4)
+      : targetBox!.x + targetBox!.width - Math.min(8, targetBox!.width / 4);
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2,
+    sourceBox!.y + sourceBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    targetX,
+    targetBox!.y + targetBox!.height / 2,
+    { steps: 10 },
+  );
+  await page.mouse.up();
 }
