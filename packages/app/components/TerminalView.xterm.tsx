@@ -39,6 +39,7 @@ import {
 } from "@/lib/terminalSelection";
 import { isTauri } from "@/lib/platform";
 import { isAppShortcut } from "@/lib/shortcuts";
+import { filterBrowserGeneratedTerminalInput } from "@/lib/terminalInputFilter";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
@@ -666,9 +667,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       // Forward terminal input to the current WebSocket
       term.onData((data) => {
+        const filteredData = filterBrowserGeneratedTerminalInput(data);
+        if (!filteredData) return;
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN && isControllerRef.current) {
-          ws.send(JSON.stringify({ type: "input", data }));
+          ws.send(JSON.stringify({ type: "input", data: filteredData }));
         }
       });
 

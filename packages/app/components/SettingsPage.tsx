@@ -251,11 +251,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     () => localStorage.getItem("webmux:ui-font-size") || "",
   );
 
-  // Renderer
-  const [renderer, setRenderer] = useState(
-    () => localStorage.getItem("webmux:renderer") || "xterm",
-  );
-
   // Quick commands
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
   const [quickCommandsLoaded, setQuickCommandsLoaded] = useState(false);
@@ -339,16 +334,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         localStorage.removeItem("webmux:ui-font-size");
         document.documentElement.style.fontSize = "";
       }
-    },
-    [],
-  );
-
-  // Renderer
-  const handleRendererChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const v = e.target.value;
-      setRenderer(v);
-      localStorage.setItem("webmux:renderer", v);
     },
     [],
   );
@@ -459,17 +444,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     outline: "none",
     width: 80,
   };
-
-  const selectStyle: React.CSSProperties = {
-    ...inputStyle,
-    width: "auto",
-    cursor: "pointer",
-    appearance: "auto",
-  };
-
-  const needsReload =
-    terminalFont !== (localStorage.getItem("webmux:terminal-font-family") || "") ||
-    renderer !== (localStorage.getItem("webmux:renderer") || "xterm");
 
   return (
     <div
@@ -621,19 +595,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             />
           </SettingRow>
 
-          <SettingRow
-            label="Renderer"
-            description="Terminal rendering engine (changing requires reload)"
-          >
-            <select
-              value={renderer}
-              onChange={handleRendererChange}
-              style={selectStyle}
-            >
-              <option value="xterm">xterm</option>
-              <option value="wterm">wterm</option>
-            </select>
-          </SettingRow>
         </section>
 
         {/* Workspace Shortcuts Section */}
@@ -881,7 +842,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             marginTop: 8,
           }}
         >
-          Some settings (terminal font, renderer) take effect after
+          Some settings (terminal font) take effect after
           creating a new terminal or reloading the page.
         </div>
       </div>
