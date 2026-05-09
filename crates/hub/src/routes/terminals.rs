@@ -340,14 +340,7 @@ async fn save_workspace_layout(
             base_updated_at,
         )
         .map_err(workspace_layout_save_error)?;
-        let layout = WorkspaceLayoutInfo {
-            machine_id,
-            group_key: group_key.to_string(),
-            root: None,
-            mode: Default::default(),
-            scrollable: None,
-            updated_at: row.updated_at,
-        };
+        let layout = workspace_layout_info_from_row(row);
         state
             .manager
             .publish_workspace_layout_updated(&auth_user.user_id, layout.clone());
@@ -387,28 +380,37 @@ async fn save_workspace_layout(
     )
     .map_err(workspace_layout_save_error)?;
 
-    let layout = WorkspaceLayoutInfo {
-        machine_id: row.machine_id.clone(),
-        group_key: row.group_key.clone(),
-        root: serde_json::from_str(&row.root_json).unwrap_or(None),
-        mode: row
-            .layout_mode
-            .as_deref()
-            .map(|s| match s {
-                "scrollable" => WorkspaceLayoutMode::Scrollable,
-                _ => WorkspaceLayoutMode::Tiling,
-            })
-            .unwrap_or_default(),
-        scrollable: row
-            .aux_json
-            .as_deref()
-            .and_then(|s| serde_json::from_str::<WorkspaceScrollableLayout>(s).ok()),
-        updated_at: row.updated_at,
-    };
+    let layout = workspace_layout_info_from_row(row);
     state
         .manager
         .publish_workspace_layout_updated(&auth_user.user_id, layout.clone());
     Ok(Json(layout))
+}
+
+fn workspace_layout_info_from_row(
+    row: crate::db::types::WorkspaceLayoutRow,
+) -> WorkspaceLayoutInfo {
+    let root = serde_json::from_str(&row.root_json).unwrap_or(None);
+    let mode = row
+        .layout_mode
+        .as_deref()
+        .map(|s| match s {
+            "scrollable" => WorkspaceLayoutMode::Scrollable,
+            _ => WorkspaceLayoutMode::Tiling,
+        })
+        .unwrap_or_default();
+    let scrollable = row
+        .aux_json
+        .as_deref()
+        .and_then(|s| serde_json::from_str::<WorkspaceScrollableLayout>(s).ok());
+    WorkspaceLayoutInfo {
+        machine_id: row.machine_id,
+        group_key: row.group_key,
+        root,
+        mode,
+        scrollable,
+        updated_at: row.updated_at,
+    }
 }
 
 fn workspace_layout_save_error(
