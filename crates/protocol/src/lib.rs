@@ -96,17 +96,12 @@ pub enum WorkspaceLayoutNode {
     },
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceLayoutMode {
+    #[default]
     Tiling,
     Scrollable,
-}
-
-impl Default for WorkspaceLayoutMode {
-    fn default() -> Self {
-        Self::Tiling
-    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -125,6 +120,7 @@ pub enum WorkspaceColumnWidth {
 }
 
 impl WorkspaceColumnWidth {
+    /// Returns the default column width for a new scrollable column.
     pub fn default_preset() -> Self {
         WorkspaceColumnWidth::Preset(WorkspaceColumnPreset::Half)
     }
@@ -451,6 +447,15 @@ mod tests {
         assert_eq!(decoded, info);
         assert!(json.contains("\"mode\":\"scrollable\""));
         assert!(json.contains("\"kind\":\"preset\""));
+        assert!(json.contains("\"value\":\"half\""));
+    }
+
+    #[test]
+    fn workspace_layout_info_deserializes_legacy_json_without_new_fields() {
+        let legacy = r#"{"machine_id":"m1","group_key":"g1","root":null,"updated_at":0}"#;
+        let decoded: WorkspaceLayoutInfo = serde_json::from_str(legacy).unwrap();
+        assert_eq!(decoded.mode, WorkspaceLayoutMode::Tiling);
+        assert!(decoded.scrollable.is_none());
     }
 
     #[test]
