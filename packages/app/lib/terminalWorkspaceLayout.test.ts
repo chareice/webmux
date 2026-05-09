@@ -679,3 +679,37 @@ describe("column width helpers", () => {
     });
   });
 });
+
+describe("scrollable mutators", () => {
+  it("splitWorkspacePane in scrollable mode appends a column at the end", () => {
+    let ws = createTerminalWorkspace([terminal("a", "/x")], "a");
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    ws = splitWorkspacePane(ws, {
+      activeTerminalId: "a",
+      newTerminalId: "b",
+      direction: "down", // down → still appends; mode collapses both intents
+    });
+    expect(ws.groups[0].scrollable!.columns.map((c) => c.terminalId)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(ws.activeTerminalId).toBe("b");
+  });
+
+  it("closeWorkspacePane in scrollable mode removes the column", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x")],
+      "a",
+    );
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    ws = splitWorkspacePane(ws, {
+      activeTerminalId: "a",
+      newTerminalId: "b",
+      direction: "right",
+    });
+    ws = closeWorkspacePane(ws, "a");
+    expect(ws.groups[0].scrollable!.columns.map((c) => c.terminalId)).toEqual([
+      "b",
+    ]);
+  });
+});

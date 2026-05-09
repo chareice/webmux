@@ -63,9 +63,7 @@ export function createTerminalWorkspace(
 ): TerminalWorkspace {
   const groups = createGroups(terminals, workspaceGroups, workspaceLayouts);
   const activeGroup =
-    groups.find((group) =>
-      collectPaneTerminalIds(group.root).includes(activeTerminalId ?? ""),
-    ) ??
+    groups.find((group) => groupContainsTerminal(group, activeTerminalId ?? "")) ??
     groups[0] ??
     null;
   const activeTerminal =
@@ -88,10 +86,36 @@ export function splitWorkspacePane(
     direction: WorkspaceSplitIntent;
   },
 ): TerminalWorkspace {
-  const group = workspace.groups.find((candidate) =>
-    collectPaneTerminalIds(candidate.root).includes(input.activeTerminalId),
-  );
+  const group = workspace.groups.find((candidate) => {
+    if (candidate.layoutMode === "scrollable") {
+      return (candidate.scrollable?.columns ?? []).some(
+        (c) => c.terminalId === input.activeTerminalId,
+      );
+    }
+    return collectPaneTerminalIds(candidate.root).includes(input.activeTerminalId);
+  });
   if (!group) return workspace;
+
+  // Scrollable mode: append new column at end
+  if (group.layoutMode === "scrollable") {
+    const columns = (group.scrollable?.columns ?? []).filter(
+      (c) => c.terminalId !== input.newTerminalId,
+    );
+    columns.push({
+      terminalId: input.newTerminalId,
+      width: { kind: "preset", value: "half" },
+    });
+    const groups = workspace.groups.map((candidate) =>
+      candidate.id === group.id
+        ? { ...candidate, scrollable: { columns }, paneCount: columns.length }
+        : candidate,
+    );
+    return {
+      groups,
+      activeGroupId: group.id,
+      activeTerminalId: input.newTerminalId,
+    };
+  }
 
   const direction: WorkspaceSplitDirection =
     input.direction === "right" ? "horizontal" : "vertical";
@@ -131,6 +155,28 @@ export function appendWorkspacePaneToGroup(
 ): TerminalWorkspace {
   const group = workspace.groups.find((candidate) => candidate.id === input.groupId);
   if (!group) return workspace;
+
+  if (group.layoutMode === "scrollable") {
+    const existing = group.scrollable?.columns ?? [];
+    if (existing.some((c) => c.terminalId === input.newTerminalId)) {
+      return workspace;
+    }
+    const columns = [
+      ...existing,
+      { terminalId: input.newTerminalId, width: { kind: "preset", value: "half" } as WorkspaceColumnWidth },
+    ];
+    const groups = workspace.groups.map((candidate) =>
+      candidate.id === group.id
+        ? { ...candidate, scrollable: { columns }, paneCount: columns.length }
+        : candidate,
+    );
+    return {
+      groups,
+      activeGroupId: group.id,
+      activeTerminalId: input.newTerminalId,
+    };
+  }
+
   const groups = workspace.groups.map((candidate) => {
     if (candidate.id !== group.id) return candidate;
     const root = appendNode(candidate.root, {
@@ -157,6 +203,23 @@ export function closeWorkspacePane(
   let nextActiveTerminalId = workspace.activeTerminalId;
   const groups = workspace.groups
     .map((group) => {
+      // Scrollable mode: remove from columns array
+      if (group.layoutMode === "scrollable") {
+        const columns = group.scrollable?.columns ?? [];
+        if (!columns.some((c) => c.terminalId === terminalId)) {
+          return group;
+        }
+        const nextColumns = columns.filter((c) => c.terminalId !== terminalId);
+        if (workspace.activeTerminalId === terminalId) {
+          nextActiveTerminalId = nextColumns[0]?.terminalId ?? null;
+        }
+        return {
+          ...group,
+          scrollable: { columns: nextColumns },
+          paneCount: nextColumns.length,
+        };
+      }
+
       if (!collectPaneTerminalIds(group.root).includes(terminalId)) {
         return group;
       }
@@ -181,9 +244,7 @@ export function closeWorkspacePane(
     );
 
   const activeGroup =
-    groups.find((group) =>
-      collectPaneTerminalIds(group.root).includes(nextActiveTerminalId ?? ""),
-    ) ??
+    groups.find((group) => groupContainsTerminal(group, nextActiveTerminalId ?? "")) ??
     groups.find((group) => group.id === workspace.activeGroupId) ??
     groups[0] ??
     null;
@@ -203,11 +264,38 @@ export function swapWorkspacePanes(
 ): TerminalWorkspace {
   if (sourceTerminalId === targetTerminalId) return workspace;
   const group = workspace.groups.find((candidate) => {
+    if (candidate.layoutMode === "scrollable") {
+      const cols = candidate.scrollable?.columns ?? [];
+      return (
+        cols.some((c) => c.terminalId === sourceTerminalId) &&
+        cols.some((c) => c.terminalId === targetTerminalId)
+      );
+    }
     const ids = collectPaneTerminalIds(candidate.root);
     return ids.includes(sourceTerminalId) && ids.includes(targetTerminalId);
   });
-  if (!group?.root) return workspace;
+  if (!group) return workspace;
 
+  // Scrollable mode: swap positions in the columns array
+  if (group.layoutMode === "scrollable") {
+    const columns = (group.scrollable?.columns ?? []).map((c) => {
+      if (c.terminalId === sourceTerminalId) return { ...c, terminalId: targetTerminalId };
+      if (c.terminalId === targetTerminalId) return { ...c, terminalId: sourceTerminalId };
+      return c;
+    });
+    const groups = workspace.groups.map((candidate) =>
+      candidate.id === group.id
+        ? { ...candidate, scrollable: { columns }, paneCount: columns.length }
+        : candidate,
+    );
+    return {
+      groups,
+      activeGroupId: group.id,
+      activeTerminalId: sourceTerminalId,
+    };
+  }
+
+  if (!group.root) return workspace;
   const root = swapLeafTerminalIds(
     group.root,
     sourceTerminalId,
@@ -474,6 +562,13 @@ function nearestPreset(fraction: number): WorkspaceColumnPreset {
   if (fraction >= 0.85) return "full";
   if (fraction >= 0.6) return "two_thirds";
   return "half";
+}
+
+function groupContainsTerminal(group: WorkspaceGroup, terminalId: string): boolean {
+  if (group.layoutMode === "scrollable") {
+    return (group.scrollable?.columns ?? []).some((c) => c.terminalId === terminalId);
+  }
+  return collectPaneTerminalIds(group.root).includes(terminalId);
 }
 
 export function flattenTreeToColumns(
