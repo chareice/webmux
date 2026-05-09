@@ -16,13 +16,16 @@ import type {
   WorkspaceColumnWidth,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
+  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
 } from "@webmux/shared";
 import {
   ChevronDown,
   Columns2,
+  Columns3,
   Expand,
   GripVertical,
+  LayoutGrid,
   Maximize2,
   Minimize2,
   PanelBottom,
@@ -47,6 +50,7 @@ import {
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
   setWorkspaceColumnWidth,
+  setWorkspaceLayoutMode,
   splitWorkspacePane,
   swapWorkspacePanes,
 } from "@/lib/terminalWorkspaceLayout";
@@ -558,6 +562,14 @@ function TerminalWorkspaceComponent({
     [],
   );
 
+  const handleToggleLayoutMode = useCallback(() => {
+    if (!activeGroup) return;
+    const nextMode: WorkspaceLayoutMode =
+      activeGroup.layoutMode === "scrollable" ? "tiling" : "scrollable";
+    setWorkspace((prev) => setWorkspaceLayoutMode(prev, activeGroup.id, nextMode));
+    // Persistence wiring lands in Phase 5 (Task 17). For now, in-memory toggle only.
+  }, [activeGroup]);
+
   const removeDocumentPaneDragEnd = useCallback(() => {
     const cleanup = documentPaneDragCleanupRef.current;
     if (!cleanup) return;
@@ -821,6 +833,8 @@ function TerminalWorkspaceComponent({
           onClose={onClose}
           onRequestControl={onRequestControl}
           onReleaseControl={onReleaseControl}
+          layoutMode={activeGroup?.layoutMode ?? "tiling"}
+          onToggleLayoutMode={handleToggleLayoutMode}
         />
         <MobileGroupTabs
           groups={workspace.groups}
@@ -970,6 +984,8 @@ function TerminalWorkspaceComponent({
         onClose={onClose}
         onRequestControl={onRequestControl}
         onReleaseControl={onReleaseControl}
+        layoutMode={activeGroup?.layoutMode ?? "tiling"}
+        onToggleLayoutMode={handleToggleLayoutMode}
       />
       <div
         style={{
@@ -1094,6 +1110,8 @@ function WorkspaceTopBar({
   onClose,
   onRequestControl,
   onReleaseControl,
+  layoutMode,
+  onToggleLayoutMode,
 }: {
   groups: WorkspaceGroup[];
   activeGroupId: string | null;
@@ -1120,6 +1138,8 @@ function WorkspaceTopBar({
   onClose: () => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
+  layoutMode: WorkspaceLayoutMode;
+  onToggleLayoutMode: () => void;
 }) {
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const groupDragRef = useRef<{ sourceGroupId: string } | null>(null);
@@ -1386,6 +1406,13 @@ function WorkspaceTopBar({
             onClick={onSplitDown}
           >
             <PanelBottom size={14} />
+          </IconButton>
+          <IconButton
+            title={layoutMode === "scrollable" ? "Switch to tiling" : "Switch to scrollable"}
+            testId="layout-mode-toggle"
+            onClick={onToggleLayoutMode}
+          >
+            {layoutMode === "scrollable" ? <Columns3 size={14} /> : <LayoutGrid size={14} />}
           </IconButton>
           <IconButton
             disabled={!activeTerminal}
