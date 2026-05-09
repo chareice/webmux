@@ -564,6 +564,19 @@ function nearestPreset(fraction: number): WorkspaceColumnPreset {
   return "half";
 }
 
+export function findAdjacentScrollableColumn(
+  layout: WorkspaceScrollableLayout,
+  direction: WorkspacePaneFocusDirection,
+  activeTerminalId: string | null,
+): string | null {
+  if (direction === "up" || direction === "down") return null;
+  if (!activeTerminalId) return null;
+  const idx = layout.columns.findIndex((c) => c.terminalId === activeTerminalId);
+  if (idx === -1) return null;
+  const offset = direction === "left" ? -1 : 1;
+  return layout.columns[idx + offset]?.terminalId ?? null;
+}
+
 function groupContainsTerminal(group: WorkspaceGroup, terminalId: string): boolean {
   if (group.layoutMode === "scrollable") {
     return (group.scrollable?.columns ?? []).some((c) => c.terminalId === terminalId);

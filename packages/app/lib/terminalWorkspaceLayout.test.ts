@@ -7,6 +7,7 @@ import {
   createTerminalWorkspace,
   getActiveWorkspaceGroup,
   findAdjacentWorkspacePane,
+  findAdjacentScrollableColumn,
   getMobileWorkspaceTabs,
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
@@ -711,5 +712,28 @@ describe("scrollable mutators", () => {
     expect(ws.groups[0].scrollable!.columns.map((c) => c.terminalId)).toEqual([
       "b",
     ]);
+  });
+});
+
+describe("scrollable adjacency", () => {
+  it("findAdjacentScrollableColumn left/right walks columns; up/down is null", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x"), terminal("c", "/x")],
+      "b",
+    );
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    const group = ws.groups[0];
+    expect(
+      findAdjacentScrollableColumn(group.scrollable!, "left", "b"),
+    ).toBe("a");
+    expect(
+      findAdjacentScrollableColumn(group.scrollable!, "right", "b"),
+    ).toBe("c");
+    expect(
+      findAdjacentScrollableColumn(group.scrollable!, "up", "b"),
+    ).toBeNull();
+    expect(
+      findAdjacentScrollableColumn(group.scrollable!, "down", "b"),
+    ).toBeNull();
   });
 });
