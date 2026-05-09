@@ -45,6 +45,8 @@ import {
   appendWorkspacePaneToGroup,
   closeWorkspacePane,
   createTerminalWorkspace,
+  cycleWorkspaceColumnWidth,
+  findAdjacentScrollableColumn,
   findAdjacentWorkspacePane,
   getActiveWorkspaceGroup,
   reconcileTerminalWorkspace,
@@ -692,19 +694,39 @@ function TerminalWorkspaceComponent({
       event.stopImmediatePropagation();
 
       if (action === "paneLeft") {
-        focusPaneByDirection("left");
+        if (activeGroup?.layoutMode === "scrollable") {
+          const nextId = activeGroup.scrollable
+            ? findAdjacentScrollableColumn(activeGroup.scrollable, "left", workspace.activeTerminalId)
+            : null;
+          if (nextId) activateTerminal(nextId);
+        } else {
+          focusPaneByDirection("left");
+        }
         return;
       }
       if (action === "paneRight") {
-        focusPaneByDirection("right");
+        if (activeGroup?.layoutMode === "scrollable") {
+          const nextId = activeGroup.scrollable
+            ? findAdjacentScrollableColumn(activeGroup.scrollable, "right", workspace.activeTerminalId)
+            : null;
+          if (nextId) activateTerminal(nextId);
+        } else {
+          focusPaneByDirection("right");
+        }
         return;
       }
       if (action === "paneUp") {
-        focusPaneByDirection("up");
+        // No-op in scrollable mode; columns have no vertical neighbour concept
+        if (activeGroup?.layoutMode !== "scrollable") {
+          focusPaneByDirection("up");
+        }
         return;
       }
       if (action === "paneDown") {
-        focusPaneByDirection("down");
+        // No-op in scrollable mode; columns have no vertical neighbour concept
+        if (activeGroup?.layoutMode !== "scrollable") {
+          focusPaneByDirection("down");
+        }
         return;
       }
       if (action === "groupPrevious") {
@@ -715,6 +737,26 @@ function TerminalWorkspaceComponent({
         switchGroupByOffset(1);
         return;
       }
+      if (action === "columnWidthShrink") {
+        if (activeTerminal && activeGroup?.layoutMode === "scrollable") {
+          setWorkspace((prev) =>
+            cycleWorkspaceColumnWidth(prev, activeTerminal.id, "shrink"),
+          );
+        }
+        return;
+      }
+      if (action === "columnWidthGrow") {
+        if (activeTerminal && activeGroup?.layoutMode === "scrollable") {
+          setWorkspace((prev) =>
+            cycleWorkspaceColumnWidth(prev, activeTerminal.id, "grow"),
+          );
+        }
+        return;
+      }
+      if (action === "layoutModeToggle") {
+        handleToggleLayoutMode();
+        return;
+      }
 
       const groupIndex = getWorkspaceGroupShortcutIndex(action);
       if (groupIndex !== null) switchGroupByIndex(groupIndex);
@@ -723,10 +765,15 @@ function TerminalWorkspaceComponent({
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
   }, [
+    activeGroup,
+    activeTerminal,
+    activateTerminal,
     focusPaneByDirection,
+    handleToggleLayoutMode,
     isMobile,
     switchGroupByIndex,
     switchGroupByOffset,
+    workspace.activeTerminalId,
   ]);
 
   const handleDestroy = useCallback(
