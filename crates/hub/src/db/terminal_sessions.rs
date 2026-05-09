@@ -154,16 +154,8 @@ mod tests {
     fn active_sessions_are_returned_in_stable_creation_order() {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::init_db(&conn).unwrap();
-        crate::db::users::create_user(
-            &conn,
-            "user-a",
-            "test",
-            "user-a",
-            "User A",
-            None,
-            "admin",
-        )
-        .unwrap();
+        crate::db::users::create_user(&conn, "user-a", "test", "user-a", "User A", None, "admin")
+            .unwrap();
         crate::db::machines::ensure_machine_for_user(
             &conn,
             "machine-a",

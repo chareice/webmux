@@ -8,7 +8,13 @@ import {
   useRef,
   useState,
 } from "react";
-import type { TerminalInfo, Bookmark, WorkspaceGroupInfo } from "@webmux/shared";
+import type {
+  TerminalInfo,
+  Bookmark,
+  WorkspaceGroupInfo,
+  WorkspaceLayoutInfo,
+  WorkspaceLayoutNode,
+} from "@webmux/shared";
 import { useRouter } from "expo-router";
 import { AppTitleBar } from "./AppTitleBar.web";
 import { Rail } from "./Rail.web";
@@ -32,6 +38,7 @@ import {
   requestControl,
   reorderWorkspaceGroups,
   releaseControl,
+  saveWorkspaceLayout,
 } from "@/lib/api";
 import {
   estimateInitialTerminalDimensions,
@@ -157,6 +164,30 @@ function replaceMachineWorkspaceGroups(
   );
 }
 
+function upsertWorkspaceLayoutInfo(
+  layouts: WorkspaceLayoutInfo[],
+  layout: WorkspaceLayoutInfo,
+): WorkspaceLayoutInfo[] {
+  const index = layouts.findIndex(
+    (item) =>
+      item.machine_id === layout.machine_id && item.group_key === layout.group_key,
+  );
+  const next =
+    index === -1
+      ? [...layouts, layout]
+      : layouts.map((item) =>
+          item.machine_id === layout.machine_id &&
+          item.group_key === layout.group_key
+            ? layout
+            : item,
+        );
+  return next.sort(
+    (a, b) =>
+      a.machine_id.localeCompare(b.machine_id) ||
+      a.group_key.localeCompare(b.group_key),
+  );
+}
+
 export function TerminalCanvas() {
   const router = useRouter();
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
@@ -203,8 +234,13 @@ export function TerminalCanvas() {
   const machines = browserState.machines;
   const terminals = browserState.terminals;
   const workspaceGroups = browserState.workspaceGroups;
+  const workspaceLayouts = browserState.workspaceLayouts;
   const machineStats = browserState.machineStats;
   const controlLeases = browserState.controlLeases;
+  const workspaceLayoutsRef = useRef(workspaceLayouts);
+  useEffect(() => {
+    workspaceLayoutsRef.current = workspaceLayouts;
+  }, [workspaceLayouts]);
 
   const isMachineController = useCallback(
     (machineId: string) =>
@@ -502,6 +538,13 @@ export function TerminalCanvas() {
     return workspaceGroups.filter((group) => group.machine_id === activeMachine.id);
   }, [workspaceGroups, activeMachine]);
 
+  const activeMachineWorkspaceLayouts = useMemo<WorkspaceLayoutInfo[]>(() => {
+    if (!activeMachine) return [];
+    return workspaceLayouts.filter(
+      (layout) => layout.machine_id === activeMachine.id,
+    );
+  }, [workspaceLayouts, activeMachine]);
+
   const expandedTerminal = layout.zoomedTerminalId
     ? terminals.find((t) => t.id === layout.zoomedTerminalId) ?? null
     : null;
@@ -766,6 +809,10 @@ export function TerminalCanvas() {
         workspaceGroups: prev.workspaceGroups.filter(
           (group) => !(group.machine_id === machineId && group.id === groupId),
         ),
+        workspaceLayouts: prev.workspaceLayouts.filter(
+          (layout) =>
+            !(layout.machine_id === machineId && layout.group_key === groupId),
+        ),
         terminals: prev.terminals.map((terminal) =>
           terminal.machine_id === machineId &&
           terminal.workspace_group_id === groupId
@@ -773,6 +820,36 @@ export function TerminalCanvas() {
             : terminal,
         ),
       }));
+    },
+    [],
+  );
+
+  const handleSaveWorkspaceLayout = useCallback(
+    async (
+      machineId: string,
+      groupKey: string,
+      root: WorkspaceLayoutNode | null,
+    ) => {
+      const baseUpdatedAt =
+        workspaceLayoutsRef.current.find(
+          (layout) =>
+            layout.machine_id === machineId && layout.group_key === groupKey,
+        )?.updated_at ?? null;
+      const saved = await saveWorkspaceLayout(
+        machineId,
+        groupKey,
+        root,
+        baseUpdatedAt,
+      );
+      setBrowserState((prev) => ({
+        ...prev,
+        workspaceLayouts: (() => {
+          const next = upsertWorkspaceLayoutInfo(prev.workspaceLayouts, saved);
+          workspaceLayoutsRef.current = next;
+          return next;
+        })(),
+      }));
+      return saved;
     },
     [],
   );
@@ -1110,6 +1187,7 @@ export function TerminalCanvas() {
                   : []
             }
             workspaceGroups={activeMachineWorkspaceGroups}
+            workspaceLayouts={activeMachineWorkspaceLayouts}
             isController={isMachineController(workspaceTerminal.machine_id)}
             deviceId={deviceId ?? ""}
             isMobile={isMobile}
@@ -1121,6 +1199,7 @@ export function TerminalCanvas() {
             onCreateGroup={handleCreateWorkspaceGroup}
             onReorderGroups={handleReorderWorkspaceGroups}
             onDeleteGroup={handleDeleteWorkspaceGroup}
+            onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
             onAssignGroup={handleAssignWorkspaceGroup}
             onRequestControl={handleRequestControl}
             onReleaseControl={handleReleaseControl}

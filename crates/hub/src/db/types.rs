@@ -39,6 +39,14 @@ pub struct WorkspaceGroupRow {
     pub created_at: i64,
 }
 
+pub struct WorkspaceLayoutRow {
+    pub user_id: String,
+    pub machine_id: String,
+    pub group_key: String,
+    pub root_json: String,
+    pub updated_at: i64,
+}
+
 pub struct ApiTokenRow {
     pub id: String,
     pub user_id: String,

@@ -76,6 +76,35 @@ pub struct WorkspaceGroupInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceSplitDirection {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WorkspaceLayoutNode {
+    #[serde(rename_all = "camelCase")]
+    Leaf { terminal_id: String },
+    #[serde(rename_all = "camelCase")]
+    Split {
+        direction: WorkspaceSplitDirection,
+        ratio: f64,
+        first: Box<WorkspaceLayoutNode>,
+        second: Box<WorkspaceLayoutNode>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkspaceLayoutInfo {
+    pub machine_id: String,
+    pub group_key: String,
+    pub root: Option<WorkspaceLayoutNode>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum NativeZellijStatus {
     Ready {
@@ -106,6 +135,7 @@ pub struct BrowserStateSnapshot {
     pub machines: Vec<MachineInfo>,
     pub terminals: Vec<TerminalInfo>,
     pub workspace_groups: Vec<WorkspaceGroupInfo>,
+    pub workspace_layouts: Vec<WorkspaceLayoutInfo>,
     pub machine_stats: Vec<MachineStatsSnapshot>,
     pub control_leases: Vec<ControlLeaseSnapshot>,
 }
@@ -264,6 +294,8 @@ pub enum BrowserEvent {
         machine_id: String,
         group_id: String,
     },
+    #[serde(rename = "workspace_layout_updated")]
+    WorkspaceLayoutUpdated { layout: WorkspaceLayoutInfo },
     #[serde(rename = "machine_stats")]
     MachineStats {
         machine_id: String,

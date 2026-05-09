@@ -88,6 +88,94 @@ describe("terminalWorkspaceLayout", () => {
     );
   });
 
+  it("restores a persisted pane layout when creating a fresh workspace", () => {
+    const workspace = createTerminalWorkspace(
+      [terminal("a", "/repo"), terminal("b", "/repo"), terminal("c", "/repo")],
+      "c",
+      [],
+      [
+        {
+          machine_id: "m1",
+          group_key: "cwd:/repo",
+          updated_at: 10,
+          root: {
+            type: "split",
+            direction: "horizontal",
+            ratio: 0.5,
+            first: {
+              type: "split",
+              direction: "vertical",
+              ratio: 0.5,
+              first: { type: "leaf", terminalId: "a" },
+              second: { type: "leaf", terminalId: "c" },
+            },
+            second: { type: "leaf", terminalId: "b" },
+          },
+        },
+      ],
+    );
+
+    const root = getActiveWorkspaceGroup(workspace)?.root ?? null;
+    expect(collectPaneTerminalIds(root)).toEqual(["a", "c", "b"]);
+    expect(root).toMatchObject({
+      type: "split",
+      direction: "horizontal",
+      first: {
+        type: "split",
+        direction: "vertical",
+        first: { type: "leaf", terminalId: "a" },
+        second: { type: "leaf", terminalId: "c" },
+      },
+      second: { type: "leaf", terminalId: "b" },
+    });
+  });
+
+  it("restores a persisted workspace tab pane layout", () => {
+    const workspace = createTerminalWorkspace(
+      [
+        groupedTerminal("a", "/repo", "tab-main"),
+        groupedTerminal("b", "/repo", "tab-main"),
+        groupedTerminal("c", "/repo", "tab-main"),
+      ],
+      "a",
+      [{ id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 }],
+      [
+        {
+          machine_id: "m1",
+          group_key: "tab-main",
+          updated_at: 11,
+          root: {
+            type: "split",
+            direction: "vertical",
+            ratio: 0.55,
+            first: { type: "leaf", terminalId: "b" },
+            second: {
+              type: "split",
+              direction: "horizontal",
+              ratio: 0.45,
+              first: { type: "leaf", terminalId: "c" },
+              second: { type: "leaf", terminalId: "a" },
+            },
+          },
+        },
+      ],
+    );
+
+    const root = getActiveWorkspaceGroup(workspace)?.root ?? null;
+    expect(collectPaneTerminalIds(root)).toEqual(["b", "c", "a"]);
+    expect(root).toMatchObject({
+      type: "split",
+      direction: "vertical",
+      first: { type: "leaf", terminalId: "b" },
+      second: {
+        type: "split",
+        direction: "horizontal",
+        first: { type: "leaf", terminalId: "c" },
+        second: { type: "leaf", terminalId: "a" },
+      },
+    });
+  });
+
   it("groups panes by persisted workspace tab before falling back to cwd", () => {
     const workspace = createTerminalWorkspace(
       [
@@ -171,6 +259,18 @@ describe("terminalWorkspaceLayout", () => {
     expect(reconciled.groups.map((group) => [group.id, group.paneCount]))
       .toEqual([["cwd:/repo", 0]]);
     expect(reconciled.activeGroupId).toBe("cwd:/repo");
+    expect(reconciled.activeTerminalId).toBeNull();
+  });
+
+  it("keeps the active cwd group visible when the last terminal disappears before close applies", () => {
+    const workspace = createTerminalWorkspace([terminal("web-1", "/root")], "web-1");
+
+    const reconciled = reconcileTerminalWorkspace(workspace, [], "web-1");
+
+    expect(reconciled.groups.map((group) => [group.id, group.paneCount]))
+      .toEqual([["cwd:/root", 0]]);
+    expect(reconciled.groups[0].root).toBeNull();
+    expect(reconciled.activeGroupId).toBe("cwd:/root");
     expect(reconciled.activeTerminalId).toBeNull();
   });
 

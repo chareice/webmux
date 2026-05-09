@@ -5,7 +5,7 @@ use std::time::Duration;
 use tc_protocol::{
     BrowserEvent, BrowserEventEnvelope, BrowserStateSnapshot, ControlLeaseSnapshot, DirEntry,
     HubToMachine, MachineInfo, MachineStatsSnapshot, MachineToHub, TerminalInfo,
-    WorkspaceGroupInfo,
+    WorkspaceGroupInfo, WorkspaceLayoutInfo, WorkspaceLayoutNode,
 };
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 
@@ -446,6 +446,13 @@ impl MachineManager {
                 machine_id: machine_id.to_string(),
                 group_id: group_id.to_string(),
             },
+        );
+    }
+
+    pub fn publish_workspace_layout_updated(&self, user_id: &str, layout: WorkspaceLayoutInfo) {
+        self.send_event(
+            Some(user_id.to_string()),
+            BrowserEvent::WorkspaceLayoutUpdated { layout },
         );
     }
 
@@ -1427,6 +1434,35 @@ impl MachineManager {
                 sort_order: group.sort_order,
             })
             .collect();
+        let workspace_layouts: Vec<WorkspaceLayoutInfo> = self
+            .db
+            .get()
+            .ok()
+            .and_then(|conn| {
+                crate::db::workspace_layouts::find_workspace_layouts_by_user(&conn, user_id).ok()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|row| {
+                match serde_json::from_str::<Option<WorkspaceLayoutNode>>(&row.root_json) {
+                    Ok(root) => Some(WorkspaceLayoutInfo {
+                        machine_id: row.machine_id,
+                        group_key: row.group_key,
+                        root,
+                        updated_at: row.updated_at,
+                    }),
+                    Err(error) => {
+                        tracing::warn!(
+                            "Skipping invalid workspace layout {} for machine {}: {}",
+                            row.group_key,
+                            row.machine_id,
+                            error
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
 
         // Include persisted terminals from offline machines owned by this user
         // Clone persisted terminal data and release lock before DB queries
@@ -1462,6 +1498,7 @@ impl MachineManager {
             machines: all_machines,
             terminals: all_terminals,
             workspace_groups,
+            workspace_layouts,
             machine_stats,
             control_leases: self
                 .get_control_leases(user_id)

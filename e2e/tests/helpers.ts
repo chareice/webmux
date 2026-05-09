@@ -112,6 +112,7 @@ export async function resetMachineState(page: Page): Promise<void> {
   await requestMachineControl(page);
   await destroyAllTerminals(page);
   await deleteAllWorkspaceGroups(page);
+  await deleteAllWorkspaceLayouts(page);
   await expectTerminalCount(page, 0);
   // Release control via API (works on both desktop and mobile — mobile has no
   // header toggle). Then wait for the UI to pick up the mode change so
@@ -121,6 +122,33 @@ export async function resetMachineState(page: Page): Promise<void> {
   const header = page.getByTestId("workbench-header");
   if (await header.isVisible().catch(() => false)) {
     await expect(page.getByTestId("workbench-request-control")).toBeVisible();
+  }
+}
+
+export async function deleteAllWorkspaceLayouts(page: Page): Promise<void> {
+  const headers = await getAuthHeaders(page);
+  const response = await page.request.get("/api/bootstrap", { headers });
+  expect(response.ok()).toBeTruthy();
+  const snapshot = await response.json();
+  const layouts = (snapshot.workspace_layouts ?? []) as Array<{
+    machine_id: string;
+    group_key: string;
+    updated_at?: number;
+  }>;
+  for (const layout of layouts) {
+    if (layout.machine_id !== MACHINE_ID) continue;
+    const deleteResponse = await page.request.put(
+      `/api/machines/${MACHINE_ID}/workspace-layouts`,
+      {
+        headers,
+        data: {
+          group_key: layout.group_key,
+          root: null,
+          base_updated_at: layout.updated_at ?? -1,
+        },
+      },
+    );
+    expect(deleteResponse.ok()).toBeTruthy();
   }
 }
 

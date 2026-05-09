@@ -6,6 +6,8 @@ import type {
   DirEntry,
   Bookmark,
   WorkspaceGroupInfo,
+  WorkspaceLayoutInfo,
+  WorkspaceLayoutNode,
   ResourceStats,
   NativeZellijBootstrapResponse,
 } from "@webmux/shared";
@@ -150,6 +152,21 @@ export const assignTerminalWorkspaceGroup = (
     "PUT",
     `/api/machines/${machineId}/terminals/${terminalId}/workspace-group`,
     { workspace_group_id: workspaceGroupId },
+  );
+export const saveWorkspaceLayout = (
+  machineId: string,
+  groupKey: string,
+  root: WorkspaceLayoutNode | null,
+  baseUpdatedAt: number | null,
+) =>
+  request<WorkspaceLayoutInfo>(
+    "PUT",
+    `/api/machines/${machineId}/workspace-layouts`,
+    {
+      group_key: groupKey,
+      root,
+      base_updated_at: baseUpdatedAt ?? -1,
+    },
   );
 
 // Registration

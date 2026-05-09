@@ -6,6 +6,7 @@ import type {
   ResourceStats,
   TerminalInfo,
   WorkspaceGroupInfo,
+  WorkspaceLayoutInfo,
 } from "@webmux/shared";
 
 export interface BrowserSessionState {
@@ -13,6 +14,7 @@ export interface BrowserSessionState {
   machines: MachineInfo[];
   terminals: TerminalInfo[];
   workspaceGroups: WorkspaceGroupInfo[];
+  workspaceLayouts: WorkspaceLayoutInfo[];
   machineStats: Record<string, ResourceStats>;
   controlLeases: Record<string, string>;
 }
@@ -22,6 +24,7 @@ export const EMPTY_BROWSER_SESSION_STATE: BrowserSessionState = {
   machines: [],
   terminals: [],
   workspaceGroups: [],
+  workspaceLayouts: [],
   machineStats: {},
   controlLeases: {},
 };
@@ -34,6 +37,7 @@ export function applyBootstrapSnapshot(
     machines: snapshot.machines,
     terminals: snapshot.terminals,
     workspaceGroups: snapshot.workspace_groups ?? [],
+    workspaceLayouts: snapshot.workspace_layouts ?? [],
     machineStats: Object.fromEntries(
       snapshot.machine_stats.map(({ machine_id, stats }) => [machine_id, stats]),
     ),
@@ -121,6 +125,21 @@ function applyBrowserEvent(
           terminal.workspace_group_id === event.group_id
             ? { ...terminal, workspace_group_id: null }
             : terminal,
+        ),
+        workspaceLayouts: state.workspaceLayouts.filter(
+          (layout) =>
+            !(
+              layout.machine_id === event.machine_id &&
+              layout.group_key === event.group_id
+            ),
+        ),
+      };
+    case "workspace_layout_updated":
+      return {
+        ...state,
+        workspaceLayouts: upsertWorkspaceLayout(
+          state.workspaceLayouts,
+          event.layout,
         ),
       };
     case "terminal_destroyed":
@@ -220,5 +239,29 @@ function upsertWorkspaceGroup(
       a.machine_id.localeCompare(b.machine_id) ||
       a.sort_order - b.sort_order ||
       a.name.localeCompare(b.name),
+  );
+}
+
+function upsertWorkspaceLayout(
+  layouts: WorkspaceLayoutInfo[],
+  layout: WorkspaceLayoutInfo,
+): WorkspaceLayoutInfo[] {
+  const existingIndex = layouts.findIndex(
+    (item) =>
+      item.machine_id === layout.machine_id && item.group_key === layout.group_key,
+  );
+  const next =
+    existingIndex === -1
+      ? [...layouts, layout]
+      : layouts.map((item) =>
+          item.machine_id === layout.machine_id &&
+          item.group_key === layout.group_key
+            ? layout
+            : item,
+        );
+  return next.sort(
+    (a, b) =>
+      a.machine_id.localeCompare(b.machine_id) ||
+      a.group_key.localeCompare(b.group_key),
   );
 }
