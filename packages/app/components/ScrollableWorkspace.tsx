@@ -76,6 +76,35 @@ export function ScrollableWorkspace(props: ScrollableWorkspaceProps) {
     node.scrollIntoView({ inline: "nearest", block: "nearest" });
   }, [activeTerminalId, columns.length, isMobile]);
 
+  // Translate wheel events into horizontal scroll. xterm.js consumes wheel
+  // events on its canvas for scrollback, so without intercepting at the
+  // strip container the user has no way to pan the viewport with a regular
+  // mouse wheel. Conventions:
+  //   - Shift + vertical wheel  → pan strip horizontally (override scrollback)
+  //   - Trackpad horizontal swipe (deltaX-dominant) → pan strip
+  //   - Plain vertical wheel    → unchanged (xterm scrollback wins)
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const handler = (event: WheelEvent) => {
+      if (node.scrollWidth <= node.clientWidth) return;
+      const horizontalIntent =
+        event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY);
+      if (!horizontalIntent) return;
+      const delta = event.shiftKey ? event.deltaY : event.deltaX;
+      if (delta === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      node.scrollLeft += delta;
+    };
+    node.addEventListener("wheel", handler, { capture: true, passive: false });
+    return () => {
+      node.removeEventListener("wheel", handler, {
+        capture: true,
+      } as EventListenerOptions);
+    };
+  }, []);
+
   // Drag state for column resize handles.
   const dragRef = useRef<{
     startClientX: number;
