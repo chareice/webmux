@@ -18,6 +18,7 @@ import type {
   WorkspaceLayoutInfo,
   WorkspaceLayoutMode,
   WorkspaceLayoutNode,
+  WorkspaceScrollableLayout,
 } from "@webmux/shared";
 import {
   ChevronDown,
@@ -99,6 +100,8 @@ interface TerminalWorkspaceProps {
     machineId: string,
     groupKey: string,
     root: WorkspaceLayoutNode | null,
+    mode: WorkspaceLayoutMode | null,
+    scrollable: WorkspaceScrollableLayout | null,
   ) => Promise<WorkspaceLayoutInfo | null | void>;
   onAssignGroup: (
     terminal: TerminalInfo,
@@ -218,7 +221,7 @@ function TerminalWorkspaceComponent({
         .catch(() => undefined)
         .then(async () => {
           try {
-            await onSaveWorkspaceLayout(commandMachineId, group.id, group.root);
+            await onSaveWorkspaceLayout(commandMachineId, group.id, group.root, null, null);
           } catch (error) {
             console.error("Failed to save workspace pane layout", error);
           }
@@ -549,12 +552,51 @@ function TerminalWorkspaceComponent({
     ],
   );
 
-  const handleResizeColumn = useCallback(
-    (terminalId: string, width: WorkspaceColumnWidth) => {
-      setWorkspace((prev) => setWorkspaceColumnWidth(prev, terminalId, width));
-      // Persistence wiring for column width changes is handled in Phase 5 (Task 17).
+  const persistColumnsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistColumnsPendingRef = useRef<WorkspaceGroup | null>(null);
+
+  const schedulePersistColumns = useCallback(
+    (group: WorkspaceGroup) => {
+      persistColumnsPendingRef.current = group;
+      if (persistColumnsTimerRef.current) return;
+      persistColumnsTimerRef.current = setTimeout(() => {
+        persistColumnsTimerRef.current = null;
+        const pending = persistColumnsPendingRef.current;
+        persistColumnsPendingRef.current = null;
+        if (!pending || !commandMachineId) return;
+        void onSaveWorkspaceLayout(
+          commandMachineId,
+          pending.id,
+          pending.root,
+          pending.layoutMode,
+          pending.scrollable,
+        );
+      }, 200);
+    },
+    [commandMachineId, onSaveWorkspaceLayout],
+  );
+
+  useEffect(
+    () => () => {
+      if (persistColumnsTimerRef.current) clearTimeout(persistColumnsTimerRef.current);
     },
     [],
+  );
+
+  const handleResizeColumn = useCallback(
+    (terminalId: string, width: WorkspaceColumnWidth) => {
+      setWorkspace((prev) => {
+        const next = setWorkspaceColumnWidth(prev, terminalId, width);
+        const group = next.groups.find((g) =>
+          g.scrollable?.columns.some((c) => c.terminalId === terminalId),
+        );
+        if (group && commandMachineId) {
+          schedulePersistColumns(group);
+        }
+        return next;
+      });
+    },
+    [commandMachineId, schedulePersistColumns],
   );
 
   const handleReorderColumns = useCallback(
@@ -568,9 +610,21 @@ function TerminalWorkspaceComponent({
     if (!activeGroup) return;
     const nextMode: WorkspaceLayoutMode =
       activeGroup.layoutMode === "scrollable" ? "tiling" : "scrollable";
-    setWorkspace((prev) => setWorkspaceLayoutMode(prev, activeGroup.id, nextMode));
-    // Persistence wiring lands in Phase 5 (Task 17). For now, in-memory toggle only.
-  }, [activeGroup]);
+    setWorkspace((prev) => {
+      const next = setWorkspaceLayoutMode(prev, activeGroup.id, nextMode);
+      const nextGroup = next.groups.find((g) => g.id === activeGroup.id);
+      if (nextGroup && commandMachineId) {
+        void onSaveWorkspaceLayout(
+          commandMachineId,
+          activeGroup.id,
+          nextGroup.root,
+          nextMode,
+          nextGroup.scrollable,
+        );
+      }
+      return next;
+    });
+  }, [activeGroup, commandMachineId, onSaveWorkspaceLayout]);
 
   const removeDocumentPaneDragEnd = useCallback(() => {
     const cleanup = documentPaneDragCleanupRef.current;
@@ -739,17 +793,23 @@ function TerminalWorkspaceComponent({
       }
       if (action === "columnWidthShrink") {
         if (activeTerminal && activeGroup?.layoutMode === "scrollable") {
-          setWorkspace((prev) =>
-            cycleWorkspaceColumnWidth(prev, activeTerminal.id, "shrink"),
-          );
+          setWorkspace((prev) => {
+            const next = cycleWorkspaceColumnWidth(prev, activeTerminal.id, "shrink");
+            const nextGroup = next.groups.find((g) => g.id === activeGroup.id);
+            if (nextGroup) schedulePersistColumns(nextGroup);
+            return next;
+          });
         }
         return;
       }
       if (action === "columnWidthGrow") {
         if (activeTerminal && activeGroup?.layoutMode === "scrollable") {
-          setWorkspace((prev) =>
-            cycleWorkspaceColumnWidth(prev, activeTerminal.id, "grow"),
-          );
+          setWorkspace((prev) => {
+            const next = cycleWorkspaceColumnWidth(prev, activeTerminal.id, "grow");
+            const nextGroup = next.groups.find((g) => g.id === activeGroup.id);
+            if (nextGroup) schedulePersistColumns(nextGroup);
+            return next;
+          });
         }
         return;
       }
@@ -771,6 +831,7 @@ function TerminalWorkspaceComponent({
     focusPaneByDirection,
     handleToggleLayoutMode,
     isMobile,
+    schedulePersistColumns,
     switchGroupByIndex,
     switchGroupByOffset,
     workspace.activeTerminalId,

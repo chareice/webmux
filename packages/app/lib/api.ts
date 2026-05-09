@@ -7,7 +7,9 @@ import type {
   Bookmark,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
+  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
+  WorkspaceScrollableLayout,
   ResourceStats,
 } from "@webmux/shared";
 
@@ -157,6 +159,8 @@ export const saveWorkspaceLayout = (
   groupKey: string,
   root: WorkspaceLayoutNode | null,
   baseUpdatedAt: number | null,
+  mode: WorkspaceLayoutMode | null,
+  scrollable: WorkspaceScrollableLayout | null,
 ) =>
   request<WorkspaceLayoutInfo>(
     "PUT",
@@ -164,6 +168,8 @@ export const saveWorkspaceLayout = (
     {
       group_key: groupKey,
       root,
+      mode,
+      scrollable,
       base_updated_at: baseUpdatedAt ?? -1,
     },
   );

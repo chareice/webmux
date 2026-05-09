@@ -13,7 +13,9 @@ import type {
   Bookmark,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
+  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
+  WorkspaceScrollableLayout,
 } from "@webmux/shared";
 import { AppTitleBar } from "./AppTitleBar.web";
 import { Rail } from "./Rail.web";
@@ -822,6 +824,8 @@ export function TerminalCanvas() {
       machineId: string,
       groupKey: string,
       root: WorkspaceLayoutNode | null,
+      mode: WorkspaceLayoutMode | null,
+      scrollable: WorkspaceScrollableLayout | null,
     ) => {
       const baseUpdatedAt =
         workspaceLayoutsRef.current.find(
@@ -833,6 +837,8 @@ export function TerminalCanvas() {
         groupKey,
         root,
         baseUpdatedAt,
+        mode,
+        scrollable,
       );
       setBrowserState((prev) => ({
         ...prev,
