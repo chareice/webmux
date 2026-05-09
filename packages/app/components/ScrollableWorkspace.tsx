@@ -123,6 +123,8 @@ export function ScrollableWorkspace(props: ScrollableWorkspaceProps) {
       ref={containerRef}
       style={{
         flex: 1,
+        width: "100%",
+        height: "100%",
         minWidth: 0,
         minHeight: 0,
         overflowX: "auto",
@@ -162,7 +164,11 @@ export function ScrollableWorkspace(props: ScrollableWorkspaceProps) {
               flex: `0 0 ${widthToFlexBasis(column.width, isMobile)}`,
               minWidth: 0,
               minHeight: 0,
+              height: "100%",
+              alignSelf: "stretch",
               scrollSnapAlign: "start",
+              display: "flex",
+              flexDirection: "column",
             }}
           >
             {terminal ? (
