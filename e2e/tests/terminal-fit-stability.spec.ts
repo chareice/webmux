@@ -59,8 +59,8 @@ test("desktop Fit reaches a stable terminal size after one click", async ({
 // The previous implementation reverse-engineered cell width from a cached
 // surface measurement (which lagged term.cols by one RAF), so clicks fired
 // before the cache caught up produced wildly different dimensions. With
-// cell metrics read directly from xterm/wterm, every click is a pure
-// projection of viewport onto cell size and converges in one shot.
+// cell metrics read directly from xterm, every click is a pure projection of
+// viewport onto cell size and converges in one shot.
 test("rapid Fit clicks all produce the same terminal size", async ({
   browser,
 }) => {

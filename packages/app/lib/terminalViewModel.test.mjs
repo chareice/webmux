@@ -124,9 +124,8 @@ test("fit dimensions converge after one click — repeating with the same cell m
 });
 
 test("fit dimensions subtract padding from the viewport before dividing", () => {
-  // wterm wraps its grid in `.wterm` with 12px padding on each side. The
-  // surface that needs to fit inside the viewport is grid + padding, so
-  // padding gets subtracted from viewport before computing cols/rows.
+  // Any renderer chrome that takes pixels from the terminal viewport must be
+  // subtracted before computing cols/rows.
   assert.deepEqual(
     getTerminalFitDimensions({
       viewportWidth: 800,
