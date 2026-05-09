@@ -1507,6 +1507,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn workspace_layout_round_trip_scrollable_then_tiling() {
+        let state = state_with_terminals(vec![terminal("t1", "/x", None)]).await;
+        let group_key = "cwd:/x";
+
+        let body1 = serde_json::json!({
+            "group_key": group_key,
+            "root": null,
+            "mode": "scrollable",
+            "scrollable": {"columns": [
+                {"terminalId": "t1", "width": {"kind": "preset", "value": "half"}}
+            ]},
+            "base_updated_at": -1,
+        });
+        let (s1, v1) = put_workspace_layout(&state, body1).await;
+        assert_eq!(s1, StatusCode::OK);
+        assert_eq!(v1["mode"], "scrollable");
+        assert_eq!(v1["scrollable"]["columns"].as_array().unwrap().len(), 1);
+        let updated_at = v1["updated_at"].as_i64().unwrap();
+
+        let body2 = serde_json::json!({
+            "group_key": group_key,
+            "root": {"type": "leaf", "terminalId": "t1"},
+            "mode": "tiling",
+            "scrollable": {"columns": [
+                {"terminalId": "t1", "width": {"kind": "preset", "value": "half"}}
+            ]},
+            "base_updated_at": updated_at,
+        });
+        let (s2, v2) = put_workspace_layout(&state, body2).await;
+        assert_eq!(s2, StatusCode::OK);
+        assert_eq!(v2["mode"], "tiling");
+        assert_eq!(v2["root"]["type"], "leaf");
+        assert_eq!(v2["scrollable"]["columns"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
     async fn create_terminal_ignores_default_startup_command_when_request_has_none() {
         let startup_command = startup_command_sent_to_machine(None).await;
         assert_eq!(startup_command, None);
