@@ -15,7 +15,6 @@ import type {
   WorkspaceLayoutInfo,
   WorkspaceLayoutNode,
 } from "@webmux/shared";
-import { useRouter } from "expo-router";
 import { AppTitleBar } from "./AppTitleBar.web";
 import { Rail } from "./Rail.web";
 import { WorkbenchHeader } from "./WorkbenchHeader.web";
@@ -62,7 +61,6 @@ import {
   storePendingControlRelease,
   takePendingControlRelease,
 } from "@/lib/unloadControlRelease";
-import { nativeZellijRoute } from "@/lib/nativeZellij";
 import { TerminalPreviewMuxProvider } from "@/lib/terminalPreviewMuxReact";
 import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 
@@ -189,7 +187,6 @@ function upsertWorkspaceLayoutInfo(
 }
 
 export function TerminalCanvas() {
-  const router = useRouter();
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
   const [layout, dispatchLayout] = useReducer(
     mainLayoutReducer,
@@ -250,10 +247,6 @@ export function TerminalCanvas() {
   const isActiveController = activeMachineId
     ? isMachineController(activeMachineId)
     : false;
-
-  const openNativeZellij = useCallback((machineId: string) => {
-    router.push(nativeZellijRoute(machineId));
-  }, [router]);
 
   const statusBarVisible = useStatusBarPref();
 
@@ -1037,7 +1030,6 @@ export function TerminalCanvas() {
               onNewTerminal={handleNewTerminalFromHeader}
               onRequestControl={handleRequestControl}
               onReleaseControl={handleReleaseControl}
-              onOpenNativeZellij={openNativeZellij}
               onOpenSettings={() => setShowSettings(true)}
             />
           ) : (
@@ -1068,7 +1060,6 @@ export function TerminalCanvas() {
                   onCloseAddDirectory={() => setAddDirectoryOpen(false)}
                   onConfirmAddDirectory={handleConfirmAddDirectory}
                   onRemoveBookmark={handleRemoveBookmark}
-                  onOpenNativeZellij={openNativeZellij}
                   onOpenSettings={() => setShowSettings(true)}
                   onCollapse={() => setRailOpen(false)}
                 />

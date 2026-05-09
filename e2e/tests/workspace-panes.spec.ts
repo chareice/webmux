@@ -263,6 +263,57 @@ test("desktop workspace restores pane layout after reload", async ({ page }) => 
   expect(Math.abs(reloadedSecondBox.y - reloadedFirstBox.y)).toBeLessThan(8);
 });
 
+test("desktop workspace panes can be reordered by dragging", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const firstId = await createTerminalViaApi(page, { cwd: "/root" });
+  await expandTerminalById(page, firstId);
+  await page.getByLabel("Split right").click();
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(2);
+  const secondId = (await listTerminals(page)).find(
+    (terminal) => terminal.id !== firstId,
+  )!.id;
+  await page.getByLabel("Split down").click();
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(3);
+  const thirdId = (await listTerminals(page)).find(
+    (terminal) => terminal.id !== firstId && terminal.id !== secondId,
+  )!.id;
+
+  await expect.poll(() => paneOrder(page)).toEqual([
+    firstId,
+    secondId,
+    thirdId,
+  ]);
+
+  await dragWorkspacePane(page, thirdId, firstId);
+
+  await expect.poll(() => paneOrder(page)).toEqual([
+    thirdId,
+    secondId,
+    firstId,
+  ]);
+  await expect.poll(() => savedPaneOrder(page, "cwd:/root")).toEqual([
+    thirdId,
+    secondId,
+    firstId,
+  ]);
+
+  await page.reload();
+  await page.getByTestId("workbench-header").waitFor({ state: "visible" });
+  if (!(await page.getByTestId("expanded-terminal").isVisible())) {
+    await expandTerminalById(page, firstId);
+  }
+  await expect.poll(() => paneOrder(page)).toEqual([
+    thirdId,
+    secondId,
+    firstId,
+  ]);
+});
+
 async function paneBox(page: Page, terminalId: string) {
   const box = await page
     .getByTestId(`workspace-pane-${terminalId}`)
@@ -320,6 +371,34 @@ async function savedPaneOrder(page: Page, groupKey: string): Promise<string[]> {
       candidate.machine_id === "e2e-node" && candidate.group_key === groupKey,
   );
   return collectLayoutIds(layout?.root ?? null);
+}
+
+async function dragWorkspacePane(
+  page: Page,
+  sourceTerminalId: string,
+  targetTerminalId: string,
+): Promise<void> {
+  const source = page.getByTestId(
+    `pane-drag-handle-${sourceTerminalId}`,
+  );
+  const target = page.getByTestId(`workspace-pane-${targetTerminalId}`);
+  await source.scrollIntoViewIfNeeded();
+  await target.scrollIntoViewIfNeeded();
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  expect(sourceBox).toBeTruthy();
+  expect(targetBox).toBeTruthy();
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2,
+    sourceBox!.y + sourceBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    targetBox!.x + targetBox!.width / 2,
+    targetBox!.y + targetBox!.height / 2,
+    { steps: 10 },
+  );
+  await page.mouse.up();
 }
 
 function collectLayoutIds(root: unknown): string[] {

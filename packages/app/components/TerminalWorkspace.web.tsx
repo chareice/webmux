@@ -46,6 +46,7 @@ import {
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
   splitWorkspacePane,
+  swapWorkspacePanes,
 } from "@/lib/terminalWorkspaceLayout";
 import {
   findWorkspaceShortcutAction,
@@ -161,6 +162,9 @@ function TerminalWorkspaceComponent({
   );
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [deleteGroup, setDeleteGroup] = useState<WorkspaceGroup | null>(null);
+  const [draggingPaneId, setDraggingPaneId] = useState<string | null>(null);
+  const paneDragRef = useRef<{ sourceTerminalId: string } | null>(null);
+  const documentPaneDragCleanupRef = useRef<(() => void) | null>(null);
   const terminalsById = useMemo(() => {
     const map = new Map<string, TerminalInfo>();
     for (const sibling of siblings) map.set(sibling.id, sibling);
@@ -503,6 +507,105 @@ function TerminalWorkspaceComponent({
     [activeTerminal, onAssignGroup],
   );
 
+  const handleMovePane = useCallback(
+    async (sourceTerminalId: string, targetTerminalId: string) => {
+      if (!isController || sourceTerminalId === targetTerminalId) return;
+      setMaximizedTerminalId(null);
+      const before = workspaceRef.current;
+      const nextWorkspace = updateWorkspace((current) =>
+        swapWorkspacePanes(current, sourceTerminalId, targetTerminalId),
+      );
+      if (nextWorkspace === before) return;
+      const groupId =
+        nextWorkspace.groups.find(
+          (group) =>
+            containsTerminal(group.root, sourceTerminalId) &&
+            containsTerminal(group.root, targetTerminalId),
+        )?.id ?? nextWorkspace.activeGroupId;
+      onPick(sourceTerminalId);
+      if (!isMobile) {
+        requestPaneFit([sourceTerminalId, targetTerminalId], {
+          focusTerminalId: sourceTerminalId,
+        });
+      }
+      await persistGroupLayout(nextWorkspace, groupId);
+    },
+    [
+      isController,
+      isMobile,
+      onPick,
+      persistGroupLayout,
+      requestPaneFit,
+      updateWorkspace,
+    ],
+  );
+
+  const removeDocumentPaneDragEnd = useCallback(() => {
+    const cleanup = documentPaneDragCleanupRef.current;
+    if (!cleanup) return;
+    cleanup();
+    documentPaneDragCleanupRef.current = null;
+  }, []);
+
+  const resetPaneDrag = useCallback(() => {
+    removeDocumentPaneDragEnd();
+    paneDragRef.current = null;
+    setDraggingPaneId(null);
+  }, [removeDocumentPaneDragEnd]);
+
+  const finishPaneDrag = useCallback(
+    (clientX: number, clientY: number) => {
+      const drag = paneDragRef.current;
+      resetPaneDrag();
+      if (!drag) return;
+      const target = document
+        .elementFromPoint(clientX, clientY)
+        ?.closest<HTMLElement>("[data-workspace-pane-drop-id]");
+      const targetTerminalId = target?.dataset.workspacePaneDropId;
+      if (!targetTerminalId || targetTerminalId === drag.sourceTerminalId) {
+        return;
+      }
+      void handleMovePane(drag.sourceTerminalId, targetTerminalId);
+    },
+    [handleMovePane, resetPaneDrag],
+  );
+
+  const startPaneMouseDrag = useCallback(
+    (sourceTerminalId: string, event: ReactMouseEvent<HTMLElement>) => {
+      if (!isController || isMobile || event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      removeDocumentPaneDragEnd();
+      paneDragRef.current = { sourceTerminalId };
+      setDraggingPaneId(sourceTerminalId);
+      const handleMouseUp = (mouseEvent: MouseEvent) => {
+        removeDocumentPaneDragEnd();
+        finishPaneDrag(mouseEvent.clientX, mouseEvent.clientY);
+      };
+      const handleWindowBlur = () => resetPaneDrag();
+      documentPaneDragCleanupRef.current = () => {
+        document.removeEventListener("mouseup", handleMouseUp, true);
+        window.removeEventListener("blur", handleWindowBlur, true);
+      };
+      document.addEventListener("mouseup", handleMouseUp, true);
+      window.addEventListener("blur", handleWindowBlur, true);
+    },
+    [
+      finishPaneDrag,
+      isController,
+      isMobile,
+      removeDocumentPaneDragEnd,
+      resetPaneDrag,
+    ],
+  );
+
+  useEffect(
+    () => () => {
+      removeDocumentPaneDragEnd();
+    },
+    [removeDocumentPaneDragEnd],
+  );
+
   const focusPaneByDirection = useCallback(
     (direction: WorkspacePaneFocusDirection) => {
       if (maximizedTerminalId) return;
@@ -731,6 +834,7 @@ function TerminalWorkspaceComponent({
               onFitRequestHandled={handleFitRequestHandled}
               onFocus={activateTerminal}
               onDestroy={handleDestroy}
+              draggingPaneId={null}
               onRequestControl={onRequestControl}
               onReleaseControl={onReleaseControl}
             />
@@ -863,6 +967,7 @@ function TerminalWorkspaceComponent({
             onFitRequestHandled={handleFitRequestHandled}
             onFocus={activateTerminal}
             onDestroy={handleDestroy}
+            draggingPaneId={null}
             onRequestControl={onRequestControl}
             onReleaseControl={onReleaseControl}
           />
@@ -880,6 +985,8 @@ function TerminalWorkspaceComponent({
             onFitRequestHandled={handleFitRequestHandled}
             onFocus={activateTerminal}
             onDestroy={handleDestroy}
+            draggingPaneId={draggingPaneId}
+            onPaneDragStart={startPaneMouseDrag}
             onRequestControl={onRequestControl}
             onReleaseControl={onReleaseControl}
           />
@@ -1395,6 +1502,8 @@ function WorkspacePaneTree({
   onFitRequestHandled,
   onFocus,
   onDestroy,
+  draggingPaneId,
+  onPaneDragStart,
   onRequestControl,
   onReleaseControl,
 }: {
@@ -1408,6 +1517,11 @@ function WorkspacePaneTree({
   onFitRequestHandled: (nonce: number, terminalId: string) => void;
   onFocus: (id: string) => void;
   onDestroy: (terminal: TerminalInfo) => void;
+  draggingPaneId: string | null;
+  onPaneDragStart: (
+    terminalId: string,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
 }) {
@@ -1431,6 +1545,8 @@ function WorkspacePaneTree({
         onFitRequestHandled={onFitRequestHandled}
         onFocus={onFocus}
         onDestroy={onDestroy}
+        draggingPaneId={draggingPaneId}
+        onPaneDragStart={onPaneDragStart}
         onRequestControl={onRequestControl}
         onReleaseControl={onReleaseControl}
       />
@@ -1461,6 +1577,8 @@ function WorkspacePaneTree({
           onFitRequestHandled={onFitRequestHandled}
           onFocus={onFocus}
           onDestroy={onDestroy}
+          draggingPaneId={draggingPaneId}
+          onPaneDragStart={onPaneDragStart}
           onRequestControl={onRequestControl}
           onReleaseControl={onReleaseControl}
         />
@@ -1477,6 +1595,8 @@ function WorkspacePaneTree({
           onFitRequestHandled={onFitRequestHandled}
           onFocus={onFocus}
           onDestroy={onDestroy}
+          draggingPaneId={draggingPaneId}
+          onPaneDragStart={onPaneDragStart}
           onRequestControl={onRequestControl}
           onReleaseControl={onReleaseControl}
         />
@@ -1497,6 +1617,8 @@ function WorkspacePaneLeaf({
   onFitRequestHandled,
   onFocus,
   onDestroy,
+  draggingPaneId,
+  onPaneDragStart,
   onRequestControl,
   onReleaseControl,
 }: {
@@ -1511,6 +1633,11 @@ function WorkspacePaneLeaf({
   onFitRequestHandled: (nonce: number, terminalId: string) => void;
   onFocus: (id: string) => void;
   onDestroy: (terminal: TerminalInfo) => void;
+  draggingPaneId: string | null;
+  onPaneDragStart?: (
+    terminalId: string,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
 }) {
@@ -1563,9 +1690,10 @@ function WorkspacePaneLeaf({
   return (
     <div
       data-testid={`workspace-pane-${terminal.id}`}
+      data-workspace-pane-drop-id={!isMobile ? terminal.id : undefined}
       onMouseDown={() => onFocus(terminal.id)}
       onMouseMove={(event) => {
-        if (isMobile || isActive) return;
+        if (isMobile || isActive || draggingPaneId) return;
         const target = event.target;
         if (target instanceof Element && target.closest("button")) return;
         onFocus(terminal.id);
@@ -1600,6 +1728,22 @@ function WorkspacePaneLeaf({
             minWidth: 0,
           }}
         >
+          {isController && onPaneDragStart && (
+            <span
+              role="button"
+              tabIndex={-1}
+              data-testid={`pane-drag-handle-${terminal.id}`}
+              title="Drag pane"
+              aria-label={`Drag pane ${terminal.title || terminal.id.slice(0, 8)}`}
+              onMouseDown={(event) => onPaneDragStart(terminal.id, event)}
+              style={paneDragHandleStyle}
+            >
+              <GripVertical
+                size={13}
+                style={{ color: colors.fg3, pointerEvents: "none" }}
+              />
+            </span>
+          )}
           <span
             style={{
               width: 7,
@@ -2014,6 +2158,13 @@ const groupDragHandleStyle: CSSProperties = {
   flexShrink: 0,
   touchAction: "none",
   userSelect: "none",
+};
+
+const paneDragHandleStyle: CSSProperties = {
+  ...groupDragHandleStyle,
+  width: 18,
+  height: 22,
+  marginLeft: -2,
 };
 
 const groupDeleteButtonStyle: CSSProperties = {

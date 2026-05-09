@@ -10,6 +10,8 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 
+use axum::{http::StatusCode, routing::any};
+
 use crate::attach_router::HubRouter;
 use crate::db::DbPool;
 use crate::machine_manager::MachineManager;
@@ -38,8 +40,6 @@ pub struct AppState {
     pub jwt_secret: String,
     pub base_url: String,
     pub dev_mode: bool,
-    pub native_zellij_allow_insecure_tls: bool,
-    pub native_zellij_ca_cert_pem: Option<Arc<Vec<u8>>>,
     pub github_client_id: Option<String>,
     pub github_client_secret: Option<String>,
     pub google_client_id: Option<String>,
@@ -52,20 +52,6 @@ fn env_or(key: &str, default: &str) -> String {
 
 fn env_opt(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
-}
-
-fn env_flag(key: &str) -> bool {
-    matches!(
-        env_opt(key).as_deref(),
-        Some("1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON")
-    )
-}
-
-fn read_optional_bytes(key: &str) -> Option<Arc<Vec<u8>>> {
-    let path = env_opt(key)?;
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|error| panic!("Failed to read {key} from {path}: {error}"));
-    Some(Arc::new(bytes))
 }
 
 #[tokio::main]
@@ -89,8 +75,6 @@ async fn main() {
         jwt_secret: env_or("JWT_SECRET", "dev-secret-change-me"),
         base_url: env_or("WEBMUX_BASE_URL", "http://localhost:4317"),
         dev_mode: env_or("WEBMUX_DEV_MODE", "false") == "true",
-        native_zellij_allow_insecure_tls: env_flag("WEBMUX_ZELLIJ_ALLOW_INSECURE_TLS"),
-        native_zellij_ca_cert_pem: read_optional_bytes("WEBMUX_ZELLIJ_CA_CERT"),
         github_client_id: env_opt("GITHUB_CLIENT_ID"),
         github_client_secret: env_opt("GITHUB_CLIENT_SECRET"),
         google_client_id: env_opt("GOOGLE_CLIENT_ID"),
@@ -101,6 +85,8 @@ async fn main() {
 
     let app = routes::router()
         .merge(ws::router())
+        .route("/api", any(api_not_found))
+        .route("/api/{*path}", any(api_not_found))
         .layer(CorsLayer::permissive())
         .fallback_service(
             ServeDir::new(&args.static_dir)
@@ -112,4 +98,8 @@ async fn main() {
 
     tracing::info!("Hub running on http://{}", args.listen);
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn api_not_found() -> StatusCode {
+    StatusCode::NOT_FOUND
 }

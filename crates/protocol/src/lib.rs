@@ -105,31 +105,6 @@ pub struct WorkspaceLayoutInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum NativeZellijStatus {
-    Ready {
-        session_name: String,
-        session_path: String,
-        base_url: String,
-        login_token: String,
-    },
-    Unavailable {
-        reason: NativeZellijUnavailableReason,
-        instructions: String,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum NativeZellijUnavailableReason {
-    MissingBinary,
-    PublicBaseUrlMissing,
-    MissingTlsConfig,
-    WebClientUnavailable,
-    WebServerStartFailed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BrowserStateSnapshot {
     pub snapshot_seq: u64,
     pub machines: Vec<MachineInfo>,
@@ -189,8 +164,6 @@ pub enum HubToMachine {
         mime: String,
         filename: String,
     },
-    #[serde(rename = "ensure_native_zellij")]
-    EnsureNativeZellij { request_id: String, user_id: String },
     #[serde(rename = "ping")]
     Ping,
 }
@@ -248,13 +221,6 @@ pub enum MachineToHub {
         cols: u16,
         rows: u16,
     },
-    #[serde(rename = "native_zellij_ready")]
-    NativeZellijReady {
-        request_id: String,
-        status: NativeZellijStatus,
-    },
-    #[serde(rename = "native_zellij_error")]
-    NativeZellijError { request_id: String, error: String },
     #[serde(rename = "pong")]
     Pong,
 }
@@ -410,8 +376,7 @@ pub fn decode_terminal_preview_output_frame(frame: &[u8]) -> Result<(String, Byt
 mod tests {
     use super::{
         decode_attach_output_frame, decode_terminal_preview_output_frame,
-        encode_attach_output_frame, encode_terminal_preview_output_frame, NativeZellijStatus,
-        NativeZellijUnavailableReason,
+        encode_attach_output_frame, encode_terminal_preview_output_frame,
     };
 
     #[test]
@@ -449,16 +414,5 @@ mod tests {
         let frame = encode_attach_output_frame("attach-x", b"not a preview");
         let error = decode_terminal_preview_output_frame(&frame).unwrap_err();
         assert!(error.contains("expected terminal preview"));
-    }
-
-    #[test]
-    fn native_zellij_status_serializes_missing_binary_reason() {
-        let status = NativeZellijStatus::Unavailable {
-            reason: NativeZellijUnavailableReason::MissingBinary,
-            instructions: "Install zellij".to_string(),
-        };
-        let json = serde_json::to_string(&status).unwrap();
-        assert!(json.contains("\"status\":\"unavailable\""));
-        assert!(json.contains("\"reason\":\"missing_binary\""));
     }
 }

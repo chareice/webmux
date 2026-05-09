@@ -57,7 +57,6 @@ interface MobileWorkbenchProps {
   onNewTerminal: () => void;
   onRequestControl: (machineId: string) => void;
   onReleaseControl: (machineId: string) => void;
-  onOpenNativeZellij: (machineId: string) => void;
   onOpenSettings: () => void;
 }
 
@@ -79,7 +78,6 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     onNewTerminal,
     onRequestControl,
     onReleaseControl,
-    onOpenNativeZellij,
     onOpenSettings,
   } = props;
 
@@ -397,16 +395,6 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             onClick={() => {
               setMenuSheet(false);
               if (canCreateTerminal) onNewTerminal();
-            }}
-          />
-          <MenuRow
-            icon={<TerminalIcon size={17} />}
-            label="Native Zellij"
-            disabled={!activeMachine}
-            onClick={() => {
-              if (!activeMachine) return;
-              setMenuSheet(false);
-              onOpenNativeZellij(activeMachine.id);
             }}
           />
           <MenuRow
