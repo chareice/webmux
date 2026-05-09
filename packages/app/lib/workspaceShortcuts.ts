@@ -15,7 +15,10 @@ export type WorkspaceShortcutActionId =
   | "group6"
   | "group7"
   | "group8"
-  | "group9";
+  | "group9"
+  | "columnWidthShrink"
+  | "columnWidthGrow"
+  | "layoutModeToggle";
 
 export type WorkspaceShortcuts = Record<WorkspaceShortcutActionId, string>;
 
@@ -42,6 +45,9 @@ export const DEFAULT_WORKSPACE_SHORTCUTS: WorkspaceShortcuts = {
   group7: "Mod+Alt+Digit7",
   group8: "Mod+Alt+Digit8",
   group9: "Mod+Alt+Digit9",
+  columnWidthShrink: "Mod+Comma",
+  columnWidthGrow: "Mod+Period",
+  layoutModeToggle: "Mod+Alt+KeyT",
 };
 
 export const WORKSPACE_SHORTCUT_DEFINITIONS: Array<{
@@ -63,6 +69,9 @@ export const WORKSPACE_SHORTCUT_DEFINITIONS: Array<{
   { id: "group7", label: "Switch to group 7" },
   { id: "group8", label: "Switch to group 8" },
   { id: "group9", label: "Switch to group 9" },
+  { id: "columnWidthShrink", label: "Shrink column" },
+  { id: "columnWidthGrow", label: "Grow column" },
+  { id: "layoutModeToggle", label: "Toggle layout mode" },
 ];
 
 const MODIFIER_CODES = new Set([
