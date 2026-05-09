@@ -642,6 +642,28 @@ describe("layout mode helpers", () => {
     ]);
     expect(next.groups[0].auxRoot).toEqual(ws.groups[0].root); // tree preserved
   });
+
+  it("scrollable->tiling restores auxRoot and appends scrollable-only columns", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x")],
+      "a",
+    );
+    const groupId = ws.groups[0].id;
+    const originalRoot = ws.groups[0].root;
+    ws = setWorkspaceLayoutMode(ws, groupId, "scrollable");
+    // Add a third column while in scrollable mode
+    ws = splitWorkspacePane(ws, {
+      activeTerminalId: "a",
+      newTerminalId: "c",
+      direction: "right",
+    });
+    // Toggle back to tiling — auxRoot restores; "c" is appended to the right
+    ws = setWorkspaceLayoutMode(ws, groupId, "tiling");
+    expect(ws.groups[0].layoutMode).toBe("tiling");
+    expect(ws.groups[0].auxRoot).toBeNull();
+    expect(collectPaneTerminalIds(ws.groups[0].root)).toEqual(["a", "b", "c"]);
+    expect(ws.groups[0].root).not.toEqual(originalRoot); // "c" is now part of the tree
+  });
 });
 
 describe("column width helpers", () => {
@@ -673,6 +695,28 @@ describe("column width helpers", () => {
       kind: "preset",
       value: "full",
     });
+    ws = cycleWorkspaceColumnWidth(ws, "a", "grow");
+    expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
+      kind: "preset",
+      value: "full",
+    });
+  });
+
+  it("cycleWorkspaceColumnWidth shrinking stops at half", () => {
+    let ws = createTerminalWorkspace([terminal("a", "/x")], "a");
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    ws = cycleWorkspaceColumnWidth(ws, "a", "shrink");
+    expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
+      kind: "preset",
+      value: "half",
+    });
+  });
+
+  it("cycleWorkspaceColumnWidth maps a fraction width to the nearest preset before stepping", () => {
+    let ws = createTerminalWorkspace([terminal("a", "/x")], "a");
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    ws = setWorkspaceColumnWidth(ws, "a", { kind: "fraction", value: 0.7 });
+    // 0.7 is nearest to two_thirds; growing once should land on full
     ws = cycleWorkspaceColumnWidth(ws, "a", "grow");
     expect(ws.groups[0].scrollable!.columns[0].width).toEqual({
       kind: "preset",

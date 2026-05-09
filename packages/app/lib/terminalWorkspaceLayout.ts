@@ -1,12 +1,13 @@
 import type {
   TerminalInfo,
+  WorkspaceColumnPreset,
+  WorkspaceColumnWidth,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
   WorkspaceLayoutMode,
   WorkspaceLayoutNode,
   WorkspaceScrollableColumn,
   WorkspaceScrollableLayout,
-  WorkspaceColumnWidth,
 } from "@webmux/shared";
 
 export type WorkspaceSplitDirection = "horizontal" | "vertical";
@@ -86,14 +87,9 @@ export function splitWorkspacePane(
     direction: WorkspaceSplitIntent;
   },
 ): TerminalWorkspace {
-  const group = workspace.groups.find((candidate) => {
-    if (candidate.layoutMode === "scrollable") {
-      return (candidate.scrollable?.columns ?? []).some(
-        (c) => c.terminalId === input.activeTerminalId,
-      );
-    }
-    return collectPaneTerminalIds(candidate.root).includes(input.activeTerminalId);
-  });
+  const group = workspace.groups.find((candidate) =>
+    groupContainsTerminal(candidate, input.activeTerminalId),
+  );
   if (!group) return workspace;
 
   // Scrollable mode: append new column at end
@@ -529,8 +525,11 @@ export function findAdjacentWorkspacePane(
   return candidates[0]?.pane.terminalId ?? null;
 }
 
-const PRESET_ORDER: WorkspaceColumnWidth["value"][] = ["half", "two_thirds", "full"] as const;
-type WorkspaceColumnPreset = "half" | "two_thirds" | "full";
+const PRESET_ORDER: readonly WorkspaceColumnPreset[] = [
+  "half",
+  "two_thirds",
+  "full",
+] as const;
 
 export function setWorkspaceColumnWidth(
   workspace: TerminalWorkspace,
@@ -564,7 +563,7 @@ export function cycleWorkspaceColumnWidth(
     const currentPreset: WorkspaceColumnPreset =
       column.width.kind === "preset"
         ? column.width.value
-        : nearestPreset(column.width.value as number);
+        : nearestPreset(column.width.value);
     const idx = PRESET_ORDER.indexOf(currentPreset);
     const next =
       direction === "grow"
@@ -572,7 +571,7 @@ export function cycleWorkspaceColumnWidth(
         : PRESET_ORDER[Math.max(idx - 1, 0)];
     return setWorkspaceColumnWidth(workspace, terminalId, {
       kind: "preset",
-      value: next as WorkspaceColumnPreset,
+      value: next,
     });
   }
   return workspace;
