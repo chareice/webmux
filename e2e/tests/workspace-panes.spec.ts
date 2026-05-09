@@ -121,6 +121,36 @@ test("desktop workspace stays open when closing an inactive pane", async ({
   await context.close();
 });
 
+test("desktop workspace hides wterm renderer scrollbars in tiled panes", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 960 },
+  });
+  await context.addInitScript(() => {
+    localStorage.setItem("webmux:renderer", "wterm");
+  });
+  const page = await context.newPage();
+
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const firstId = await createTerminalViaApi(page, { cwd: "/root" });
+  await expandTerminalById(page, firstId);
+  await page.getByLabel("Split right").click();
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(2);
+  const secondId = (await listTerminals(page)).find(
+    (terminal) => terminal.id !== firstId,
+  )!.id;
+
+  await expect
+    .poll(() => paneWtermScrollbarWidth(page, secondId), { timeout: 5_000 })
+    .toBe("none");
+
+  await context.close();
+});
+
 test("workspace remains mounted when terminal events are delayed", async ({
   browser,
 }) => {
@@ -205,6 +235,14 @@ async function paneXtermScrollbarWidth(page: Page, terminalId: string) {
   return page
     .getByTestId(`workspace-pane-${terminalId}`)
     .locator(".xterm-viewport")
+    .first()
+    .evaluate((element) => getComputedStyle(element).scrollbarWidth);
+}
+
+async function paneWtermScrollbarWidth(page: Page, terminalId: string) {
+  return page
+    .getByTestId(`workspace-pane-${terminalId}`)
+    .locator(".wterm")
     .first()
     .evaluate((element) => getComputedStyle(element).scrollbarWidth);
 }

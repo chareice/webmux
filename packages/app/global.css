@@ -117,6 +117,15 @@ body {
   display: none;
 }
 
+.wterm {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.wterm::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes webmuxFadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
