@@ -101,7 +101,7 @@ interface TerminalWorkspaceProps {
 
 type GroupDropPlacement = "before" | "after";
 
-interface WorkspaceFitRequest {
+export interface WorkspaceFitRequest {
   terminalIds: string[];
   focusTerminalId: string | null;
   nonce: number;
@@ -1605,7 +1605,7 @@ function WorkspacePaneTree({
   );
 }
 
-function WorkspacePaneLeaf({
+export function WorkspacePaneLeaf({
   terminal,
   isActive,
   isController,
