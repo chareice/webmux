@@ -136,6 +136,13 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn("[webmux] attach file failed", err);
+      // Mobile users can't see console.warn — alert is the only surface
+      // we have until there's a toast system. Without it the failure looks
+      // identical to a successful upload that produced no terminal echo.
+      const msg = err instanceof Error ? err.message : "Image upload failed.";
+      if (typeof window !== "undefined") {
+        window.alert(msg);
+      }
     }
   }, [isController]);
 

@@ -54,3 +54,25 @@ export function buildImagePasteMessage(
 ): ImagePasteMessage {
   return { type: "image_paste", data: base64, mime, filename };
 }
+
+// Mobile browsers (notably Android Chrome) suspend the page when a file
+// picker is in the foreground, which often closes the live WebSocket. The
+// `change` event then fires before the reconnect lands, so a naive
+// `readyState === OPEN` check silently drops the upload. Poll the supplied
+// reader so we pick up the new socket once reconnect creates it.
+export async function waitForWsOpen(
+  read: () => WebSocket | null | undefined,
+  timeoutMs: number,
+  pollMs = 100,
+  now: () => number = () => Date.now(),
+  sleep: (ms: number) => Promise<void> = (ms) =>
+    new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<WebSocket | null> {
+  const deadline = now() + timeoutMs;
+  while (true) {
+    const ws = read();
+    if (ws && ws.readyState === WebSocket.OPEN) return ws;
+    if (now() >= deadline) return null;
+    await sleep(pollMs);
+  }
+}

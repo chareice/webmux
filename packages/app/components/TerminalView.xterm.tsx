@@ -31,6 +31,7 @@ import {
   MAX_IMAGE_PASTE_BYTES,
   readFileAsBase64,
   safeFilename,
+  waitForWsOpen,
 } from "@/lib/terminalImagePaste";
 import {
   mergeWrappedRows,
@@ -345,20 +346,24 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
     // Forward a picked file (mobile attach button, drag-drop, etc.) over
     // the live WS using the same `image_paste` protocol that clipboard
-    // pastes use. Skips silently if WS is closed or the user lacks
-    // control.
+    // pastes use. Throws on failure so the caller can surface a message —
+    // mobile users can't see console.warn.
     const sendImageFile = useCallback(
       async (file: Blob & { name?: string }): Promise<void> => {
-        if (!isControllerRef.current) return;
-        if (file.size > MAX_IMAGE_PASTE_BYTES) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[webmux] skipped attachment >${MAX_IMAGE_PASTE_BYTES} bytes`,
-          );
-          return;
+        if (!isControllerRef.current) {
+          throw new Error("Take control first to attach an image.");
         }
-        const ws = wsRef.current;
-        if (ws?.readyState !== WebSocket.OPEN) return;
+        if (file.size > MAX_IMAGE_PASTE_BYTES) {
+          const mb = Math.round(MAX_IMAGE_PASTE_BYTES / (1024 * 1024));
+          throw new Error(`Image too large (max ${mb} MB).`);
+        }
+        // Mobile browsers commonly close the WebSocket while a file picker
+        // sits in the foreground. Wait for the reconnect to land before
+        // giving up so the user doesn't think the upload silently failed.
+        const ws = await waitForWsOpen(() => wsRef.current, 5000);
+        if (!ws) {
+          throw new Error("Connection unavailable. Try again.");
+        }
         const { base64, mime } = await readFileAsBase64(file);
         const ext = mime.includes("/") ? `.${mime.split("/")[1]}` : "";
         const filename = safeFilename(file.name ?? "", ext);
