@@ -1,0 +1,37 @@
+name: Desktop Updater Channel
+
+# Mirrors latest.json from a published desktop-v* release into the
+# floating "desktop-latest" prerelease so the in-app auto-updater
+# has a stable URL that is not affected by mobile/node releases.
+
+on:
+  release:
+    types: [released]
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    if: startsWith(github.event.release.tag_name, 'desktop-v')
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Mirror latest.json into updater channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/latest
+          gh release download "$SOURCE_TAG" --repo "$GITHUB_REPOSITORY" -p latest.json -D /tmp/latest
+
+          if gh release view desktop-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload desktop-latest /tmp/latest/latest.json \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create desktop-latest /tmp/latest/latest.json \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Desktop Updater Channel" \
+              --notes "Floating pointer for the desktop auto-updater. The actual installers live in the desktop-v* releases." \
+              --prerelease
+          fi

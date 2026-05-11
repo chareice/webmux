@@ -38,9 +38,9 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/chareice/webmux/releases/latest/download/latest.json"
+        "https://github.com/chareice/webmux/releases/download/desktop-latest/latest.json"
       ],
-      "pubkey": ""
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJBMURDMzJERjI5NjM5QzgKUldUSU9aYnlMY01kS3EyODlqNTdOaUlmd0RyRnVXN096TDV3Sko5WmREaTNTeno3Zk9qU0k4Q0YK"
     }
   }
 }
