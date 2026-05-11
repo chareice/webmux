@@ -5,8 +5,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "dev:web": "expo start --web",
-    "build": "expo export --platform web",
-    "android": "expo run:android"
+    "build": "expo export --platform web"
   },
   "dependencies": {
     "@webmux/shared": "workspace:*",
@@ -16,12 +15,7 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "expo": "~55.0.8",
-    "expo-application": "~55.0.14",
-    "expo-constants": "55.0.13",
-    "expo-file-system": "~55.0.17",
-    "expo-intent-launcher": "~55.0.12",
     "expo-router": "~55.0.7",
-    "expo-secure-store": "~14.2.3",
     "expo-status-bar": "~55.0.4",
     "expo-system-ui": "~55.0.16",
     "lucide-react": "^1.8.0",

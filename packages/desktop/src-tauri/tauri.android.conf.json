@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/android-schema.json",
+  "productName": "webmux",
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": ""
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "url": "https://webmux.nas.chareice.site"
+      }
+    ],
+    "security": {
+      "csp": null,
+      "dangerousDisableAssetCspModification": true
+    }
+  }
+}

@@ -1,10 +1,9 @@
-// Mobile workbench shell (design-refresh, web-only).
-// Rendered when the web viewport is below ~680px. Separates navigation into
-// three bottom tabs (Hosts / Terminals / Stats) and keeps terminal focus as
-// a fullscreen overlay (handled by ExpandedTerminal in TerminalCanvas).
-//
-// The native-android build keeps its own `MobileCanvas` / `Canvas.android`
-// path — this file is opt-in only from the web orchestrator.
+// Mobile workbench shell. Rendered when the viewport is below ~680px.
+// Separates navigation into three bottom tabs (Hosts / Terminals / Stats)
+// and keeps terminal focus as a fullscreen overlay (handled by
+// ExpandedTerminal in TerminalCanvas). This is the only mobile shell —
+// the native React Native Android tree was retired in favor of the Tauri
+// Mobile wrapper.
 
 import {
   memo,

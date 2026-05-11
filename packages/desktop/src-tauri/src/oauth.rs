@@ -1,6 +1,6 @@
 use axum::{extract::Query, response::Html, routing::get, Router};
 use serde::Deserialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 use tokio::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
@@ -13,7 +13,7 @@ struct CallbackParams {
 /// Start a one-shot loopback HTTP server for OAuth callback.
 /// Returns the port number so the frontend can construct the redirect URL.
 #[tauri::command]
-pub async fn start_oauth_listener(app: AppHandle) -> Result<u16, String> {
+pub async fn start_oauth_listener<R: Runtime>(app: AppHandle<R>) -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| format!("Failed to bind loopback listener: {e}"))?;

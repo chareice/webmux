@@ -3,19 +3,31 @@ name = "webmux-desktop"
 version = "0.1.0"
 edition = "2021"
 
+# `cdylib` is required by Tauri's mobile (Android/iOS) build, which loads
+# the Rust code as a shared library from the JVM / ObjC runtime.
+# `staticlib` is needed for iOS, `rlib` keeps normal binary builds working.
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-global-shortcut = "2"
+tauri = { version = "2", features = [] }
 tauri-plugin-notification = "2"
-tauri-plugin-updater = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Desktop-only plugins / runtime bits. Tray icon and global shortcuts make
+# no sense on mobile; the loopback OAuth listener (axum/tokio-net) needs
+# bind-to-port permission that mobile platforms restrict.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["net", "rt"] }
 axum = "0.8"
 open = "5"

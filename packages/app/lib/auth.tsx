@@ -7,17 +7,13 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { Linking, Platform } from "react-native";
+import { Platform } from "react-native";
 
 import { configure, devLogin, getMe } from "./api";
 import type { User } from "@webmux/shared";
 import { storage } from "./storage";
 import { getServerUrl } from "./serverUrl";
-import { isTauri } from "./platform";
-import {
-  buildNativeOAuthUrl,
-  getTokenFromNativeAuthUrl,
-} from "./nativeAuth";
+import { isTauri, isTauriMobile } from "./platform";
 
 export type { User };
 
@@ -206,40 +202,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [currentServerUrl]);
 
-  // Native OAuth returns through the app deep link declared in app.config.js.
-  useEffect(() => {
-    if (Platform.OS === "web") return;
-
-    let cancelled = false;
-
-    const applyNativeAuthUrl = (url: string | null) => {
-      if (!url) return;
-      const nativeToken = getTokenFromNativeAuthUrl(url);
-      if (!nativeToken) return;
-
-      void (async () => {
-        await storage.set(TOKEN_KEY, nativeToken);
-        if (!cancelled) {
-          configure(currentServerUrl(), nativeToken);
-          setToken(nativeToken);
-        }
-      })();
-    };
-
-    const subscription = Linking.addEventListener("url", (event) => {
-      applyNativeAuthUrl(event.url);
-    });
-
-    void Linking.getInitialURL()
-      .then(applyNativeAuthUrl)
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-      subscription.remove();
-    };
-  }, [currentServerUrl]);
-
   // When token changes, validate via getMe(), then handle desktop callback
   useEffect(() => {
     if (token === null) return;
@@ -284,9 +246,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [currentServerUrl, token]);
 
   const login = useCallback(async (provider?: "github" | "google") => {
-    if (Platform.OS === "web" && typeof window !== "undefined" && isTauri()) {
-      // Desktop: open web page which handles auth (reuses existing session
-      // or shows login). Provider selection happens on the web side.
+    if (
+      Platform.OS === "web" &&
+      typeof window !== "undefined" &&
+      isTauri() &&
+      !isTauriMobile()
+    ) {
+      // Tauri desktop: open external browser, receive token via loopback.
       await tauriDesktopLogin(async (newToken) => {
         await storage.set(TOKEN_KEY, newToken);
         configure(currentServerUrl(), newToken);
@@ -295,17 +261,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      if (!provider) return;
-      // desktop_callback is already persisted in sessionStorage by the
-      // mount effect, so it survives the OAuth redirect round-trip.
-      const base = currentServerUrl();
-      window.location.href = `${base}/api/auth/${provider}`;
-      return;
-    }
-
+    // Plain mobile-web AND Tauri-on-mobile both follow the same provider
+    // redirect: the WebView navigates to /api/auth/<provider>, OAuth
+    // completes server-side, and the SPA picks up `?token=` on the
+    // redirect back. Works for Tauri Android because we load the hub URL
+    // directly, so it's a same-origin round trip.
     if (!provider) return;
-    await Linking.openURL(buildNativeOAuthUrl(currentServerUrl(), provider));
+    const base = currentServerUrl();
+    if (typeof window !== "undefined") {
+      window.location.href = `${base}/api/auth/${provider}`;
+    }
   }, [currentServerUrl]);
 
   const logout = useCallback(async () => {

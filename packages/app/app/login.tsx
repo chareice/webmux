@@ -8,7 +8,7 @@ import {
   TextInput,
 } from "react-native";
 import { useAuth } from "../lib/auth";
-import { isTauri } from "../lib/platform";
+import { isTauri, isTauriMobile } from "../lib/platform";
 import { getServerUrl, setServerUrl } from "../lib/serverUrl";
 
 type OAuthProvider = "github" | "google";
@@ -27,7 +27,9 @@ export default function LoginScreen() {
   const [serverUrlInput, setServerUrlInput] = useState(
     getServerUrl(Platform.OS),
   );
-  const isDesktop = isTauri();
+  // Tauri-on-mobile (Android/iOS WebView) takes the same provider-button
+  // path as plain mobile-web; only Tauri desktop uses the loopback flow.
+  const isDesktop = isTauri() && !isTauriMobile();
 
   const handleDesktopConnect = () => {
     setServerUrl(serverUrlInput.trim());
