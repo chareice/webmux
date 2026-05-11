@@ -4,6 +4,7 @@ import {
   buildImagePasteMessage,
   readFileAsBase64,
   safeFilename,
+  waitForWsOpen,
 } from "./terminalImagePaste";
 
 describe("safeFilename", () => {
@@ -39,6 +40,79 @@ describe("buildImagePasteMessage", () => {
       mime: "image/png",
       filename: "x.png",
     });
+  });
+});
+
+describe("waitForWsOpen", () => {
+  const OPEN = WebSocket.OPEN;
+  const CLOSED = WebSocket.CLOSED;
+
+  function fakeClock(start = 0) {
+    let t = start;
+    return {
+      now: () => t,
+      advance: (ms: number) => {
+        t += ms;
+      },
+    };
+  }
+
+  it("returns immediately when the socket is already OPEN", async () => {
+    const ws = { readyState: OPEN } as unknown as WebSocket;
+    const got = await waitForWsOpen(() => ws, 1000);
+    expect(got).toBe(ws);
+  });
+
+  it("returns the new socket once reconnect lands", async () => {
+    const closed = { readyState: CLOSED } as unknown as WebSocket;
+    const opened = { readyState: OPEN } as unknown as WebSocket;
+    let current: WebSocket = closed;
+    const clock = fakeClock();
+    let polls = 0;
+    const got = await waitForWsOpen(
+      () => current,
+      5000,
+      100,
+      clock.now,
+      async (ms) => {
+        clock.advance(ms);
+        polls++;
+        if (polls === 3) current = opened;
+      },
+    );
+    expect(got).toBe(opened);
+  });
+
+  it("returns null when the socket never re-opens before the deadline", async () => {
+    const ws = { readyState: CLOSED } as unknown as WebSocket;
+    const clock = fakeClock();
+    const got = await waitForWsOpen(
+      () => ws,
+      300,
+      100,
+      clock.now,
+      async (ms) => clock.advance(ms),
+    );
+    expect(got).toBeNull();
+  });
+
+  it("tolerates a missing socket reference while polling", async () => {
+    let ws: WebSocket | null = null;
+    const clock = fakeClock();
+    let polls = 0;
+    const opened = { readyState: OPEN } as unknown as WebSocket;
+    const got = await waitForWsOpen(
+      () => ws,
+      5000,
+      100,
+      clock.now,
+      async (ms) => {
+        clock.advance(ms);
+        polls++;
+        if (polls === 2) ws = opened;
+      },
+    );
+    expect(got).toBe(opened);
   });
 });
 
