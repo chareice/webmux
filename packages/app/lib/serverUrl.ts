@@ -40,26 +40,8 @@ function getConfiguredDefaultServerUrl(): string | null {
   return (
     process.env.EXPO_PUBLIC_WEBMUX_DEFAULT_SERVER_URL ||
     process.env.WEBMUX_DEFAULT_SERVER_URL ||
-    getExpoConfiguredDefaultServerUrl() ||
     null
   );
-}
-
-function getExpoConfiguredDefaultServerUrl(): string | null {
-  try {
-    const Constants = require("expo-constants").default as {
-      expoConfig?: { extra?: Record<string, unknown> };
-      manifest?: { extra?: Record<string, unknown> };
-      manifest2?: { extra?: { expoClient?: { extra?: Record<string, unknown> } } };
-    };
-    const value =
-      Constants?.expoConfig?.extra?.defaultServerUrl ??
-      Constants?.manifest?.extra?.defaultServerUrl ??
-      Constants?.manifest2?.extra?.expoClient?.extra?.defaultServerUrl;
-    return typeof value === "string" && value.trim() ? value : null;
-  } catch {
-    return null;
-  }
 }
 
 export function getServerUrl(platformOs = getRuntimePlatformOs()): string {

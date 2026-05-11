@@ -1,0 +1,22 @@
+{
+  "identifier": "default",
+  "description": "Default capability for the main window",
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-focus",
+    "global-shortcut:default",
+    "notification:default",
+    "updater:default",
+    "shell:allow-open",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "process:default"
+  ]
+}

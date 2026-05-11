@@ -2,6 +2,16 @@ export function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+// Detect whether the Tauri WebView is running on a mobile OS so we can
+// take the same auth path the plain mobile-web flow uses, instead of the
+// desktop loopback-OAuth path that needs `start_oauth_listener`.
+export function isTauriMobile(): boolean {
+  if (!isTauri()) return false;
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /Android|iPhone|iPad|iPod/i.test(ua);
+}
+
 type OS = "macos" | "windows" | "linux" | "unknown";
 
 export function detectOS(): OS {

@@ -1,10 +1,15 @@
-name: Build Android APK
+name: Build Android APK (Tauri)
 
 on:
   push:
     tags:
       - "app-v*"
   workflow_dispatch:
+    inputs:
+      hub_url:
+        description: "WEBMUX_MOBILE_HUB_URL baked into the build"
+        default: "https://webmux.nas.chareice.site"
+        required: false
 
 permissions:
   contents: write
@@ -12,11 +17,8 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-22.04
-    # Hoisted layout — Expo's autolinking + React Native's gradle plugin
-    # walk node_modules expecting a flat-ish tree. Strict pnpm symlinks
-    # work for the web build but the gradle plugin needs flat-ish.
     env:
-      NPM_CONFIG_NODE_LINKER: hoisted
+      WEBMUX_MOBILE_HUB_URL: ${{ github.event.inputs.hub_url || 'https://webmux.nas.chareice.site' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -39,25 +41,61 @@ jobs:
         with:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0 cmake;3.22.1 ndk;27.1.12297006"
 
-      - name: Install dependencies
+      - name: Cache Cargo registry + git
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Cache Rust target dir
+        uses: actions/cache@v4
+        with:
+          path: packages/desktop/src-tauri/target
+          key: cargo-target-android-${{ runner.os }}-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Install Rust toolchain + Android targets
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+          source "$HOME/.cargo/env"
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          cargo install tauri-cli --version "^2.0" --locked
+
+      - name: Install workspace deps
         run: pnpm install --frozen-lockfile=false
 
       - name: Build shared package
         run: pnpm --filter @webmux/shared build
 
-      - name: Generate native android project
-        working-directory: packages/app
-        run: |
-          version="${GITHUB_REF_NAME#app-v}"
-          if [ "$version" = "$GITHUB_REF_NAME" ]; then
-            version="0.1.0"
-          fi
-          WEBMUX_APP_VERSION="$version" pnpm exec expo prebuild --platform android --no-install
+      - name: Build web bundle (loaded as launch shell, replaced at runtime)
+        run: pnpm --filter @webmux/app build
 
-      # App-side updates only work when each release is signed with the
-      # same key. These secrets hold the stable Webmux Android signing key.
+      - name: Set release version from tag
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME:-app-vlocal}"
+          version="${tag#app-v}"
+          if [ "$version" = "$tag" ]; then version="0.1.0"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Sync versionCode / versionName into tauri.properties
+        working-directory: packages/desktop/src-tauri/gen/android
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          # Treat the version's numeric components as the versionCode: turn
+          # X.Y.Z into XXYYZZ so monotonic ordering matches semver intent.
+          numeric=$(echo "$version" | awk -F. '{ printf "%d%02d%02d", $1, $2, $3 }')
+          mkdir -p app
+          cat > app/tauri.properties <<EOF
+          tauri.android.versionCode=$numeric
+          tauri.android.versionName=$version
+          EOF
+          cat app/tauri.properties
+
       - name: Decode release keystore
-        working-directory: packages/app/android/app
+        working-directory: packages/desktop/src-tauri/gen/android/app
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -71,110 +109,98 @@ jobs:
               missing=1
             fi
           done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
+          if [ "$missing" -ne 0 ]; then exit 1; fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.keystore
 
-      # Patch build.gradle to:
-      #   1. Add a release signing config that points at our keystore
-      #   2. Enable per-ABI APK splits so each output APK is ~50MB
-      #      instead of one ~190MB universal blob (debug-mode splits
-      #      were off; we turn them on for our release variant)
-      - name: Patch build.gradle for release signing + abi splits
-        working-directory: packages/app/android/app
+      # Inject the release signing config + per-ABI splits. Mirrors the
+      # patch the old Expo workflow applied; build.gradle.kts on the Tauri
+      # template doesn't ship a signing block we can fill via env alone.
+      - name: Patch app/build.gradle.kts (signing + ABI splits)
+        working-directory: packages/desktop/src-tauri/gen/android
         run: |
           python3 - <<'PY'
-          import re
-          path = "build.gradle"
-          gradle = open(path).read()
+          import re, pathlib
+          path = pathlib.Path("app/build.gradle.kts")
+          src = path.read_text()
 
-          # 1. Insert a release signingConfig referencing the generated keystore.
-          #    Explicitly enable v1, v2, v3 signing schemes. AGP's auto-logic
-          #    disables v1 when minSdk >= 24, leaving v2-only — which some
-          #    Samsung devices on Android 13+ reject as "package appears
-          #    invalid". Including v1 + v2 + v3 covers everything from
-          #    Android 7 (API 24) through Android 16 cleanly.
           signing_block = """
               signingConfigs {
-                  release {
-                      storeFile file('release.keystore')
-                      storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
-                      keyAlias System.getenv('ANDROID_KEY_ALIAS')
-                      keyPassword System.getenv('ANDROID_KEY_PASSWORD')
-                      enableV1Signing true
-                      enableV2Signing true
-                      enableV3Signing true
+                  create("release") {
+                      storeFile = file("release.keystore")
+                      storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                      keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                      keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                      enableV1Signing = true
+                      enableV2Signing = true
+                      enableV3Signing = true
                   }
               }
           """
-          # Drop into the android { ... } block right after the opening brace.
-          gradle = re.sub(r"android\s*\{", "android {" + signing_block, gradle, count=1)
+          src = re.sub(r"android\s*\{", "android {" + signing_block, src, count=1)
 
-          # 2. Make the release buildType actually use that signingConfig.
-          #    Anchor on `release {` directly — anchoring on `buildTypes {`
-          #    fails because the intermediate `debug { ... }` block ends
-          #    in `}`, which `[^}]*` doesn't cross.
-          new_gradle, n = re.subn(
-              r"(release\s*\{[^}]*?)signingConfig\s+signingConfigs\.\w+",
-              r"\1signingConfig signingConfigs.release",
-              gradle,
+          # Hook the release buildType to use our signingConfig. The
+          # generated template's release block already declares a
+          # `signingConfig signingConfigs.getByName("debug")` line we can
+          # swap for ours.
+          new_src, n = re.subn(
+              r'signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)',
+              'signingConfig = signingConfigs.getByName("release")',
+              src,
               count=1,
-              flags=re.DOTALL,
           )
           if n == 0:
-              raise SystemExit(
-                  "Could not find `release { ... signingConfig signingConfigs.X }` "
-                  "in build.gradle — expo prebuild template may have changed."
+              # Older templates: just inject one inside release { ... }
+              new_src, n = re.subn(
+                  r'getByName\("release"\)\s*\{',
+                  'getByName("release") {\n            signingConfig = signingConfigs.getByName("release")',
+                  src,
+                  count=1,
               )
-          gradle = new_gradle
+              if n == 0:
+                  raise SystemExit("Couldn't find release buildType to patch")
+          src = new_src
 
-          # 3. Enable per-ABI splits (one APK per architecture, plus a
-          #    universal one we can fall back to). Lives at android level.
+          # Per-ABI splits — universal APK plus one per ABI keeps each
+          # file ~50MB instead of one ~190MB blob.
           splits_block = """
               splits {
                   abi {
-                      enable true
+                      isEnable = true
                       reset()
-                      include 'arm64-v8a', 'armeabi-v7a', 'x86_64'
-                      universalApk true
+                      include("arm64-v8a", "armeabi-v7a", "x86_64")
+                      isUniversalApk = true
                   }
               }
           """
-          # Append before the closing brace of android { ... }. Find the LAST }
-          # that matches the android block.
-          # Simpler: insert before "// React Native settings" or right at the
-          # top of android — but easiest is to append at the start of the block.
-          gradle = gradle.replace(
-              "android {" + signing_block,
-              "android {" + signing_block + splits_block,
-              1,
-          )
+          src = src.replace("android {" + signing_block,
+                            "android {" + signing_block + splits_block,
+                            1)
 
-          open(path, "w").write(gradle)
-          print("Patched build.gradle. Signing + splits config injected.")
+          path.write_text(src)
+          print("Patched build.gradle.kts")
           PY
 
-      - name: Build release APKs
-        working-directory: packages/app/android
+      - name: Build release APKs via cargo tauri
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.1.12297006
+        working-directory: packages/desktop
+        run: |
+          source "$HOME/.cargo/env"
+          cargo tauri android build --apk
 
       - name: Collect APKs
         id: apks
         run: |
-          tag="${GITHUB_REF_NAME:-app-vlocal}"
-          version="${tag#app-v}"
+          tag="${{ steps.version.outputs.tag }}"
+          version="${{ steps.version.outputs.version }}"
           mkdir -p artifacts
-          # Each ABI gets its own APK plus there's a universal one. Rename
-          # them with the version + ABI suffix for clarity in the release.
-          for src in $(find packages/app/android/app/build/outputs/apk/release -name "*.apk"); do
+          for src in $(find packages/desktop/src-tauri/gen/android/app/build/outputs/apk -name "*-release*.apk"); do
             base=$(basename "$src" .apk)
-            # name pattern: app-<abi>-release.apk or app-universal-release.apk
-            abi=$(echo "$base" | sed -E 's/^app-//; s/-release$//')
+            abi=$(echo "$base" | sed -E 's/^app-//; s/-release.*$//')
+            [ -z "$abi" ] && abi="universal"
             cp "$src" "artifacts/webmux-${version}-${abi}.apk"
           done
           ls -lh artifacts/
@@ -195,11 +221,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="${GITHUB_REF_NAME}"
+          tag="${{ steps.version.outputs.tag }}"
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" \
               --title "Mobile ${tag}" \
-              --notes "Sideload via 'install from unknown sources'. Most modern phones: pick the **arm64-v8a** APK. The **universal** APK works on any architecture but is larger. If you installed an older APK from before stable signing, uninstall it once before installing this release; future app-side updates can install over it."
+              --notes "Tauri-based Android client. Sideload via 'install from unknown sources'. Pick the **arm64-v8a** APK on modern phones; the **universal** APK works on any architecture but is larger. The app loads the configured webmux URL on launch, so all UI changes ship automatically without a new APK."
           fi
           for apk in artifacts/*.apk; do
             gh release upload "$tag" "$apk" --clobber

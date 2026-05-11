@@ -1,0 +1,17 @@
+{
+  "identifier": "mobile",
+  "description": "Capabilities for Android/iOS, scoped to the production hub origin since the WebView loads it directly",
+  "platforms": ["android", "iOS"],
+  "windows": ["main"],
+  "remote": {
+    "urls": ["https://webmux.nas.chareice.site/*", "http://10.0.2.2:*/*"]
+  },
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "shell:allow-open",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "process:default"
+  ]
+}
