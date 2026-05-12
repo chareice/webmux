@@ -261,11 +261,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
     const fitRetryTimerRef = useRef<number | null>(null);
-    // Set when Cmd/Ctrl+V is intercepted by the keydown handler so the
-    // container's `paste` listener can skip the same image. Chromium fires
-    // `paste` even after we preventDefault on keydown, so without this we
-    // send `image_paste` twice and Codex sees two attached files.
-    const lastKeydownPasteAtRef = useRef(0);
     const recentClipboardImagePasteRef =
       useRef<ImagePasteDedupeRecord | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
@@ -330,18 +325,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
       }
       await navigator.clipboard.writeText(text);
-    }, []);
-
-    const clipboardRead = useCallback(async (): Promise<string> => {
-      if (isTauri()) {
-        try {
-          const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
-          return await readText();
-        } catch {
-          // Tauri plugin failed — fall through to browser API
-        }
-      }
-      return await navigator.clipboard.readText();
     }, []);
 
     // Forward a picked file (mobile attach button, drag-drop, etc.) over
@@ -733,52 +716,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
         }
 
-        if (
-          (event.ctrlKey || event.metaKey) &&
-          event.key === "v" &&
-          event.type === "keydown"
-        ) {
-          event.preventDefault();
-          lastKeydownPasteAtRef.current = Date.now();
-          void (async () => {
-            // Try navigator.clipboard.read() first — it works in Tauri WebView
-            // and supports images. Fall back to text-only if it throws.
-            try {
-              const items = await navigator.clipboard.read();
-              for (const item of items) {
-                const imageType = item.types.find((t) =>
-                  t.startsWith("image/"),
-                );
-                if (imageType) {
-                  const blob = await item.getType(imageType);
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const base64 = (reader.result as string).split(",")[1];
-                    const ext = imageType.split("/")[1] || "png";
-                    sendFileToWs(
-                      base64,
-                      imageType,
-                      `tc-paste-${Date.now()}.${ext}`,
-                      { dedupeClipboardImage: true },
-                    );
-                  };
-                  reader.readAsDataURL(blob);
-                  return;
-                }
-              }
-              const text = await navigator.clipboard.readText();
-              if (text) term.paste(text);
-            } catch {
-              try {
-                const text = await clipboardRead();
-                if (text) term.paste(text);
-              } catch {
-                /* clipboard read failed — ignore */
-              }
-            }
-          })();
-          return false;
-        }
+        // Cmd/Ctrl+V is handled by the native paste event below. Reading the
+        // clipboard via navigator.clipboard.* trips macOS Sequoia's clipboard
+        // privacy prompt (the "Paste" tooltip) — the paste event's
+        // clipboardData already exposes both text and image items without
+        // triggering it.
 
         return true;
       });
@@ -791,14 +733,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           item.type.startsWith("image/"),
         );
         if (!imageItem) return;
-
-        // Cmd/Ctrl+V was just handled by the keydown branch above —
-        // skip so we don't send the same image twice.
-        if (Date.now() - lastKeydownPasteAtRef.current < 1000) {
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
 
         e.preventDefault();
         e.stopPropagation();
@@ -865,6 +799,19 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
       container.addEventListener("contextmenu", handleContextMenu);
 
+      // Copy-on-select: when the user finishes a drag/double-click/triple-click
+      // selection, push the highlighted text to the clipboard so ⌘V elsewhere
+      // works without having to press ⌘C first.
+      const handleSelectCopy = () => {
+        if (!term.hasSelection()) return;
+        const text = term.getSelection();
+        if (!text) return;
+        void clipboardWrite(text).catch(() => {
+          /* clipboard write failed — ignore */
+        });
+      };
+      container.addEventListener("mouseup", handleSelectCopy);
+
       // Touch scroll handling for mobile
       const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
       let lastTouchY = 0;
@@ -923,6 +870,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         container.removeEventListener("dragover", handleDragOver);
         container.removeEventListener("drop", handleDrop);
         container.removeEventListener("contextmenu", handleContextMenu);
+        container.removeEventListener("mouseup", handleSelectCopy);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
         if (typeof window !== "undefined") {
