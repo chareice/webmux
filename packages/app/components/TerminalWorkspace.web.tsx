@@ -1064,38 +1064,6 @@ function TerminalWorkspaceComponent({
         animation: "webmuxFadeIn 140ms ease-out",
       }}
     >
-      <WorkspaceTopBar
-        groups={workspace.groups}
-        activeGroupId={workspace.activeGroupId}
-        activeTerminal={activeTerminal}
-        machineId={commandMachineId}
-        isController={isController}
-        isMobile={false}
-        onGroupSelect={activateGroup}
-        onCreateGroup={handleCreateGroup}
-        onReorderGroups={handleReorderGroups}
-        onDeleteGroup={setDeleteGroup}
-        onAssignGroup={handleAssignGroup}
-        onOpenDrawer={() => {}}
-        onSplitRight={() => void handleSplit("right")}
-        onSplitDown={() => void handleSplit("down")}
-        onFit={handleFit}
-        onToggleMaximize={() => {
-          if (!activeTerminal) return;
-          setMaximizedTerminalId((value) =>
-            value === activeTerminal.id ? null : activeTerminal.id,
-          );
-        }}
-        maximized={Boolean(maximizedTerminalId)}
-        onDestroyActive={() => {
-          if (activeTerminal) handleDestroy(activeTerminal);
-        }}
-        onClose={onClose}
-        onRequestControl={onRequestControl}
-        onReleaseControl={onReleaseControl}
-        layoutMode={activeGroup?.layoutMode ?? "tiling"}
-        onToggleLayoutMode={handleToggleLayoutMode}
-      />
       <div
         style={{
           flex: 1,
@@ -1182,6 +1150,39 @@ function TerminalWorkspaceComponent({
           />
         )}
       </div>
+      <WorkspaceTopBar
+        groups={workspace.groups}
+        activeGroupId={workspace.activeGroupId}
+        activeTerminal={activeTerminal}
+        machineId={commandMachineId}
+        isController={isController}
+        isMobile={false}
+        dockBottom
+        onGroupSelect={activateGroup}
+        onCreateGroup={handleCreateGroup}
+        onReorderGroups={handleReorderGroups}
+        onDeleteGroup={setDeleteGroup}
+        onAssignGroup={handleAssignGroup}
+        onOpenDrawer={() => {}}
+        onSplitRight={() => void handleSplit("right")}
+        onSplitDown={() => void handleSplit("down")}
+        onFit={handleFit}
+        onToggleMaximize={() => {
+          if (!activeTerminal) return;
+          setMaximizedTerminalId((value) =>
+            value === activeTerminal.id ? null : activeTerminal.id,
+          );
+        }}
+        maximized={Boolean(maximizedTerminalId)}
+        onDestroyActive={() => {
+          if (activeTerminal) handleDestroy(activeTerminal);
+        }}
+        onClose={onClose}
+        onRequestControl={onRequestControl}
+        onReleaseControl={onReleaseControl}
+        layoutMode={activeGroup?.layoutMode ?? "tiling"}
+        onToggleLayoutMode={handleToggleLayoutMode}
+      />
       <ConfirmDialog
         open={Boolean(deleteGroup)}
         title="Delete group"
@@ -1206,6 +1207,7 @@ function WorkspaceTopBar({
   isController,
   isMobile,
   maximized,
+  dockBottom = false,
   onGroupSelect,
   onCreateGroup,
   onReorderGroups,
@@ -1230,6 +1232,7 @@ function WorkspaceTopBar({
   isController: boolean;
   isMobile: boolean;
   maximized: boolean;
+  dockBottom?: boolean;
   onGroupSelect: (id: string) => void;
   onCreateGroup: () => void;
   onReorderGroups: (
@@ -1320,7 +1323,9 @@ function WorkspaceTopBar({
     <div
       style={{
         height: isMobile ? 44 : 42,
-        borderBottom: `1px solid ${colors.lineSoft}`,
+        ...(dockBottom
+          ? { borderTop: `1px solid ${colors.lineSoft}` }
+          : { borderBottom: `1px solid ${colors.lineSoft}` }),
         background: colors.bg1,
         display: "flex",
         alignItems: "center",
