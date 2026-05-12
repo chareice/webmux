@@ -1,6 +1,6 @@
 {
   "productName": "webmux",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "identifier": "com.webmux.desktop",
   "build": {
     "frontendDist": "../../app/dist",
@@ -26,6 +26,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
