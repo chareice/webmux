@@ -799,6 +799,19 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
       container.addEventListener("contextmenu", handleContextMenu);
 
+      // Copy-on-select: when the user finishes a drag/double-click/triple-click
+      // selection, push the highlighted text to the clipboard so ⌘V elsewhere
+      // works without having to press ⌘C first.
+      const handleSelectCopy = () => {
+        if (!term.hasSelection()) return;
+        const text = term.getSelection();
+        if (!text) return;
+        void clipboardWrite(text).catch(() => {
+          /* clipboard write failed — ignore */
+        });
+      };
+      container.addEventListener("mouseup", handleSelectCopy);
+
       // Touch scroll handling for mobile
       const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
       let lastTouchY = 0;
@@ -857,6 +870,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         container.removeEventListener("dragover", handleDragOver);
         container.removeEventListener("drop", handleDrop);
         container.removeEventListener("contextmenu", handleContextMenu);
+        container.removeEventListener("mouseup", handleSelectCopy);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
         if (typeof window !== "undefined") {
