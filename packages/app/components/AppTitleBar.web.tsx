@@ -21,7 +21,10 @@ function AppTitleBarComponent({ isMobile }: { isMobile: boolean }) {
         WebkitAppRegion: "drag",
       } as React.CSSProperties}
     >
-      {isMac && <WindowControls position="left" />}
+      {isMac && (
+        // Native macOS traffic lights overlay this gutter (titleBarStyle: Overlay).
+        <div data-tauri-drag-region style={{ width: 78, flexShrink: 0 }} />
+      )}
       <div data-tauri-drag-region style={{ flex: 1 }} />
       <WindowControls position="right" />
     </div>
