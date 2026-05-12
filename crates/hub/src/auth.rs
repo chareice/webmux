@@ -65,9 +65,9 @@ struct LegacyJwtPayload {
 // JWT helpers
 // ---------------------------------------------------------------------------
 
-const JWT_EXPIRY_DAYS: i64 = 7;
+const JWT_EXPIRY_DAYS: i64 = 180;
 
-/// Create an HS256 JWT that expires in 7 days.
+/// Create an HS256 JWT that expires in 180 days.
 /// Uses { userId } format for compatibility.
 pub fn sign_jwt(user_id: &str, secret: &str) -> String {
     let now = Utc::now().timestamp();
