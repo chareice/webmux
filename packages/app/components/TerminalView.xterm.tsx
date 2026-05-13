@@ -177,6 +177,37 @@ type TerminalWithMouseService = Terminal & {
   };
 };
 
+function formatErr(err: unknown): string {
+  if (err == null) return "unknown";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message || err.toString();
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+// Surface a clipboard failure as a floating toast for users who can't open
+// devtools (production Tauri builds). Auto-removes after 8 seconds.
+function showCopyDiagnostic(message: string): void {
+  if (typeof document === "undefined") return;
+  const id = "webmux-copy-diagnostic";
+  const existing = document.getElementById(id);
+  existing?.remove();
+  const div = document.createElement("div");
+  div.id = id;
+  div.style.cssText =
+    "position:fixed;top:8px;right:8px;background:rgba(220,40,40,0.95);" +
+    "color:#fff;padding:8px 12px;z-index:99999;font:12px/1.4 monospace;" +
+    "border-radius:6px;max-width:60vw;word-break:break-word;" +
+    "box-shadow:0 2px 8px rgba(0,0,0,0.4);pointer-events:auto;cursor:pointer;";
+  div.textContent = `copy failed — ${message}`;
+  div.addEventListener("click", () => div.remove());
+  document.body.appendChild(div);
+  window.setTimeout(() => div.remove(), 8000);
+}
+
 function getUnscaledMouseEvent<T extends { clientX: number; clientY: number }>(
   event: T,
   element: HTMLElement,
@@ -316,15 +347,43 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
     const clipboardWrite = useCallback(async (text: string) => {
       if (isTauri()) {
-        try {
-          const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
-          await writeText(text);
-          return;
-        } catch {
-          // Tauri plugin failed — fall through to browser API
+        // Use __TAURI_INTERNALS__.invoke directly instead of dynamic-importing
+        // the plugin module. Metro compiles `await import("@tauri-apps/...")`
+        // into a chunk-loaded async require; that path has been observed to
+        // succeed for some plugins (updater, shell) but fail silently for
+        // clipboard-manager on macOS WKWebView, leaving the OS clipboard
+        // untouched. The internals global is injected by Tauri at
+        // window-create time and is always present, so this avoids the
+        // chunk-loading variable entirely.
+        const internals = (window as unknown as {
+          __TAURI_INTERNALS__?: {
+            invoke: (cmd: string, args: Record<string, unknown>) => Promise<void>;
+          };
+        }).__TAURI_INTERNALS__;
+        if (internals?.invoke) {
+          try {
+            await internals.invoke("plugin:clipboard-manager|write_text", {
+              label: null,
+              text,
+            });
+            return;
+          } catch (err) {
+            showCopyDiagnostic(`Tauri clipboard failed: ${formatErr(err)}`);
+            // eslint-disable-next-line no-console
+            console.warn("[webmux] tauri clipboard invoke failed", err);
+          }
+        } else {
+          showCopyDiagnostic("__TAURI_INTERNALS__ not available");
         }
       }
-      await navigator.clipboard.writeText(text);
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (err) {
+        showCopyDiagnostic(`Browser clipboard failed: ${formatErr(err)}`);
+        // eslint-disable-next-line no-console
+        console.warn("[webmux] navigator.clipboard.writeText failed", err);
+        throw err;
+      }
     }, []);
 
     // Forward a picked file (mobile attach button, drag-drop, etc.) over
