@@ -14,16 +14,33 @@ import {
 // viewport still completes the selection); webmux now mirrors that pattern
 // by attaching the mouseup listener to `document` from a mousedown inside
 // the terminal — see TerminalView.xterm.tsx.
-
-test.use({
-  // Chromium needs explicit permission for navigator.clipboard.{read,write}Text
-  // when invoked from JS; without these the writeText call rejects silently.
-  permissions: ["clipboard-read", "clipboard-write"],
-});
+//
+// We don't rely on Chromium's real navigator.clipboard here because the
+// e2e hub is served over plain http:// (insecure context), and headless
+// Chromium hides clipboard APIs entirely under those conditions. Instead
+// the test installs an in-memory stub via addInitScript and asserts the
+// app called writeText with the selected text.
 
 test("copy-on-select writes clipboard even when mouse is released outside the terminal", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    const writes: string[] = [];
+    (window as unknown as { __webmuxClipboardWrites: string[] }).__webmuxClipboardWrites =
+      writes;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          writes.push(text);
+          return Promise.resolve();
+        },
+        readText: () =>
+          Promise.resolve(writes.length > 0 ? writes[writes.length - 1] : ""),
+      },
+    });
+  });
+
   await openApp(page);
   await resetMachineState(page);
   await takeControlFromHeader(page);
@@ -68,7 +85,6 @@ test("copy-on-select writes clipboard even when mouse is released outside the te
     { id: terminalId, text: marker },
   );
 
-  // Wait for the renderer to settle and selection to register.
   await page.waitForFunction(
     (id) => {
       const term = (
@@ -84,19 +100,17 @@ test("copy-on-select writes clipboard even when mouse is released outside the te
     terminalId,
   );
 
-  // Pre-poison the clipboard so we can detect the (buggy) "old content"
-  // case. With the bug, this stale value would still be in the clipboard
-  // after the simulated drag-release-outside.
-  const stalePayload = "STALE-CLIPBOARD-CONTENT";
-  await page.evaluate(
-    (text) => navigator.clipboard.writeText(text),
-    stalePayload,
-  );
+  // Reset captured writes so we only assert against post-selection writes.
+  await page.evaluate(() => {
+    (
+      window as unknown as { __webmuxClipboardWrites: string[] }
+    ).__webmuxClipboardWrites.length = 0;
+  });
 
   // Reproduce the bug scenario: mousedown lands inside the terminal
   // container; mouseup lands OUTSIDE it (we use document.body). With the
-  // old code the container-scoped mouseup listener never fired, so
-  // clipboard stayed at STALE-CLIPBOARD-CONTENT.
+  // pre-fix code the container-scoped mouseup listener never fired, so
+  // writeText was never called.
   await page.evaluate(() => {
     const container = document.querySelector(
       "[data-testid^='terminal-card-'] .xterm",
@@ -110,19 +124,20 @@ test("copy-on-select writes clipboard even when mouse is released outside the te
     );
   });
 
-  // Give the async clipboardWrite a moment to resolve.
+  // Give the async clipboardWrite a moment to resolve, then assert the
+  // app called writeText with the selected text.
   await expect
     .poll(
       async () =>
-        page.evaluate(() => navigator.clipboard.readText()),
+        page.evaluate(
+          () =>
+            (
+              window as unknown as {
+                __webmuxClipboardWrites: string[];
+              }
+            ).__webmuxClipboardWrites.join("\n"),
+        ),
       { timeout: 5_000 },
     )
     .toContain(marker);
-
-  // Sanity check: the stale poison should be gone — i.e. we actually
-  // overwrote the clipboard, not just appended.
-  const finalClipboard = await page.evaluate(() =>
-    navigator.clipboard.readText(),
-  );
-  expect(finalClipboard).not.toBe(stalePayload);
 });
