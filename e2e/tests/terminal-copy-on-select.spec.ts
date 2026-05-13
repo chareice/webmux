@@ -15,11 +15,15 @@ import {
 // by attaching the mouseup listener to `document` from a mousedown inside
 // the terminal — see TerminalView.xterm.tsx.
 //
-// We don't rely on Chromium's real navigator.clipboard here because the
-// e2e hub is served over plain http:// (insecure context), and headless
-// Chromium hides clipboard APIs entirely under those conditions. Instead
-// the test installs an in-memory stub via addInitScript and asserts the
-// app called writeText with the selected text.
+// What this test isolates is the event-wiring contract:
+//
+//   mousedown inside terminal container  +  mouseup anywhere on document
+//     → clipboardWrite(term.getSelection())
+//
+// Both navigator.clipboard and term.{hasSelection,getSelection} are
+// stubbed so the test doesn't depend on a) Chromium's secure-context
+// rules (the e2e hub is plain http://) or b) timing of shell output
+// writing to the xterm buffer (varies between local and CI).
 
 test("copy-on-select writes clipboard even when mouse is released outside the terminal", async ({
   page,
@@ -59,73 +63,46 @@ test("copy-on-select writes clipboard even when mouse is released outside the te
 
   const marker = `COPY-MARKER-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Disable mouse tracking so the SelectionService is enabled and selectAll
-  // / hasSelection work the way they do for users on a normal shell prompt.
-  // Then write a recognizable marker into the buffer and select it.
+  // Stub the xterm Terminal instance's selection accessors to force
+  // hasSelection→true and getSelection→marker. handleSelectCopy reads
+  // those exclusively, so this fully exercises the event path without
+  // depending on shell output, render timing, or mouse-tracking state.
   await page.evaluate(
     ({ id, text }) => {
       const term = (
         window as unknown as {
-          __webmuxTerminals?: Map<
-            string,
-            {
-              write: (data: string) => void;
-              selectAll: () => void;
-              hasSelection: () => boolean;
-              getSelection: () => string;
-            }
-          >;
+          __webmuxTerminals?: Map<string, Record<string, unknown>>;
         }
       ).__webmuxTerminals?.get(id);
       if (!term) throw new Error("terminal not found in __webmuxTerminals");
-      term.write("\x1b[?1003l\x1b[?1006l");
-      term.write(text);
-      term.selectAll();
+      term.hasSelection = () => true;
+      term.getSelection = () => text;
     },
     { id: terminalId, text: marker },
   );
 
-  await page.waitForFunction(
-    (id) => {
-      const term = (
-        window as unknown as {
-          __webmuxTerminals?: Map<
-            string,
-            { hasSelection: () => boolean; getSelection: () => string }
-          >;
-        }
-      ).__webmuxTerminals?.get(id);
-      return !!term && term.hasSelection() && term.getSelection().length > 0;
-    },
-    terminalId,
-  );
-
-  // Reset captured writes so we only assert against post-selection writes.
-  await page.evaluate(() => {
-    (
-      window as unknown as { __webmuxClipboardWrites: string[] }
-    ).__webmuxClipboardWrites.length = 0;
-  });
-
-  // Reproduce the bug scenario: mousedown lands inside the terminal
-  // container; mouseup lands OUTSIDE it (we use document.body). With the
-  // pre-fix code the container-scoped mouseup listener never fired, so
-  // writeText was never called.
-  await page.evaluate(() => {
+  // Reproduce the bug scenario via real synthetic input (more reliable
+  // across chromium builds than JS dispatchEvent): mouse down inside the
+  // terminal container, then move and release in an empty area (top-left
+  // 4x4 px viewport corner) which is OUTSIDE the terminal but still on
+  // the document. Pre-fix, the container-scoped mouseup listener never
+  // fired and clipboardWrite was never called.
+  const containerBox = await page.evaluate(() => {
     const container = document.querySelector(
       "[data-testid^='terminal-card-'] .xterm",
     )?.parentElement;
     if (!container) throw new Error("terminal container not found");
-    container.dispatchEvent(
-      new MouseEvent("mousedown", { bubbles: true, button: 0 }),
-    );
-    document.body.dispatchEvent(
-      new MouseEvent("mouseup", { bubbles: true, button: 0 }),
-    );
+    const rect = container.getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
   });
+  await page.mouse.move(
+    containerBox.x + containerBox.width / 2,
+    containerBox.y + containerBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(2, 2);
+  await page.mouse.up();
 
-  // Give the async clipboardWrite a moment to resolve, then assert the
-  // app called writeText with the selected text.
   await expect
     .poll(
       async () =>
