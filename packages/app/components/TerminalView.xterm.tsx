@@ -709,8 +709,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             event.preventDefault();
             void clipboardWrite(term.getSelection()).then(() => {
               term.clearSelection();
-            }).catch(() => {
-              /* clipboard write failed — ignore */
+            }).catch((err) => {
+              // eslint-disable-next-line no-console
+              console.warn("[webmux] Cmd/Ctrl+C clipboard write failed", err);
             });
             return false;
           }
@@ -802,15 +803,25 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // Copy-on-select: when the user finishes a drag/double-click/triple-click
       // selection, push the highlighted text to the clipboard so ⌘V elsewhere
       // works without having to press ⌘C first.
+      //
+      // Mirror xterm's own SelectionService pattern: on mousedown inside the
+      // terminal, attach a one-shot mouseup listener to `document`. This way
+      // the copy fires even when the user releases the mouse outside the
+      // terminal viewport (e.g. dragging down past the workspace toolbar),
+      // and unrelated clicks elsewhere on the page never trigger a re-write.
       const handleSelectCopy = () => {
         if (!term.hasSelection()) return;
         const text = term.getSelection();
         if (!text) return;
-        void clipboardWrite(text).catch(() => {
-          /* clipboard write failed — ignore */
+        void clipboardWrite(text).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.warn("[webmux] copy-on-select clipboard write failed", err);
         });
       };
-      container.addEventListener("mouseup", handleSelectCopy);
+      const handleSelectMouseDown = () => {
+        document.addEventListener("mouseup", handleSelectCopy, { once: true });
+      };
+      container.addEventListener("mousedown", handleSelectMouseDown);
 
       // Touch scroll handling for mobile
       const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
@@ -870,7 +881,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         container.removeEventListener("dragover", handleDragOver);
         container.removeEventListener("drop", handleDrop);
         container.removeEventListener("contextmenu", handleContextMenu);
-        container.removeEventListener("mouseup", handleSelectCopy);
+        container.removeEventListener("mousedown", handleSelectMouseDown);
+        document.removeEventListener("mouseup", handleSelectCopy);
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
         if (typeof window !== "undefined") {
