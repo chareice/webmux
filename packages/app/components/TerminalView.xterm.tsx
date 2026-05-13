@@ -868,14 +868,31 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // the copy fires even when the user releases the mouse outside the
       // terminal viewport (e.g. dragging down past the workspace toolbar),
       // and unrelated clicks elsewhere on the page never trigger a re-write.
-      const handleSelectCopy = () => {
+      //
+      // Also listen to xterm's selection-change event. That fires after xterm
+      // finalizes its internal selection state, which avoids platform-specific
+      // mouseup ordering differences in WebViews.
+      let lastAutoCopiedSelection = "";
+      const copyCurrentSelection = () => {
         if (!term.hasSelection()) return;
         const text = term.getSelection();
         if (!text) return;
+        if (text === lastAutoCopiedSelection) return;
+        lastAutoCopiedSelection = text;
         void clipboardWrite(text).catch((err) => {
           // eslint-disable-next-line no-console
           console.warn("[webmux] copy-on-select clipboard write failed", err);
         });
+      };
+      const selectionChangeDisposable = term.onSelectionChange(() => {
+        if (!term.hasSelection()) {
+          lastAutoCopiedSelection = "";
+          return;
+        }
+        copyCurrentSelection();
+      });
+      const handleSelectCopy = () => {
+        copyCurrentSelection();
       };
       const handleSelectMouseDown = () => {
         document.addEventListener("mouseup", handleSelectCopy, { once: true });
@@ -942,6 +959,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         container.removeEventListener("contextmenu", handleContextMenu);
         container.removeEventListener("mousedown", handleSelectMouseDown);
         document.removeEventListener("mouseup", handleSelectCopy);
+        selectionChangeDisposable.dispose();
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
         if (typeof window !== "undefined") {

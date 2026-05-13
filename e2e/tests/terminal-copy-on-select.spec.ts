@@ -118,3 +118,79 @@ test("copy-on-select writes clipboard even when mouse is released outside the te
     )
     .toContain(marker);
 });
+
+test("copy-on-select writes after xterm reports the completed selection", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const writes: string[] = [];
+    (window as unknown as { __webmuxClipboardWrites: string[] }).__webmuxClipboardWrites =
+      writes;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          writes.push(text);
+          return Promise.resolve();
+        },
+        readText: () =>
+          Promise.resolve(writes.length > 0 ? writes[writes.length - 1] : ""),
+      },
+    });
+  });
+
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
+  await expandTerminalById(page, terminalId);
+  await page.waitForFunction(
+    (id) =>
+      (
+        window as unknown as {
+          __webmuxTerminals?: Map<string, unknown>;
+        }
+      ).__webmuxTerminals?.has(id),
+    terminalId,
+  );
+
+  const marker = `SELECTION-CHANGE-${Math.random().toString(36).slice(2, 8)}`;
+
+  await page.evaluate(
+    ({ id, text }) => {
+      const term = (
+        window as unknown as {
+          __webmuxTerminals?: Map<
+            string,
+            {
+              hasSelection: () => boolean;
+              getSelection: () => string;
+              select: (column: number, row: number, length: number) => void;
+            }
+          >;
+        }
+      ).__webmuxTerminals?.get(id);
+      if (!term) throw new Error("terminal not found in __webmuxTerminals");
+      term.hasSelection = () => true;
+      term.getSelection = () => text;
+      term.select(0, 0, 1);
+    },
+    { id: terminalId, text: marker },
+  );
+
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(
+          () =>
+            (
+              window as unknown as {
+                __webmuxClipboardWrites: string[];
+              }
+            ).__webmuxClipboardWrites.join("\n"),
+        ),
+      { timeout: 5_000 },
+    )
+    .toContain(marker);
+});
