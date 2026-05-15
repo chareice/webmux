@@ -38,6 +38,7 @@ import {
   trimTrailingBlankLines,
   type RawRow,
 } from "@/lib/terminalSelection";
+import { createTerminalClipboardProvider } from "@/lib/terminalClipboard";
 import { isTauri } from "@/lib/platform";
 import { isAppShortcut } from "@/lib/shortcuts";
 import { filterBrowserGeneratedTerminalInput } from "@/lib/terminalInputFilter";
@@ -346,6 +347,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     }, [measureLayout]);
 
     const clipboardWrite = useCallback(async (text: string) => {
+      let tauriError: unknown = null;
       if (isTauri()) {
         // Use __TAURI_INTERNALS__.invoke directly instead of dynamic-importing
         // the plugin module. Metro compiles `await import("@tauri-apps/...")`
@@ -357,18 +359,20 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         // chunk-loading variable entirely.
         const internals = (window as unknown as {
           __TAURI_INTERNALS__?: {
-            invoke: (cmd: string, args: Record<string, unknown>) => Promise<void>;
+            invoke: <T = unknown>(
+              cmd: string,
+              args?: Record<string, unknown>,
+            ) => Promise<T>;
           };
         }).__TAURI_INTERNALS__;
         if (internals?.invoke) {
           try {
             await internals.invoke("plugin:clipboard-manager|write_text", {
-              label: null,
               text,
             });
             return;
           } catch (err) {
-            showCopyDiagnostic(`Tauri clipboard failed: ${formatErr(err)}`);
+            tauriError = err;
             // eslint-disable-next-line no-console
             console.warn("[webmux] tauri clipboard invoke failed", err);
           }
@@ -379,11 +383,39 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       try {
         await navigator.clipboard.writeText(text);
       } catch (err) {
-        showCopyDiagnostic(`Browser clipboard failed: ${formatErr(err)}`);
+        const prefix = tauriError
+          ? `Tauri clipboard failed: ${formatErr(tauriError)}; browser clipboard failed`
+          : "Browser clipboard failed";
+        showCopyDiagnostic(`${prefix}: ${formatErr(err)}`);
         // eslint-disable-next-line no-console
         console.warn("[webmux] navigator.clipboard.writeText failed", err);
         throw err;
       }
+    }, []);
+
+    const clipboardRead = useCallback(async (): Promise<string> => {
+      if (isTauri()) {
+        const internals = (window as unknown as {
+          __TAURI_INTERNALS__?: {
+            invoke: <T = unknown>(
+              cmd: string,
+              args?: Record<string, unknown>,
+            ) => Promise<T>;
+          };
+        }).__TAURI_INTERNALS__;
+        if (internals?.invoke) {
+          try {
+            const text = await internals.invoke<string>(
+              "plugin:clipboard-manager|read_text",
+            );
+            return typeof text === "string" ? text : "";
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn("[webmux] tauri clipboard read failed", err);
+          }
+        }
+      }
+      return navigator.clipboard.readText();
     }, []);
 
     // Forward a picked file (mobile attach button, drag-drop, etc.) over
@@ -641,6 +673,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         theme: terminalTheme,
         cursorBlink: true,
         scrollback: 0,
+        macOptionClickForcesSelection: true,
         // xterm dampens likely trackpad wheel deltas before emitting mouse
         // wheel reports. Keep small terminal scroll gestures responsive.
         scrollSensitivity: TERMINAL_SCROLL_SENSITIVITY,
@@ -648,7 +681,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       const fit = new FitAddon();
       term.loadAddon(fit);
-      term.loadAddon(new ClipboardAddon());
+      term.loadAddon(
+        new ClipboardAddon(
+          undefined,
+          createTerminalClipboardProvider({
+            readText: clipboardRead,
+            writeText: clipboardWrite,
+          }),
+        ),
+      );
       term.loadAddon(
         new WebLinksAddon((_event, url) => {
           if (isTauri()) {
