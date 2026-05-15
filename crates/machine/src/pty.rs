@@ -373,11 +373,11 @@ bind -n WheelUpPane if -Ft= '#{mouse_any_flag}' 'send -M' 'if -Ft= \"#{pane_in_m
 ",
     );
     config.push_str(&format!(
-        "bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel '{} #{{pane_tty}}'\n",
+        "bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe '{} #{{pane_tty}}'\n",
         osc52_script
     ));
     config.push_str(&format!(
-        "bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel '{} #{{pane_tty}}'\n",
+        "bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe '{} #{{pane_tty}}'\n",
         osc52_script
     ));
     for var in &["CLAUDE_CODE_NO_FLICKER"] {
@@ -616,8 +616,12 @@ mod tests {
             "missing history-limit"
         );
         assert!(
-            content.contains("copy-pipe-and-cancel '/tmp/osc52copy.sh #{pane_tty}'"),
-            "missing osc52 copy binding"
+            content.contains("copy-pipe '/tmp/osc52copy.sh #{pane_tty}'"),
+            "missing osc52 copy binding that keeps tmux copy-mode active"
+        );
+        assert!(
+            !content.contains("copy-pipe-and-cancel"),
+            "mouse copy should not leave tmux copy-mode"
         );
         assert!(
             content.contains("WheelUpPane") && content.contains("copy-mode -e"),
