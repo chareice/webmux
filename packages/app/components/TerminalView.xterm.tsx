@@ -38,6 +38,7 @@ import {
   trimTrailingBlankLines,
   type RawRow,
 } from "@/lib/terminalSelection";
+import { createSelectionAutoCopyController } from "@/lib/selectionAutoCopy";
 import { createTerminalClipboardProvider } from "@/lib/terminalClipboard";
 import { isTauri } from "@/lib/platform";
 import { isAppShortcut } from "@/lib/shortcuts";
@@ -913,30 +914,24 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // Also listen to xterm's selection-change event. That fires after xterm
       // finalizes its internal selection state, which avoids platform-specific
       // mouseup ordering differences in WebViews.
-      let lastAutoCopiedSelection = "";
-      const copyCurrentSelection = () => {
-        if (!term.hasSelection()) return;
-        const text = term.getSelection();
-        if (!text) return;
-        if (text === lastAutoCopiedSelection) return;
-        lastAutoCopiedSelection = text;
-        void clipboardWrite(text).catch((err) => {
+      const selectionAutoCopy = createSelectionAutoCopyController({
+        hasSelection: () => term.hasSelection(),
+        getSelection: () => term.getSelection(),
+        writeText: clipboardWrite,
+        onError: (err) => {
           // eslint-disable-next-line no-console
           console.warn("[webmux] copy-on-select clipboard write failed", err);
-        });
-      };
-      const selectionChangeDisposable = term.onSelectionChange(() => {
-        if (!term.hasSelection()) {
-          lastAutoCopiedSelection = "";
-          return;
-        }
-        copyCurrentSelection();
+        },
       });
-      const handleSelectCopy = () => {
-        copyCurrentSelection();
+      const selectionChangeDisposable = term.onSelectionChange(() => {
+        selectionAutoCopy.selectionChanged();
+      });
+      const handleSelectMouseUp = () => {
+        selectionAutoCopy.pointerSelectionFinished();
       };
       const handleSelectMouseDown = () => {
-        document.addEventListener("mouseup", handleSelectCopy, { once: true });
+        selectionAutoCopy.pointerSelectionStarted();
+        document.addEventListener("mouseup", handleSelectMouseUp, { once: true });
       };
       container.addEventListener("mousedown", handleSelectMouseDown);
 
@@ -999,7 +994,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         container.removeEventListener("drop", handleDrop);
         container.removeEventListener("contextmenu", handleContextMenu);
         container.removeEventListener("mousedown", handleSelectMouseDown);
-        document.removeEventListener("mouseup", handleSelectCopy);
+        document.removeEventListener("mouseup", handleSelectMouseUp);
+        selectionAutoCopy.dispose();
         selectionChangeDisposable.dispose();
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
