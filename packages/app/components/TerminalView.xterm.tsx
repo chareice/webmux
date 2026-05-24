@@ -18,6 +18,7 @@ import { createOrderedBinaryOutputQueue } from "@/lib/orderedBinaryOutput.mjs";
 import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 import { buildResizeMessage } from "@/lib/terminalResize";
 import {
+  getTerminalFitResizeDecision,
   getTerminalFitDimensions,
   getTerminalViewportLayout,
 } from "@/lib/terminalViewModel";
@@ -495,6 +496,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
     const stabilizeTerminalSurface = useCallback(
       (term: Terminal) => {
+        try {
+          term.clearTextureAtlas();
+        } catch {
+          /* ignore */
+        }
+
         const refresh = () => {
           if (termRef.current !== term) return;
           term.refresh(0, Math.max(term.rows - 1, 0));
@@ -593,11 +600,18 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           // on (they count frames per click).
           if (skipIfUnchanged) {
             const live = termRef.current;
-            if (
-              live &&
-              live.cols === resizeMessage.cols &&
-              live.rows === resizeMessage.rows
-            ) {
+            if (!live) {
+              return;
+            }
+            const decision = getTerminalFitResizeDecision({
+              currentCols: live.cols,
+              currentRows: live.rows,
+              nextCols: resizeMessage.cols,
+              nextRows: resizeMessage.rows,
+              skipIfUnchanged,
+            });
+            if (!decision.sendResizeFrame) {
+              if (decision.refreshLocalSurface) stabilizeTerminalSurface(live);
               return;
             }
           }
@@ -607,7 +621,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           scheduleRetry();
         }
       },
-      [clearFitRetryTimer, displayMode, resizeLocalTerminal],
+      [clearFitRetryTimer, displayMode, resizeLocalTerminal, stabilizeTerminalSurface],
     );
 
     useEffect(() => clearFitRetryTimer, [clearFitRetryTimer]);

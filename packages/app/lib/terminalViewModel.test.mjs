@@ -6,6 +6,7 @@ import {
   estimateMobileInitialTerminalDimensions,
   getTerminalControlCopy,
   getTerminalFitDimensions,
+  getTerminalFitResizeDecision,
   getTerminalViewportLayout,
 } from "./terminalViewModel.ts";
 
@@ -177,6 +178,22 @@ test("fit dimensions clamp to a sensible minimum when viewport is tiny", () => {
     {
       cols: 2,
       rows: 1,
+    },
+  );
+});
+
+test("unchanged auto-fit suppresses only the remote resize frame, not local refresh", () => {
+  assert.deepEqual(
+    getTerminalFitResizeDecision({
+      currentCols: 52,
+      currentRows: 27,
+      nextCols: 52,
+      nextRows: 27,
+      skipIfUnchanged: true,
+    }),
+    {
+      sendResizeFrame: false,
+      refreshLocalSurface: true,
     },
   );
 });

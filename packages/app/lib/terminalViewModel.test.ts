@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getTerminalViewportLayout } from "./terminalViewModel";
+import {
+  getTerminalFitResizeDecision,
+  getTerminalViewportLayout,
+} from "./terminalViewModel";
 
 describe("getTerminalViewportLayout", () => {
   it("shrinks tall immersive terminals to the available height", () => {
@@ -16,5 +19,22 @@ describe("getTerminalViewportLayout", () => {
     expect(layout.frameWidth).toBe(320);
     expect(layout.frameHeight).toBe(360);
     expect(layout.justifyContent).toBe("center");
+  });
+});
+
+describe("getTerminalFitResizeDecision", () => {
+  it("suppresses only the remote resize frame when auto-fit dimensions are unchanged", () => {
+    expect(
+      getTerminalFitResizeDecision({
+        currentCols: 52,
+        currentRows: 27,
+        nextCols: 52,
+        nextRows: 27,
+        skipIfUnchanged: true,
+      }),
+    ).toEqual({
+      sendResizeFrame: false,
+      refreshLocalSurface: true,
+    });
   });
 });

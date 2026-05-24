@@ -38,6 +38,19 @@ interface TerminalFitDimensionsInput {
   minRows?: number;
 }
 
+export interface TerminalFitResizeDecisionInput {
+  currentCols: number;
+  currentRows: number;
+  nextCols: number;
+  nextRows: number;
+  skipIfUnchanged: boolean;
+}
+
+export interface TerminalFitResizeDecision {
+  sendResizeFrame: boolean;
+  refreshLocalSurface: boolean;
+}
+
 interface EstimateInitialTerminalDimensionsOptions {
   cellWidth?: number;
   cellHeight?: number;
@@ -183,5 +196,26 @@ export function getTerminalFitDimensions({
   return {
     cols: nextCols,
     rows: nextRows,
+  };
+}
+
+export function getTerminalFitResizeDecision({
+  currentCols,
+  currentRows,
+  nextCols,
+  nextRows,
+  skipIfUnchanged,
+}: TerminalFitResizeDecisionInput): TerminalFitResizeDecision {
+  const unchanged = currentCols === nextCols && currentRows === nextRows;
+  if (skipIfUnchanged && unchanged) {
+    return {
+      sendResizeFrame: false,
+      refreshLocalSurface: true,
+    };
+  }
+
+  return {
+    sendResizeFrame: true,
+    refreshLocalSurface: true,
   };
 }
