@@ -1145,6 +1145,7 @@ export function TerminalCanvas() {
                       key={t.id}
                       terminal={t}
                       isController={isMachineController(t.machine_id)}
+                      previewEnabled={!workspaceTerminal}
                       workpathLabel={
                         workpathLabelByMachineAndCwd.get(
                           `${t.machine_id}::${t.cwd}`,
