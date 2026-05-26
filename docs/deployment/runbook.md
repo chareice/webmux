@@ -104,11 +104,11 @@ Hub and node versions don't need to match exactly. Unknown message types are sil
 ## Database
 
 - **Type:** SQLite
-- **Path (in container):** `/app/data/webmux.db`
+- **Path (in container):** `/app/data/tc.db`
 - **Volume:** `webmux-data` (Docker named volume, persists across container restarts)
 - **Access:**
 ```bash
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; docker exec webmux-server-1 sqlite3 /app/data/webmux.db '.tables'"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; docker exec webmux-server-1 sqlite3 /app/data/tc.db '.tables'"
 ```
 
 ## Common Operations
