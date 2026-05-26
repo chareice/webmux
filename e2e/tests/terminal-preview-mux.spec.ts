@@ -82,6 +82,28 @@ test("visible grid previews share one websocket without mounting xterm renderers
     .toBe(0);
 });
 
+test("grid preview strips terminal control sequences from output", async ({ page }) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+
+  const marker = `PREVIEW_STRIP_OK_${Date.now()}`;
+  const encodedControls =
+    "G1shcBtbPzIwMjY7MSR5G1syMDB+G10wO2lnbm9yZWQgdGl0bGUH";
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/tmp",
+    startupCommand: `\rprintf '${encodedControls}' | base64 -d; printf '%s\\n' "${marker}"`,
+  });
+
+  await expectTerminalCount(page, 1);
+  const card = page.getByTestId(`grid-card-${terminalId}`);
+  await expect(card).toContainText(marker, { timeout: 20_000 });
+  await expect(card).not.toContainText("[!p");
+  await expect(card).not.toContainText("[?2026;1$y");
+  await expect(card).not.toContainText("[200~");
+  await expect(card).not.toContainText("ignored title");
+});
+
 test("zoomed workspace stops background grid preview subscriptions", async ({ page }) => {
   await openApp(page);
   await resetMachineState(page);
