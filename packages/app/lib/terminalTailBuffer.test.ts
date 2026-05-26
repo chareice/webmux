@@ -17,6 +17,12 @@ describe("stripAnsi", () => {
     expect(stripAnsi("a\x1b[2Jb\x1b[Hc")).toBe("abc");
   });
 
+  it("strips CSI sequences with intermediate bytes and non-letter finals", () => {
+    expect(stripAnsi("a\x1b[!pb\x1b[?2026;1$yc\x1b[200~d")).toBe(
+      "abcd",
+    );
+  });
+
   it("strips bare DEC private modes", () => {
     expect(stripAnsi("\x1b[?1003hhello\x1b[?1003l")).toBe("hello");
   });
@@ -78,5 +84,19 @@ describe("TerminalTailBuffer", () => {
     tail.append(new Uint8Array([0xe4, 0xbd]));
     tail.append(new Uint8Array([0xa0, 0xe5, 0xa5, 0xbd, 0x0a]));
     expect(tail.snapshot()).toEqual(["你好"]);
+  });
+
+  it("holds split ANSI control sequences instead of leaking fragments", () => {
+    const tail = new TerminalTailBuffer({ maxLines: 1 });
+    tail.append(enc("\x1b["));
+    tail.append(enc("?2026;1$yready\n"));
+    expect(tail.snapshot()).toEqual(["ready"]);
+  });
+
+  it("holds split OSC sequences instead of leaking title text", () => {
+    const tail = new TerminalTailBuffer({ maxLines: 1 });
+    tail.append(enc("\x1b]0;"));
+    tail.append(enc("temporary title\x07prompt\n"));
+    expect(tail.snapshot()).toEqual(["prompt"]);
   });
 });
