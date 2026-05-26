@@ -2,14 +2,14 @@ import { expect, test } from "@playwright/test";
 
 import {
   createTerminalViaApi,
+  expandTerminalById,
   expectTerminalCount,
   openApp,
-  readTerminalBuffer,
   requestMachineControl,
   resetMachineState,
 } from "./helpers";
 
-test("visible grid previews share one preview websocket", async ({ page }) => {
+test("visible grid previews share one websocket without mounting xterm renderers", async ({ page }) => {
   await openApp(page);
   await resetMachineState(page);
   await requestMachineControl(page);
@@ -54,12 +54,14 @@ test("visible grid previews share one preview websocket", async ({ page }) => {
     .poll(() => previewBinaryFrames, { timeout: 10_000 })
     .toBeGreaterThan(0);
 
-  await expect
-    .poll(() => readTerminalBuffer(page, firstId), { timeout: 20_000 })
-    .toContain(firstMarker);
-  await expect
-    .poll(() => readTerminalBuffer(page, secondId), { timeout: 20_000 })
-    .toContain(secondMarker);
+  await expect(page.getByTestId(`grid-card-${firstId}`)).toContainText(
+    firstMarker,
+    { timeout: 20_000 },
+  );
+  await expect(page.getByTestId(`grid-card-${secondId}`)).toContainText(
+    secondMarker,
+    { timeout: 20_000 },
+  );
 
   expect(
     websocketUrls.filter((url) => url.includes("/ws/terminal-previews")),
@@ -67,4 +69,50 @@ test("visible grid previews share one preview websocket", async ({ page }) => {
   expect(
     websocketUrls.filter((url) => url.includes("/ws/terminal/")),
   ).toHaveLength(0);
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const terminals = (
+          window as unknown as { __webmuxTerminals?: Map<string, unknown> }
+        ).__webmuxTerminals;
+        return terminals?.size ?? 0;
+      }),
+    )
+    .toBe(0);
+});
+
+test("zoomed workspace stops background grid preview subscriptions", async ({ page }) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+
+  let previewSubscribeFrames = 0;
+  let previewUnsubscribeFrames = 0;
+  page.on("websocket", (socket) => {
+    if (!socket.url().includes("/ws/terminal-previews")) return;
+    socket.on("framesent", (frame) => {
+      if (typeof frame.payload !== "string") return;
+      if (frame.payload.includes('"type":"subscribe"')) {
+        previewSubscribeFrames += 1;
+      }
+      if (frame.payload.includes('"type":"unsubscribe"')) {
+        previewUnsubscribeFrames += 1;
+      }
+    });
+  });
+
+  const firstId = await createTerminalViaApi(page, { cwd: "/tmp" });
+  await createTerminalViaApi(page, { cwd: "/tmp" });
+
+  await expectTerminalCount(page, 2);
+  await expect
+    .poll(() => previewSubscribeFrames, { timeout: 10_000 })
+    .toBeGreaterThanOrEqual(2);
+
+  await expandTerminalById(page, firstId);
+
+  await expect
+    .poll(() => previewUnsubscribeFrames, { timeout: 10_000 })
+    .toBeGreaterThanOrEqual(2);
 });

@@ -4,27 +4,27 @@
 //
 // Visual structure (top → bottom):
 //   header:  tint dot · title · short id chip · [ctrl] · expand · close
-//   body:    live preview while the card is inside the viewport
+//   body:    lightweight text preview while the card is inside the viewport
 //   footer:  cwd (~-shortened) + optional workpath tag
 //
 // Click anywhere on the card → onExpand(terminal.id). The close button
 // stops propagation so it doesn't also expand.
 
-import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { Expand, MoreHorizontal, X } from "lucide-react";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
+import { TerminalTailBuffer } from "@/lib/terminalTailBuffer";
 import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
 
-const LiveTerminalView = lazy(() =>
-  import("./TerminalView.web").then((module) => ({
-    default: module.TerminalView,
-  })),
-);
+const PREVIEW_TAIL_LINES = 8;
+const PREVIEW_LINE_PX = 15;
+const PREVIEW_PADDING = 10;
 
 interface TerminalGridCardProps {
   terminal: TerminalInfo;
   isController: boolean;
+  previewEnabled?: boolean;
   workpathLabel?: string;
   onExpand: (id: string) => void;
   onDestroy: (terminal: TerminalInfo) => void;
@@ -34,6 +34,7 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
   const {
     terminal,
     isController,
+    previewEnabled = true,
     workpathLabel,
     onExpand,
     onDestroy,
@@ -41,10 +42,11 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
+  const [tailLines, setTailLines] = useState<string[]>([]);
   const short = terminal.id.slice(0, 8);
   const tintColor = tintForId(terminal.id);
   const previewSource = useTerminalPreviewOutputSource({
-    enabled: terminal.reachable && previewVisible,
+    enabled: terminal.reachable && previewVisible && previewEnabled,
     machineId: terminal.machine_id,
     terminalId: terminal.id,
     cols: terminal.cols,
@@ -53,7 +55,7 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
 
   useEffect(() => {
     const node = rootRef.current;
-    if (!node || !terminal.reachable) {
+    if (!node || !terminal.reachable || !previewEnabled) {
       setPreviewVisible(false);
       return;
     }
@@ -78,7 +80,40 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
     return () => {
       observer.disconnect();
     };
-  }, [terminal.id, terminal.reachable]);
+  }, [previewEnabled, terminal.id, terminal.reachable]);
+
+  useEffect(() => {
+    if (!previewSource) {
+      setTailLines([]);
+      return;
+    }
+
+    const tail = new TerminalTailBuffer({
+      maxLines: PREVIEW_TAIL_LINES,
+      maxLineWidth: 160,
+    });
+    let raf = 0;
+    let pending: string[] | null = null;
+
+    const flush = () => {
+      raf = 0;
+      if (!pending) return;
+      setTailLines(pending);
+      pending = null;
+    };
+
+    const unsubscribe = previewSource.subscribe((chunk) => {
+      pending = tail.append(chunk);
+      if (raf === 0) {
+        raf = requestAnimationFrame(flush);
+      }
+    });
+
+    return () => {
+      if (raf !== 0) cancelAnimationFrame(raf);
+      unsubscribe();
+    };
+  }, [previewSource]);
 
   return (
     <div
@@ -236,33 +271,26 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
         }}
       >
         {terminal.reachable && previewSource ? (
-          <Suspense fallback={null}>
-            <div
-              style={{
-                width: "100%",
-                height: "100%",
-                pointerEvents: "none",
-                overflow: "hidden",
-              }}
-            >
-              <LiveTerminalView
-                machineId={terminal.machine_id}
-                terminalId={terminal.id}
-                outputSource={previewSource}
-                cols={terminal.cols}
-                rows={terminal.rows}
-                displayMode="card"
-                isController={false}
-                canResizeTerminal={false}
-                style={{
-                  transform: "scale(0.35)",
-                  transformOrigin: "top left",
-                  width: "286%",
-                  height: "286%",
-                }}
-              />
-            </div>
-          </Suspense>
+          <pre
+            aria-hidden="true"
+            style={{
+              width: "100%",
+              height: PREVIEW_TAIL_LINES * PREVIEW_LINE_PX + PREVIEW_PADDING * 2,
+              margin: 0,
+              padding: PREVIEW_PADDING,
+              boxSizing: "border-box",
+              overflow: "hidden",
+              color: terminalTheme.foreground,
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              lineHeight: `${PREVIEW_LINE_PX}px`,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              opacity: tailLines.length > 0 ? 1 : 0.4,
+            }}
+          >
+            {tailLines.join("\n")}
+          </pre>
         ) : terminal.reachable ? (
           <div
             style={{
