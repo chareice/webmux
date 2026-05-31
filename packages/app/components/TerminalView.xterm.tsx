@@ -964,8 +964,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const onTouchMove = (e: TouchEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        if (e.touches[0]) {
-          const currentY = e.touches[0].clientY;
+        const touch = e.touches[0];
+        if (touch) {
+          const currentY = touch.clientY;
           accumulatedDelta += lastTouchY - currentY;
           lastTouchY = currentY;
           const lines = Math.trunc(accumulatedDelta / lineHeight);
@@ -976,6 +977,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
                 vp.dispatchEvent(
                   new WheelEvent("wheel", {
                     deltaY: lines > 0 ? lineHeight : -lineHeight,
+                    clientX: touch.clientX,
+                    clientY: touch.clientY,
+                    screenX: touch.screenX,
+                    screenY: touch.screenY,
                     bubbles: true,
                     cancelable: true,
                   }),

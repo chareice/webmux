@@ -1,4 +1,5 @@
 import { test, expect, devices } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import {
   createWorkspaceGroupViaApi,
@@ -193,6 +194,51 @@ test("mobile terminal switch does not focus the new terminal automatically", asy
     .toBe(false);
 });
 
+test("mobile touch drag sends terminal scroll input", async ({ page }) => {
+  const inputFrames: string[] = [];
+  page.on("websocket", (socket) => {
+    if (!socket.url().includes("/ws/terminal/")) return;
+    socket.on("framesent", (frame) => {
+      if (typeof frame.payload !== "string") return;
+      const payload = JSON.parse(frame.payload) as
+        | { type: "input"; data: string }
+        | { type: string };
+      if (payload.type === "input") {
+        inputFrames.push(payload.data);
+      }
+    });
+  });
+
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    startupCommand: "sleep 600",
+  });
+
+  await page.getByTestId(`mobile-term-card-${terminalId}`).click();
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+  await expect.poll(() => hasXtermInstance(page, terminalId)).toBe(true);
+
+  inputFrames.length = 0;
+  await dispatchTerminalTouchDrag(page);
+  const terminalSize = await getXtermSize(page, terminalId);
+  const expectedCol = Math.round(terminalSize.cols / 2);
+  const expectedRow = Math.round(terminalSize.rows / 2);
+
+  await expect
+    .poll(() => {
+      const frame = inputFrames.map(parseWheelMouseFrame).find(Boolean);
+      if (!frame) return false;
+      return (
+        Math.abs(frame.col - expectedCol) <= 2 &&
+        Math.abs(frame.row - expectedRow) <= 2
+      );
+    })
+    .toBe(true);
+});
+
 test("mobile workspace has direct terminal close and group switching", async ({
   page,
 }) => {
@@ -363,6 +409,87 @@ async function setPageVisibility(
     });
     document.dispatchEvent(new Event("visibilitychange"));
   }, visibilityState);
+}
+
+async function hasXtermInstance(
+  page: Page,
+  terminalId: string,
+): Promise<boolean> {
+  return page.evaluate((tid) => {
+    const map = (
+      window as unknown as {
+        __webmuxTerminals?: Map<string, unknown>;
+      }
+    ).__webmuxTerminals;
+    return map?.has(tid) ?? false;
+  }, terminalId);
+}
+
+async function getXtermSize(
+  page: Page,
+  terminalId: string,
+): Promise<{ cols: number; rows: number }> {
+  return page.evaluate((tid) => {
+    const map = (
+      window as unknown as {
+        __webmuxTerminals?: Map<string, { cols: number; rows: number }>;
+      }
+    ).__webmuxTerminals;
+    const term = map?.get(tid);
+    return { cols: term?.cols ?? 0, rows: term?.rows ?? 0 };
+  }, terminalId);
+}
+
+async function dispatchTerminalTouchDrag(page: Page): Promise<void> {
+  await getImmersiveTerminal(page)
+    .locator(".xterm-screen")
+    .evaluate((screen) => {
+      const rect = screen.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const startY = rect.top + rect.height * 0.65;
+      const endY = rect.top + rect.height * 0.35;
+
+      function dispatch(
+        type: "touchstart" | "touchmove" | "touchend",
+        y: number,
+      ) {
+        const touch = new Touch({
+          identifier: 1,
+          target: screen,
+          clientX: x,
+          clientY: y,
+          pageX: x,
+          pageY: y,
+          screenX: x,
+          screenY: y,
+        });
+        screen.dispatchEvent(
+          new TouchEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            touches: type === "touchend" ? [] : [touch],
+            targetTouches: type === "touchend" ? [] : [touch],
+            changedTouches: [touch],
+          }),
+        );
+      }
+
+      dispatch("touchstart", startY);
+      dispatch("touchmove", (startY + endY) / 2);
+      dispatch("touchmove", endY);
+      dispatch("touchend", endY);
+    });
+}
+
+function parseWheelMouseFrame(
+  data: string,
+): { col: number; row: number } | null {
+  const match = /\x1b\[<(?:64|65);(\d+);(\d+)M/.exec(data);
+  if (!match) return null;
+  return {
+    col: Number(match[1]),
+    row: Number(match[2]),
+  };
 }
 
 async function terminalHasKeyboardFocus(
