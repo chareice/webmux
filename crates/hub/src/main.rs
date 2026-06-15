@@ -5,12 +5,14 @@ mod machine_manager;
 mod routes;
 mod ws;
 
+use axum::http::{header, HeaderValue};
+use axum::{http::StatusCode, routing::any};
 use clap::Parser;
 use std::sync::Arc;
+use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
-
-use axum::{http::StatusCode, routing::any};
+use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::attach_router::HubRouter;
 use crate::db::DbPool;
@@ -89,8 +91,15 @@ async fn main() {
         .route("/api/{*path}", any(api_not_found))
         .layer(CorsLayer::permissive())
         .fallback_service(
-            ServeDir::new(&args.static_dir)
-                .fallback(ServeFile::new(format!("{}/index.html", args.static_dir))),
+            ServiceBuilder::new()
+                .layer(SetResponseHeaderLayer::if_not_present(
+                    header::CACHE_CONTROL,
+                    cache_control_for_static,
+                ))
+                .service(
+                    ServeDir::new(&args.static_dir)
+                        .fallback(ServeFile::new(format!("{}/index.html", args.static_dir))),
+                ),
         )
         .with_state(state);
 
@@ -98,6 +107,22 @@ async fn main() {
 
     tracing::info!("Hub running on http://{}", args.listen);
     axum::serve(listener, app).await.unwrap();
+}
+
+fn cache_control_for_static<B>(res: &http::Response<B>) -> Option<HeaderValue> {
+    let content_type = res.headers().get(header::CONTENT_TYPE)?.to_str().ok()?;
+    let directive = if content_type.starts_with("text/html") {
+        // HTML entry point must always be fresh so clients pick up new hashed assets.
+        "no-cache, no-store, must-revalidate"
+    } else if content_type.starts_with("application/javascript")
+        || content_type.starts_with("text/css")
+    {
+        // Hashed assets never change; cache forever.
+        "public, max-age=31536000, immutable"
+    } else {
+        "public, max-age=3600"
+    };
+    HeaderValue::from_str(directive).ok()
 }
 
 async fn api_not_found() -> StatusCode {
