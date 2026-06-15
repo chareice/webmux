@@ -47,6 +47,7 @@ export interface TerminalViewProps {
   cols: number;
   rows: number;
   displayMode?: "card" | "immersive";
+  allowTerminalScale?: boolean;
   isController?: boolean;
   canResizeTerminal?: boolean;
   onTitleChange?: (title: string) => void;

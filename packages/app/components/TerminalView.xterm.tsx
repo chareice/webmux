@@ -234,6 +234,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     cols,
     rows,
     displayMode = "immersive",
+    allowTerminalScale = true,
     isController,
     canResizeTerminal,
     onTitleChange,
@@ -1158,6 +1159,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       viewportHeight: viewportSize.height,
       contentWidth: surfaceSize.width,
       contentHeight: surfaceSize.height,
+      allowScale: allowTerminalScale,
     });
 
     return (

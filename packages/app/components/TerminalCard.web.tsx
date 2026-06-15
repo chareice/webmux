@@ -413,6 +413,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                   cols={terminal.cols}
                   rows={terminal.rows}
                   displayMode={isTab ? "immersive" : "card"}
+                  allowTerminalScale={!isTab || isMobile}
                   isController={isController}
                   canResizeTerminal={isTab && isController}
                   style={
