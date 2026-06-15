@@ -10,7 +10,6 @@ import {
   getAuthHeaders,
   getDeviceId,
   getImmersiveTerminal,
-  getTerminalCards,
   getTerminalViewJustify,
   getTerminalViewScale,
   listTerminals,
@@ -57,7 +56,7 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
 
   // Mobile is in view-only mode — tap the card to open the fullscreen
   // mobile terminal view (ExpandedTerminal in isMobile mode).
-  const mobileCard = mobilePage.locator("[data-testid^='grid-card-']:visible, [data-testid^='mobile-term-card-']").first();
+  const mobileCard = mobilePage.locator("[data-testid^='mobile-term-card-']:visible").first();
   await expect(mobileCard).toBeVisible();
   await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
@@ -113,7 +112,7 @@ test("terminal can be manually fitted by whichever device currently holds contro
 
   await openApp(mobilePage);
   // Tap the mobile card → opens fullscreen overlay.
-  const mobileCard = mobilePage.locator("[data-testid^='grid-card-']:visible, [data-testid^='mobile-term-card-']").first();
+  const mobileCard = mobilePage.locator("[data-testid^='mobile-term-card-']:visible").first();
   await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
@@ -155,7 +154,7 @@ test("terminal can be manually fitted by whichever device currently holds contro
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
     "control",
   );
-  await getTerminalCards(desktopPage).first().click();
+  await expandOnlyTerminal(desktopPage);
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
 
   // Desktop is controller again → terminal fits back to desktop dims when requested.

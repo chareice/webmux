@@ -28,12 +28,11 @@ test("workspace tabs persist user grouping while workpaths only choose launch cw
   const homeTerminalId = await createTerminalViaApi(page, { cwd: "/root" });
   const tmpTerminalId = await createTerminalViaApi(page, { cwd: "/tmp" });
 
-  await expect(page.getByTestId(`grid-card-${homeTerminalId}`)).toBeVisible();
-  await expect(page.getByTestId(`grid-card-${tmpTerminalId}`)).toBeVisible();
-
-  await expandTerminalById(page, homeTerminalId);
   await expect(workspaceGroup(page, "root")).toBeVisible();
   await expect(workspaceGroup(page, "tmp")).toBeVisible();
+
+  await expandTerminalById(page, homeTerminalId);
+  await expect(page.getByTestId(`workspace-pane-${homeTerminalId}`)).toBeVisible();
 
   const agentsLabel = `Agents-${Date.now()}`;
   page.once("dialog", async (dialog) => {
@@ -228,7 +227,7 @@ test("deleting a workspace tab keeps terminals open and clears their group", asy
     .toMatchObject({ workspace_group_id: null });
 });
 
-test("closing the last pane in a workspace tab keeps the empty group open", async ({
+test("closing the last pane returns to the empty workbench state", async ({
   page,
 }) => {
   await openApp(page);
@@ -247,14 +246,11 @@ test("closing the last pane in a workspace tab keeps the empty group open", asyn
   await expandTerminalById(page, terminalId);
   await page.getByTestId(`expanded-thumb-close-${terminalId}`).click();
 
-  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
-  await expect(page.getByTestId(`workspace-group-${group.id}`)).toBeVisible();
-  await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
-  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(0);
+  await expect(page.getByText(/No terminals/)).toBeVisible();
   await expect.poll(async () => (await listTerminals(page)).length).toBe(0);
 });
 
-test("workspace close shortcut keeps an empty cwd group open", async ({
+test("workspace close shortcut returns to the empty workbench state", async ({
   page,
 }) => {
   await openApp(page);
@@ -267,10 +263,7 @@ test("workspace close shortcut keeps an empty cwd group open", async ({
   await expect(page.getByTestId(`workspace-pane-${terminalId}`)).toBeVisible();
   await page.keyboard.press("Control+W");
 
-  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
-  await expect(workspaceGroup(page, "root")).toBeVisible();
-  await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
-  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(0);
+  await expect(page.getByText(/No terminals/)).toBeVisible();
   await expect.poll(async () => (await listTerminals(page)).length).toBe(0);
 });
 
@@ -347,10 +340,7 @@ test("confirming close for a busy cwd pane keeps an empty cwd group open", async
     .click();
 
   await expect.poll(async () => (await listTerminals(page)).length).toBe(0);
-  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
-  await expect(workspaceGroup(page, "root")).toBeVisible();
-  await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
-  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(0);
+  await expect(page.getByText(/No terminals/)).toBeVisible();
 });
 
 test("hovering a workspace group tab switches to that group", async ({ page }) => {
@@ -472,7 +462,7 @@ test("workspace shortcuts switch groups with a custom binding", async ({
 test("settings can record workspace shortcut bindings", async ({ page }) => {
   await openApp(page);
 
-  await page.getByTestId("rail-open-settings").click();
+  await page.getByTestId("workbench-open-settings").click();
   const recorder = page.getByTestId("workspace-shortcut-recorder-groupNext");
   await recorder.click();
   await page.keyboard.press("Control+Alt+KeyG");
@@ -487,7 +477,7 @@ test("settings can record workspace shortcut bindings", async ({ page }) => {
 test("settings reject duplicate workspace shortcut bindings", async ({ page }) => {
   await openApp(page);
 
-  await page.getByTestId("rail-open-settings").click();
+  await page.getByTestId("workbench-open-settings").click();
   const recorder = page.getByTestId("workspace-shortcut-recorder-groupNext");
   await recorder.click();
   await page.keyboard.press("Control+ArrowLeft");

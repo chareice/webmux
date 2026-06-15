@@ -5,7 +5,6 @@ import {
   createTerminalViaApi,
   expandOnlyTerminal,
   expandTerminalById,
-  expectSingleTerminalCard,
   getAuthHeaders,
   getDeviceId,
   getImmersiveTerminal,
@@ -101,9 +100,8 @@ test("terminal size stays stable across overlay and cross-device handoff until f
   // same ExpandedTerminal component in full-bleed mode, then renders the
   // immersive TerminalCard inside).
   await openApp(mobilePage);
-  const mobileCard = await expectSingleTerminalCard(mobilePage);
-  // On mobile the grid card IS the MobileTermCard — tapping it dispatches
-  // ZOOM_TERMINAL and opens the overlay.
+  const mobileCard = mobilePage.locator("[data-testid^='mobile-term-card-']:visible").first();
+  await expect(mobileCard).toBeVisible();
   await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
@@ -157,7 +155,8 @@ test("mobile controller can resize the shared pty with Fit to Window", async ({
 
   // Mobile opens same terminal; desktop releases control so mobile can fit.
   await openApp(mobilePage);
-  const mobileCard = await expectSingleTerminalCard(mobilePage);
+  const mobileCard = mobilePage.locator("[data-testid^='mobile-term-card-']:visible").first();
+  await expect(mobileCard).toBeVisible();
   await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
@@ -240,7 +239,8 @@ test("Fit to Window updates the local terminal size before resize output can arr
   await mobileTakeControl(page);
   const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
   await page.getByRole("button", { name: "Terminals" }).click();
-  const mobileCard = await expectSingleTerminalCard(page);
+  const mobileCard = page.locator("[data-testid^='mobile-term-card-']:visible").first();
+  await expect(mobileCard).toBeVisible();
   // Opening the mobile overlay auto-fits the terminal as the controller —
   // the contract this test guards is that the local terminal size moves
   // in lockstep with the resize frame the client sends, never lagging

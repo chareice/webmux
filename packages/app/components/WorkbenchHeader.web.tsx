@@ -1,27 +1,38 @@
 // Workbench header (design-refresh).
-// Replaces OverviewHeader + TabStrip with a single responsive row:
-//   [rail-toggle?] breadcrumb | Controlling pill | CPU/MEM/TERM chips
-//   | New terminal (⌘N) | Stop Control
+// Single responsive row:
+//   Host switcher | scope | Controlling pill | CPU/MEM/TERM chips
+//   | Settings | New terminal (⌘N) | Stop Control
 // Below ~1180px it collapses to two rows (stats + controlling on row 1,
 // actions on row 2). Below ~820px the stat sparklines disappear and
 // button labels drop to icons-only.
 
 import { memo, useMemo } from "react";
-import type { ResourceStats } from "@webmux/shared";
-import { Plus, Square } from "lucide-react";
+import type {
+  MachineInfo,
+  ResourceStats,
+  TerminalInfo,
+} from "@webmux/shared";
+import { Plus, Settings, Square } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
 import { getTerminalControlCopy } from "@/lib/terminalViewModel";
+import { HostSwitcher } from "./HostSwitcher.web";
 
 interface WorkbenchHeaderProps {
   scopeLabel: string;
-  hostName: string;
+  machines: MachineInfo[];
+  activeMachineId: string | null;
+  controlLeases: Record<string, string>;
+  deviceId: string | null;
+  machineStats: Record<string, ResourceStats>;
+  terminals: TerminalInfo[];
   isController: boolean;
   terminalCount: number;
   stats: ResourceStats | undefined;
   viewportWidth: number;
   canCreateTerminal: boolean;
-  railOpen: boolean;
-  onOpenRail: () => void;
+  onSelectMachine: (id: string) => void;
+  onOpenSettings: () => void;
+  onOpenAddMachine?: () => void;
   onNewTerminal?: () => void;
   onReleaseControl?: () => void;
   onRequestControl?: () => void;
@@ -30,14 +41,20 @@ interface WorkbenchHeaderProps {
 function WorkbenchHeaderComponent(props: WorkbenchHeaderProps) {
   const {
     scopeLabel,
-    hostName,
+    machines,
+    activeMachineId,
+    controlLeases,
+    deviceId,
+    machineStats,
+    terminals,
     isController,
     terminalCount,
     stats,
     viewportWidth,
     canCreateTerminal,
-    railOpen,
-    onOpenRail,
+    onSelectMachine,
+    onOpenSettings,
+    onOpenAddMachine,
     onNewTerminal,
     onReleaseControl,
     onRequestControl,
@@ -71,34 +88,44 @@ function WorkbenchHeaderComponent(props: WorkbenchHeaderProps) {
           flex: compact ? "0 0 auto" : "initial",
         }}
       >
-        {!railOpen && (
-          <button
-            onClick={onOpenRail}
-            title="Open sidebar"
-            aria-label="Open sidebar"
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 6,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: colors.fg2,
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            <Chevron right size={14} />
-          </button>
-        )}
+        <HostSwitcher
+          machines={machines}
+          activeMachineId={activeMachineId}
+          controlLeases={controlLeases}
+          deviceId={deviceId}
+          machineStats={machineStats}
+          terminals={terminals}
+          onSelectMachine={onSelectMachine}
+          onAddMachine={onOpenAddMachine}
+        />
 
-        <Breadcrumb host={hostName} scope={scopeLabel} />
+        <span
+          style={{
+            height: 18,
+            width: 1,
+            background: colors.line,
+            flexShrink: 0,
+          }}
+        />
+
+        <span
+          style={{
+            color: colors.fg3,
+            fontSize: 12,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {scopeLabel}
+        </span>
 
         {!tight && (
           <span
-            style={{ height: 18, width: 1, background: colors.line, flexShrink: 0 }}
+            style={{
+              height: 18,
+              width: 1,
+              background: colors.line,
+              flexShrink: 0,
+            }}
           />
         )}
         {!tight && <ControllingPill isController={isController} />}
@@ -128,6 +155,28 @@ function WorkbenchHeaderComponent(props: WorkbenchHeaderProps) {
       >
         {tight && <ControllingPill isController={isController} />}
         <div style={{ flex: compact ? 0 : "initial" }} />
+
+        <button
+          data-testid="workbench-open-settings"
+          onClick={onOpenSettings}
+          title="Settings"
+          aria-label="Settings"
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 7,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: colors.fg2,
+            background: "none",
+            border: `1px solid ${colors.lineSoft}`,
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+        >
+          <Settings size={14} />
+        </button>
 
         {canCreateTerminal && onNewTerminal && (
           <button
@@ -209,37 +258,6 @@ function WorkbenchHeaderComponent(props: WorkbenchHeaderProps) {
 export const WorkbenchHeader = memo(WorkbenchHeaderComponent);
 
 /* ---------- Subcomponents ---------- */
-
-function Breadcrumb({ host, scope }: { host: string; scope: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        minWidth: 0,
-      }}
-    >
-      <span
-        style={{ color: colors.fg3, fontSize: 12, whiteSpace: "nowrap" }}
-      >
-        {host}
-      </span>
-      <span style={{ color: colors.fg3 }}>/</span>
-      <span
-        style={{
-          fontWeight: 600,
-          color: colors.fg0,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-      >
-        {scope}
-      </span>
-    </div>
-  );
-}
 
 function ControllingPill({ isController }: { isController: boolean }) {
   if (isController) {
@@ -393,26 +411,6 @@ function Kbd({ children }: { children: React.ReactNode }) {
     >
       {children}
     </kbd>
-  );
-}
-
-function Chevron({ right, size = 14 }: { right?: boolean; size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ display: "block" }}
-    >
-      <polyline
-        points={right ? "9 6 15 12 9 18" : "15 6 9 12 15 18"}
-      />
-    </svg>
   );
 }
 

@@ -34,7 +34,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { AppTitleBar } from "./AppTitleBar.web";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
@@ -1055,17 +1054,14 @@ function TerminalWorkspaceComponent({
     <div
       data-testid="expanded-terminal"
       style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 50,
+        flex: 1,
+        minHeight: 0,
         background: terminalTheme.background,
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        animation: "webmuxFadeIn 140ms ease-out",
       }}
     >
-      <AppTitleBar isMobile={false} />
       <div
         style={{
           flex: 1,
