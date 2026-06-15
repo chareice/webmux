@@ -4,7 +4,6 @@ import type { Page } from "@playwright/test";
 import {
   createWorkspaceGroupViaApi,
   createTerminalViaApi,
-  expectSingleTerminalCard,
   getImmersiveTerminal,
   listTerminals,
   listWorkspaceGroupsViaApi,
@@ -149,7 +148,8 @@ test("mobile terminal only focuses after an explicit input gesture", async ({
   await resetMachineState(page);
   await requestMachineControl(page);
   await createTerminalViaApi(page);
-  const card = await expectSingleTerminalCard(page);
+  const card = page.locator("[data-testid^='mobile-term-card-']:visible").first();
+  await expect(card).toBeVisible();
   await card.click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
@@ -351,7 +351,8 @@ test("mobile live streams reconnect after returning from background", async ({
   await resetMachineState(page);
   await requestMachineControl(page);
   await createTerminalViaApi(page);
-  const card = await expectSingleTerminalCard(page);
+  const card = page.locator("[data-testid^='mobile-term-card-']:visible").first();
+  await expect(card).toBeVisible();
   await card.click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 

@@ -18,16 +18,14 @@ import type {
   WorkspaceScrollableLayout,
 } from "@webmux/shared";
 import { AppTitleBar } from "./AppTitleBar.web";
-import { Rail } from "./Rail.web";
 import { WorkbenchHeader } from "./WorkbenchHeader.web";
-import { TerminalGridCard } from "./TerminalGridCard.web";
 import { TerminalWorkspace } from "./TerminalWorkspace.web";
 import { MobileWorkbench } from "./MobileWorkbench.web";
+import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { Terminal as TerminalIcon } from "lucide-react";
 import {
   createBookmark,
   createTerminal,
-  deleteBookmark,
   destroyTerminal,
   checkForegroundProcess,
   createWorkspaceGroup,
@@ -201,21 +199,13 @@ export function TerminalCanvas() {
   const rootHeight: string =
     viewportHeight !== null ? `${viewportHeight}px` : "100dvh";
 
-  const tight = viewportWidth < 820;
-  // Desktop rail: open by default, auto-collapsed in tight mode so it doesn't
-  // steal content width. Tapping the open-rail chevron in the header reopens.
-  const [railOpen, setRailOpen] = useState(!tight);
-  useEffect(() => {
-    setRailOpen(!tight);
-  }, [tight]);
-
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [addMachineOpen, setAddMachineOpen] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
-  const [addDirectoryOpen, setAddDirectoryOpen] = useState(false);
   const lastSeqRef = useRef(0);
   const keepWorkspaceOpenDestroyedTerminalIdsRef = useRef(new Set<string>());
   const [workspaceAnchorTerminal, setWorkspaceAnchorTerminal] =
@@ -543,26 +533,23 @@ export function TerminalCanvas() {
   const expandedTerminal = layout.zoomedTerminalId
     ? terminals.find((t) => t.id === layout.zoomedTerminalId) ?? null
     : null;
-  const workspaceTerminal =
-    expandedTerminal ??
-    (layout.zoomedTerminalId &&
-    workspaceAnchorTerminal?.machine_id === activeMachine?.id
-      ? workspaceAnchorTerminal
-      : null);
+  const workspaceTerminal = useMemo(() => {
+    if (expandedTerminal) return expandedTerminal;
+    if (workspaceAnchorTerminal?.machine_id === activeMachine?.id)
+      return workspaceAnchorTerminal;
+    return scopedTerminals[0] ?? null;
+  }, [
+    expandedTerminal,
+    workspaceAnchorTerminal,
+    activeMachine,
+    scopedTerminals,
+  ]);
 
   useEffect(() => {
     if (expandedTerminal) {
       setWorkspaceAnchorTerminal(expandedTerminal);
-    } else if (!layout.zoomedTerminalId) {
-      setWorkspaceAnchorTerminal(null);
     }
-  }, [expandedTerminal, layout.zoomedTerminalId]);
-
-  const workpathLabelByMachineAndCwd = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const bm of bookmarks) m.set(`${bm.machine_id}::${bm.path}`, bm.label);
-    return m;
-  }, [bookmarks]);
+  }, [expandedTerminal]);
 
   const handleCreateTerminal = useCallback(
     async (
@@ -914,20 +901,6 @@ export function TerminalCanvas() {
     [],
   );
 
-  const handleRemoveBookmark = useCallback(
-    async (id: string) => {
-      setBookmarks((prev) => prev.filter((b) => b.id !== id));
-      dispatchLayout({ type: "WORKPATH_DELETED", workpathId: id });
-      if (id.startsWith("local-")) return;
-      try {
-        await deleteBookmark(id);
-      } catch {
-        /* optimistic removal */
-      }
-    },
-    [],
-  );
-
   const handleSelectWorkpathByIndex = useCallback(
     (index: number) => {
       if (index === 0) {
@@ -965,7 +938,6 @@ export function TerminalCanvas() {
     },
     selectAll: () => handleSelectWorkpath("all"),
     selectTab: handleSelectWorkpathByIndex,
-    toggleNav: () => setRailOpen((v) => !v),
   });
 
   // Esc unzooms the expanded view, unless focus is inside xterm (which needs
@@ -989,7 +961,15 @@ export function TerminalCanvas() {
 
   // ---- render ----
 
-  const scopeLabel = "All";
+  const scopeLabel = useMemo(() => {
+    if (layout.selectedWorkpathId === "all" || !activeMachine) return "All";
+    return (
+      bookmarks.find(
+        (b) =>
+          b.id === layout.selectedWorkpathId && b.machine_id === activeMachine.id,
+      )?.label ?? "All"
+    );
+  }, [layout.selectedWorkpathId, activeMachine, bookmarks]);
 
   return (
     <div
@@ -1042,50 +1022,6 @@ export function TerminalCanvas() {
               onOpenSettings={() => setShowSettings(true)}
             />
           ) : (
-            <>
-              {/* Rail (drawer on tight screens) */}
-              {railOpen && (
-                <Rail
-                  width={tight ? Math.min(viewportWidth - 40, 260) : 248}
-                  machines={machines}
-                  activeMachineId={activeMachineId}
-                  controlLeases={controlLeases}
-                  deviceId={deviceId}
-                  machineStats={machineStats}
-                  bookmarks={bookmarks}
-                  terminals={terminals}
-                  selectedWorkpathId={layout.selectedWorkpathId}
-                  canCreateTerminal={isActiveController}
-                  addDirectoryOpen={addDirectoryOpen}
-                  onSelectMachine={(id) => {
-                    setActiveMachineId(id);
-                    if (tight) setRailOpen(false);
-                  }}
-                  onSelectWorkpath={(id) => {
-                    handleSelectWorkpath(id);
-                    if (tight) setRailOpen(false);
-                  }}
-                  onOpenAddDirectory={() => setAddDirectoryOpen(true)}
-                  onCloseAddDirectory={() => setAddDirectoryOpen(false)}
-                  onConfirmAddDirectory={handleConfirmAddDirectory}
-                  onRemoveBookmark={handleRemoveBookmark}
-                  onOpenSettings={() => setShowSettings(true)}
-                  onCollapse={() => setRailOpen(false)}
-                />
-              )}
-              {tight && railOpen && (
-                <div
-                  onClick={() => setRailOpen(false)}
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    background: "rgba(0, 0, 0, 0.4)",
-                    zIndex: 5,
-                  }}
-                />
-              )}
-
-            {/* Main — header + grid */}
             <main
               style={{
                 flex: 1,
@@ -1097,14 +1033,20 @@ export function TerminalCanvas() {
             >
               <WorkbenchHeader
                 scopeLabel={scopeLabel}
-                hostName={activeMachine?.name ?? "webmux"}
+                machines={machines}
+                activeMachineId={activeMachineId}
+                controlLeases={controlLeases}
+                deviceId={deviceId}
+                machineStats={machineStats}
+                terminals={terminals}
                 isController={isActiveController}
                 terminalCount={scopedTerminals.length}
                 stats={activeStats}
                 viewportWidth={viewportWidth}
                 canCreateTerminal={isActiveController}
-                railOpen={railOpen}
-                onOpenRail={() => setRailOpen(true)}
+                onSelectMachine={setActiveMachineId}
+                onOpenSettings={() => setShowSettings(true)}
+                onOpenAddMachine={() => setAddMachineOpen(true)}
                 onNewTerminal={
                   isActiveController ? handleNewTerminalFromHeader : undefined
                 }
@@ -1127,40 +1069,67 @@ export function TerminalCanvas() {
                   onNewTerminal={handleNewTerminalFromHeader}
                 />
               ) : (
-                <div
-                  data-testid="workbench-grid"
-                  style={{
-                    flex: 1,
-                    overflow: "auto",
-                    padding: 14,
-                    display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fill, minmax(340px, 1fr))",
-                    gridAutoRows: "minmax(220px, 38vh)",
-                    gap: 12,
-                  }}
-                >
-                  {scopedTerminals.map((t) => (
-                    <TerminalGridCard
-                      key={t.id}
-                      terminal={t}
-                      isController={isMachineController(t.machine_id)}
-                      previewEnabled={!workspaceTerminal}
-                      workpathLabel={
-                        workpathLabelByMachineAndCwd.get(
-                          `${t.machine_id}::${t.cwd}`,
-                        )
-                      }
-                      onExpand={handleZoomTerminal}
-                      onDestroy={handleDestroyTerminal}
-                    />
-                  ))}
-                </div>
+                <TerminalWorkspace
+                  terminal={workspaceTerminal!}
+                  siblings={
+                    scopedTerminals.length > 0
+                      ? scopedTerminals
+                      : workspaceTerminal
+                        ? [workspaceTerminal]
+                        : []
+                  }
+                  workspaceGroups={activeMachineWorkspaceGroups}
+                  workspaceLayouts={activeMachineWorkspaceLayouts}
+                  isController={isMachineController(workspaceTerminal!.machine_id)}
+                  deviceId={deviceId ?? ""}
+                  isMobile={isMobile}
+                  onClose={handleUnzoom}
+                  onPick={handleZoomTerminal}
+                  onDestroy={handleDestroyTerminal}
+                  onSplit={handleSplitWorkspacePane}
+                  onCreatePane={handleCreateWorkspacePane}
+                  onCreateGroup={handleCreateWorkspaceGroup}
+                  onReorderGroups={handleReorderWorkspaceGroups}
+                  onDeleteGroup={handleDeleteWorkspaceGroup}
+                  onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
+                  onAssignGroup={handleAssignWorkspaceGroup}
+                  onRequestControl={handleRequestControl}
+                  onReleaseControl={handleReleaseControl}
+                />
               )}
             </main>
-          </>
-        )}
+          )}
         </div>
+
+        {isMobile && layout.zoomedTerminalId && workspaceTerminal && (
+          <TerminalWorkspace
+            terminal={workspaceTerminal}
+            siblings={
+              scopedTerminals.length > 0
+                ? scopedTerminals
+                : workspaceTerminal
+                  ? [workspaceTerminal]
+                  : []
+            }
+            workspaceGroups={activeMachineWorkspaceGroups}
+            workspaceLayouts={activeMachineWorkspaceLayouts}
+            isController={isMachineController(workspaceTerminal.machine_id)}
+            deviceId={deviceId ?? ""}
+            isMobile={true}
+            onClose={handleUnzoom}
+            onPick={handleZoomTerminal}
+            onDestroy={handleDestroyTerminal}
+            onSplit={handleSplitWorkspacePane}
+            onCreatePane={handleCreateWorkspacePane}
+            onCreateGroup={handleCreateWorkspaceGroup}
+            onReorderGroups={handleReorderWorkspaceGroups}
+            onDeleteGroup={handleDeleteWorkspaceGroup}
+            onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
+            onAssignGroup={handleAssignWorkspaceGroup}
+            onRequestControl={handleRequestControl}
+            onReleaseControl={handleReleaseControl}
+          />
+        )}
 
         {statusBarVisible && machines.length > 0 && (
           <Suspense fallback={null}>
@@ -1177,34 +1146,8 @@ export function TerminalCanvas() {
           </Suspense>
         )}
 
-        {workspaceTerminal && (
-          <TerminalWorkspace
-            terminal={workspaceTerminal}
-            siblings={
-              scopedTerminals.length > 0
-                ? scopedTerminals
-                : expandedTerminal
-                  ? [expandedTerminal]
-                  : []
-            }
-            workspaceGroups={activeMachineWorkspaceGroups}
-            workspaceLayouts={activeMachineWorkspaceLayouts}
-            isController={isMachineController(workspaceTerminal.machine_id)}
-            deviceId={deviceId ?? ""}
-            isMobile={isMobile}
-            onClose={handleUnzoom}
-            onPick={handleZoomTerminal}
-            onDestroy={handleDestroyTerminal}
-            onSplit={handleSplitWorkspacePane}
-            onCreatePane={handleCreateWorkspacePane}
-            onCreateGroup={handleCreateWorkspaceGroup}
-            onReorderGroups={handleReorderWorkspaceGroups}
-            onDeleteGroup={handleDeleteWorkspaceGroup}
-            onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
-            onAssignGroup={handleAssignWorkspaceGroup}
-            onRequestControl={handleRequestControl}
-            onReleaseControl={handleReleaseControl}
-          />
+        {addMachineOpen && (
+          <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
         )}
 
         {closeConfirmation && (

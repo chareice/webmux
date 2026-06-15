@@ -1,12 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
 const MACHINE_ID = "e2e-node";
-// The workbench grid puts `grid-card-<id>` on each card. The mobile shell's
-// Terminals tab puts `mobile-term-card-<id>` instead. Both are "one card per
-// terminal" so tests can treat them as interchangeable for counting and
-// clicking.
-const TERMINAL_CARD_SELECTOR =
-  "[data-testid^='grid-card-'], [data-testid^='mobile-term-card-']";
 
 async function authenticate(page: Page): Promise<void> {
   const response = await page.request.get("/api/auth/dev");
@@ -24,7 +18,7 @@ async function authenticate(page: Page): Promise<void> {
 
 /**
  * Open the app, authenticate, and wait for the new workbench shell to be
- * ready. Works for both desktop (Rail + WorkbenchHeader) and mobile
+ * ready. Works for both desktop (WorkbenchHeader + workspace) and mobile
  * (MobileWorkbench) layouts.
  */
 export async function openApp(page: Page): Promise<void> {
@@ -196,12 +190,13 @@ export async function releaseControlFromHeader(page: Page): Promise<void> {
 }
 
 export async function selectAllWorkpath(page: Page): Promise<void> {
-  await page.getByTestId("rail-workpath-all").click();
+  // The desktop rail was removed; the default scope is already "all".
+  void page;
 }
 
 export async function selectHomeWorkpath(page: Page): Promise<void> {
-  // The fallback bookmark id for every machine is "local-home".
-  await page.getByTestId("rail-workpath-local-home").click();
+  // The desktop rail was removed; new terminals default to the home directory.
+  void page;
 }
 
 /**
@@ -267,21 +262,11 @@ export async function listWorkspaceGroupsViaApi(
   return response.json();
 }
 
-export async function expectSingleTerminalCard(page: Page): Promise<Locator> {
-  const cards = getTerminalCards(page);
-  await expect(cards).toHaveCount(1);
-  return cards.first();
-}
-
-export function getTerminalCards(page: Page): Locator {
-  return page.locator(`${TERMINAL_CARD_SELECTOR}`).and(page.locator(":visible"));
-}
-
 export async function expectTerminalCount(
   page: Page,
   count: number,
 ): Promise<void> {
-  await expect(getTerminalCards(page)).toHaveCount(count);
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(count);
 }
 
 export function getExpandedOverlay(page: Page): Locator {
@@ -289,23 +274,32 @@ export function getExpandedOverlay(page: Page): Locator {
 }
 
 export function getImmersiveTerminal(page: Page): Locator {
-  // The TerminalCard in `tab` display mode (used inside the ExpandedTerminal
-  // overlay) carries a `data-terminal-display-mode="immersive"` marker via
+  // The TerminalCard in `tab` display mode (used inside the workspace)
+  // carries a `data-terminal-display-mode="immersive"` marker via
   // TerminalView.web.
   return page.locator("[data-terminal-display-mode='immersive']").first();
 }
 
+async function focusTerminalByHash(page: Page, terminalId: string): Promise<void> {
+  await page.evaluate((id) => {
+    window.history.pushState(null, "", `#/t/${id}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, terminalId);
+}
+
 /**
- * Open the expanded overlay for the only (or first) terminal in the current
- * grid. If the overlay is already open, just return its immersive locator.
+ * Ensure the workspace is focused on the only (or first) terminal.
+ * The workspace is now always visible when terminals exist, so this just
+ * makes sure the correct terminal is active.
  */
 export async function expandOnlyTerminal(page: Page): Promise<Locator> {
   const immersive = getImmersiveTerminal(page);
   if (await immersive.isVisible().catch(() => false)) {
     return immersive;
   }
-  const card = await expectSingleTerminalCard(page);
-  await card.click();
+  const terminals = await listTerminals(page);
+  expect(terminals.length).toBeGreaterThan(0);
+  await focusTerminalByHash(page, terminals[0].id);
   await expect(getExpandedOverlay(page)).toBeVisible();
   await expect(immersive).toBeVisible();
   return immersive;
@@ -315,14 +309,15 @@ export async function expandTerminalById(
   page: Page,
   terminalId: string,
 ): Promise<Locator> {
-  await page.locator(`[data-testid='grid-card-${terminalId}']:visible`).click();
+  await focusTerminalByHash(page, terminalId);
   await expect(getExpandedOverlay(page)).toBeVisible();
   return getImmersiveTerminal(page);
 }
 
 export async function closeExpandedOverlay(page: Page): Promise<void> {
+  // The workspace is no longer an overlay, so "close" just clears the zoom
+  // hash and resets focus to the default terminal.
   await page.getByTestId("expanded-close").click();
-  await expect(getExpandedOverlay(page)).toHaveCount(0);
 }
 
 export async function getTerminalViewScale(page: Page): Promise<number> {

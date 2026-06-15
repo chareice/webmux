@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import expandedTerminalSource from "./ExpandedTerminal.web.tsx?raw";
 import terminalCardSource from "./TerminalCard.web.tsx?raw";
-import terminalGridCardSource from "./TerminalGridCard.web.tsx?raw";
 import source from "./TerminalView.xterm.tsx?raw";
 
 const globalCss = readFileSync(new URL("../global.css", import.meta.url), "utf8");
@@ -31,11 +30,7 @@ describe("TerminalView renderer", () => {
   });
 
   it("keeps terminal previews on the plain text renderer", () => {
-    for (const previewSource of [
-      terminalCardSource,
-      terminalGridCardSource,
-      expandedTerminalSource,
-    ]) {
+    for (const previewSource of [terminalCardSource, expandedTerminalSource]) {
       expect(previewSource).toContain("TerminalPreviewText");
       expect(previewSource).not.toContain("outputSource=");
       expect(previewSource).not.toContain("allowTerminalScale");
