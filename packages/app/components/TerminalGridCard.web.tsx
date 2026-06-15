@@ -14,8 +14,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import type { TerminalInfo } from "@webmux/shared";
 import { Expand, MoreHorizontal, X } from "lucide-react";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
-import { TerminalTailBuffer } from "@/lib/terminalTailBuffer";
-import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
+import { TerminalPreviewText } from "./TerminalPreviewText.web";
 
 const PREVIEW_TAIL_LINES = 8;
 const PREVIEW_LINE_PX = 15;
@@ -42,16 +41,8 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
-  const [tailLines, setTailLines] = useState<string[]>([]);
   const short = terminal.id.slice(0, 8);
   const tintColor = tintForId(terminal.id);
-  const previewSource = useTerminalPreviewOutputSource({
-    enabled: terminal.reachable && previewVisible && previewEnabled,
-    machineId: terminal.machine_id,
-    terminalId: terminal.id,
-    cols: terminal.cols,
-    rows: terminal.rows,
-  });
 
   useEffect(() => {
     const node = rootRef.current;
@@ -81,39 +72,6 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
       observer.disconnect();
     };
   }, [previewEnabled, terminal.id, terminal.reachable]);
-
-  useEffect(() => {
-    if (!previewSource) {
-      setTailLines([]);
-      return;
-    }
-
-    const tail = new TerminalTailBuffer({
-      maxLines: PREVIEW_TAIL_LINES,
-      maxLineWidth: 160,
-    });
-    let raf = 0;
-    let pending: string[] | null = null;
-
-    const flush = () => {
-      raf = 0;
-      if (!pending) return;
-      setTailLines(pending);
-      pending = null;
-    };
-
-    const unsubscribe = previewSource.subscribe((chunk) => {
-      pending = tail.append(chunk);
-      if (raf === 0) {
-        raf = requestAnimationFrame(flush);
-      }
-    });
-
-    return () => {
-      if (raf !== 0) cancelAnimationFrame(raf);
-      unsubscribe();
-    };
-  }, [previewSource]);
 
   return (
     <div
@@ -270,44 +228,18 @@ function TerminalGridCardComponent(props: TerminalGridCardProps) {
           justifyContent: "center",
         }}
       >
-        {terminal.reachable && previewSource ? (
-          <pre
-            aria-hidden="true"
-            style={{
-              width: "100%",
-              height: PREVIEW_TAIL_LINES * PREVIEW_LINE_PX + PREVIEW_PADDING * 2,
-              margin: 0,
-              padding: PREVIEW_PADDING,
-              boxSizing: "border-box",
-              overflow: "hidden",
-              color: terminalTheme.foreground,
-              fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              lineHeight: `${PREVIEW_LINE_PX}px`,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              opacity: tailLines.length > 0 ? 1 : 0.4,
-            }}
-          >
-            {tailLines.join("\n")}
-          </pre>
-        ) : terminal.reachable ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 6,
-              padding: "0 20px",
-              textAlign: "center",
-              color: colors.fg3,
-            }}
-          >
-            <span style={{ fontSize: 12, fontWeight: 600 }}>
-              Live preview paused
-            </span>
-          </div>
-        ) : null}
+        <TerminalPreviewText
+          machineId={terminal.machine_id}
+          terminalId={terminal.id}
+          cols={terminal.cols}
+          rows={terminal.rows}
+          reachable={terminal.reachable}
+          enabled={previewVisible && previewEnabled}
+          maxLines={PREVIEW_TAIL_LINES}
+          maxLineWidth={160}
+          lineHeightPx={PREVIEW_LINE_PX}
+          padding={PREVIEW_PADDING}
+        />
         <div
           style={{
             position: "absolute",

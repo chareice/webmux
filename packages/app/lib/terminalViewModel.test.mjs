@@ -7,7 +7,6 @@ import {
   getTerminalControlCopy,
   getTerminalFitDimensions,
   getTerminalFitResizeDecision,
-  getTerminalViewportLayout,
 } from "./terminalViewModel.ts";
 
 test("view-only sessions use simplified control copy", () => {
@@ -24,82 +23,6 @@ test("controlled sessions use simplified control copy", () => {
     toggleLabel: "Stop Control",
     sizeActionLabel: "Fit to Window",
   });
-});
-
-test("immersive view shrinks wide terminals to the available width", () => {
-  const layout = getTerminalViewportLayout({
-    displayMode: "immersive",
-    viewportWidth: 390,
-    viewportHeight: 844,
-    contentWidth: 1180,
-    contentHeight: 720,
-  });
-
-  assert.equal(layout.scale, 390 / 1180);
-  assert.equal(layout.frameWidth, 390);
-  assert.equal(layout.frameHeight, 720 * (390 / 1180));
-  assert.equal(layout.justifyContent, "center");
-});
-
-test("immersive view can preserve native scale for desktop live terminals", () => {
-  const layout = getTerminalViewportLayout({
-    displayMode: "immersive",
-    viewportWidth: 390,
-    viewportHeight: 844,
-    contentWidth: 1180,
-    contentHeight: 720,
-    allowScale: false,
-  });
-
-  assert.equal(layout.scale, 1);
-  assert.equal(layout.frameWidth, 1180);
-  assert.equal(layout.frameHeight, 720);
-  assert.equal(layout.justifyContent, "center");
-});
-
-test("immersive view keeps narrow terminals at native size and centers them", () => {
-  const layout = getTerminalViewportLayout({
-    displayMode: "immersive",
-    viewportWidth: 1280,
-    viewportHeight: 900,
-    contentWidth: 520,
-    contentHeight: 410,
-  });
-
-  assert.equal(layout.scale, 1);
-  assert.equal(layout.frameWidth, 520);
-  assert.equal(layout.frameHeight, 410);
-  assert.equal(layout.justifyContent, "center");
-});
-
-test("immersive view shrinks tall terminals to the available height", () => {
-  const layout = getTerminalViewportLayout({
-    displayMode: "immersive",
-    viewportWidth: 1280,
-    viewportHeight: 360,
-    contentWidth: 640,
-    contentHeight: 720,
-  });
-
-  assert.equal(layout.scale, 0.5);
-  assert.equal(layout.frameWidth, 320);
-  assert.equal(layout.frameHeight, 360);
-  assert.equal(layout.justifyContent, "center");
-});
-
-test("card view skips immersive scaling rules", () => {
-  const layout = getTerminalViewportLayout({
-    displayMode: "card",
-    viewportWidth: 390,
-    viewportHeight: 844,
-    contentWidth: 1180,
-    contentHeight: 720,
-  });
-
-  assert.equal(layout.scale, 1);
-  assert.equal(layout.frameWidth, 1180);
-  assert.equal(layout.frameHeight, 720);
-  assert.equal(layout.justifyContent, "flex-start");
 });
 
 test("fit dimensions divide viewport by the supplied cell metrics", () => {

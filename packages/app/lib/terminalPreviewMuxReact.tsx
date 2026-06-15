@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 
-import type { TerminalOutputSource } from "@/components/TerminalView.types";
 import { terminalPreviewsWsUrl } from "@/lib/api";
 import {
   createTerminalPreviewSubscriptionRegistry,
@@ -40,6 +39,10 @@ interface UseTerminalPreviewOutputSourceOptions {
   terminalId: string;
   cols: number;
   rows: number;
+}
+
+export interface TerminalOutputSource {
+  subscribe: (onChunk: (chunk: Uint8Array) => void) => () => void;
 }
 
 const TerminalPreviewMuxContext =

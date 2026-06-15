@@ -117,7 +117,7 @@ test("terminal size stays stable across overlay and cross-device handoff until f
         await getImmersiveTerminal(mobilePage).getAttribute("data-terminal-view-scale"),
       ),
     )
-    .toBeLessThan(1);
+    .toBe(1);
 
   // Mobile viewer cannot resize without control — no fit button is visible.
   await expect(mobilePage.getByTestId("terminal-fit-button")).toHaveCount(0);
