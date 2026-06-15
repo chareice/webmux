@@ -115,6 +115,7 @@ fn cache_control_for_static<B>(res: &http::Response<B>) -> Option<HeaderValue> {
         // HTML entry point must always be fresh so clients pick up new hashed assets.
         "no-cache, no-store, must-revalidate"
     } else if content_type.starts_with("application/javascript")
+        || content_type.starts_with("text/javascript")
         || content_type.starts_with("text/css")
     {
         // Hashed assets never change; cache forever.
