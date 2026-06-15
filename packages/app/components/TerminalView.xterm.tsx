@@ -10,7 +10,6 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
@@ -683,11 +682,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       termRef.current = term;
       fitRef.current = fit;
 
-      // Expose the Terminal instance for Playwright E2E tests. xterm's WebGL
-      // renderer paints text to canvas, so `.xterm-rows` in the DOM is empty.
-      // Tests read content via `term.buffer.active.getLine(i).translateToString`
-      // through this map. Gated behind localStorage("webmux:e2e")==="1" so
-      // production builds never expose live xterm internals on window.
+      // Expose the Terminal instance for Playwright E2E tests. Renderer DOM
+      // shape is not stable across xterm versions, so tests read content via
+      // `term.buffer.active.getLine(i).translateToString` through this map.
+      // Gated behind localStorage("webmux:e2e")==="1" so production builds
+      // never expose live xterm internals on window.
       if (
         typeof window !== "undefined" &&
         typeof localStorage !== "undefined" &&
@@ -701,26 +700,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }
         winAny.__webmuxTerminals.set(terminalId, term);
       }
-
-      // Wait two frames so the browser fully resolves the detected font
-      // before WebGL builds its glyph texture atlas (avoids black-box glyphs).
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (!container.isConnected || termRef.current !== term) return;
-
-          let webgl: WebglAddon | null = null;
-          try {
-            webgl = new WebglAddon();
-            webgl.onContextLoss(() => {
-              webgl?.dispose();
-            });
-            term.loadAddon(webgl);
-            scheduleMeasure();
-          } catch {
-            webgl?.dispose();
-          }
-        });
-      });
 
       // Forward terminal input to the current WebSocket
       term.onData((data) => {
