@@ -19,6 +19,7 @@ interface TerminalViewportLayoutInput {
   viewportHeight: number;
   contentWidth: number;
   contentHeight: number;
+  allowScale?: boolean;
 }
 
 interface TerminalFitDimensionsInput {
@@ -87,9 +88,11 @@ export function getTerminalViewportLayout({
   viewportHeight,
   contentWidth,
   contentHeight,
+  allowScale = true,
 }: TerminalViewportLayoutInput): TerminalViewportLayout {
   if (
     displayMode !== "immersive" ||
+    !allowScale ||
     viewportWidth <= 0 ||
     contentWidth <= 0 ||
     contentHeight <= 0
@@ -98,7 +101,7 @@ export function getTerminalViewportLayout({
       scale: 1,
       frameWidth: Math.max(contentWidth, 0),
       frameHeight: Math.max(contentHeight, 0),
-      justifyContent: "flex-start",
+      justifyContent: displayMode === "immersive" ? "center" : "flex-start",
     };
   }
 

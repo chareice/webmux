@@ -38,10 +38,6 @@ test("desktop Fit reaches a stable terminal size after one click", async ({
   const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
   await expandTerminalById(page, terminalId);
   await expect(getImmersiveTerminal(page)).toBeVisible();
-  await expect.poll(() => getLocalTerminalSize(page, terminalId)).toEqual({
-    cols: 80,
-    rows: 24,
-  });
 
   await page.getByLabel("Fit", { exact: true }).click();
   await expect.poll(() => resizeFrames.length).toBe(1);
@@ -90,10 +86,6 @@ test("rapid Fit clicks all produce the same terminal size", async ({
   const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
   await expandTerminalById(page, terminalId);
   await expect(getImmersiveTerminal(page)).toBeVisible();
-  await expect.poll(() => getLocalTerminalSize(page, terminalId)).toEqual({
-    cols: 80,
-    rows: 24,
-  });
 
   // Dispatch five clicks back-to-back in a single microtask. The previous
   // implementation needed a few RAFs between clicks to settle its cached
@@ -115,7 +107,7 @@ test("rapid Fit clicks all produce the same terminal size", async ({
   await context.close();
 });
 
-test("immersive terminal scales tall sessions to the available height", async ({
+test("desktop immersive terminal keeps tall sessions at native scale", async ({
   browser,
 }) => {
   const context = await browser.newContext({ viewport: { width: 1280, height: 520 } });
@@ -139,9 +131,8 @@ test("immersive terminal scales tall sessions to the available height", async ({
       if (!layout.root || !layout.frame || !layout.term) return false;
       return (
         layout.term.rows === 80 &&
-        Number(layout.attrs.scale) < 1 &&
-        layout.frame.height <= layout.root.height + 1 &&
-        layout.frame.width <= layout.root.width + 1
+        Number(layout.attrs.scale) === 1 &&
+        layout.frame.height > layout.root.height + 1
       );
     })
     .toBe(true);

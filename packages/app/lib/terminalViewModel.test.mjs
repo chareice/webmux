@@ -41,6 +41,22 @@ test("immersive view shrinks wide terminals to the available width", () => {
   assert.equal(layout.justifyContent, "center");
 });
 
+test("immersive view can preserve native scale for desktop live terminals", () => {
+  const layout = getTerminalViewportLayout({
+    displayMode: "immersive",
+    viewportWidth: 390,
+    viewportHeight: 844,
+    contentWidth: 1180,
+    contentHeight: 720,
+    allowScale: false,
+  });
+
+  assert.equal(layout.scale, 1);
+  assert.equal(layout.frameWidth, 1180);
+  assert.equal(layout.frameHeight, 720);
+  assert.equal(layout.justifyContent, "center");
+});
+
 test("immersive view keeps narrow terminals at native size and centers them", () => {
   const layout = getTerminalViewportLayout({
     displayMode: "immersive",

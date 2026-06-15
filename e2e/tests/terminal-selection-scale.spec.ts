@@ -10,7 +10,7 @@ import {
   takeControlFromHeader,
 } from "./helpers";
 
-test("scaled immersive terminal selection maps pointer coordinates to visible cells", async ({
+test("desktop immersive terminal selection maps pointer coordinates to visible cells", async ({
   browser,
 }) => {
   const context = await browser.newContext({
@@ -37,7 +37,7 @@ test("scaled immersive terminal selection maps pointer coordinates to visible ce
     .toContain(marker);
 
   const layout = await readScaledTerminalLayout(page);
-  expect(layout.scale).toBeLessThan(1);
+  expect(layout.scale).toBe(1);
 
   const targetText = marker.slice(0, 20);
   const start = cellPoint(layout, 0.1, 0.5);

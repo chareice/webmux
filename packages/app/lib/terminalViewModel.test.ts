@@ -6,6 +6,22 @@ import {
 } from "./terminalViewModel";
 
 describe("getTerminalViewportLayout", () => {
+  it("keeps immersive terminals at native scale when scaling is disabled", () => {
+    const layout = getTerminalViewportLayout({
+      displayMode: "immersive",
+      viewportWidth: 1280,
+      viewportHeight: 360,
+      contentWidth: 640,
+      contentHeight: 720,
+      allowScale: false,
+    });
+
+    expect(layout.scale).toBe(1);
+    expect(layout.frameWidth).toBe(640);
+    expect(layout.frameHeight).toBe(720);
+    expect(layout.justifyContent).toBe("center");
+  });
+
   it("shrinks tall immersive terminals to the available height", () => {
     const layout = getTerminalViewportLayout({
       displayMode: "immersive",
