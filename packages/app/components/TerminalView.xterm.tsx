@@ -357,6 +357,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         letterSpacing: 0,
         fontFamily,
         allowTransparency: false,
+        // Use the selected font for block/box glyphs. xterm's custom canvas
+        // glyphs make progress bars look chunky compared with native terminals.
+        customGlyphs: false,
         rescaleOverlappingGlyphs: true,
         theme: terminalTheme,
         cursorBlink: true,
