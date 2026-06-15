@@ -10,7 +10,7 @@ import {
   takeControlFromHeader,
 } from "./helpers";
 
-test("live terminal renders block glyphs through the configured font", async ({
+test("live terminal keeps xterm glyphs for progress blocks", async ({
   page,
 }) => {
   await openApp(page);
@@ -30,7 +30,11 @@ test("live terminal renders block glyphs through the configured font", async ({
 
   await expect
     .poll(async () => readCustomGlyphsOption(page, terminalId))
-    .toBe(false);
+    .toBe(true);
+
+  await expect
+    .poll(async () => readVisibleXtermScrollbarCount(page), { timeout: 5_000 })
+    .toBe(0);
 });
 
 async function readCustomGlyphsOption(
@@ -84,4 +88,24 @@ async function readTerminalLine(
     },
     { tid: terminalId, rowIndex: row },
   );
+}
+
+async function readVisibleXtermScrollbarCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    return Array.from(
+      document.querySelectorAll(
+        "[data-terminal-display-mode='immersive'] .xterm .xterm-scrollable-element > .scrollbar",
+      ),
+    ).filter((element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity) > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    }).length;
+  });
 }
