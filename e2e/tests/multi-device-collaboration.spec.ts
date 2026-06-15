@@ -73,7 +73,7 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
 
   await expect
     .poll(async () => getTerminalViewScale(mobilePage))
-    .toBeLessThan(1);
+    .toBe(1);
   await expect
     .poll(async () => listTerminals(mobilePage))
     .toEqual([desktopSizedTerminal]);
@@ -168,7 +168,7 @@ test("terminal can be manually fitted by whichever device currently holds contro
     .not.toEqual(mobileSizedTerminal);
   await expect
     .poll(async () => getTerminalViewScale(mobilePage))
-    .toBeLessThan(1);
+    .toBe(1);
 
   await desktop.close();
   await mobile.close();

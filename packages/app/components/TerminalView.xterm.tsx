@@ -13,14 +13,9 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
-import { createOrderedBinaryOutputQueue } from "@/lib/orderedBinaryOutput.mjs";
-import { createTerminalReconnectController } from "@/lib/terminalReconnect";
-import { buildResizeMessage } from "@/lib/terminalResize";
-import {
-  getTerminalFitResizeDecision,
-  getTerminalFitDimensions,
-  getTerminalViewportLayout,
-} from "@/lib/terminalViewModel";
+import { measureTerminalSurface } from "./terminalXtermMetrics";
+import { useTerminalFitController } from "./useTerminalFitController";
+import { useTerminalLiveSocket } from "./useTerminalLiveSocket";
 import { terminalTheme } from "@/lib/colors";
 import {
   shouldSendClipboardImagePaste,
@@ -47,91 +42,7 @@ import { resolveTerminalFontFamily } from "@/lib/terminalFonts";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
-const FIT_RETRY_LIMIT = 10;
-const FIT_RETRY_DELAY_MS = 100;
 const TERMINAL_SCROLL_SENSITIVITY = 6;
-
-function measureTerminalSurface(
-  container: HTMLDivElement | null,
-): { width: number; height: number } {
-  if (!container) {
-    return { width: 0, height: 0 };
-  }
-
-  const screen = container.querySelector(".xterm-screen") as HTMLElement | null;
-  const width = Math.max(
-    screen?.scrollWidth ?? 0,
-    screen?.clientWidth ?? 0,
-    container.scrollWidth,
-    container.clientWidth,
-  );
-  const height = Math.max(
-    screen?.scrollHeight ?? 0,
-    screen?.clientHeight ?? 0,
-    container.scrollHeight,
-    container.clientHeight,
-  );
-
-  return { width, height };
-}
-
-// Read xterm's true CSS cell size from the renderer. Going through this
-// private path (also what `@xterm/addon-fit` uses internally) is the only
-// way to avoid the surface-measurement race: cell size depends on font
-// and zoom, never on cols/rows, so it's a stable input for fit math even
-// when the rendered surface hasn't repainted yet after a resize.
-interface CellMetrics {
-  width: number;
-  height: number;
-}
-type TerminalWithRenderService = Terminal & {
-  _core?: {
-    _renderService?: {
-      dimensions?: {
-        css?: {
-          cell?: { width?: number; height?: number };
-        };
-      };
-    };
-  };
-};
-function readXtermCellMetrics(term: Terminal): CellMetrics | null {
-  const cell = (term as TerminalWithRenderService)._core?._renderService
-    ?.dimensions?.css?.cell;
-  if (!cell) return null;
-  const { width, height } = cell;
-  if (
-    typeof width !== "number" ||
-    typeof height !== "number" ||
-    !Number.isFinite(width) ||
-    !Number.isFinite(height) ||
-    width <= 0 ||
-    height <= 0
-  ) {
-    return null;
-  }
-  return { width, height };
-}
-
-interface XtermMouseService {
-  getCoords: (
-    event: { clientX: number; clientY: number },
-    element: HTMLElement,
-    colCount: number,
-    rowCount: number,
-    isSelection?: boolean,
-  ) => [number, number] | undefined;
-  getMouseReportCoords: (
-    event: MouseEvent,
-    element: HTMLElement,
-  ) => { col: number; row: number; x: number; y: number } | undefined;
-}
-
-type TerminalWithMouseService = Terminal & {
-  _core?: {
-    _mouseService?: XtermMouseService;
-  };
-};
 
 function formatErr(err: unknown): string {
   if (err == null) return "unknown";
@@ -164,65 +75,6 @@ function showCopyDiagnostic(message: string): void {
   window.setTimeout(() => div.remove(), 8000);
 }
 
-function getUnscaledMouseEvent<T extends { clientX: number; clientY: number }>(
-  event: T,
-  element: HTMLElement,
-): T | { clientX: number; clientY: number } {
-  const rect = element.getBoundingClientRect();
-  const layoutWidth = element.clientWidth || element.offsetWidth;
-  const layoutHeight = element.clientHeight || element.offsetHeight;
-  const scaleX = layoutWidth > 0 ? rect.width / layoutWidth : 1;
-  const scaleY = layoutHeight > 0 ? rect.height / layoutHeight : 1;
-  const hasScaledX = Number.isFinite(scaleX) && Math.abs(scaleX - 1) > 0.001;
-  const hasScaledY = Number.isFinite(scaleY) && Math.abs(scaleY - 1) > 0.001;
-
-  if (!hasScaledX && !hasScaledY) return event;
-
-  return {
-    clientX: hasScaledX
-      ? rect.left + (event.clientX - rect.left) / scaleX
-      : event.clientX,
-    clientY: hasScaledY
-      ? rect.top + (event.clientY - rect.top) / scaleY
-      : event.clientY,
-  };
-}
-
-function patchScaledMouseCoordinates(term: Terminal): () => void {
-  const mouseService = (term as TerminalWithMouseService)._core?._mouseService;
-  if (!mouseService) return () => {};
-
-  const originalGetCoords = mouseService.getCoords.bind(mouseService);
-  const originalGetMouseReportCoords =
-    mouseService.getMouseReportCoords.bind(mouseService);
-
-  mouseService.getCoords = (
-    event,
-    element,
-    colCount,
-    rowCount,
-    isSelection,
-  ) =>
-    originalGetCoords(
-      getUnscaledMouseEvent(event, element),
-      element,
-      colCount,
-      rowCount,
-      isSelection,
-    );
-
-  mouseService.getMouseReportCoords = (event, element) =>
-    originalGetMouseReportCoords(
-      getUnscaledMouseEvent(event, element) as MouseEvent,
-      element,
-    );
-
-  return () => {
-    mouseService.getCoords = originalGetCoords;
-    mouseService.getMouseReportCoords = originalGetMouseReportCoords;
-  };
-}
-
 export type { TerminalViewRef, TerminalViewProps };
 
 export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
@@ -230,11 +82,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     machineId,
     terminalId,
     wsUrl,
-    outputSource,
     cols,
     rows,
     displayMode = "immersive",
-    allowTerminalScale = true,
     isController,
     canResizeTerminal,
     onTitleChange,
@@ -248,14 +98,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const isControllerRef = useRef(isController ?? true);
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
-    const fitRetryTimerRef = useRef<number | null>(null);
     const recentClipboardImagePasteRef =
       useRef<ImagePasteDedupeRecord | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
     const [sessionGeneration, setSessionGeneration] = useState(0);
     const viewportSizeRef = useRef(viewportSize);
-    const surfaceSizeRef = useRef(surfaceSize);
 
     useEffect(() => {
       isControllerRef.current = isController ?? true;
@@ -289,7 +137,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           : nextSurfaceSize,
       );
       viewportSizeRef.current = nextViewportSize;
-      surfaceSizeRef.current = nextSurfaceSize;
     }, []);
 
     const scheduleMeasure = useCallback(() => {
@@ -441,144 +288,16 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
     }, []);
 
-    const clearFitRetryTimer = useCallback(() => {
-      if (fitRetryTimerRef.current !== null) {
-        window.clearTimeout(fitRetryTimerRef.current);
-        fitRetryTimerRef.current = null;
-      }
-    }, []);
-
-    const stabilizeTerminalSurface = useCallback(
-      (term: Terminal) => {
-        try {
-          term.clearTextureAtlas();
-        } catch {
-          /* ignore */
-        }
-
-        const refresh = () => {
-          if (termRef.current !== term) return;
-          term.refresh(0, Math.max(term.rows - 1, 0));
-          scheduleMeasure();
-        };
-
-        refresh();
-        requestAnimationFrame(() => {
-          refresh();
-          requestAnimationFrame(refresh);
-        });
-      },
-      [scheduleMeasure],
-    );
-
-    const resizeLocalTerminal = useCallback(
-      (nextCols: number, nextRows: number) => {
-        const term = termRef.current;
-        if (!term) return;
-        if (term.cols === nextCols && term.rows === nextRows) {
-          stabilizeTerminalSurface(term);
-          return;
-        }
-        try {
-          term.resize(nextCols, nextRows);
-          stabilizeTerminalSurface(term);
-        } catch {
-          /* ignore */
-        }
-      },
-      [stabilizeTerminalSurface],
-    );
-
-    const fitToContainer = useCallback(
-      (
-        opts: { attempt?: number; skipIfUnchanged?: boolean } = {},
-      ) => {
-        const attempt = opts.attempt ?? 0;
-        const skipIfUnchanged = opts.skipIfUnchanged ?? false;
-        const scheduleRetry = () => {
-          if (attempt >= FIT_RETRY_LIMIT) return;
-          clearFitRetryTimer();
-          fitRetryTimerRef.current = window.setTimeout(() => {
-            fitRetryTimerRef.current = null;
-            fitToContainer({ attempt: attempt + 1, skipIfUnchanged });
-          }, FIT_RETRY_DELAY_MS);
-        };
-
-        const fit = fitRef.current;
-        const liveWs = wsRef.current;
-        if (!isControllerRef.current || !canResizeTerminalRef.current) return;
-        if (liveWs?.readyState !== WebSocket.OPEN) {
-          scheduleRetry();
-          return;
-        }
-
-        try {
-          const term = termRef.current;
-          let nextDims: { cols: number; rows: number } | null;
-          if (displayMode === "immersive") {
-            // Immersive: divide the unscaled viewport by xterm's true cell
-            // size. Skip until the renderer has actually computed cell
-            // metrics (right after construction the values can be 0).
-            const cellMetrics = term ? readXtermCellMetrics(term) : null;
-            if (!cellMetrics) {
-              scheduleRetry();
-              return;
-            }
-            nextDims = getTerminalFitDimensions({
-              viewportWidth: viewportSizeRef.current.width,
-              viewportHeight: viewportSizeRef.current.height,
-              cellWidth: cellMetrics.width,
-              cellHeight: cellMetrics.height,
-            });
-          } else {
-            // Card mode: parent element is sized to 100% of its container,
-            // so xterm's bundled FitAddon does the right thing.
-            if (!fit) {
-              scheduleRetry();
-              return;
-            }
-            fit.fit();
-            nextDims = fit.proposeDimensions() ?? null;
-          }
-
-          const resizeMessage = buildResizeMessage(nextDims);
-          if (!resizeMessage) {
-            scheduleRetry();
-            return;
-          }
-          clearFitRetryTimer();
-          // Auto-fit callers (mobile entry) pass skipIfUnchanged so a
-          // terminal that was already opened at the right size doesn't
-          // get a redundant resize frame. Manual Fit clicks default to
-          // always-send, which existing desktop fit-stability tests rely
-          // on (they count frames per click).
-          if (skipIfUnchanged) {
-            const live = termRef.current;
-            if (!live) {
-              return;
-            }
-            const decision = getTerminalFitResizeDecision({
-              currentCols: live.cols,
-              currentRows: live.rows,
-              nextCols: resizeMessage.cols,
-              nextRows: resizeMessage.rows,
-              skipIfUnchanged,
-            });
-            if (!decision.sendResizeFrame) {
-              if (decision.refreshLocalSurface) stabilizeTerminalSurface(live);
-              return;
-            }
-          }
-          liveWs.send(JSON.stringify(resizeMessage));
-          resizeLocalTerminal(resizeMessage.cols, resizeMessage.rows);
-        } catch {
-          scheduleRetry();
-        }
-      },
-      [clearFitRetryTimer, displayMode, resizeLocalTerminal, stabilizeTerminalSurface],
-    );
-
-    useEffect(() => clearFitRetryTimer, [clearFitRetryTimer]);
+    const { fitToContainer, resizeLocalTerminal } = useTerminalFitController({
+      termRef,
+      wsRef,
+      fitRef,
+      viewportSizeRef,
+      displayMode,
+      isControllerRef,
+      canResizeTerminalRef,
+      scheduleMeasure,
+    });
 
     // Expose imperative API
     useImperativeHandle(
@@ -669,7 +388,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         }),
       );
       term.open(container);
-      const restoreMouseCoordinates = patchScaledMouseCoordinates(term);
       scheduleMeasure();
 
       // Put xterm into mouse-tracking mode locally instead of relying on the
@@ -960,7 +678,6 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           // otherwise because the map itself was never created.
           winAny.__webmuxTerminals?.delete(terminalId);
         }
-        restoreMouseCoordinates();
         term.dispose();
         if (termRef.current === term) {
           termRef.current = null;
@@ -972,175 +689,14 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Terminal created once on mount
     }, []);
 
-    // Manage WebSocket connection — reconnects without recreating Terminal.
-    // This preserves terminal modes (mouse tracking, alternate screen) across reconnections.
-    useEffect(() => {
-      const term = termRef.current;
-      if (!term || !wsUrl || outputSource) return;
-      let disposed = false;
-
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-      wsRef.current = ws;
-
-      const reconnectController = createTerminalReconnectController<number>({
-        delayMs: 1000,
-        openReadyState: WebSocket.OPEN,
-        onReconnect: () => {
-          if (!disposed) {
-            setSessionGeneration((value) => value + 1);
-          }
-        },
-        schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
-        cancel: (timerId) => window.clearTimeout(timerId),
-      });
-
-      let pendingChunks: Uint8Array[] = [];
-      let pendingBytes = 0;
-      let rafId = 0;
-      const MAX_PENDING = 128 * 1024;
-
-      const flushPending = () => {
-        if (pendingBytes > 0) {
-          const merged = new Uint8Array(pendingBytes);
-          let offset = 0;
-          for (const chunk of pendingChunks) {
-            merged.set(chunk, offset);
-            offset += chunk.length;
-          }
-          term.write(merged);
-          pendingChunks = [];
-          pendingBytes = 0;
-        }
-        rafId = 0;
-      };
-
-      const enqueueOutput = (chunk: Uint8Array) => {
-        pendingChunks.push(chunk);
-        pendingBytes += chunk.length;
-
-        if (pendingBytes >= MAX_PENDING) {
-          if (rafId) {
-            cancelAnimationFrame(rafId);
-            rafId = 0;
-          }
-          flushPending();
-        } else if (!rafId) {
-          rafId = requestAnimationFrame(flushPending);
-        }
-      };
-
-      const orderedOutput = createOrderedBinaryOutputQueue(enqueueOutput);
-
-      ws.onmessage = (event) => {
-        // Text frames are reserved for future control messages from the hub
-        // and ignored today. PTY bytes always arrive as binary.
-        if (typeof event.data === "string") {
-          return;
-        }
-
-        if (event.data instanceof ArrayBuffer) {
-          orderedOutput.push(event.data);
-          return;
-        }
-
-        if (event.data instanceof Blob) {
-          orderedOutput.push(event.data);
-        }
-      };
-
-      const refreshTerminalSurface = () => {
-        term.refresh(0, Math.max(term.rows - 1, 0));
-        scheduleMeasure();
-      };
-
-      const handleVisibilityChange = () => {
-        if (document.visibilityState === "visible") {
-          refreshTerminalSurface();
-        }
-        reconnectController.handleVisibilityChange(
-          document.visibilityState,
-          ws.readyState,
-        );
-      };
-
-      const handlePageShow = () => {
-        refreshTerminalSurface();
-        reconnectController.handleVisibilityChange("visible", ws.readyState);
-      };
-
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-      window.addEventListener("pageshow", handlePageShow);
-
-      ws.onopen = () => {
-        reconnectController.handleSocketOpen();
-        refreshTerminalSurface();
-      };
-
-      ws.onclose = () => {
-        if (disposed) {
-          return;
-        }
-        reconnectController.scheduleReconnect();
-      };
-
-      return () => {
-        disposed = true;
-        reconnectController.cancelReconnect();
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-        window.removeEventListener("pageshow", handlePageShow);
-        if (rafId) cancelAnimationFrame(rafId);
-        ws.onclose = null;
-        ws.close();
-      };
-    }, [outputSource, scheduleMeasure, sessionGeneration, wsUrl]);
-
-    useEffect(() => {
-      const term = termRef.current;
-      if (!term || !outputSource) return;
-
-      let pendingChunks: Uint8Array[] = [];
-      let pendingBytes = 0;
-      let rafId = 0;
-      const MAX_PENDING = 128 * 1024;
-
-      const flushPending = () => {
-        if (pendingBytes > 0) {
-          const merged = new Uint8Array(pendingBytes);
-          let offset = 0;
-          for (const chunk of pendingChunks) {
-            merged.set(chunk, offset);
-            offset += chunk.length;
-          }
-          term.write(merged);
-          pendingChunks = [];
-          pendingBytes = 0;
-        }
-        rafId = 0;
-      };
-
-      const enqueueOutput = (chunk: Uint8Array) => {
-        pendingChunks.push(chunk);
-        pendingBytes += chunk.length;
-
-        if (pendingBytes >= MAX_PENDING) {
-          if (rafId) {
-            cancelAnimationFrame(rafId);
-            rafId = 0;
-          }
-          flushPending();
-        } else if (!rafId) {
-          rafId = requestAnimationFrame(flushPending);
-        }
-      };
-
-      const unsubscribe = outputSource.subscribe(enqueueOutput);
-
-      return () => {
-        unsubscribe();
-        if (rafId) cancelAnimationFrame(rafId);
-      };
-    }, [outputSource]);
+    useTerminalLiveSocket({
+      termRef,
+      wsRef,
+      wsUrl,
+      scheduleMeasure,
+      sessionGeneration,
+      setSessionGeneration,
+    });
 
     useEffect(() => {
       const term = termRef.current;
@@ -1153,29 +709,33 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       scheduleMeasure();
     }, [displayMode, scheduleMeasure]);
 
-    const viewportLayout = getTerminalViewportLayout({
-      displayMode,
-      viewportWidth: viewportSize.width,
-      viewportHeight: viewportSize.height,
-      contentWidth: surfaceSize.width,
-      contentHeight: surfaceSize.height,
-      allowScale: allowTerminalScale,
-    });
+    const liveJustifyContent =
+      displayMode === "immersive" &&
+      surfaceSize.width > 0 &&
+      viewportSize.width >= surfaceSize.width
+        ? "center"
+        : "flex-start";
+    const frameWidth =
+      displayMode === "immersive" && surfaceSize.width > 0
+        ? `${surfaceSize.width}px`
+        : "100%";
+    const frameHeight =
+      displayMode === "immersive" && surfaceSize.height > 0
+        ? `${surfaceSize.height}px`
+        : "100%";
 
     return (
       <div
         ref={viewportRef}
         data-terminal-display-mode={displayMode}
-        data-terminal-view-scale={viewportLayout.scale.toFixed(4)}
-        data-terminal-view-justify={viewportLayout.justifyContent}
+        data-terminal-view-scale="1.0000"
+        data-terminal-view-justify={liveJustifyContent}
         style={{
           width: "100%",
           height: "100%",
           display: "flex",
           justifyContent:
-            displayMode === "immersive"
-              ? viewportLayout.justifyContent
-              : "flex-start",
+            displayMode === "immersive" ? liveJustifyContent : "flex-start",
           alignItems: "flex-start",
           overflow: "hidden",
           ...style,
@@ -1183,43 +743,19 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       >
         <div
           style={{
-            width:
-              displayMode === "immersive" && viewportLayout.frameWidth > 0
-                ? `${viewportLayout.frameWidth}px`
-                : "100%",
-            height:
-              displayMode === "immersive" && viewportLayout.frameHeight > 0
-                ? `${viewportLayout.frameHeight}px`
-                : "100%",
+            width: frameWidth,
+            height: frameHeight,
             flex: "0 0 auto",
           }}
         >
           <div
+            ref={containerRef}
             style={{
-              width:
-                displayMode === "immersive" && surfaceSize.width > 0
-                  ? `${surfaceSize.width}px`
-                  : "100%",
-              height:
-                displayMode === "immersive" && surfaceSize.height > 0
-                  ? `${surfaceSize.height}px`
-                  : "100%",
-              transform:
-                displayMode === "immersive"
-                  ? `scale(${viewportLayout.scale})`
-                  : "none",
-              transformOrigin: "top left",
+              width: displayMode === "immersive" ? undefined : "100%",
+              height: displayMode === "immersive" ? undefined : "100%",
+              display: displayMode === "immersive" ? "inline-block" : "block",
             }}
-          >
-            <div
-              ref={containerRef}
-              style={{
-                width: displayMode === "immersive" ? undefined : "100%",
-                height: displayMode === "immersive" ? undefined : "100%",
-                display: displayMode === "immersive" ? "inline-block" : "block",
-              }}
-            />
-          </div>
+          />
         </div>
       </div>
     );

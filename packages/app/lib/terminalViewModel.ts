@@ -6,22 +6,6 @@ export interface TerminalControlCopy {
   sizeActionLabel: string;
 }
 
-export interface TerminalViewportLayout {
-  scale: number;
-  frameWidth: number;
-  frameHeight: number;
-  justifyContent: "flex-start" | "center";
-}
-
-interface TerminalViewportLayoutInput {
-  displayMode: TerminalDisplayMode;
-  viewportWidth: number;
-  viewportHeight: number;
-  contentWidth: number;
-  contentHeight: number;
-  allowScale?: boolean;
-}
-
 interface TerminalFitDimensionsInput {
   // Available pixel space the rendered terminal must fit into.
   viewportWidth: number;
@@ -79,40 +63,6 @@ export function getTerminalControlCopy(
     modeLabel: isController ? "Controlling" : "Viewing",
     toggleLabel: isController ? "Stop Control" : "Control Here",
     sizeActionLabel: "Fit to Window",
-  };
-}
-
-export function getTerminalViewportLayout({
-  displayMode,
-  viewportWidth,
-  viewportHeight,
-  contentWidth,
-  contentHeight,
-  allowScale = true,
-}: TerminalViewportLayoutInput): TerminalViewportLayout {
-  if (
-    displayMode !== "immersive" ||
-    !allowScale ||
-    viewportWidth <= 0 ||
-    contentWidth <= 0 ||
-    contentHeight <= 0
-  ) {
-    return {
-      scale: 1,
-      frameWidth: Math.max(contentWidth, 0),
-      frameHeight: Math.max(contentHeight, 0),
-      justifyContent: displayMode === "immersive" ? "center" : "flex-start",
-    };
-  }
-
-  const heightScale = viewportHeight > 0 ? viewportHeight / contentHeight : 1;
-  const scale = Math.min(1, viewportWidth / contentWidth, heightScale);
-
-  return {
-    scale,
-    frameWidth: contentWidth * scale,
-    frameHeight: contentHeight * scale,
-    justifyContent: "center",
   };
 }
 

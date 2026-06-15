@@ -35,19 +35,13 @@ export interface SelectionSnapshot {
   fontSize: number;
 }
 
-export interface TerminalOutputSource {
-  subscribe: (onChunk: (chunk: Uint8Array) => void) => () => void;
-}
-
 export interface TerminalViewProps {
   machineId: string;
   terminalId: string;
   wsUrl?: string;
-  outputSource?: TerminalOutputSource | null;
   cols: number;
   rows: number;
   displayMode?: "card" | "immersive";
-  allowTerminalScale?: boolean;
   isController?: boolean;
   canResizeTerminal?: boolean;
   onTitleChange?: (title: string) => void;

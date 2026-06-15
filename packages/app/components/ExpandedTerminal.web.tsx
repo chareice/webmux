@@ -14,19 +14,13 @@
 // mobile key bar, close handling) is unchanged — only the chrome wrapping
 // it is new.
 
-import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { TerminalInfo } from "@webmux/shared";
 import { Expand, X } from "lucide-react";
 import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";
+import { TerminalPreviewText } from "./TerminalPreviewText.web";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
-import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
-
-const LiveTerminalView = lazy(() =>
-  import("./TerminalView.web").then((module) => ({
-    default: module.TerminalView,
-  })),
-);
 
 interface ExpandedTerminalProps {
   terminal: TerminalInfo;
@@ -472,8 +466,6 @@ const PREVIEW_WIDTH = 420;
 const PREVIEW_HEIGHT = 240;
 const PREVIEW_DELAY_MS = 250;
 const PREVIEW_GAP = 10;
-const PREVIEW_SCALE = 0.6;
-const PREVIEW_INNER_PCT = `${100 / PREVIEW_SCALE}%`;
 const VIEWPORT_MARGIN = 8;
 
 type PreviewPlacement = "above" | "below";
@@ -538,14 +530,6 @@ function SiblingThumb({
     }, PREVIEW_DELAY_MS);
     return () => clearTimeout(timer);
   }, [active, isActive, sibling.reachable]);
-
-  const previewSource = useTerminalPreviewOutputSource({
-    enabled: Boolean(preview && sibling.reachable),
-    machineId: sibling.machine_id,
-    terminalId: sibling.id,
-    cols: sibling.cols,
-    rows: sibling.rows,
-  });
 
   const switchLabel = `Switch to terminal ${sibling.title || sibling.id.slice(0, 8)}`;
 
@@ -669,7 +653,6 @@ function SiblingThumb({
         <X size={11} />
       </button>
       {preview &&
-        previewSource &&
         typeof document !== "undefined" &&
         createPortal(
           <div
@@ -691,33 +674,19 @@ function SiblingThumb({
               animation: "webmuxFadeIn 120ms ease-out",
             }}
           >
-            <Suspense fallback={null}>
-              <div
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  pointerEvents: "none",
-                  overflow: "hidden",
-                }}
-              >
-                <LiveTerminalView
-                  machineId={sibling.machine_id}
-                  terminalId={sibling.id}
-                  outputSource={previewSource}
-                  cols={sibling.cols}
-                  rows={sibling.rows}
-                  displayMode="card"
-                  isController={false}
-                  canResizeTerminal={false}
-                  style={{
-                    transform: `scale(${PREVIEW_SCALE})`,
-                    transformOrigin: "top left",
-                    width: PREVIEW_INNER_PCT,
-                    height: PREVIEW_INNER_PCT,
-                  }}
-                />
-              </div>
-            </Suspense>
+            <TerminalPreviewText
+              machineId={sibling.machine_id}
+              terminalId={sibling.id}
+              cols={sibling.cols}
+              rows={sibling.rows}
+              reachable={sibling.reachable}
+              enabled={Boolean(preview)}
+              maxLines={14}
+              maxLineWidth={180}
+              fontSize={11}
+              lineHeightPx={15}
+              padding={12}
+            />
           </div>,
           document.body,
         )}

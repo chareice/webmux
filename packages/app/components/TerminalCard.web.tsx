@@ -3,6 +3,7 @@ import type { TerminalInfo } from "@webmux/shared";
 import { X } from "lucide-react";
 import type { TerminalViewRef, SelectionSnapshot } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
+import { TerminalPreviewText } from "./TerminalPreviewText.web";
 import { terminalWsUrl } from "@/lib/api";
 import { colors, terminalTheme } from "@/lib/colors";
 
@@ -386,7 +387,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
           } : {
             width: "100%", height: "100%",
           }}>
-            {terminal.reachable ? (
+            {terminal.reachable && isTab ? (
               <Suspense
                 fallback={
                   <div
@@ -413,21 +414,23 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                   cols={terminal.cols}
                   rows={terminal.rows}
                   displayMode={isTab ? "immersive" : "card"}
-                  allowTerminalScale={!isTab || isMobile}
                   isController={isController}
                   canResizeTerminal={isTab && isController}
-                  style={
-                    isTab
-                      ? undefined
-                      : {
-                          transform: "scale(0.35)",
-                          transformOrigin: "top left",
-                          width: "286%",
-                          height: "286%",
-                        }
-                  }
                 />
               </Suspense>
+            ) : !isTab ? (
+              <TerminalPreviewText
+                machineId={terminal.machine_id}
+                terminalId={terminal.id}
+                cols={terminal.cols}
+                rows={terminal.rows}
+                reachable={terminal.reachable}
+                enabled={terminal.reachable}
+                maxLines={8}
+                maxLineWidth={160}
+                lineHeightPx={15}
+                padding={10}
+              />
             ) : null}
 
             {/* Mobile select overlay — xterm renders to canvas so its
