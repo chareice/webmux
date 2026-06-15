@@ -38,6 +38,8 @@ export default {
           "sans-serif",
         ],
         mono: [
+          "Maple Mono NF CN",
+          "Noto Sans Mono CJK SC",
           "JetBrains Mono",
           "ui-monospace",
           "Cascadia Code",
