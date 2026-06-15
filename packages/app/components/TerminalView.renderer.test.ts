@@ -17,6 +17,10 @@ describe("TerminalView renderer", () => {
     expect(source).not.toContain("patchScaledMouseCoordinates");
   });
 
+  it("renders block and box glyphs through the configured font", () => {
+    expect(source).toContain("customGlyphs: false");
+  });
+
   it("keeps terminal previews on the plain text renderer", () => {
     for (const previewSource of [
       terminalCardSource,
