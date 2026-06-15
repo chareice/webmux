@@ -34,6 +34,8 @@ const UI_FONTS = [
 // Common monospace / terminal fonts
 const TERMINAL_FONTS = [
   "Auto Detect",
+  "Maple Mono NF CN",
+  "Noto Sans Mono CJK SC",
   "JetBrains Mono",
   "Fira Code",
   "Cascadia Code",

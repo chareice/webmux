@@ -44,59 +44,13 @@ import { createTerminalClipboardProvider } from "@/lib/terminalClipboard";
 import { isTauri } from "@/lib/platform";
 import { isAppShortcut } from "@/lib/shortcuts";
 import { filterBrowserGeneratedTerminalInput } from "@/lib/terminalInputFilter";
+import { resolveTerminalFontFamily } from "@/lib/terminalFonts";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
 const FIT_RETRY_LIMIT = 10;
 const FIT_RETRY_DELAY_MS = 100;
 const TERMINAL_SCROLL_SENSITIVITY = 6;
-
-// Preferred monospace fonts in priority order.
-// Includes Nerd Font variants common on Linux.
-const PREFERRED_FONTS = [
-  "JetBrains Mono",
-  "JetBrainsMono Nerd Font",
-  "JetBrainsMono NF",
-  "JetBrainsMono Nerd Font Mono",
-  "JetBrainsMono NFM",
-  "Fira Code",
-  "FiraCode Nerd Font",
-  "FiraCode NF",
-  "Cascadia Code",
-  "CaskaydiaCove Nerd Font",
-  "CaskaydiaCove NF",
-  "Source Code Pro",
-  "SauceCodePro Nerd Font",
-  "Hack",
-  "Hack Nerd Font",
-  "Ubuntu Mono",
-  "UbuntuMono Nerd Font",
-  "Consolas",
-  "Menlo",
-  "Monaco",
-  "DejaVu Sans Mono",
-];
-
-// Detect which monospace font is actually available on the client
-// by comparing canvas text measurements against the generic fallback.
-function detectAvailableFont(): string {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return "monospace";
-
-  const testStr = "mmmmmmmmmmlli";
-  ctx.font = "72px monospace";
-  const baseWidth = ctx.measureText(testStr).width;
-
-  for (const font of PREFERRED_FONTS) {
-    ctx.font = `72px '${font}', monospace`;
-    if (ctx.measureText(testStr).width !== baseWidth) {
-      return `'${font}', monospace`;
-    }
-  }
-
-  return "monospace";
-}
 
 function measureTerminalSurface(
   container: HTMLDivElement | null,
@@ -673,7 +627,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
 
       const userFont = localStorage.getItem("webmux:terminal-font-family");
       const userFontSize = localStorage.getItem("webmux:terminal-font-size");
-      const fontFamily = userFont ? `'${userFont}', monospace` : detectAvailableFont();
+      const fontFamily = resolveTerminalFontFamily(userFont);
       const fontSize = userFontSize ? Math.max(10, Math.min(24, parseInt(userFontSize, 10) || 14)) : 14;
 
       const term = new Terminal({
