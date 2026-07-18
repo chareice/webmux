@@ -575,8 +575,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       container.addEventListener("drop", handleDrop);
 
       // Suppress the browser default context menu on the terminal — the custom
-      // context menu is rendered by Canvas.web.tsx via an onContextMenu handler
-      // on the wrapping container div.
+      // context menu is rendered by TerminalWorkspace.web.tsx via an
+      // onContextMenu handler on the wrapping pane div.
       const handleContextMenu = (e: MouseEvent) => {
         e.preventDefault();
       };

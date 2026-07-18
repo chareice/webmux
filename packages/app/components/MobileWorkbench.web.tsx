@@ -1,7 +1,7 @@
 // Mobile workbench shell. Rendered when the viewport is below ~680px.
 // Separates navigation into three bottom tabs (Hosts / Terminals / Stats)
 // and keeps terminal focus as a fullscreen overlay (handled by
-// ExpandedTerminal in TerminalCanvas). This is the only mobile shell —
+// TerminalWorkspace in TerminalCanvas). This is the only mobile shell —
 // the native React Native Android tree was retired in favor of the Tauri
 // Mobile wrapper.
 
@@ -35,7 +35,6 @@ import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
 import { TerminalTailBuffer } from "@/lib/terminalTailBuffer";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { PathInput } from "./PathInput.web";
-import { Sparkline, mockSeries } from "./WorkbenchHeader.web";
 
 type MobileTab = "hosts" | "terminals" | "stats";
 
@@ -1332,8 +1331,6 @@ function StatsPage({
     stats && stats.memory_total > 0
       ? Math.round((stats.memory_used / stats.memory_total) * 100)
       : 0;
-  const cpuSeries = useMemo(() => mockSeries(3 + cpu, 40, 0.04, 0.4), [cpu]);
-  const memSeries = useMemo(() => mockSeries(7 + mem, 40, 0.18, 0.42), [mem]);
   return (
     <div style={{ height: "100%", overflow: "auto", padding: "12px 12px 20px" }}>
       <div
@@ -1343,8 +1340,8 @@ function StatsPage({
           gap: 10,
         }}
       >
-        <BigStat label="CPU" value={`${cpu}%`} series={cpuSeries} color={colors.accent} fill="rgba(251, 157, 89, 0.16)" />
-        <BigStat label="MEM" value={`${mem}%`} series={memSeries} color={colors.info} fill="rgba(105, 193, 252, 0.16)" />
+        <BigStat label="CPU" value={`${cpu}%`} />
+        <BigStat label="MEM" value={`${mem}%`} />
       </div>
 
       {machine && (
@@ -1397,15 +1394,9 @@ function StatsPage({
 function BigStat({
   label,
   value,
-  series,
-  color,
-  fill,
 }: {
   label: string;
   value: string;
-  series: number[];
-  color: string;
-  fill: string;
 }) {
   return (
     <div
@@ -1437,7 +1428,6 @@ function BigStat({
       >
         {value}
       </div>
-      <Sparkline data={series} width={140} height={28} color={color} fill={fill} />
     </div>
   );
 }

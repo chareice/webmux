@@ -18,14 +18,14 @@ async function authenticate(page: Page): Promise<void> {
 
 /**
  * Open the app, authenticate, and wait for the new workbench shell to be
- * ready. Works for both desktop (WorkbenchHeader + workspace) and mobile
+ * ready. Works for both desktop (TabBar + workspace) and mobile
  * (MobileWorkbench) layouts.
  */
 export async function openApp(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto("/");
   await Promise.race([
-    page.getByTestId("workbench-header").waitFor({
+    page.getByTestId("tab-bar").waitFor({
       state: "visible",
       timeout: 20_000,
     }),
@@ -109,12 +109,11 @@ export async function resetMachineState(page: Page): Promise<void> {
   await deleteAllWorkspaceLayouts(page);
   await expectTerminalCount(page, 0);
   // Release control via API (works on both desktop and mobile — mobile has no
-  // header toggle). Then wait for the UI to pick up the mode change so
-  // follow-up assertions on the Control Here / Request control button land
-  // reliably.
+  // control pill). Then wait for the UI to pick up the mode change so
+  // follow-up assertions on the viewing pill land reliably.
   await releaseMachineControl(page);
-  const header = page.getByTestId("workbench-header");
-  if (await header.isVisible().catch(() => false)) {
+  const tabBar = page.getByTestId("tab-bar");
+  if (await tabBar.isVisible().catch(() => false)) {
     await expect(page.getByTestId("workbench-request-control")).toBeVisible();
   }
 }
@@ -158,24 +157,23 @@ export async function deleteAllWorkspaceGroups(page: Page): Promise<void> {
 }
 
 /**
- * Return the header control toggle — either "workbench-request-control" (when
- * viewing) or "workbench-stop-control" (when controlling). Only one is in the
- * DOM at a time, and `.or()` short-circuits to the visible one.
+ * The TabBar control affordance: a "viewing" pill that exists only while the
+ * user is NOT the controller (controlling renders nothing — it's the normal
+ * state). Clicking it requests control.
  */
 export function getControlToggle(page: Page): Locator {
-  return page
-    .getByTestId("workbench-request-control")
-    .or(page.getByTestId("workbench-stop-control"));
+  return page.getByTestId("workbench-request-control");
 }
 
 export async function expectControlState(
   page: Page,
   state: "controlling" | "viewing",
 ): Promise<void> {
+  const pill = page.getByTestId("workbench-request-control");
   if (state === "controlling") {
-    await expect(page.getByTestId("workbench-stop-control")).toBeVisible();
+    await expect(pill).toHaveCount(0);
   } else {
-    await expect(page.getByTestId("workbench-request-control")).toBeVisible();
+    await expect(pill).toBeVisible();
   }
 }
 
@@ -185,8 +183,41 @@ export async function takeControlFromHeader(page: Page): Promise<void> {
 }
 
 export async function releaseControlFromHeader(page: Page): Promise<void> {
-  await page.getByTestId("workbench-stop-control").click();
+  // The desktop chrome has no release button — controlling renders no pill.
+  // Release via the API and wait for the viewing pill to come back.
+  await releaseMachineControl(page);
   await expectControlState(page, "viewing");
+}
+
+/**
+ * Send a ⌃B prefix chord: arm the prefix engine with Ctrl+B, then press the
+ * bound second key. Use Playwright modifier syntax for shifted symbols —
+ * e.g. "Shift+Digit5" for ⌃B %, "Shift+Quote" for ⌃B ".
+ */
+export async function pressPrefixKey(page: Page, key: string): Promise<void> {
+  await page.keyboard.press("Control+b");
+  await page.keyboard.press(key);
+}
+
+/** Right-click a workspace pane and wait for the context menu to open. */
+export async function openPaneContextMenu(
+  page: Page,
+  terminalId: string,
+): Promise<void> {
+  await page.getByTestId(`workspace-pane-${terminalId}`).click({
+    button: "right",
+  });
+  await expect(page.getByTestId("context-menu")).toBeVisible();
+}
+
+/** Fit a pane to the workspace via its context menu. */
+export async function fitPaneViaContextMenu(
+  page: Page,
+  terminalId: string,
+): Promise<void> {
+  await openPaneContextMenu(page, terminalId);
+  await page.getByRole("button", { name: "Fit to window" }).click();
+  await expect(page.getByTestId("context-menu")).toHaveCount(0);
 }
 
 export async function selectAllWorkpath(page: Page): Promise<void> {
@@ -262,6 +293,17 @@ export async function listWorkspaceGroupsViaApi(
   return response.json();
 }
 
+export async function deleteWorkspaceGroupViaApi(
+  page: Page,
+  groupId: string,
+): Promise<void> {
+  const response = await page.request.delete(
+    `/api/machines/${MACHINE_ID}/workspace-groups/${groupId}`,
+    { headers: await getAuthHeaders(page) },
+  );
+  expect(response.ok()).toBeTruthy();
+}
+
 export async function expectTerminalCount(
   page: Page,
   count: number,
@@ -312,12 +354,6 @@ export async function expandTerminalById(
   await focusTerminalByHash(page, terminalId);
   await expect(getExpandedOverlay(page)).toBeVisible();
   return getImmersiveTerminal(page);
-}
-
-export async function closeExpandedOverlay(page: Page): Promise<void> {
-  // The workspace is no longer an overlay, so "close" just clears the zoom
-  // hash and resets focus to the default terminal.
-  await page.getByTestId("expanded-close").click();
 }
 
 export async function getTerminalViewScale(page: Page): Promise<number> {

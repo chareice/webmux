@@ -101,7 +101,7 @@ export const PREFIX_ACTION_DEFINITIONS: Array<{
   { id: "selectTab9", label: "Switch to tab 9" },
   { id: "nextTab", label: "Next tab" },
   { id: "prevTab", label: "Previous tab" },
-  { id: "sessionSwitcher", label: "Session switcher", comingSoon: true },
+  { id: "sessionSwitcher", label: "Session switcher" },
   { id: "splitRight", label: "Split pane right" },
   { id: "splitDown", label: "Split pane down" },
   { id: "paneLeft", label: "Focus pane left" },
@@ -111,8 +111,8 @@ export const PREFIX_ACTION_DEFINITIONS: Array<{
   { id: "zoomPane", label: "Zoom pane" },
   { id: "closePane", label: "Close pane" },
   { id: "copyMode", label: "Copy mode", comingSoon: true },
-  { id: "switchHost", label: "Switch host", comingSoon: true },
-  { id: "commandPalette", label: "Command palette", comingSoon: true },
+  { id: "switchHost", label: "Switch host" },
+  { id: "commandPalette", label: "Command palette" },
   { id: "cheatSheet", label: "Shortcut cheat sheet" },
 ];
 

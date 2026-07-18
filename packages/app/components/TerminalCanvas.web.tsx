@@ -18,8 +18,13 @@ import type {
   WorkspaceScrollableLayout,
 } from "@webmux/shared";
 import { AppTitleBar } from "./AppTitleBar.web";
-import { WorkbenchHeader } from "./WorkbenchHeader.web";
-import { TerminalWorkspace } from "./TerminalWorkspace.web";
+import { TabBar } from "./TabBar.web";
+import {
+  CommandPalette,
+  type PaletteFilter,
+  type PaletteRow,
+} from "./CommandPalette.web";
+import { TerminalWorkspace, type WorkspaceCommandChannel } from "./TerminalWorkspace.web";
 import { MobileWorkbench } from "./MobileWorkbench.web";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { Terminal as TerminalIcon } from "lucide-react";
@@ -52,9 +57,17 @@ import {
 import { getPersistentDeviceId } from "@/lib/deviceId";
 import { colors } from "@/lib/colors";
 import { useIsMobile, useVisualViewportHeight } from "@/lib/hooks";
-import { isEditableShortcutTarget, type PrefixActionId } from "@/lib/prefixKey";
+import {
+  formatPrefixBinding,
+  isEditableShortcutTarget,
+  loadPrefixBindings,
+  type PrefixActionId,
+} from "@/lib/prefixKey";
 import { PrefixKeyProvider, usePrefixKey } from "@/lib/prefixKeyContext";
 import { CheatSheetOverlay } from "./CheatSheetOverlay.web";
+import { UpdateNotification } from "./UpdateNotification";
+import { useAuth } from "@/lib/auth";
+import { createTerminalWorkspace } from "@/lib/terminalWorkspaceLayout";
 import {
   createInitialMainLayout,
   mainLayoutReducer,
@@ -71,17 +84,12 @@ const OnboardingView = lazy(() =>
     default: module.OnboardingView,
   })),
 );
-const StatusBar = lazy(() =>
-  import("./StatusBar").then((module) => ({ default: module.StatusBar })),
-);
 const SettingsPage = lazy(() =>
   import("./SettingsPage").then((module) => ({ default: module.SettingsPage })),
 );
 const ConfirmDialog = lazy(() =>
   import("./ConfirmDialog").then((module) => ({ default: module.ConfirmDialog })),
 );
-
-const STATUS_BAR_KEY = "webmux:show-status-bar";
 
 // Prefix actions owned by TerminalCanvas (workspace-owned actions are
 // registered by TerminalWorkspace).
@@ -105,33 +113,6 @@ interface DestroyTerminalOptions {
 }
 
 type DestroyTerminalRequestResult = "accepted" | "pending";
-
-function useViewportWidth() {
-  const [w, setW] = useState(
-    typeof window !== "undefined" ? window.innerWidth : 1280,
-  );
-  useEffect(() => {
-    const onResize = () => setW(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return w;
-}
-
-function useStatusBarPref() {
-  const [visible, setVisible] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(STATUS_BAR_KEY) === "1";
-  });
-  useEffect(() => {
-    const handler = (e: StorageEvent) => {
-      if (e.key === STATUS_BAR_KEY) setVisible(e.newValue === "1");
-    };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
-  }, []);
-  return visible;
-}
 
 function upsertTerminalInfo(
   terminals: TerminalInfo[],
@@ -216,9 +197,9 @@ function TerminalCanvasInner() {
   );
   const isMobile = useIsMobile();
   const viewportHeight = useVisualViewportHeight();
-  const viewportWidth = useViewportWidth();
   const rootHeight: string =
     viewportHeight !== null ? `${viewportHeight}px` : "100dvh";
+  const { logout } = useAuth();
 
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
@@ -260,8 +241,6 @@ function TerminalCanvasInner() {
   const isActiveController = activeMachineId
     ? isMachineController(activeMachineId)
     : false;
-
-  const statusBarVisible = useStatusBarPref();
 
   // ---- device id, bootstrap, events WS ----
 
@@ -550,6 +529,34 @@ function TerminalCanvasInner() {
       (layout) => layout.machine_id === activeMachine.id,
     );
   }, [workspaceLayouts, activeMachine]);
+
+  // ---- desktop TabBar / command palette state (Phase 2) ----
+  // Same grouping the workspace computes (persistent groups + cwd fallback),
+  // derived here so the TabBar can render above the workspace.
+  const scopedTerminalsById = useMemo(
+    () => new Map(scopedTerminals.map((t) => [t.id, t])),
+    [scopedTerminals],
+  );
+  const tabGroups = useMemo(
+    () =>
+      createTerminalWorkspace(
+        scopedTerminals,
+        null,
+        activeMachineWorkspaceGroups,
+        activeMachineWorkspaceLayouts,
+      ).groups,
+    [scopedTerminals, activeMachineWorkspaceGroups, activeMachineWorkspaceLayouts],
+  );
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const workspaceCommandsRef = useRef<WorkspaceCommandChannel>({});
+  const [paletteState, setPaletteState] = useState<{
+    open: boolean;
+    filter: PaletteFilter;
+  }>({ open: false, filter: "all" });
+  const openPalette = useCallback(
+    (filter: PaletteFilter = "all") => setPaletteState({ open: true, filter }),
+    [],
+  );
 
   const expandedTerminal = layout.zoomedTerminalId
     ? terminals.find((t) => t.id === layout.zoomedTerminalId) ?? null
@@ -936,11 +943,13 @@ function TerminalCanvasInner() {
       ? () => void handleNewTerminalFromHeader()
       : undefined,
     cheatSheet: () => setCheatSheetOpen((open) => !open),
-    // TODO(later phases): session switcher, host switcher, command palette,
-    // copy mode. Registered as no-ops so armed + key is swallowed, not typed.
-    sessionSwitcher: () => {},
-    switchHost: () => {},
-    commandPalette: () => {},
+    // ⌃B w opens the palette pre-filtered to tab rows, ⌃B s to host rows,
+    // ⌃B k to the full palette.
+    sessionSwitcher: () => openPalette("tabs"),
+    switchHost: () => openPalette("hosts"),
+    commandPalette: () => openPalette("all"),
+    // TODO(phase 3+): copy mode. Registered as a no-op so armed + key is
+    // swallowed, not typed.
     copyMode: () => {},
   };
 
@@ -1004,6 +1013,100 @@ function TerminalCanvasInner() {
     );
   }, [layout.selectedWorkpathId, activeMachine, bookmarks]);
 
+  // Command palette rows, in the spec's fixed order. Workspace-owned actions
+  // (splits, tab selection) go through the workspace command channel.
+  const paletteRows = useMemo<PaletteRow[]>(() => {
+    const bindings = loadPrefixBindings();
+    const otherOnlineMachines = machines.filter(
+      (machine) =>
+        machine.id !== activeMachine?.id &&
+        (Boolean(machineStats[machine.id]) ||
+          terminals.some((t) => t.machine_id === machine.id && t.reachable)),
+    );
+    return [
+      {
+        id: "new-terminal",
+        section: "actions",
+        label: "New terminal",
+        hint: formatPrefixBinding("newTerminal", bindings),
+        disabled: !isActiveController,
+        action: () => void handleNewTerminalFromHeader(),
+      },
+      {
+        id: "split-right",
+        section: "actions",
+        label: "Split right",
+        hint: formatPrefixBinding("splitRight", bindings),
+        disabled: !isActiveController,
+        action: () =>
+          workspaceCommandsRef.current.runPrefixAction?.("splitRight"),
+      },
+      {
+        id: "split-down",
+        section: "actions",
+        label: "Split down",
+        hint: formatPrefixBinding("splitDown", bindings),
+        disabled: !isActiveController,
+        action: () =>
+          workspaceCommandsRef.current.runPrefixAction?.("splitDown"),
+      },
+      ...tabGroups.map((group, index): PaletteRow => {
+        const tabAction = `selectTab${index + 1}` as PrefixActionId;
+        return {
+          id: `tab-${group.id}`,
+          section: "tabs",
+          label: group.label,
+          keywords: group.cwd,
+          hint:
+            index < 9 ? formatPrefixBinding(tabAction, bindings) : undefined,
+          action: () => workspaceCommandsRef.current.selectGroup?.(group.id),
+        };
+      }),
+      ...otherOnlineMachines.map(
+        (machine): PaletteRow => ({
+          id: `host-${machine.id}`,
+          section: "hosts",
+          label: machine.name,
+          keywords: machine.os,
+          action: () => setActiveMachineId(machine.id),
+        }),
+      ),
+      {
+        id: "add-host",
+        section: "actions",
+        label: "Add host…",
+        action: () => setAddMachineOpen(true),
+      },
+      {
+        id: "reconnect",
+        section: "actions",
+        label: "Reconnect session",
+        action: () => window.location.reload(),
+      },
+      {
+        id: "settings",
+        section: "actions",
+        label: "Settings",
+        action: () => setShowSettings(true),
+      },
+      {
+        id: "sign-out",
+        section: "actions",
+        label: "Sign out",
+        action: () => void logout(),
+      },
+    ];
+  }, [
+    machines,
+    activeMachine,
+    machineStats,
+    terminals,
+    tabGroups,
+    isActiveController,
+    handleNewTerminalFromHeader,
+    logout,
+  ]);
+
   return (
     <div
       style={{
@@ -1064,35 +1167,35 @@ function TerminalCanvasInner() {
                 background: colors.bg0,
               }}
             >
-              <WorkbenchHeader
-                scopeLabel={scopeLabel}
+              <TabBar
+                groups={tabGroups}
+                activeGroupId={activeGroupId}
+                terminalsById={scopedTerminalsById}
+                terminals={terminals}
                 machines={machines}
                 activeMachineId={activeMachineId}
                 controlLeases={controlLeases}
                 deviceId={deviceId}
                 machineStats={machineStats}
-                terminals={terminals}
-                isController={isActiveController}
-                terminalCount={scopedTerminals.length}
                 stats={activeStats}
-                viewportWidth={viewportWidth}
+                isController={isActiveController}
                 canCreateTerminal={isActiveController}
+                onSelectGroup={(groupId) =>
+                  workspaceCommandsRef.current.selectGroup?.(groupId)
+                }
+                onReorderGroups={(sourceGroupId, targetGroupId, placement) =>
+                  workspaceCommandsRef.current.reorderGroups?.(
+                    sourceGroupId,
+                    targetGroupId,
+                    placement,
+                  )
+                }
+                onNewTerminal={() => void handleNewTerminalFromHeader()}
                 onSelectMachine={setActiveMachineId}
-                onOpenSettings={() => setShowSettings(true)}
-                onOpenAddMachine={() => setAddMachineOpen(true)}
-                onNewTerminal={
-                  isActiveController ? handleNewTerminalFromHeader : undefined
-                }
-                onReleaseControl={
-                  isActiveController && activeMachine
-                    ? () => handleReleaseControl(activeMachine.id)
-                    : undefined
-                }
-                onRequestControl={
-                  !isActiveController && activeMachine
-                    ? () => handleRequestControl(activeMachine.id)
-                    : undefined
-                }
+                onAddMachine={() => setAddMachineOpen(true)}
+                onRequestControl={() => {
+                  if (activeMachine) void handleRequestControl(activeMachine.id);
+                }}
               />
 
               {scopedTerminals.length === 0 ? (
@@ -1128,6 +1231,8 @@ function TerminalCanvasInner() {
                   onAssignGroup={handleAssignWorkspaceGroup}
                   onRequestControl={handleRequestControl}
                   onReleaseControl={handleReleaseControl}
+                  commandsRef={workspaceCommandsRef}
+                  onActiveGroupChange={setActiveGroupId}
                 />
               )}
             </main>
@@ -1164,23 +1269,26 @@ function TerminalCanvasInner() {
           />
         )}
 
-        {statusBarVisible && machines.length > 0 && (
-          <Suspense fallback={null}>
-            <StatusBar
-              machines={machines}
-              activeMachineId={activeMachineId}
-              onSelectMachine={setActiveMachineId}
-              machineStats={machineStats}
-              isMobile={isMobile}
-              isController={isActiveController}
-              onRequestControl={handleRequestControl}
-              onReleaseControl={handleReleaseControl}
-            />
-          </Suspense>
+        {!isMobile && (
+          // Tauri updater toast — floating bottom-right mount, replaces the
+          // deleted StatusBar's slot. Renders nothing outside Tauri.
+          <div style={{ position: "fixed", right: 12, bottom: 12, zIndex: 55 }}>
+            <UpdateNotification />
+          </div>
         )}
 
         {addMachineOpen && (
           <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
+        )}
+
+        {!isMobile && paletteState.open && (
+          <CommandPalette
+            rows={paletteRows}
+            filter={paletteState.filter}
+            onClose={() =>
+              setPaletteState((current) => ({ ...current, open: false }))
+            }
+          />
         )}
 
         {!isMobile && prefixKey.armed && (

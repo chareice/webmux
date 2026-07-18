@@ -3,10 +3,13 @@ import { expect, test } from "@playwright/test";
 import {
   createWorkspaceGroupViaApi,
   createTerminalViaApi,
+  deleteWorkspaceGroupViaApi,
   expandTerminalById,
   listWorkspaceGroupsViaApi,
   listTerminals,
   openApp,
+  openPaneContextMenu,
+  pressPrefixKey,
   resetMachineState,
   selectHomeWorkpath,
   takeControlFromHeader,
@@ -35,18 +38,15 @@ test("workspace tabs persist user grouping while workpaths only choose launch cw
   await expect(page.getByTestId(`workspace-pane-${homeTerminalId}`)).toBeVisible();
 
   const agentsLabel = `Agents-${Date.now()}`;
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("New tab name");
-    await dialog.accept(agentsLabel);
-  });
-  await page.getByLabel("New tab").click();
+  await createWorkspaceGroupViaApi(page, agentsLabel);
   await expect(workspaceGroup(page, agentsLabel)).toBeVisible();
+  await workspaceGroup(page, agentsLabel).click();
   await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
 
   await workspaceGroup(page, "root").click();
-  await page.getByLabel("Move pane to tab").selectOption({ label: agentsLabel });
+  await movePaneToTab(page, homeTerminalId, agentsLabel);
   await workspaceGroup(page, "tmp").click();
-  await page.getByLabel("Move pane to tab").selectOption({ label: agentsLabel });
+  await movePaneToTab(page, tmpTerminalId, agentsLabel);
 
   await expect(workspaceGroup(page, "tmp")).toHaveCount(0);
   await expect(workspaceGroup(page, agentsLabel)).toBeVisible();
@@ -61,7 +61,8 @@ test("workspace tabs persist user grouping while workpaths only choose launch cw
   const workspaceGroupId = assigned[0].workspace_group_id;
   expect(workspaceGroupId).toBeTruthy();
 
-  await page.getByLabel("Split right").click();
+  // ⌃B % splits the active pane into the same tab.
+  await pressPrefixKey(page, "Shift+Digit5");
   await expect.poll(async () => (await listTerminals(page)).length).toBe(3);
   terminals = await listTerminals(page);
   const splitTerminal = terminals.find(
@@ -72,27 +73,19 @@ test("workspace tabs persist user grouping while workpaths only choose launch cw
   await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(3);
 
   const scratchLabel = `Scratch-${Date.now()}`;
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("New tab name");
-    await dialog.accept(scratchLabel);
-  });
-  await page.getByLabel("New tab").click();
+  const scratchGroup = await createWorkspaceGroupViaApi(page, scratchLabel);
   await expect(workspaceGroup(page, scratchLabel)).toBeVisible();
+  await workspaceGroup(page, scratchLabel).click();
   await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
 
-  const scratchGroupId = (await listWorkspaceGroupsViaApi(page)).find(
-    (group) => group.name === scratchLabel,
-  )?.id;
-  expect(scratchGroupId).toBeTruthy();
-
-  await page.getByLabel("Split right").click();
+  await pressPrefixKey(page, "Shift+Digit5");
   await expect.poll(async () => (await listTerminals(page)).length).toBe(4);
   terminals = await listTerminals(page);
   const scratchTerminal = terminals.find(
     (terminal) =>
       ![homeTerminalId, tmpTerminalId, splitTerminal?.id].includes(terminal.id),
   );
-  expect(scratchTerminal?.workspace_group_id).toBe(scratchGroupId);
+  expect(scratchTerminal?.workspace_group_id).toBe(scratchGroup.id);
 
   await context.close();
 });
@@ -109,13 +102,10 @@ test("creating a workspace tab opens an empty group without moving the active te
   await expandTerminalById(page, homeTerminalId);
 
   const label = `Empty-${Date.now()}`;
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("New tab name");
-    await dialog.accept(label);
-  });
-  await page.getByLabel("New tab").click();
-
+  await createWorkspaceGroupViaApi(page, label);
   await expect(workspaceGroup(page, label)).toBeVisible();
+  await workspaceGroup(page, label).click();
+
   await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
 
   const terminals = await listTerminals(page);
@@ -186,7 +176,7 @@ test("workspace tabs can be reordered by dragging", async ({ page }) => {
     .toEqual([first.id, second.id]);
 
   await page.reload();
-  await page.getByTestId("workbench-header").waitFor({ state: "visible" });
+  await page.getByTestId("tab-bar").waitFor({ state: "visible" });
   if (!(await page.getByTestId("expanded-terminal").isVisible())) {
     await expandTerminalById(page, terminalId);
   }
@@ -216,8 +206,7 @@ test("deleting a workspace tab keeps terminals open and clears their group", asy
   });
 
   await expandTerminalById(page, terminalId);
-  await page.getByTestId(`workspace-group-delete-${group.id}`).click();
-  await page.getByRole("button", { name: "Delete group", exact: true }).click();
+  await deleteWorkspaceGroupViaApi(page, group.id);
 
   await expect(page.getByTestId(`workspace-group-${group.id}`)).toHaveCount(0);
   await expect(page.getByTestId(`workspace-pane-${terminalId}`)).toBeVisible();
@@ -244,13 +233,13 @@ test("closing the last pane returns to the empty workbench state", async ({
   });
 
   await expandTerminalById(page, terminalId);
-  await page.getByTestId(`expanded-thumb-close-${terminalId}`).click();
+  await pressPrefixKey(page, "x");
 
   await expect(page.getByText(/No terminals/)).toBeVisible();
   await expect.poll(async () => (await listTerminals(page)).length).toBe(0);
 });
 
-test("workspace close shortcut returns to the empty workbench state", async ({
+test("workspace close prefix returns to the empty workbench state", async ({
   page,
 }) => {
   await openApp(page);
@@ -261,7 +250,7 @@ test("workspace close shortcut returns to the empty workbench state", async ({
 
   await expandTerminalById(page, terminalId);
   await expect(page.getByTestId(`workspace-pane-${terminalId}`)).toBeVisible();
-  await page.keyboard.press("Control+W");
+  await pressPrefixKey(page, "x");
 
   await expect(page.getByText(/No terminals/)).toBeVisible();
   await expect.poll(async () => (await listTerminals(page)).length).toBe(0);
@@ -296,7 +285,7 @@ test("canceling close for a busy workspace pane keeps the pane visible", async (
   );
 
   await expandTerminalById(page, terminalId);
-  await page.getByTestId(`expanded-thumb-close-${terminalId}`).click();
+  await pressPrefixKey(page, "x");
   await expect(
     page.getByRole("dialog", { name: "Close terminal?" }),
   ).toBeVisible();
@@ -333,7 +322,7 @@ test("confirming close for a busy cwd pane keeps an empty cwd group open", async
   );
 
   await expandTerminalById(page, terminalId);
-  await page.getByTestId(`expanded-thumb-close-${terminalId}`).click();
+  await pressPrefixKey(page, "x");
   await page
     .getByRole("dialog", { name: "Close terminal?" })
     .getByRole("button", { name: "Close terminal" })
@@ -343,7 +332,7 @@ test("confirming close for a busy cwd pane keeps an empty cwd group open", async
   await expect(page.getByText(/No terminals/)).toBeVisible();
 });
 
-test("hovering a workspace group tab switches to that group", async ({ page }) => {
+test("selecting a workspace group tab switches to that group", async ({ page }) => {
   await openApp(page);
   await resetMachineState(page);
   await takeControlFromHeader(page);
@@ -371,7 +360,7 @@ test("hovering a workspace group tab switches to that group", async ({ page }) =
   await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
     .toHaveCount(0);
 
-  await page.getByTestId(`workspace-group-${secondGroup.id}`).hover();
+  await page.getByTestId(`workspace-group-${secondGroup.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
     .toBeVisible();
   await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
@@ -407,7 +396,7 @@ test("hovering a workspace pane activates that terminal", async ({ page }) => {
     .toHaveCSS("box-shadow", "none");
 });
 
-test("workspace shortcuts switch groups with a custom binding", async ({
+test("prefix bindings switch groups with a custom second key", async ({
   browser,
 }) => {
   const context = await browser.newContext({
@@ -415,10 +404,10 @@ test("workspace shortcuts switch groups with a custom binding", async ({
   });
   await context.addInitScript(() => {
     localStorage.setItem(
-      "webmux:workspace-shortcuts",
+      "webmux:prefix-bindings",
       JSON.stringify({
-        groupNext: "Mod+Alt+KeyG",
-        groupPrevious: "Mod+Alt+KeyF",
+        nextTab: "g",
+        prevTab: "f",
       }),
     );
   });
@@ -446,55 +435,83 @@ test("workspace shortcuts switch groups with a custom binding", async ({
   });
 
   await expandTerminalById(page, firstTerminalId);
-  await page.keyboard.press("Control+Alt+KeyG");
+  await pressPrefixKey(page, "g");
   await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
     .toBeVisible();
   await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
     .toHaveCount(0);
 
-  await page.keyboard.press("Control+Alt+KeyF");
+  await pressPrefixKey(page, "f");
   await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
     .toBeVisible();
 
   await context.close();
 });
 
-test("settings can record workspace shortcut bindings", async ({ page }) => {
+test("settings can record prefix bindings", async ({ page }) => {
   await openApp(page);
 
-  await page.getByTestId("workbench-open-settings").click();
-  const recorder = page.getByTestId("workspace-shortcut-recorder-groupNext");
+  await openSettingsViaPalette(page);
+  const recorder = page.getByTestId("prefix-binding-recorder-nextTab");
   await recorder.click();
-  await page.keyboard.press("Control+Alt+KeyG");
+  await page.keyboard.press("g");
 
-  await expect(recorder).toHaveText("Ctrl/Cmd + Alt + G");
+  await expect(recorder).toHaveText("⌃B g");
   const stored = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("webmux:workspace-shortcuts") ?? "{}"),
+    JSON.parse(localStorage.getItem("webmux:prefix-bindings") ?? "{}"),
   );
-  expect(stored.groupNext).toBe("Mod+Alt+KeyG");
+  expect(stored.nextTab).toBe("g");
 });
 
-test("settings reject duplicate workspace shortcut bindings", async ({ page }) => {
+test("settings reject duplicate prefix bindings", async ({ page }) => {
   await openApp(page);
 
-  await page.getByTestId("workbench-open-settings").click();
-  const recorder = page.getByTestId("workspace-shortcut-recorder-groupNext");
+  await openSettingsViaPalette(page);
+  const recorder = page.getByTestId("prefix-binding-recorder-nextTab");
   await recorder.click();
-  await page.keyboard.press("Control+ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
 
-  await expect(page.getByTestId("workspace-shortcut-conflict"))
+  await expect(page.getByTestId("prefix-binding-conflict"))
     .toContainText("Focus pane left");
-  await expect(recorder).toHaveText("Press keys...");
+  await expect(recorder).toHaveText("⌃B + key...");
   const stored = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("webmux:workspace-shortcuts") ?? "{}"),
+    JSON.parse(localStorage.getItem("webmux:prefix-bindings") ?? "{}"),
   );
-  expect(stored.groupNext).toBeUndefined();
+  expect(stored.nextTab).toBeUndefined();
 });
 
 function workspaceGroup(page: import("@playwright/test").Page, label: string) {
   return page
     .locator("[data-testid^='workspace-group-']")
     .filter({ hasText: label });
+}
+
+// Move a pane to a persistent tab via the pane's right-click context menu
+// ("Move pane to tab ▸" submenu — the replacement for the old <select>).
+async function movePaneToTab(
+  page: import("@playwright/test").Page,
+  terminalId: string,
+  tabLabel: string,
+): Promise<void> {
+  await openPaneContextMenu(page, terminalId);
+  await page.getByRole("button", { name: "Move pane to tab" }).hover();
+  await page
+    .getByTestId("context-menu")
+    .getByRole("button", { name: tabLabel, exact: true })
+    .click();
+  await expect(page.getByTestId("context-menu")).toHaveCount(0);
+}
+
+// Open the desktop Settings overlay through the command palette (⌃B k).
+async function openSettingsViaPalette(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  await pressPrefixKey(page, "k");
+  await expect(page.getByTestId("command-palette")).toBeVisible();
+  await page.getByTestId("command-palette-row-settings").click();
+  await expect(page.getByTestId("command-palette")).toHaveCount(0);
+  await expect(page.getByTestId("prefix-binding-recorder-nextTab"))
+    .toBeVisible();
 }
 
 async function visibleWorkspaceGroupIds(

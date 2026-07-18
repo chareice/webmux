@@ -264,9 +264,9 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
 
       {/* Mobile controls (Stop Control / Fit / Controlling indicator)
           used to live here as a separate row, but they duplicated the
-          header — the ctrl pill in ExpandedTerminal's header now toggles
-          control, and the Fit icon stayed in the header. The keybar's
-          accent-tinted buttons already signal "Controlling". */}
+          workspace chrome — the ctrl pill in the mobile workspace top bar
+          now toggles control, and the Fit icon lives there too. The
+          keybar's accent-tinted buttons already signal "Controlling". */}
 
       {/* Card mode: title bar */}
       {!isTab && (

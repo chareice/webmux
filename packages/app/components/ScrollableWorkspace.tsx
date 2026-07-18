@@ -54,6 +54,10 @@ export interface ScrollableWorkspaceProps {
   onDestroy: (terminal: TerminalInfo) => void;
   onResizeColumn: (terminalId: string, width: WorkspaceColumnWidth) => void;
   onReorderColumns: (sourceTerminalId: string, targetTerminalId: string) => void;
+  onPaneContextMenu?: (
+    terminalId: string,
+    event: React.MouseEvent<HTMLElement>,
+  ) => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
 }
@@ -219,7 +223,7 @@ export function ScrollableWorkspace(props: ScrollableWorkspaceProps) {
                 onFitRequestHandled={props.onFitRequestHandled}
                 onFocus={props.onFocus}
                 onDestroy={props.onDestroy}
-                draggingPaneId={null}
+                onPaneContextMenu={props.onPaneContextMenu}
                 onRequestControl={props.onRequestControl}
                 onReleaseControl={props.onReleaseControl}
               />

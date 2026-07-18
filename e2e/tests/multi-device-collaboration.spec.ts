@@ -1,12 +1,12 @@
 import { expect, test, devices } from "@playwright/test";
 
 import {
-  closeExpandedOverlay,
   createTerminalViaApi,
   expandOnlyTerminal,
   expandTerminalById,
   expectControlState,
   expectTerminalCount,
+  fitPaneViaContextMenu,
   getAuthHeaders,
   getDeviceId,
   getImmersiveTerminal,
@@ -38,7 +38,7 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   await expandTerminalById(desktopPage, tid);
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
 
-  await desktopPage.getByLabel("Fit", { exact: true }).click();
+  await fitPaneViaContextMenu(desktopPage, tid);
 
   // Explicit desktop fit pushes the terminal past the 80x24 defaults.
   await expect
@@ -100,7 +100,7 @@ test("terminal can be manually fitted by whichever device currently holds contro
   await expandTerminalById(desktopPage, tid);
 
   // Desktop controller → terminal fits to desktop dims when requested.
-  await desktopPage.getByLabel("Fit", { exact: true }).click();
+  await fitPaneViaContextMenu(desktopPage, tid);
   await expect
     .poll(async () => {
       const [terminal] = await listTerminals(desktopPage);
@@ -121,9 +121,7 @@ test("terminal can be manually fitted by whichever device currently holds contro
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
     "ctrl",
   );
-  // Desktop header flips to view-only (overlay is still open, so the header
-  // isn't visible — close the overlay first to check, then re-open).
-  await closeExpandedOverlay(desktopPage);
+  // Desktop flips to view-only — the TabBar's viewing pill appears.
   await expectControlState(desktopPage, "viewing");
 
   // Mobile takes control → terminal fits to mobile dims when requested.
@@ -146,11 +144,9 @@ test("terminal can be manually fitted by whichever device currently holds contro
     .poll(async () => getTerminalViewScale(desktopPage))
     .toBe(1);
 
-  // Hand control back to desktop. Close the desktop overlay, press the
-  // header toggle, then re-open.
-  await closeExpandedOverlay(desktopPage);
+  // Hand control back to desktop via the TabBar's viewing pill.
   await desktopPage.getByTestId("workbench-request-control").click();
-  await expect(desktopPage.getByTestId("workbench-stop-control")).toBeVisible();
+  await expect(desktopPage.getByTestId("workbench-request-control")).toHaveCount(0);
   await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText(
     "control",
   );
@@ -158,7 +154,7 @@ test("terminal can be manually fitted by whichever device currently holds contro
   await expect(getImmersiveTerminal(desktopPage)).toBeVisible();
 
   // Desktop is controller again → terminal fits back to desktop dims when requested.
-  await desktopPage.getByLabel("Fit", { exact: true }).click();
+  await fitPaneViaContextMenu(desktopPage, tid);
   await expect
     .poll(async () => {
       const [terminal] = await listTerminals(desktopPage);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import { colors } from "@/lib/colors";
 
@@ -7,6 +7,8 @@ export interface ContextMenuItem {
   shortcut?: string;
   disabled?: boolean;
   onClick: () => void;
+  // Optional submenu ("Move pane to tab ▸"), shown on hover.
+  children?: ContextMenuItem[];
 }
 
 export interface ContextMenuSeparator {
@@ -28,6 +30,7 @@ function isSeparator(entry: ContextMenuEntry): entry is ContextMenuSeparator {
 
 export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [openSubmenu, setOpenSubmenu] = useState<number | null>(null);
 
   const adjustedPosition = useCallback(() => {
     const menu = menuRef.current;
@@ -71,9 +74,113 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     };
   }, [onClose]);
 
+  const renderItem = (
+    entry: ContextMenuItem,
+    key: string,
+    submenuIndex: number | null,
+  ) => {
+    const hasChildren = Boolean(entry.children?.length);
+    const button = (
+      <button
+        onClick={() => {
+          if (entry.disabled || hasChildren) return;
+          entry.onClick();
+          onClose();
+        }}
+        disabled={entry.disabled}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          width: "100%",
+          padding: "6px 12px",
+          background: "none",
+          border: "none",
+          color: entry.disabled ? colors.foregroundMuted : colors.foreground,
+          cursor: entry.disabled ? "default" : "pointer",
+          fontSize: 13,
+          textAlign: "left",
+        }}
+        onMouseEnter={(e) => {
+          if (!entry.disabled) {
+            e.currentTarget.style.background = colors.background;
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "none";
+        }}
+      >
+        <span>{entry.label}</span>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            marginLeft: 16,
+          }}
+        >
+          {entry.shortcut && (
+            <span style={{ fontSize: 11, color: colors.foregroundMuted }}>
+              {entry.shortcut}
+            </span>
+          )}
+          {hasChildren && (
+            <span style={{ fontSize: 11, color: colors.foregroundMuted }}>
+              ▸
+            </span>
+          )}
+        </span>
+      </button>
+    );
+
+    if (!hasChildren) return <div key={key}>{button}</div>;
+
+    return (
+      <div
+        key={key}
+        style={{ position: "relative" }}
+        onMouseEnter={() => {
+          if (submenuIndex !== null && !entry.disabled) {
+            setOpenSubmenu(submenuIndex);
+          }
+        }}
+        onMouseLeave={() => {
+          if (submenuIndex !== null) {
+            setOpenSubmenu((current) =>
+              current === submenuIndex ? null : current,
+            );
+          }
+        }}
+      >
+        {button}
+        {submenuIndex !== null && openSubmenu === submenuIndex && (
+          <div
+            style={{
+              position: "absolute",
+              left: "calc(100% - 4px)",
+              top: -4,
+              zIndex: 10000,
+              background: colors.surface,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 6,
+              padding: "4px 0",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              minWidth: 160,
+            }}
+          >
+            {entry.children!.map((child, childIndex) => (
+              <div key={childIndex}>{renderItem(child, `${key}-${childIndex}`, null)}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return createPortal(
     <div
       ref={menuRef}
+      data-testid="context-menu"
       style={{
         position: "fixed",
         left: x,
@@ -100,46 +207,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             />
           );
         }
-        return (
-          <button
-            key={`item-${i}`}
-            onClick={() => {
-              if (!entry.disabled) {
-                entry.onClick();
-                onClose();
-              }
-            }}
-            disabled={entry.disabled}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              width: "100%",
-              padding: "6px 12px",
-              background: "none",
-              border: "none",
-              color: entry.disabled ? colors.foregroundMuted : colors.foreground,
-              cursor: entry.disabled ? "default" : "pointer",
-              fontSize: 13,
-              textAlign: "left",
-            }}
-            onMouseEnter={(e) => {
-              if (!entry.disabled) {
-                e.currentTarget.style.background = colors.background;
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "none";
-            }}
-          >
-            <span>{entry.label}</span>
-            {entry.shortcut && (
-              <span style={{ fontSize: 11, color: colors.foregroundMuted, marginLeft: 16 }}>
-                {entry.shortcut}
-              </span>
-            )}
-          </button>
-        );
+        return renderItem(entry, `item-${i}`, i);
       })}
     </div>,
     document.body,

@@ -1,16 +1,17 @@
 import { expect, test, devices, type Page } from "@playwright/test";
 
 import {
-  closeExpandedOverlay,
   createTerminalViaApi,
   expandOnlyTerminal,
   expandTerminalById,
+  fitPaneViaContextMenu,
   getAuthHeaders,
   getDeviceId,
   getImmersiveTerminal,
   listTerminals,
   mobileTakeControl,
   openApp,
+  releaseMachineControl,
   resetMachineState,
   selectHomeWorkpath,
   takeControlFromHeader,
@@ -54,7 +55,7 @@ test("opening an existing terminal keeps its pty size until Fit is requested", a
   expect(terminal?.cols).toBe(80);
   expect(terminal?.rows).toBe(24);
 
-  await page.getByLabel("Fit", { exact: true }).click();
+  await fitPaneViaContextMenu(page, tid);
   await expect
     .poll(async () => {
       const [current] = await listTerminals(page);
@@ -142,7 +143,7 @@ test("mobile controller can resize the shared pty with Fit to Window", async ({
   const tid = await createTerminalViaApi(desktopPage, { cwd: "/root" });
   await expandTerminalById(desktopPage, tid);
 
-  await desktopPage.getByLabel("Fit", { exact: true }).click();
+  await fitPaneViaContextMenu(desktopPage, tid);
 
   let desktopInitial: Awaited<ReturnType<typeof listTerminals>>[number] | null = null;
   await expect.poll(async () => {
@@ -160,9 +161,9 @@ test("mobile controller can resize the shared pty with Fit to Window", async ({
   await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
-  // Desktop releases, mobile takes control via the in-terminal toggle.
-  await closeExpandedOverlay(desktopPage);
-  await desktopPage.getByTestId("workbench-stop-control").click();
+  // Desktop releases via the API (the new chrome has no release button),
+  // mobile takes control via the in-terminal toggle.
+  await releaseMachineControl(desktopPage);
   await expect(desktopPage.getByTestId("workbench-request-control")).toBeVisible();
 
   await mobilePage.getByTestId("terminal-mode-toggle").click();

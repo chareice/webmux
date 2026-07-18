@@ -216,27 +216,6 @@ function SettingRow({
 }
 
 export function SettingsPage({ onClose }: SettingsPageProps) {
-  // Status bar visibility (hidden by default — see TerminalCanvas.web).
-  const [showStatusBar, setShowStatusBar] = useState(
-    () => localStorage.getItem("webmux:show-status-bar") === "1",
-  );
-  const toggleStatusBar = useCallback(() => {
-    setShowStatusBar((prev) => {
-      const next = !prev;
-      localStorage.setItem("webmux:show-status-bar", next ? "1" : "0");
-      // Notify the orchestrator (listens for the same key via StorageEvent,
-      // which only fires cross-tab — dispatch one locally so this tab updates
-      // immediately).
-      window.dispatchEvent(
-        new StorageEvent("storage", {
-          key: "webmux:show-status-bar",
-          newValue: next ? "1" : "0",
-        }),
-      );
-      return next;
-    });
-  }, []);
-
   // Terminal font settings
   const [terminalFont, setTerminalFont] = useState(
     () => localStorage.getItem("webmux:terminal-font-family") || "",
@@ -512,44 +491,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
           <SectionTitle>Appearance</SectionTitle>
 
           <SettingRow
-            label="Show status bar"
-            description="Adds a 24px monospace bar with CPU/MEM/DISK at the bottom."
-          >
-            <button
-              data-testid="toggle-status-bar"
-              onClick={toggleStatusBar}
-              role="switch"
-              aria-checked={showStatusBar}
-              style={{
-                width: 40,
-                height: 22,
-                borderRadius: 999,
-                border: `1px solid ${colors.border}`,
-                background: showStatusBar ? colors.accent : colors.surface,
-                position: "relative",
-                cursor: "pointer",
-                padding: 0,
-                transition: "background 120ms",
-              }}
-            >
-              <span
-                style={{
-                  position: "absolute",
-                  top: 2,
-                  left: showStatusBar ? 20 : 2,
-                  width: 16,
-                  height: 16,
-                  borderRadius: 999,
-                  background: showStatusBar ? "#120904" : colors.foregroundMuted,
-                  transition: "left 120ms",
-                }}
-              />
-            </button>
-          </SettingRow>
-
-          <SettingRow
             label="UI Font"
-            description="Font used for the interface (sidebar, tabs, status bar)"
+            description="Font used for the interface (tabs, dialogs, palette)"
           >
             <FontSelect
               value={uiFont}

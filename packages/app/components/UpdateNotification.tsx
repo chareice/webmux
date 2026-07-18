@@ -54,14 +54,18 @@ export function UpdateNotification() {
 
   if (!updateAvailable || dismissed) return null;
 
+  // Floating toast (Phase 2): mounts bottom-right of the desktop layout.
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
         gap: 8,
-        padding: "0 8px",
+        padding: "8px 10px",
         fontSize: 11,
+        background: colors.accent,
+        borderRadius: 8,
+        boxShadow: "0 12px 32px -12px rgba(0,0,0,0.6)",
       }}
     >
       <span style={{ color: colors.background, opacity: 0.9 }}>

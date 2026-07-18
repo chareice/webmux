@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   createTerminalViaApi,
   expandTerminalById,
+  fitPaneViaContextMenu,
   getImmersiveTerminal,
   listTerminals,
   openApp,
@@ -39,23 +40,23 @@ test("desktop Fit reaches a stable terminal size after one click", async ({
   await expandTerminalById(page, terminalId);
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
-  await page.getByLabel("Fit", { exact: true }).click();
+  await fitPaneViaContextMenu(page, terminalId);
   await expect.poll(() => resizeFrames.length).toBe(1);
   const first = resizeFrames[0];
   await expect.poll(() => getLocalTerminalSize(page, terminalId)).toEqual(first);
 
-  await page.getByLabel("Fit", { exact: true }).click();
+  await fitPaneViaContextMenu(page, terminalId);
   await expect.poll(() => resizeFrames.length).toBe(2);
 
   expect(resizeFrames[1]).toEqual(first);
   await context.close();
 });
 
-// Regression for "每次点击 fit 终端尺寸都跳" — rapid back-to-back clicks.
+// Regression for "每次点击 fit 终端尺寸都跳" — repeated fits.
 // The previous implementation reverse-engineered cell width from a cached
-// surface measurement (which lagged term.cols by one RAF), so clicks fired
+// surface measurement (which lagged term.cols by one RAF), so fits fired
 // before the cache caught up produced wildly different dimensions. With
-// cell metrics read directly from xterm, every click is a pure projection of
+// cell metrics read directly from xterm, every fit is a pure projection of
 // viewport onto cell size and converges in one shot.
 test("rapid Fit clicks all produce the same terminal size", async ({
   browser,
@@ -87,17 +88,13 @@ test("rapid Fit clicks all produce the same terminal size", async ({
   await expandTerminalById(page, terminalId);
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
-  // Dispatch five clicks back-to-back in a single microtask. The previous
-  // implementation needed a few RAFs between clicks to settle its cached
-  // surface size; doing them all in one frame would cascade stale reads
-  // and produce divergent resize messages.
-  const fit = page.getByLabel("Fit", { exact: true });
-  await fit.evaluate((node: Element) => {
-    const button = node as HTMLButtonElement;
-    for (let i = 0; i < 5; i++) {
-      button.click();
-    }
-  });
+  // Fit five times back-to-back via the pane context menu. The previous
+  // implementation reverse-engineered cell width from a cached surface
+  // measurement (which lagged term.cols by one RAF), so repeated fits before
+  // the cache caught up produced divergent resize messages.
+  for (let i = 0; i < 5; i++) {
+    await fitPaneViaContextMenu(page, terminalId);
+  }
 
   await expect.poll(() => resizeFrames.length).toBe(5);
   const first = resizeFrames[0];
@@ -168,7 +165,7 @@ test("desktop thumbnail switch fits the newly focused terminal to the overlay", 
     .poll(async () => terminalSize(page, compactId))
     .toEqual({ cols: 164, rows: 16 });
 
-  await page.getByTestId(`expanded-thumb-${compactId}`).click();
+  await page.getByTestId(`workspace-pane-${compactId}`).click();
 
   await expect
     .poll(async () => {
