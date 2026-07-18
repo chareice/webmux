@@ -13,12 +13,9 @@ import type {
 } from "react";
 import type {
   TerminalInfo,
-  WorkspaceColumnWidth,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
-  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
-  WorkspaceScrollableLayout,
 } from "@webmux/shared";
 import { Plus } from "lucide-react";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
@@ -33,16 +30,12 @@ import {
   appendWorkspacePaneToGroup,
   closeWorkspacePane,
   createTerminalWorkspace,
-  findAdjacentScrollableColumn,
   findAdjacentWorkspacePane,
   getActiveWorkspaceGroup,
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
-  setWorkspaceColumnWidth,
   splitWorkspacePane,
-  swapWorkspacePanes,
 } from "@/lib/terminalWorkspaceLayout";
-import { ScrollableWorkspace } from "./ScrollableWorkspace";
 import { formatPrefixBinding, type PrefixActionId } from "@/lib/prefixKey";
 import { usePrefixKey } from "@/lib/prefixKeyContext";
 
@@ -76,8 +69,6 @@ interface TerminalWorkspaceProps {
     machineId: string,
     groupKey: string,
     root: WorkspaceLayoutNode | null,
-    mode: WorkspaceLayoutMode | null,
-    scrollable: WorkspaceScrollableLayout | null,
   ) => Promise<WorkspaceLayoutInfo | null | void>;
   onAssignGroup: (
     terminal: TerminalInfo,
@@ -222,9 +213,7 @@ function TerminalWorkspaceComponent({
   // Panes in the active group — a group with a single pane renders no
   // focused-pane accent border (a lone pane needs no focus indicator).
   const activeGroupPaneCount = activeGroup
-    ? activeGroup.layoutMode === "scrollable"
-      ? activeGroup.scrollable?.columns.length ?? 0
-      : collectIds(activeGroup.root).length
+    ? collectIds(activeGroup.root).length
     : 0;
   const layoutSaveQueuesRef = useRef(new Map<string, Promise<void>>());
 
@@ -242,7 +231,7 @@ function TerminalWorkspaceComponent({
         .catch(() => undefined)
         .then(async () => {
           try {
-            await onSaveWorkspaceLayout(commandMachineId, group.id, group.root, null, null);
+            await onSaveWorkspaceLayout(commandMachineId, group.id, group.root);
           } catch (error) {
             console.error("Failed to save workspace pane layout", error);
           }
@@ -467,60 +456,6 @@ function TerminalWorkspaceComponent({
     ],
   );
 
-  const persistColumnsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const persistColumnsPendingRef = useRef<WorkspaceGroup | null>(null);
-
-  const schedulePersistColumns = useCallback(
-    (group: WorkspaceGroup) => {
-      persistColumnsPendingRef.current = group;
-      if (persistColumnsTimerRef.current) return;
-      persistColumnsTimerRef.current = setTimeout(() => {
-        persistColumnsTimerRef.current = null;
-        const pending = persistColumnsPendingRef.current;
-        persistColumnsPendingRef.current = null;
-        if (!pending || !commandMachineId) return;
-        void onSaveWorkspaceLayout(
-          commandMachineId,
-          pending.id,
-          pending.root,
-          pending.layoutMode,
-          pending.scrollable,
-        );
-      }, 200);
-    },
-    [commandMachineId, onSaveWorkspaceLayout],
-  );
-
-  useEffect(
-    () => () => {
-      if (persistColumnsTimerRef.current) clearTimeout(persistColumnsTimerRef.current);
-    },
-    [],
-  );
-
-  const handleResizeColumn = useCallback(
-    (terminalId: string, width: WorkspaceColumnWidth) => {
-      setWorkspace((prev) => {
-        const next = setWorkspaceColumnWidth(prev, terminalId, width);
-        const group = next.groups.find((g) =>
-          g.scrollable?.columns.some((c) => c.terminalId === terminalId),
-        );
-        if (group && commandMachineId) {
-          schedulePersistColumns(group);
-        }
-        return next;
-      });
-    },
-    [commandMachineId, schedulePersistColumns],
-  );
-
-  const handleReorderColumns = useCallback(
-    (sourceTerminalId: string, targetTerminalId: string) => {
-      setWorkspace((prev) => swapWorkspacePanes(prev, sourceTerminalId, targetTerminalId));
-    },
-    [],
-  );
-
   const focusPaneByDirection = useCallback(
     (direction: WorkspacePaneFocusDirection) => {
       if (maximizedTerminalId) return;
@@ -618,32 +553,6 @@ function TerminalWorkspaceComponent({
     Partial<Record<PrefixActionId, () => void>>
   >({});
 
-  // Pane focus keeps the old scrollable-layout behaviour: left/right walk
-  // columns, up/down are no-ops there; tiling mode walks the split tree.
-  const focusPrefixPane = useCallback(
-    (direction: WorkspacePaneFocusDirection) => {
-      if (activeGroup?.layoutMode === "scrollable") {
-        if (direction === "up" || direction === "down") return;
-        const nextId = activeGroup.scrollable
-          ? findAdjacentScrollableColumn(
-              activeGroup.scrollable,
-              direction,
-              workspace.activeTerminalId,
-            )
-          : null;
-        if (nextId) activateTerminal(nextId);
-        return;
-      }
-      focusPaneByDirection(direction);
-    },
-    [
-      activeGroup,
-      activateTerminal,
-      focusPaneByDirection,
-      workspace.activeTerminalId,
-    ],
-  );
-
   const toggleMaximizeActivePane = useCallback(() => {
     if (!activeTerminal) return;
     setMaximizedTerminalId((value) =>
@@ -654,10 +563,10 @@ function TerminalWorkspaceComponent({
   workspacePrefixActionsRef.current = {
     splitRight: () => void handleSplit("right"),
     splitDown: () => void handleSplit("down"),
-    paneLeft: () => focusPrefixPane("left"),
-    paneRight: () => focusPrefixPane("right"),
-    paneUp: () => focusPrefixPane("up"),
-    paneDown: () => focusPrefixPane("down"),
+    paneLeft: () => focusPaneByDirection("left"),
+    paneRight: () => focusPaneByDirection("right"),
+    paneUp: () => focusPaneByDirection("up"),
+    paneDown: () => focusPaneByDirection("down"),
     zoomPane: toggleMaximizeActivePane,
     closePane: () => {
       if (activeTerminal) handleDestroy(activeTerminal);
@@ -747,28 +656,7 @@ function TerminalWorkspaceComponent({
         }}
       >
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-          {activeGroup?.layoutMode === "scrollable" &&
-          (activeGroup.scrollable?.columns?.length ?? 0) > 0 ? (
-            <ScrollableWorkspace
-              columns={activeGroup.scrollable?.columns ?? []}
-              terminalsById={terminalsById}
-              activeTerminalId={activeTerminal?.id ?? null}
-              isController={isController}
-              deviceId={deviceId}
-              isMobile
-              fitRequest={fitRequest}
-              onActiveRef={(ref) => {
-                activeCardRef.current = ref;
-              }}
-              onFitRequestHandled={handleFitRequestHandled}
-              onFocus={activateTerminal}
-              onDestroy={handleDestroy}
-              onResizeColumn={handleResizeColumn}
-              onReorderColumns={handleReorderColumns}
-              onRequestControl={onRequestControl}
-              onReleaseControl={onReleaseControl}
-            />
-          ) : activeTerminal ? (
+          {activeTerminal ? (
             <WorkspacePaneLeaf
               terminal={activeTerminal}
               isActive
@@ -914,28 +802,6 @@ function TerminalWorkspaceComponent({
             onFitRequestHandled={handleFitRequestHandled}
             onFocus={activateTerminal}
             onDestroy={handleDestroy}
-            onPaneContextMenu={handlePaneContextMenu}
-            onRequestControl={onRequestControl}
-            onReleaseControl={onReleaseControl}
-          />
-        ) : activeGroup?.layoutMode === "scrollable" &&
-          (activeGroup.scrollable?.columns?.length ?? 0) > 0 ? (
-          <ScrollableWorkspace
-            columns={activeGroup.scrollable?.columns ?? []}
-            terminalsById={terminalsById}
-            activeTerminalId={activeTerminal?.id ?? null}
-            isController={isController}
-            deviceId={deviceId}
-            isMobile={false}
-            fitRequest={fitRequest}
-            onActiveRef={(ref) => {
-              activeCardRef.current = ref;
-            }}
-            onFitRequestHandled={handleFitRequestHandled}
-            onFocus={activateTerminal}
-            onDestroy={handleDestroy}
-            onResizeColumn={handleResizeColumn}
-            onReorderColumns={handleReorderColumns}
             onPaneContextMenu={handlePaneContextMenu}
             onRequestControl={onRequestControl}
             onReleaseControl={onReleaseControl}

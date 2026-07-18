@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { colors } from "@/lib/colors";
 import {
-  groupPaneTerminalIds,
+  workspacePaneOrder,
   type WorkspaceGroup,
 } from "@/lib/terminalWorkspaceLayout";
 
@@ -115,12 +115,11 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     [terminals],
   );
 
-  // One chip per terminal, ordered by group; panes within a group keep the
-  // workspace pane order (DFS of the split tree, or the scrollable columns).
+  // One chip per terminal, ordered by group and then split-tree DFS.
   const chips = useMemo<StripChip[]>(() => {
     const list: StripChip[] = [];
     for (const group of groups) {
-      for (const id of groupPaneTerminalIds(group)) {
+      for (const id of workspacePaneOrder(group.root)) {
         const terminal = terminalsById.get(id);
         if (terminal) list.push({ terminal, group });
       }
@@ -241,7 +240,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           borderBottom: `1px solid ${colors.lineSoft}`,
         }}
       >
-        {/* Scrollable chips + new-terminal button */}
+        {/* Session chips + new-terminal button */}
         <div
           style={{
             flex: 1,

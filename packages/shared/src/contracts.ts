@@ -37,29 +37,10 @@ export type WorkspaceLayoutNode =
       second: WorkspaceLayoutNode
     }
 
-export type WorkspaceLayoutMode = "tiling" | "scrollable"
-
-export type WorkspaceColumnPreset = "half" | "two_thirds" | "full"
-
-export type WorkspaceColumnWidth =
-  | { kind: "preset"; value: WorkspaceColumnPreset }
-  | { kind: "fraction"; value: number }
-
-export interface WorkspaceScrollableColumn {
-  terminalId: string
-  width: WorkspaceColumnWidth
-}
-
-export interface WorkspaceScrollableLayout {
-  columns: WorkspaceScrollableColumn[]
-}
-
 export interface WorkspaceLayoutInfo {
   machine_id: string
   group_key: string
   root: WorkspaceLayoutNode | null
-  mode?: WorkspaceLayoutMode
-  scrollable?: WorkspaceScrollableLayout | null
   updated_at: number
 }
 

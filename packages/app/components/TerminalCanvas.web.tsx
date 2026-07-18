@@ -13,9 +13,7 @@ import type {
   Bookmark,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
-  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
-  WorkspaceScrollableLayout,
 } from "@webmux/shared";
 import { AppTitleBar } from "./AppTitleBar.web";
 import { TabBar } from "./TabBar.web";
@@ -815,8 +813,6 @@ function TerminalCanvasInner() {
       machineId: string,
       groupKey: string,
       root: WorkspaceLayoutNode | null,
-      mode: WorkspaceLayoutMode | null,
-      scrollable: WorkspaceScrollableLayout | null,
     ) => {
       const baseUpdatedAt =
         workspaceLayoutsRef.current.find(
@@ -828,8 +824,6 @@ function TerminalCanvasInner() {
         groupKey,
         root,
         baseUpdatedAt,
-        mode,
-        scrollable,
       );
       setBrowserState((prev) => ({
         ...prev,
