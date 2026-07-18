@@ -34,14 +34,12 @@ import {
 } from "lucide-react";
 import { colors } from "@/lib/colors";
 import {
-  workspacePaneOrder,
-  type WorkspaceGroup,
-} from "@/lib/terminalWorkspaceLayout";
+  buildMobileSessionGroups,
+  type MobileSessionPane,
+} from "@/lib/mobileSessionSwitcher";
+import type { WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
 
-interface StripChip {
-  terminal: TerminalInfo;
-  group: WorkspaceGroup;
-}
+type StripChip = MobileSessionPane;
 
 interface MobileWorkbenchProps {
   machines: MachineInfo[];
@@ -99,6 +97,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
   } = props;
 
   const [hostSheetOpen, setHostSheetOpen] = useState(false);
+  const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
   const [chipSheet, setChipSheet] = useState<StripChip | null>(null);
 
   const activeMachine =
@@ -117,22 +116,14 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     return terminals.filter((t) => t.machine_id === activeMachine.id);
   }, [terminals, activeMachine]);
 
-  const terminalsById = useMemo(
-    () => new Map(terminals.map((t) => [t.id, t])),
-    [terminals],
+  const sessionGroups = useMemo(
+    () => buildMobileSessionGroups(groups, terminals),
+    [groups, terminals],
   );
-
-  // One chip per terminal, ordered by group and then split-tree DFS.
-  const chips = useMemo<StripChip[]>(() => {
-    const list: StripChip[] = [];
-    for (const group of groups) {
-      for (const id of workspacePaneOrder(group.root)) {
-        const terminal = terminalsById.get(id);
-        if (terminal) list.push({ terminal, group });
-      }
-    }
-    return list;
-  }, [groups, terminalsById]);
+  const chips = useMemo(
+    () => sessionGroups.flatMap((sessionGroup) => sessionGroup.panes),
+    [sessionGroups],
+  );
 
   const activeGroup =
     chips.find((chip) => chip.terminal.id === activeTerminalId)?.group ?? null;
@@ -280,7 +271,13 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
               <StripChipButton
                 chip={chip}
                 active={chip.terminal.id === activeTerminalId}
-                onTap={() => onPickTerminal(chip.terminal.id)}
+                onTap={() => {
+                  if (chip.terminal.id === activeTerminalId) {
+                    setSessionSwitcherOpen(true);
+                  } else {
+                    onPickTerminal(chip.terminal.id);
+                  }
+                }}
                 onLongPress={() => setChipSheet(chip)}
               />
             </span>
@@ -435,6 +432,98 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         )}
       </div>
 
+      {/* Session switcher sheet */}
+      {sessionSwitcherOpen && (
+        <Sheet
+          title="Sessions"
+          testid="mobile-session-switcher"
+          onClose={() => setSessionSwitcherOpen(false)}
+        >
+          <MenuRow
+            icon={<Plus size={17} />}
+            label="New terminal"
+            disabled={!canCreateTerminal}
+            testid="mobile-session-switcher-new-terminal"
+            onClick={() => {
+              setSessionSwitcherOpen(false);
+              onNewTerminal(activeGroup);
+            }}
+          />
+          {sessionGroups.map(({ group, panes }) => (
+            <section key={group.id}>
+              <div
+                data-testid={`mobile-session-group-${group.id}`}
+                style={{
+                  padding: "14px 18px 6px",
+                  color: colors.fg2,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: 0.4,
+                  textTransform: "uppercase",
+                }}
+              >
+                {group.label} · {panes.length}{" "}
+                {panes.length === 1 ? "pane" : "panes"}
+              </div>
+              {panes.map(({ terminal }) => {
+                const active = terminal.id === activeTerminalId;
+                return (
+                  <button
+                    key={terminal.id}
+                    type="button"
+                    data-testid={`mobile-session-row-${terminal.id}`}
+                    aria-current={active ? "true" : undefined}
+                    onClick={() => {
+                      onPickTerminal(terminal.id);
+                      setSessionSwitcherOpen(false);
+                    }}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      padding: "11px 18px",
+                      color: colors.fg1,
+                      textAlign: "left",
+                      background: active ? colors.bg2 : "transparent",
+                      border: "none",
+                      borderLeft: active
+                        ? `3px solid ${colors.accent}`
+                        : "3px solid transparent",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: "block",
+                        color: colors.fg0,
+                        fontSize: 14,
+                        fontWeight: active ? 700 : 500,
+                        whiteSpace: "normal",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {terminal.title || terminal.id.slice(0, 8)}
+                    </span>
+                    <span
+                      style={{
+                        display: "block",
+                        marginTop: 3,
+                        color: colors.fg3,
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 11,
+                        whiteSpace: "normal",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {terminal.cwd}
+                    </span>
+                  </button>
+                );
+              })}
+            </section>
+          ))}
+        </Sheet>
+      )}
+
       {/* Host sheet */}
       {hostSheetOpen && (
         <Sheet title="Hosts" onClose={() => setHostSheetOpen(false)}>
@@ -562,7 +651,10 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
 
       {/* Chip long-press sheet */}
       {chipSheet && (
-        <Sheet title={chipLabel(chipSheet)} onClose={() => setChipSheet(null)}>
+        <Sheet
+          title={`${chipSheet.group.label} · ${chipSheet.terminal.title || chipSheet.terminal.id.slice(0, 8)}`}
+          onClose={() => setChipSheet(null)}
+        >
           <MenuRow
             icon={<X size={17} />}
             label="Close terminal"
@@ -595,13 +687,6 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
 export const MobileWorkbench = memo(MobileWorkbenchComponent);
 
 /* ---------- strip subcomponents ---------- */
-
-// "{groupLabel} · {terminal.title}", truncated to ~12 chars.
-function chipLabel(chip: StripChip): string {
-  const title = chip.terminal.title || chip.terminal.id.slice(0, 8);
-  const label = `${chip.group.label} · ${title}`;
-  return label.length > 12 ? `${label.slice(0, 11)}…` : label;
-}
 
 function StripChipButton({
   chip,
@@ -680,13 +765,16 @@ function StripChipButton({
         fontSize: 12,
         fontWeight: active ? 600 : 400,
         whiteSpace: "nowrap",
+        maxWidth: 168,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
         flexShrink: 0,
         cursor: "pointer",
         userSelect: "none",
         WebkitUserSelect: "none",
       }}
     >
-      {chipLabel(chip)}
+      {chip.chipLabel}
     </button>
   );
 }
@@ -802,10 +890,12 @@ function HostDot({
 
 function Sheet({
   title,
+  testid,
   onClose,
   children,
 }: {
   title?: string;
+  testid?: string;
   onClose: () => void;
   children: React.ReactNode;
 }) {
@@ -818,6 +908,7 @@ function Sheet({
   }, [onClose]);
   return (
     <div
+      data-testid={testid}
       onClick={onClose}
       style={{
         position: "absolute",

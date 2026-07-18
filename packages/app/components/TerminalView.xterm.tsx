@@ -336,6 +336,9 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         fitToContainer(opts) {
           fitToContainer(opts);
         },
+        scrollToBottom() {
+          termRef.current?.scrollToBottom();
+        },
         focus() {
           termRef.current?.focus();
         },

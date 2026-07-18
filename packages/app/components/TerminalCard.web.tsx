@@ -7,6 +7,8 @@ import { TerminalPreviewText } from "./TerminalPreviewText.web";
 import { terminalWsUrl } from "@/lib/api";
 import { colors, terminalTheme } from "@/lib/colors";
 import { ctrlLatchTransform } from "@/lib/ctrlLatch";
+import { useVisualViewportHeight } from "@/lib/hooks";
+import { getMobileViewportTerminalAction } from "@/lib/mobileViewportTerminal";
 
 const LiveTerminalView = lazy(() =>
   import("./TerminalView.web").then((module) => ({
@@ -16,6 +18,7 @@ const LiveTerminalView = lazy(() =>
 
 const FIT_REF_RETRY_LIMIT = 10;
 const FIT_REF_RETRY_DELAY_MS = 100;
+const MOBILE_VIEWPORT_SETTLE_MS = 150;
 
 export interface TerminalCardRef {
   fitToContainer: (opts?: {
@@ -31,6 +34,7 @@ interface TerminalCardProps {
   terminal: TerminalInfo;
   displayMode: "card" | "tab";
   isMobile: boolean;
+  isActive: boolean;
   isController: boolean;
   canType: boolean;
   eventsReconnecting: boolean;
@@ -47,6 +51,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   terminal,
   displayMode,
   isMobile,
+  isActive,
   isController,
   canType,
   eventsReconnecting,
@@ -258,6 +263,15 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   const wsUrl = terminal.reachable
     ? terminalWsUrl(terminal.machine_id, terminal.id, deviceId)
     : null;
+  const handleMobileViewportRefit = useCallback(() => {
+    fitToContainer({
+      skipIfUnchanged: true,
+      focusAfterFit: false,
+    });
+  }, [fitToContainer]);
+  const handleMobileViewportScroll = useCallback(() => {
+    termViewRef.current?.scrollToBottom();
+  }, []);
 
   return (
     <div
@@ -292,6 +306,14 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
           e.currentTarget.style.borderColor = colors.border;
       }}
     >
+      {isMobile && isTab && (
+        <MobileViewportTerminalSync
+          isActive={isActive}
+          isController={isController}
+          onRefit={handleMobileViewportRefit}
+          onScrollToBottom={handleMobileViewportScroll}
+        />
+      )}
       {!terminal.reachable && (
         <div
           style={{
@@ -619,6 +641,55 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   );
 });
 
+function MobileViewportTerminalSync({
+  isActive,
+  isController,
+  onRefit,
+  onScrollToBottom,
+}: {
+  isActive: boolean;
+  isController: boolean;
+  onRefit: () => void;
+  onScrollToBottom: () => void;
+}) {
+  const viewportHeight = useVisualViewportHeight();
+  const previousViewportHeightRef = useRef<number | null>(null);
+  const viewportChangeTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const previousHeight = previousViewportHeightRef.current;
+    previousViewportHeightRef.current = viewportHeight;
+    const action = getMobileViewportTerminalAction({
+      isMobile: true,
+      isActive,
+      isController,
+      previousHeight,
+      nextHeight: viewportHeight,
+    });
+    if (!action) return;
+
+    if (viewportChangeTimerRef.current !== null) {
+      window.clearTimeout(viewportChangeTimerRef.current);
+    }
+    viewportChangeTimerRef.current = window.setTimeout(() => {
+      viewportChangeTimerRef.current = null;
+      requestAnimationFrame(() => {
+        if (action === "refit") onRefit();
+        else onScrollToBottom();
+      });
+    }, MOBILE_VIEWPORT_SETTLE_MS);
+
+    return () => {
+      if (viewportChangeTimerRef.current !== null) {
+        window.clearTimeout(viewportChangeTimerRef.current);
+        viewportChangeTimerRef.current = null;
+      }
+    };
+  }, [isActive, isController, onRefit, onScrollToBottom, viewportHeight]);
+
+  return null;
+}
+
 function areTerminalCardPropsEqual(
   previous: TerminalCardProps,
   next: TerminalCardProps,
@@ -627,6 +698,7 @@ function areTerminalCardPropsEqual(
     previous.terminal === next.terminal &&
     previous.displayMode === next.displayMode &&
     previous.isMobile === next.isMobile &&
+    previous.isActive === next.isActive &&
     previous.isController === next.isController &&
     previous.canType === next.canType &&
     previous.eventsReconnecting === next.eventsReconnecting &&

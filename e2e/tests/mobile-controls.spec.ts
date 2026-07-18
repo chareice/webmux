@@ -116,6 +116,35 @@ test("mobile new terminal starts fitted without an immediate resize", async ({ p
   expect(terminal.cols).toBeLessThan(80);
 });
 
+test("mobile controller refits the terminal when the visual viewport height changes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  const terminalId = await createTerminalViaApi(page);
+
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+  await expect.poll(() => hasXtermInstance(page, terminalId)).toBe(true);
+  const initial = await getXtermViewportState(page, terminalId);
+  expect(initial.rows).toBeGreaterThan(0);
+
+  await page.setViewportSize({ width: 390, height: 500 });
+  await expect
+    .poll(async () => (await getXtermViewportState(page, terminalId)).rows)
+    .toBeLessThan(initial.rows);
+  await expect
+    .poll(async () => (await getXtermViewportState(page, terminalId)).cursorVisible)
+    .toBe(true);
+
+  const compactRows = (await getXtermViewportState(page, terminalId)).rows;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(async () => (await getXtermViewportState(page, terminalId)).rows)
+    .toBeGreaterThan(compactRows);
+});
+
 test("mobile terminal only focuses after an explicit input gesture", async ({
   page,
 }) => {
@@ -272,6 +301,79 @@ test("mobile session strip switches terminals and closes them via the chip sheet
   ).toBeVisible();
 });
 
+test("mobile active strip chip opens a grouped session switcher", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+
+  const suffix = Date.now();
+  const firstGroup = await createWorkspaceGroupViaApi(
+    page,
+    `Switcher Alpha ${suffix}`,
+  );
+  const secondGroup = await createWorkspaceGroupViaApi(
+    page,
+    `Switcher Beta ${suffix}`,
+  );
+  const firstTerminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: firstGroup.id,
+  });
+  const secondTerminalId = await createTerminalViaApi(page, {
+    cwd: "/tmp",
+    workspaceGroupId: secondGroup.id,
+  });
+
+  const firstChip = page.getByTestId(`mobile-strip-chip-${firstTerminalId}`);
+  const secondChip = page.getByTestId(`mobile-strip-chip-${secondTerminalId}`);
+  await expect(firstChip).toBeVisible();
+  await expect(secondChip).toBeVisible();
+  const activeChip = page.locator(
+    "button[data-testid^='mobile-strip-chip-'][aria-pressed='true']",
+  );
+  await expect(activeChip).toBeVisible();
+  const activeTestId = await activeChip.getAttribute("data-testid");
+  const activeIsFirst = activeTestId === `mobile-strip-chip-${firstTerminalId}`;
+  const activeTerminalId = activeIsFirst ? firstTerminalId : secondTerminalId;
+  const targetChip = activeIsFirst ? secondChip : firstChip;
+  const targetTerminalId = activeIsFirst ? secondTerminalId : firstTerminalId;
+
+  await activeChip.click();
+  const sheet = page.getByTestId("mobile-session-switcher");
+  await expect(sheet).toBeVisible();
+  await expect(
+    page.getByTestId(`mobile-session-group-${firstGroup.id}`),
+  ).toContainText(`${firstGroup.name} · 1 pane`);
+  await expect(
+    page.getByTestId(`mobile-session-group-${secondGroup.id}`),
+  ).toContainText(`${secondGroup.name} · 1 pane`);
+  await expect(
+    page.getByTestId("mobile-session-switcher-new-terminal"),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId(`mobile-session-row-${activeTerminalId}`),
+  ).toHaveAttribute("aria-current", "true");
+
+  const terminalSnapshots = await listTerminals(page);
+  for (const terminalId of [firstTerminalId, secondTerminalId]) {
+    const terminal = terminalSnapshots.find((item) => item.id === terminalId);
+    expect(terminal).toBeDefined();
+    const row = page.getByTestId(`mobile-session-row-${terminalId}`);
+    await expect(row).toContainText(terminal!.title);
+    await expect(row).toContainText(terminal!.cwd);
+  }
+
+  await page.getByTestId(`mobile-session-row-${targetTerminalId}`).click();
+  await expect(targetChip).toHaveAttribute("aria-pressed", "true");
+  await expect(sheet).toHaveCount(0);
+  await expect
+    .poll(() => getMountedXtermIds(page))
+    .toEqual([targetTerminalId]);
+});
+
 test("mobile Ctrl latch and pinned key-bar keys send bytes directly", async ({
   page,
 }) => {
@@ -403,6 +505,17 @@ async function hasXtermInstance(
   }, terminalId);
 }
 
+async function getMountedXtermIds(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const map = (
+      window as unknown as {
+        __webmuxTerminals?: Map<string, unknown>;
+      }
+    ).__webmuxTerminals;
+    return [...(map?.keys() ?? [])];
+  });
+}
+
 async function getXtermSize(
   page: Page,
   terminalId: string,
@@ -415,6 +528,41 @@ async function getXtermSize(
     ).__webmuxTerminals;
     const term = map?.get(tid);
     return { cols: term?.cols ?? 0, rows: term?.rows ?? 0 };
+  }, terminalId);
+}
+
+async function getXtermViewportState(
+  page: Page,
+  terminalId: string,
+): Promise<{ rows: number; cursorVisible: boolean }> {
+  return page.evaluate((tid) => {
+    const map = (
+      window as unknown as {
+        __webmuxTerminals?: Map<
+          string,
+          {
+            rows: number;
+            buffer: {
+              active: {
+                baseY: number;
+                cursorY: number;
+                viewportY: number;
+              };
+            };
+          }
+        >;
+      }
+    ).__webmuxTerminals;
+    const term = map?.get(tid);
+    if (!term) return { rows: 0, cursorVisible: false };
+    const buffer = term.buffer.active;
+    const cursorRow = buffer.baseY + buffer.cursorY;
+    return {
+      rows: term.rows,
+      cursorVisible:
+        cursorRow >= buffer.viewportY &&
+        cursorRow < buffer.viewportY + term.rows,
+    };
   }, terminalId);
 }
 
