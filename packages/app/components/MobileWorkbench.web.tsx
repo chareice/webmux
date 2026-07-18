@@ -1,19 +1,22 @@
-// Mobile workbench shell. Rendered when the viewport is below ~680px.
-// Separates navigation into three bottom tabs (Hosts / Terminals / Stats)
-// and keeps terminal focus as a fullscreen overlay (handled by
-// ExpandedTerminal in TerminalCanvas). This is the only mobile shell —
-// the native React Native Android tree was retired in favor of the Tauri
-// Mobile wrapper.
+// Mobile workbench shell (P1). Rendered when the viewport is below 768px.
+// Permanent chrome is exactly two elements: the session strip on top and
+// the extended key bar at the bottom (the key bar renders inside
+// TerminalCard); the active terminal fills everything between them. The old
+// 3-tab bottom nav (Hosts/Terminals/Stats), the app bar, the FAB and the
+// card-list landing are gone — the app opens straight into the last-active
+// terminal. Host switching, control toggling, reconnect and settings live
+// in the host sheet (strip right end); per-chip actions live in the
+// long-press sheet. See SPEC-PHASE3.md and the design doc §4.
 
 import {
   memo,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import type {
-  Bookmark,
   MachineInfo,
   ResourceStats,
   TerminalInfo,
@@ -21,23 +24,24 @@ import type {
 import {
   ChevronRight,
   CircuitBoard,
-  Folder,
-  MoreHorizontal,
+  Lock,
+  LockOpen,
   Plus,
   RefreshCw,
-  Search,
   Settings as SettingsIcon,
-  Square,
   Terminal as TerminalIcon,
+  X,
 } from "lucide-react";
-import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
-import { useTerminalPreviewOutputSource } from "@/lib/terminalPreviewMuxReact";
-import { TerminalTailBuffer } from "@/lib/terminalTailBuffer";
-import { MachineOnboardingDialog } from "./OnboardingView.web";
-import { PathInput } from "./PathInput.web";
-import { Sparkline, mockSeries } from "./WorkbenchHeader.web";
+import { colors } from "@/lib/colors";
+import {
+  workspacePaneOrder,
+  type WorkspaceGroup,
+} from "@/lib/terminalWorkspaceLayout";
 
-type MobileTab = "hosts" | "terminals" | "stats";
+interface StripChip {
+  terminal: TerminalInfo;
+  group: WorkspaceGroup;
+}
 
 interface MobileWorkbenchProps {
   machines: MachineInfo[];
@@ -45,18 +49,28 @@ interface MobileWorkbenchProps {
   controlLeases: Record<string, string>;
   deviceId: string | null;
   machineStats: Record<string, ResourceStats>;
-  bookmarks: Bookmark[];
+  rttMs: number | null;
+  // All terminals across machines (the strip scopes them to the active
+  // machine via `groups`; the host sheet needs the full list for counts).
   terminals: TerminalInfo[];
-  selectedWorkpathId: string | "all";
+  // Strip order: persistent groups by sort_order, then cwd fallback groups
+  // (same grouping the desktop TabBar renders).
+  groups: WorkspaceGroup[];
+  activeTerminalId: string | null;
   canCreateTerminal: boolean;
+  onPickTerminal: (id: string) => void;
+  // null group = machine home directory (empty state / no active group).
+  onNewTerminal: (group: WorkspaceGroup | null) => void;
+  onCloseTerminal: (terminal: TerminalInfo) => void;
   onSelectMachine: (id: string) => void;
-  onSelectWorkpath: (id: string) => void;
-  onAddWorkpath: (machineId: string, path: string) => void | Promise<void>;
-  onOpenTerminal: (id: string) => void;
-  onNewTerminal: () => void;
+  onAddMachine: () => void;
   onRequestControl: (machineId: string) => void;
-  onReleaseControl: (machineId: string) => void;
+  viewOnlyLocked: boolean;
+  onEngageViewOnly: (machineId: string) => void;
+  onDisengageViewOnly: () => void;
   onOpenSettings: () => void;
+  // The inline TerminalWorkspace (null while the machine has no terminals).
+  children: React.ReactNode;
 }
 
 function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
@@ -66,24 +80,26 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     controlLeases,
     deviceId,
     machineStats,
-    bookmarks,
+    rttMs,
     terminals,
-    selectedWorkpathId,
+    groups,
+    activeTerminalId,
     canCreateTerminal,
-    onSelectMachine,
-    onSelectWorkpath,
-    onAddWorkpath,
-    onOpenTerminal,
+    onPickTerminal,
     onNewTerminal,
+    onCloseTerminal,
+    onSelectMachine,
+    onAddMachine,
     onRequestControl,
-    onReleaseControl,
+    viewOnlyLocked,
+    onEngageViewOnly,
+    onDisengageViewOnly,
     onOpenSettings,
+    children,
   } = props;
 
-  const [tab, setTab] = useState<MobileTab>("terminals");
-  const [hostSheet, setHostSheet] = useState(false);
-  const [menuSheet, setMenuSheet] = useState(false);
-  const [addMachineOpen, setAddMachineOpen] = useState(false);
+  const [hostSheetOpen, setHostSheetOpen] = useState(false);
+  const [chipSheet, setChipSheet] = useState<StripChip | null>(null);
 
   const activeMachine =
     machines.find((m) => m.id === activeMachineId) ?? machines[0] ?? null;
@@ -93,10 +109,118 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     deviceId !== null &&
     controlLeases[activeMachine.id] === deviceId;
 
+  // Strip chips only cover the active machine; the empty state keys off the
+  // same scoped list the canvas uses to decide whether to mount the
+  // workspace.
   const scopedTerminals = useMemo(() => {
     if (!activeMachine) return [];
     return terminals.filter((t) => t.machine_id === activeMachine.id);
   }, [terminals, activeMachine]);
+
+  const terminalsById = useMemo(
+    () => new Map(terminals.map((t) => [t.id, t])),
+    [terminals],
+  );
+
+  // One chip per terminal, ordered by group and then split-tree DFS.
+  const chips = useMemo<StripChip[]>(() => {
+    const list: StripChip[] = [];
+    for (const group of groups) {
+      for (const id of workspacePaneOrder(group.root)) {
+        const terminal = terminalsById.get(id);
+        if (terminal) list.push({ terminal, group });
+      }
+    }
+    return list;
+  }, [groups, terminalsById]);
+
+  const activeGroup =
+    chips.find((chip) => chip.terminal.id === activeTerminalId)?.group ?? null;
+
+  // Prev/next in strip order; no wraparound at either end.
+  const switchTerminalByOffset = useCallback(
+    (offset: number) => {
+      const ids = chips.map((chip) => chip.terminal.id);
+      const index = ids.indexOf(activeTerminalId ?? "");
+      if (index === -1) return;
+      const next = ids[index + offset];
+      if (next) onPickTerminal(next);
+    },
+    [chips, activeTerminalId, onPickTerminal],
+  );
+
+  // Edge swipe: a horizontal swipe that STARTS within 24px of the left/right
+  // screen edge switches to the prev/next terminal in strip order. Touches
+  // starting anywhere else are ignored entirely — no preventDefault, no
+  // capture — so terminal scroll and mouse-tracking apps keep working.
+  const terminalAreaRef = useRef<HTMLDivElement>(null);
+  const edgeSwipeRef = useRef<{
+    x: number;
+    y: number;
+    edge: "left" | "right";
+  } | null>(null);
+  useEffect(() => {
+    const node = terminalAreaRef.current;
+    if (!node) return;
+    const EDGE_PX = 24;
+    const MIN_SWIPE_PX = 48;
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        edgeSwipeRef.current = null;
+        return;
+      }
+      const touch = event.touches[0];
+      if (touch.clientX <= EDGE_PX) {
+        edgeSwipeRef.current = { x: touch.clientX, y: touch.clientY, edge: "left" };
+      } else if (touch.clientX >= window.innerWidth - EDGE_PX) {
+        edgeSwipeRef.current = { x: touch.clientX, y: touch.clientY, edge: "right" };
+      } else {
+        edgeSwipeRef.current = null;
+      }
+    };
+    const onTouchEnd = (event: TouchEvent) => {
+      const start = edgeSwipeRef.current;
+      edgeSwipeRef.current = null;
+      if (!start) return;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      // Mostly-vertical gestures are terminal scrolls, not pane switches.
+      if (Math.abs(dy) >= Math.abs(dx)) return;
+      if (start.edge === "left" && dx >= MIN_SWIPE_PX) {
+        switchTerminalByOffset(-1);
+      } else if (start.edge === "right" && dx <= -MIN_SWIPE_PX) {
+        switchTerminalByOffset(1);
+      }
+    };
+    const onTouchCancel = () => {
+      edgeSwipeRef.current = null;
+    };
+    // Capture phase: xterm stops touch propagation inside the terminal, so
+    // bubble-phase listeners here would never see edge touches.
+    node.addEventListener("touchstart", onTouchStart, {
+      capture: true,
+      passive: true,
+    });
+    node.addEventListener("touchend", onTouchEnd, {
+      capture: true,
+      passive: true,
+    });
+    node.addEventListener("touchcancel", onTouchCancel, {
+      capture: true,
+      passive: true,
+    });
+    return () => {
+      node.removeEventListener("touchstart", onTouchStart, true);
+      node.removeEventListener("touchend", onTouchEnd, true);
+      node.removeEventListener("touchcancel", onTouchCancel, true);
+    };
+  }, [switchTerminalByOffset]);
+
+  const machineOnline = (machine: MachineInfo) =>
+    Boolean(machineStats[machine.id]) ||
+    terminals.some((t) => t.machine_id === machine.id && t.reachable);
 
   return (
     <div
@@ -111,221 +235,220 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         position: "relative",
       }}
     >
-      {/* App bar */}
-      <header
+      {/* Session strip */}
+      <div
+        data-testid="mobile-session-strip"
         style={{
+          height: 44,
           flexShrink: 0,
-          padding: "10px 12px",
           display: "flex",
-          alignItems: "center",
-          gap: 10,
+          alignItems: "stretch",
+          background: colors.bg1,
           borderBottom: `1px solid ${colors.lineSoft}`,
-          background: colors.bg0,
         }}
       >
-        <button
-          onClick={() => setHostSheet(true)}
+        {/* Session chips + new-terminal button */}
+        <div
           style={{
+            flex: 1,
+            minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            overflowX: "auto",
+            scrollbarWidth: "none",
+            padding: "0 6px",
+          }}
+        >
+          {chips.map((chip, index) => (
+            <span
+              key={chip.terminal.id}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              {index > 0 && chips[index - 1].group.id !== chip.group.id && (
+                <span
+                  aria-hidden
+                  style={{
+                    width: 1,
+                    height: 20,
+                    background: colors.lineSoft,
+                    flexShrink: 0,
+                    margin: "0 2px",
+                  }}
+                />
+              )}
+              <StripChipButton
+                chip={chip}
+                active={chip.terminal.id === activeTerminalId}
+                onTap={() => onPickTerminal(chip.terminal.id)}
+                onLongPress={() => setChipSheet(chip)}
+              />
+            </span>
+          ))}
+          <button
+            type="button"
+            data-testid="mobile-strip-new-terminal"
+            disabled={!canCreateTerminal}
+            onClick={() => onNewTerminal(activeGroup)}
+            title="New terminal"
+            aria-label="New terminal"
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 6,
+              border: `1px solid ${colors.lineSoft}`,
+              background: "transparent",
+              color: colors.fg2,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+              flexShrink: 0,
+              cursor: canCreateTerminal ? "pointer" : "not-allowed",
+              opacity: canCreateTerminal ? 1 : 0.45,
+            }}
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+
+        {/* Fixed right end: cpu/mem micro-meters + host button */}
+        <div
+          style={{
+            flexShrink: 0,
             display: "flex",
             alignItems: "center",
             gap: 8,
-            padding: "7px 10px 7px 9px",
-            borderRadius: 999,
-            background: colors.bg1,
-            border: `1px solid ${colors.lineSoft}`,
-            minWidth: 0,
-            flex: 1,
-            color: colors.fg1,
-            cursor: "pointer",
+            padding: "0 8px",
+            borderLeft: `1px solid ${colors.lineSoft}`,
           }}
         >
-          <HostDot isController={isController} />
+          <StripMeters stats={activeStats} />
           <span
-            style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: colors.fg0,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              minWidth: 0,
-              flex: 1,
-            }}
-          >
-            {activeMachine?.name ?? "No host"}
-          </span>
-          <span
+            data-testid="mobile-strip-rtt"
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              color: colors.fg3,
+              fontSize: 9,
+              color: colors.fg2,
+              minWidth: 28,
+              textAlign: "right",
+            }}
+          >
+            {rttMs === null ? "—" : `${Math.round(rttMs)}ms`}
+          </span>
+          <button
+            type="button"
+            data-testid="mobile-host-button"
+            onClick={() => setHostSheetOpen(true)}
+            title="Host menu"
+            aria-label="Host menu"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              height: 30,
+              padding: "0 8px",
+              borderRadius: 6,
+              background: colors.bg2,
+              border: `1px solid ${colors.lineSoft}`,
+              cursor: "pointer",
+              maxWidth: 132,
               flexShrink: 0,
             }}
           >
-            {activeMachine?.os ?? ""}
-          </span>
-          <ChevronRight
-            size={13}
-            color={colors.fg3}
-            style={{ marginLeft: 2, transform: "rotate(90deg)" }}
-          />
-        </button>
-        <button
-          onClick={() => setMenuSheet(true)}
-          style={mobIconBtn}
-          title="More"
-          aria-label="More"
-        >
-          <MoreHorizontal size={18} />
-        </button>
-      </header>
+            <HostDot
+              online={activeMachine ? machineOnline(activeMachine) : false}
+              isController={isController}
+            />
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: colors.fg0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+              }}
+            >
+              {activeMachine?.name ?? "No host"}
+            </span>
+            <ChevronRight
+              size={12}
+              color={colors.fg3}
+              style={{ transform: "rotate(90deg)", flexShrink: 0 }}
+            />
+          </button>
+        </div>
+      </div>
 
-      {/* Page content */}
+      {/* Terminal area (edge swipes switch terminals in strip order) */}
       <div
+        ref={terminalAreaRef}
+        data-testid="mobile-terminal-area"
         style={{
           flex: 1,
-          overflow: "hidden",
-          position: "relative",
           minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          position: "relative",
         }}
       >
-        {tab === "hosts" && (
-          <HostsPage
-            machines={machines}
-            activeMachineId={activeMachineId}
-            controlLeases={controlLeases}
-            deviceId={deviceId}
-            bookmarks={bookmarks}
-            terminals={terminals}
-            selectedWorkpathId={selectedWorkpathId}
-            canCreateTerminal={canCreateTerminal}
-            onAddMachine={() => setAddMachineOpen(true)}
-            onSelectMachine={onSelectMachine}
-            onSelectWorkpath={(id) => {
-              onSelectWorkpath(id);
-              setTab("terminals");
+        {scopedTerminals.length === 0 ? (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: colors.fg3,
+              fontSize: 14,
             }}
-            onAddWorkpath={onAddWorkpath}
-          />
-        )}
-        {tab === "terminals" && (
-          <TerminalsPage
-            machine={activeMachine}
-            scopeLabel="All"
-            scopePath={null}
-            terminals={scopedTerminals}
-            isController={isController}
-            canCreateTerminal={canCreateTerminal}
-            onOpen={onOpenTerminal}
-            onNewTerminal={onNewTerminal}
-            onRequestControl={
-              activeMachine
-                ? () => onRequestControl(activeMachine.id)
-                : undefined
-            }
-            onReleaseControl={
-              activeMachine
-                ? () => onReleaseControl(activeMachine.id)
-                : undefined
-            }
-            onChangeScope={() => setTab("hosts")}
-          />
-        )}
-        {tab === "stats" && (
-          <StatsPage
-            machine={activeMachine}
-            stats={activeStats}
-            isController={isController}
-            onRequestControl={
-              activeMachine
-                ? () => onRequestControl(activeMachine.id)
-                : undefined
-            }
-            onReleaseControl={
-              activeMachine
-                ? () => onReleaseControl(activeMachine.id)
-                : undefined
-            }
-            onOpenSettings={onOpenSettings}
-          />
+          >
+            <div style={{ textAlign: "center" }}>
+              <TerminalIcon size={40} style={{ opacity: 0.35 }} />
+              <div style={{ marginTop: 12 }}>No terminals yet</div>
+              {canCreateTerminal && (
+                <button
+                  type="button"
+                  data-testid="empty-new-terminal"
+                  onClick={() => onNewTerminal(null)}
+                  style={{
+                    marginTop: 14,
+                    background: colors.accent,
+                    color: "#120904",
+                    border: "none",
+                    borderRadius: 999,
+                    padding: "8px 14px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Start terminal
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          children
         )}
       </div>
 
-      {/* FAB */}
-      {tab === "terminals" && canCreateTerminal && (
-        <button
-          data-testid="mobile-fab-new-terminal"
-          onClick={onNewTerminal}
-          style={{
-            position: "absolute",
-            right: 16,
-            bottom: 72,
-            zIndex: 10,
-            width: 52,
-            height: 52,
-            borderRadius: 999,
-            background: colors.accent,
-            color: "#120904",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            border: "none",
-            cursor: "pointer",
-            boxShadow:
-              "0 12px 28px -8px rgba(251, 157, 89, 0.5), 0 4px 12px -4px black",
-          }}
-          title="New terminal"
-          aria-label="New terminal"
-        >
-          <Plus size={22} strokeWidth={2.2} />
-        </button>
-      )}
-
-      {/* Bottom nav */}
-      <nav
-        style={{
-          flexShrink: 0,
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr",
-          borderTop: `1px solid ${colors.lineSoft}`,
-          background: colors.bg0,
-          paddingBottom: "max(4px, env(safe-area-inset-bottom))",
-        }}
-      >
-        <NavBtn
-          icon={<CircuitBoard size={22} />}
-          label="Hosts"
-          active={tab === "hosts"}
-          badge={machines.length}
-          onClick={() => setTab("hosts")}
-        />
-        <NavBtn
-          icon={<TerminalIcon size={22} />}
-          label="Terminals"
-          active={tab === "terminals"}
-          badge={scopedTerminals.length}
-          onClick={() => setTab("terminals")}
-        />
-        <NavBtn
-          icon={<SettingsIcon size={22} />}
-          label="Stats"
-          active={tab === "stats"}
-          onClick={() => setTab("stats")}
-        />
-      </nav>
-
-      {hostSheet && (
-        <Sheet title="Switch host" onClose={() => setHostSheet(false)}>
+      {/* Host sheet */}
+      {hostSheetOpen && (
+        <Sheet title="Hosts" onClose={() => setHostSheetOpen(false)}>
           {machines.map((m) => {
-            const isActive = m.id === activeMachineId;
+            const isActive = m.id === activeMachine?.id;
             const controlling =
               deviceId !== null && controlLeases[m.id] === deviceId;
             return (
               <button
                 key={m.id}
+                type="button"
                 onClick={() => {
                   onSelectMachine(m.id);
-                  setHostSheet(false);
+                  setHostSheetOpen(false);
                 }}
                 style={{
                   display: "grid",
@@ -344,15 +467,23 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                   color: colors.fg1,
                 }}
               >
-                <HostDot isController={controlling} />
+                <HostDot online={machineOnline(m)} isController={controlling} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: colors.fg0 }}>
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: colors.fg0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
                     {m.name}
                   </div>
                   <div
                     style={{
-                      fontFamily:
-                        "var(--font-mono)",
+                      fontFamily: "var(--font-mono)",
                       fontSize: 11,
                       color: colors.fg3,
                     }}
@@ -363,8 +494,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                 <div
                   style={{
                     textAlign: "right",
-                    fontFamily:
-                      "var(--font-mono)",
+                    fontFamily: "var(--font-mono)",
                     fontSize: 11,
                     color: colors.fg3,
                   }}
@@ -374,68 +504,89 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
               </button>
             );
           })}
-        </Sheet>
-      )}
-
-      {menuSheet && (
-        <Sheet onClose={() => setMenuSheet(false)}>
           <MenuRow
             icon={<Plus size={17} />}
             label="Add host"
             onClick={() => {
-              setMenuSheet(false);
-              setAddMachineOpen(true);
+              setHostSheetOpen(false);
+              onAddMachine();
             }}
           />
-          <MenuRow
-            icon={<Plus size={17} />}
-            label="New terminal"
-            disabled={!canCreateTerminal}
-            onClick={() => {
-              setMenuSheet(false);
-              if (canCreateTerminal) onNewTerminal();
-            }}
-          />
-          <MenuRow
-            icon={<Search size={17} />}
-            label="Find workpath"
-            onClick={() => {
-              setMenuSheet(false);
-              setTab("hosts");
-            }}
-          />
+          {activeMachine &&
+            (viewOnlyLocked ? (
+              <MenuRow
+                icon={<LockOpen size={17} />}
+                label="Unlock view only"
+                testid="mobile-control-toggle"
+                onClick={() => {
+                  setHostSheetOpen(false);
+                  onDisengageViewOnly();
+                }}
+              />
+            ) : isController ? (
+              <MenuRow
+                icon={<Lock size={17} />}
+                label="View only"
+                testid="mobile-control-toggle"
+                onClick={() => {
+                  setHostSheetOpen(false);
+                  onEngageViewOnly(activeMachine.id);
+                }}
+              />
+            ) : (
+              <MenuRow
+                icon={<CircuitBoard size={17} />}
+                label="Take control"
+                testid="mobile-control-toggle"
+                onClick={() => {
+                  setHostSheetOpen(false);
+                  onRequestControl(activeMachine.id);
+                }}
+              />
+            ))}
           <MenuRow
             icon={<RefreshCw size={17} />}
             label="Reconnect session"
-            onClick={() => {
-              setMenuSheet(false);
-              window.location.reload();
-            }}
+            onClick={() => window.location.reload()}
           />
           <MenuRow
             icon={<SettingsIcon size={17} />}
             label="Settings"
             onClick={() => {
-              setMenuSheet(false);
+              setHostSheetOpen(false);
               onOpenSettings();
             }}
           />
-          {isController && activeMachine && (
-            <MenuRow
-              icon={<Square size={15} fill="currentColor" />}
-              label="Stop Control"
-              danger
-              onClick={() => {
-                setMenuSheet(false);
-                onReleaseControl(activeMachine.id);
-              }}
-            />
-          )}
         </Sheet>
       )}
 
-      {addMachineOpen && (
-        <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
+      {/* Chip long-press sheet */}
+      {chipSheet && (
+        <Sheet title={chipLabel(chipSheet)} onClose={() => setChipSheet(null)}>
+          <MenuRow
+            icon={<X size={17} />}
+            label="Close terminal"
+            danger
+            disabled={!canCreateTerminal}
+            testid="mobile-chip-close-terminal"
+            onClick={() => {
+              const { terminal } = chipSheet;
+              setChipSheet(null);
+              onCloseTerminal(terminal);
+            }}
+          />
+          <MenuRow
+            icon={<Plus size={17} />}
+            label="New terminal here"
+            disabled={!canCreateTerminal}
+            testid="mobile-chip-new-terminal"
+            onClick={() => {
+              const { group } = chipSheet;
+              setChipSheet(null);
+              onNewTerminal(group);
+            }}
+          />
+        </Sheet>
       )}
     </div>
   );
@@ -443,86 +594,173 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
 
 export const MobileWorkbench = memo(MobileWorkbenchComponent);
 
-/* ---------- Subcomponents ---------- */
+/* ---------- strip subcomponents ---------- */
 
-const mobIconBtn: React.CSSProperties = {
-  width: 38,
-  height: 38,
-  borderRadius: 999,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: colors.fg1,
-  background: colors.bg1,
-  border: `1px solid ${colors.lineSoft}`,
-  flexShrink: 0,
-  cursor: "pointer",
-};
+// "{groupLabel} · {terminal.title}", truncated to ~12 chars.
+function chipLabel(chip: StripChip): string {
+  const title = chip.terminal.title || chip.terminal.id.slice(0, 8);
+  const label = `${chip.group.label} · ${title}`;
+  return label.length > 12 ? `${label.slice(0, 11)}…` : label;
+}
 
-function NavBtn({
-  icon,
-  label,
+function StripChipButton({
+  chip,
   active,
-  badge,
-  onClick,
+  onTap,
+  onLongPress,
 }: {
-  icon: React.ReactNode;
-  label: string;
+  chip: StripChip;
   active: boolean;
-  badge?: number;
-  onClick: () => void;
+  onTap: () => void;
+  onLongPress: () => void;
 }) {
+  const timerRef = useRef<number | null>(null);
+  const longPressedRef = useRef(false);
+  const startPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const cancelTimer = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    startPosRef.current = null;
+  }, []);
+
+  useEffect(() => cancelTimer, [cancelTimer]);
+
   return (
     <button
-      onClick={onClick}
+      type="button"
+      data-testid={`mobile-strip-chip-${chip.terminal.id}`}
+      aria-pressed={active}
+      onTouchStart={(event) => {
+        const touch = event.touches[0];
+        longPressedRef.current = false;
+        cancelTimer();
+        startPosRef.current = touch
+          ? { x: touch.clientX, y: touch.clientY }
+          : null;
+        timerRef.current = window.setTimeout(() => {
+          timerRef.current = null;
+          longPressedRef.current = true;
+          onLongPress();
+        }, 500);
+      }}
+      onTouchMove={(event) => {
+        const start = startPosRef.current;
+        const touch = event.touches[0];
+        if (!start || !touch) return;
+        // Sliding scrolls the strip; only a held press opens the sheet.
+        if (
+          Math.abs(touch.clientX - start.x) > 10 ||
+          Math.abs(touch.clientY - start.y) > 10
+        ) {
+          cancelTimer();
+        }
+      }}
+      onTouchEnd={cancelTimer}
+      onTouchCancel={cancelTimer}
+      onContextMenu={(event) => event.preventDefault()}
+      onClick={() => {
+        // The synthetic click after a long-press must not also switch.
+        if (longPressedRef.current) {
+          longPressedRef.current = false;
+          return;
+        }
+        onTap();
+      }}
+      title={`${chip.group.label} · ${chip.terminal.title || chip.terminal.id.slice(0, 8)}`}
       style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 2,
-        padding: "8px 4px 6px",
-        color: active ? colors.accent : colors.fg2,
-        background: "none",
+        height: 30,
+        borderRadius: 6,
         border: "none",
+        background: active ? colors.bg3 : "transparent",
+        color: active ? colors.fg0 : colors.fg2,
+        padding: "0 9px",
+        fontSize: 12,
+        fontWeight: active ? 600 : 400,
+        whiteSpace: "nowrap",
+        flexShrink: 0,
         cursor: "pointer",
-        position: "relative",
+        userSelect: "none",
+        WebkitUserSelect: "none",
       }}
     >
-      <div style={{ position: "relative" }}>
-        {icon}
-        {badge && badge > 0 ? (
-          <span
-            style={{
-              position: "absolute",
-              top: -4,
-              right: -8,
-              minWidth: 15,
-              height: 15,
-              padding: "0 4px",
-              borderRadius: 999,
-              background: active ? colors.accent : colors.bg3,
-              color: active ? "#120904" : colors.fg1,
-              fontSize: 9.5,
-              fontWeight: 700,
-              fontFamily: "var(--font-mono)",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: `2px solid ${colors.bg0}`,
-            }}
-          >
-            {badge}
-          </span>
-        ) : null}
-      </div>
-      <span style={{ fontSize: 10.5, fontWeight: active ? 600 : 500 }}>
-        {label}
-      </span>
+      {chipLabel(chip)}
     </button>
   );
 }
 
-function HostDot({ isController }: { isController: boolean }) {
+function StripMeters({ stats }: { stats: ResourceStats | undefined }) {
+  const cpu = stats ? Math.round(stats.cpu_percent) : null;
+  const mem =
+    stats && stats.memory_total > 0
+      ? Math.round((stats.memory_used / stats.memory_total) * 100)
+      : null;
+  return (
+    <div
+      data-testid="mobile-strip-meters"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        fontFamily: "var(--font-mono)",
+        fontSize: 9,
+        color: colors.fg3,
+      }}
+    >
+      <StripMeter label="c" percent={cpu} testid="mobile-strip-meter-cpu" />
+      <StripMeter label="m" percent={mem} testid="mobile-strip-meter-mem" />
+    </div>
+  );
+}
+
+function StripMeter({
+  label,
+  percent,
+  testid,
+}: {
+  label: string;
+  percent: number | null;
+  testid: string;
+}) {
+  return (
+    <span
+      data-testid={testid}
+      style={{ display: "inline-flex", alignItems: "center", gap: 3 }}
+    >
+      <span>{label}</span>
+      <span
+        style={{
+          width: 26,
+          height: 4,
+          borderRadius: 2,
+          background: colors.bg3,
+          overflow: "hidden",
+          display: "inline-block",
+        }}
+      >
+        <span
+          style={{
+            display: "block",
+            height: "100%",
+            width: `${percent ?? 0}%`,
+            background: percent === null ? "transparent" : colors.fg2,
+            borderRadius: 2,
+          }}
+        />
+      </span>
+    </span>
+  );
+}
+
+function HostDot({
+  online,
+  isController,
+}: {
+  online: boolean;
+  isController: boolean;
+}) {
   return (
     <span
       style={{
@@ -538,8 +776,8 @@ function HostDot({ isController }: { isController: boolean }) {
           position: "absolute",
           inset: 0,
           borderRadius: 999,
-          background: colors.ok,
-          boxShadow: "0 0 0 3px rgba(99, 209, 143, 0.22)",
+          background: online ? colors.ok : colors.fg3,
+          boxShadow: online ? "0 0 0 3px rgba(99, 209, 143, 0.22)" : "none",
         }}
       />
       {isController && (
@@ -560,980 +798,7 @@ function HostDot({ isController }: { isController: boolean }) {
   );
 }
 
-/* ---------- Pages ---------- */
-
-function HostsPage({
-  machines,
-  activeMachineId,
-  controlLeases,
-  deviceId,
-  bookmarks,
-  terminals,
-  selectedWorkpathId,
-  canCreateTerminal,
-  onAddMachine,
-  onSelectMachine,
-  onSelectWorkpath,
-  onAddWorkpath,
-}: {
-  machines: MachineInfo[];
-  activeMachineId: string | null;
-  controlLeases: Record<string, string>;
-  deviceId: string | null;
-  bookmarks: Bookmark[];
-  terminals: TerminalInfo[];
-  selectedWorkpathId: string | "all";
-  canCreateTerminal: boolean;
-  onAddMachine: () => void;
-  onSelectMachine: (id: string) => void;
-  onSelectWorkpath: (id: string) => void;
-  onAddWorkpath: (machineId: string, path: string) => void | Promise<void>;
-}) {
-  const [addWorkpathOpen, setAddWorkpathOpen] = useState(false);
-  const active =
-    machines.find((m) => m.id === activeMachineId) ?? machines[0];
-  const machineBookmarks = active
-    ? bookmarks.filter((b) => b.machine_id === active.id)
-    : [];
-  const totalTerminals = active
-    ? terminals.filter((t) => t.machine_id === active.id).length
-    : 0;
-  return (
-    <div style={{ height: "100%", overflow: "auto", padding: "8px 0 16px" }}>
-      <SectionHead>Hosts</SectionHead>
-      <div style={{ padding: "0 16px 10px" }}>
-        <button
-          data-testid="mobile-add-machine"
-          onClick={onAddMachine}
-          style={{
-            width: "100%",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            padding: "10px 14px",
-            borderRadius: 12,
-            border: `1px solid ${colors.lineSoft}`,
-            background: colors.bg1,
-            color: colors.fg0,
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          <Plus size={16} />
-          Add host
-        </button>
-      </div>
-      {machines.map((m) => {
-        const isActive = m.id === activeMachineId;
-        const controlling =
-          deviceId !== null && controlLeases[m.id] === deviceId;
-        const count = terminals.filter((t) => t.machine_id === m.id).length;
-        return (
-          <button
-            key={m.id}
-            onClick={() => onSelectMachine(m.id)}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "auto 1fr auto",
-              alignItems: "center",
-              gap: 12,
-              width: "100%",
-              textAlign: "left",
-              padding: "12px 16px",
-              background: isActive ? colors.bg1 : "transparent",
-              borderLeft: isActive
-                ? `3px solid ${colors.accent}`
-                : "3px solid transparent",
-              border: "none",
-              cursor: "pointer",
-              color: colors.fg1,
-            }}
-          >
-            <HostDot isController={controlling} />
-            <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 6,
-                }}
-              >
-                <span style={{ fontSize: 15, fontWeight: 600, color: colors.fg0 }}>
-                  {m.name}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: colors.fg3,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  {m.os}
-                </span>
-              </div>
-              <div
-                style={{
-                  fontFamily:
-                    "var(--font-mono)",
-                  fontSize: 11,
-                  color: colors.fg3,
-                }}
-              >
-                {m.home_dir}
-              </div>
-            </div>
-            <div
-              style={{
-                textAlign: "right",
-                fontFamily:
-                  "var(--font-mono)",
-                fontSize: 11,
-                color: colors.fg3,
-              }}
-            >
-              <div style={{ color: colors.fg2 }}>{count} term</div>
-            </div>
-          </button>
-        );
-      })}
-
-      <SectionHead style={{ marginTop: 8 }}>
-        Workpaths{active ? ` · ${active.name}` : ""}
-      </SectionHead>
-      <div style={{ padding: "0 16px 10px" }}>
-        <button
-          data-testid="mobile-add-workpath"
-          disabled={!canCreateTerminal || !active}
-          onClick={() => setAddWorkpathOpen(true)}
-          style={{
-            width: "100%",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8,
-            padding: "10px 14px",
-            borderRadius: 12,
-            border: `1px solid ${colors.lineSoft}`,
-            background: canCreateTerminal && active ? colors.bg1 : colors.bg2,
-            color: canCreateTerminal && active ? colors.fg0 : colors.fg3,
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: canCreateTerminal && active ? "pointer" : "not-allowed",
-            opacity: canCreateTerminal && active ? 1 : 0.65,
-          }}
-          type="button"
-        >
-          <Plus size={16} />
-          Add workpath
-        </button>
-      </div>
-      {addWorkpathOpen && active && (
-        <div data-testid="mobile-add-workpath-form">
-          <PathInput
-            machineId={active.id}
-            onSubmit={(path) => {
-              if (!path) {
-                setAddWorkpathOpen(false);
-                return;
-              }
-              const exists = bookmarks.some(
-                (b) => b.machine_id === active.id && b.path === path,
-              );
-              if (!exists) {
-                void onAddWorkpath(active.id, path);
-              }
-              setAddWorkpathOpen(false);
-            }}
-            onCancel={() => setAddWorkpathOpen(false)}
-          />
-        </div>
-      )}
-      <WpRow
-        label="All workpaths"
-        path={null}
-        terminals={totalTerminals}
-        selected={selectedWorkpathId === "all"}
-        onClick={() => onSelectWorkpath("all")}
-      />
-      {machineBookmarks.length > 0 && <SubHead>All · {machineBookmarks.length}</SubHead>}
-      {machineBookmarks.map((b) => {
-        const count = terminals.filter(
-          (t) => t.machine_id === b.machine_id && t.cwd === b.path,
-        ).length;
-        return (
-          <WpRow
-            key={b.id}
-            label={b.label}
-            path={b.path}
-            terminals={count}
-            selected={selectedWorkpathId === b.id}
-            onClick={() => onSelectWorkpath(b.id)}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-function WpRow({
-  label,
-  path,
-  terminals,
-  selected,
-  onClick,
-}: {
-  label: string;
-  path: string | null;
-  terminals: number;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: "grid",
-        gridTemplateColumns: "auto 1fr auto",
-        alignItems: "center",
-        gap: 12,
-        width: "100%",
-        textAlign: "left",
-        padding: "11px 16px",
-        background: selected ? colors.bg1 : "transparent",
-        borderLeft: selected
-          ? `3px solid ${colors.accent}`
-          : "3px solid transparent",
-        border: "none",
-        cursor: "pointer",
-        color: colors.fg1,
-      }}
-    >
-      <Folder size={16} color={selected ? colors.accent : colors.fg3} />
-      <div style={{ minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 14,
-            fontWeight: selected ? 600 : 500,
-            color: colors.fg0,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {label}
-        </div>
-        {path && (
-          <div
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 10.5,
-              color: colors.fg3,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {path.replace(/^\/home\/[^/]+/, "~")}
-          </div>
-        )}
-      </div>
-      {terminals > 0 ? (
-        <span
-          style={{
-            minWidth: 22,
-            padding: "2px 7px",
-            borderRadius: 999,
-            background: selected ? colorAlpha.accentSoft : colors.bg2,
-            color: selected ? colors.accent : colors.fg2,
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            fontWeight: 600,
-            textAlign: "center",
-          }}
-        >
-          {terminals}
-        </span>
-      ) : (
-        <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            color: colors.fg3,
-          }}
-        >
-          —
-        </span>
-      )}
-    </button>
-  );
-}
-
-function TerminalsPage({
-  machine,
-  scopeLabel,
-  scopePath,
-  terminals,
-  isController,
-  canCreateTerminal,
-  onOpen,
-  onNewTerminal,
-  onRequestControl,
-  onReleaseControl,
-  onChangeScope,
-}: {
-  machine: MachineInfo | null;
-  scopeLabel: string;
-  scopePath: string | null;
-  terminals: TerminalInfo[];
-  isController: boolean;
-  canCreateTerminal: boolean;
-  onOpen: (id: string) => void;
-  onNewTerminal: () => void;
-  onRequestControl?: () => void;
-  onReleaseControl?: () => void;
-  onChangeScope: () => void;
-}) {
-  return (
-    <div style={{ height: "100%", overflow: "auto", padding: "8px 0 80px" }}>
-      <div
-        style={{
-          margin: "4px 12px 10px",
-          padding: 10,
-          display: "grid",
-          gridTemplateColumns: "1fr auto",
-          gap: 8,
-          alignItems: "center",
-          borderRadius: 12,
-          border: `1px solid ${colors.lineSoft}`,
-          background: colors.bg1,
-        }}
-      >
-        <div style={{ minWidth: 0 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 7,
-              minWidth: 0,
-            }}
-          >
-            <HostDot isController={isController} />
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 650,
-                color: colors.fg0,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                minWidth: 0,
-              }}
-            >
-              {machine?.name ?? "No host"}
-            </span>
-          </div>
-          <div
-            style={{
-              marginTop: 4,
-              fontSize: 11,
-              color: isController ? colors.accent : colors.fg3,
-            }}
-          >
-            {isController ? "Ready to create and type" : "Viewing only"}
-          </div>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            gap: 6,
-            justifyContent: "flex-end",
-            minWidth: 0,
-          }}
-        >
-          <button
-            type="button"
-            data-testid="mobile-control-toggle"
-            disabled={!machine || (!isController && !onRequestControl)}
-            onClick={() => {
-              if (isController) onReleaseControl?.();
-              else onRequestControl?.();
-            }}
-            style={{
-              minHeight: 40,
-              padding: "0 12px",
-              borderRadius: 9,
-              border: `1px solid ${
-                isController ? colors.lineSoft : colorAlpha.accentLine
-              }`,
-              background: isController ? colors.bg2 : colorAlpha.accentSoft,
-              color: isController ? colors.fg1 : colors.accent,
-              fontSize: 12,
-              fontWeight: 700,
-              whiteSpace: "nowrap",
-              cursor: machine ? "pointer" : "not-allowed",
-            }}
-          >
-            {isController ? "Stop Control" : "Control Here"}
-          </button>
-          {canCreateTerminal && (
-            <button
-              type="button"
-              data-testid="mobile-new-terminal-inline"
-              onClick={onNewTerminal}
-              style={{
-                minHeight: 40,
-                padding: "0 12px",
-                borderRadius: 9,
-                border: "none",
-                background: colors.accent,
-                color: "#120904",
-                fontSize: 12,
-                fontWeight: 800,
-                whiteSpace: "nowrap",
-                cursor: "pointer",
-              }}
-            >
-              New
-            </button>
-          )}
-        </div>
-      </div>
-
-      <button
-        onClick={onChangeScope}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          width: "calc(100% - 24px)",
-          margin: "4px 12px 10px",
-          padding: "10px 12px",
-          borderRadius: 10,
-          background: colors.bg1,
-          border: `1px solid ${colors.lineSoft}`,
-          textAlign: "left",
-          color: colors.fg1,
-          cursor: "pointer",
-        }}
-      >
-        <Folder size={14} color={colors.fg3} />
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div
-            style={{
-              fontSize: 10,
-              color: colors.fg3,
-              textTransform: "uppercase",
-              letterSpacing: "0.1em",
-            }}
-          >
-            Workpath
-          </div>
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: colors.fg0,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {scopeLabel}
-            {scopePath && (
-              <span
-                style={{
-                  fontFamily:
-                    "var(--font-mono)",
-                  fontSize: 10.5,
-                  color: colors.fg3,
-                  marginLeft: 6,
-                }}
-              >
-                {scopePath.replace(/^\/home\/[^/]+/, "~")}
-              </span>
-            )}
-          </div>
-        </div>
-        <ChevronRight size={16} color={colors.fg3} />
-      </button>
-
-      {terminals.length === 0 && (
-        <div
-          style={{
-            padding: "40px 20px",
-            textAlign: "center",
-            color: colors.fg3,
-          }}
-        >
-          <TerminalIcon size={32} />
-          <div style={{ marginTop: 10, fontSize: 13 }}>
-            No terminals here yet
-          </div>
-          <div style={{ marginTop: 3, fontSize: 11 }}>
-            Tap + to start one
-          </div>
-        </div>
-      )}
-
-      {terminals.map((t) => (
-        <MobileTermCard key={t.id} terminal={t} onClick={() => onOpen(t.id)} />
-      ))}
-    </div>
-  );
-}
-
-// Number of "tail" lines we render in each preview. Fixed so every card
-// is exactly the same height regardless of what the terminal contains.
-const PREVIEW_TAIL_LINES = 6;
-const PREVIEW_LINE_PX = 15;
-const PREVIEW_PADDING_Y = 8;
-
-function MobileTermCard({
-  terminal,
-  onClick,
-}: {
-  terminal: TerminalInfo;
-  onClick: () => void;
-}) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [previewVisible, setPreviewVisible] = useState(false);
-  const [tailLines, setTailLines] = useState<string[]>([]);
-  const short = terminal.id.slice(0, 8);
-
-  // Lazy-subscribe only when the card is in (or near) the viewport, so
-  // long lists don't keep dozens of preview WS subscriptions alive.
-  useEffect(() => {
-    const node = rootRef.current;
-    if (!node || !terminal.reachable) {
-      setPreviewVisible(false);
-      return;
-    }
-    if (typeof IntersectionObserver === "undefined") {
-      setPreviewVisible(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => setPreviewVisible(entry.isIntersecting),
-      { root: null, rootMargin: "120px 0px", threshold: 0.01 },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [terminal.id, terminal.reachable]);
-
-  const previewSource = useTerminalPreviewOutputSource({
-    enabled: terminal.reachable && previewVisible,
-    machineId: terminal.machine_id,
-    terminalId: terminal.id,
-    cols: terminal.cols,
-    rows: terminal.rows,
-  });
-
-  // Subscribe to the preview byte stream and feed it into a tail
-  // buffer. We render plain text instead of a scaled-down xterm canvas
-  // because the canvas approach was unreadable at ~0.36 scale and
-  // varied in visual density, making the list look unbalanced.
-  useEffect(() => {
-    if (!previewSource) {
-      setTailLines([]);
-      return;
-    }
-    const tail = new TerminalTailBuffer({
-      maxLines: PREVIEW_TAIL_LINES,
-      maxLineWidth: 120,
-    });
-    let raf = 0;
-    let pending: string[] | null = null;
-    const flush = () => {
-      raf = 0;
-      if (pending) {
-        setTailLines(pending);
-        pending = null;
-      }
-    };
-    const unsubscribe = previewSource.subscribe((chunk) => {
-      pending = tail.append(chunk);
-      if (raf === 0) raf = requestAnimationFrame(flush);
-    });
-    return () => {
-      if (raf !== 0) cancelAnimationFrame(raf);
-      unsubscribe();
-    };
-  }, [previewSource]);
-
-  const previewHeight = PREVIEW_TAIL_LINES * PREVIEW_LINE_PX + PREVIEW_PADDING_Y * 2;
-
-  return (
-    <div
-      ref={rootRef}
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        onClick();
-      }}
-      data-testid={`mobile-term-card-${terminal.id}`}
-      style={{
-        display: "block",
-        width: "calc(100% - 24px)",
-        margin: "0 12px 8px",
-        padding: 0,
-        background: colors.bg1,
-        border: `1px solid ${colors.lineSoft}`,
-        borderRadius: 10,
-        textAlign: "left",
-        overflow: "hidden",
-        cursor: "pointer",
-        color: colors.fg1,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "10px 12px 6px",
-        }}
-      >
-        <span
-          aria-hidden
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: 999,
-            background: terminal.reachable ? colors.accent : colors.fg3,
-            boxShadow: terminal.reachable
-              ? "0 0 0 3px rgba(251, 157, 89, 0.22)"
-              : "none",
-            flexShrink: 0,
-          }}
-        />
-        <span
-          style={{
-            fontSize: 14,
-            fontWeight: 600,
-            color: colors.fg0,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            minWidth: 0,
-            flex: 1,
-          }}
-        >
-          {terminal.title || short}
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 10.5,
-            color: colors.fg3,
-            flexShrink: 0,
-          }}
-        >
-          {short}
-        </span>
-      </div>
-
-      {/* Activity tail — fixed height, bottom-anchored so the most
-          recent line sits right above the cwd footer. Empty terminals
-          (or before the first WS chunk arrives) get a hint that
-          preserves the same height. */}
-      <div
-        data-testid={`mobile-term-preview-${terminal.id}`}
-        style={{
-          marginLeft: 12,
-          marginRight: 12,
-          height: previewHeight,
-          padding: `${PREVIEW_PADDING_Y}px 10px`,
-          borderRadius: 8,
-          background: terminalTheme.background,
-          color: colors.fg2,
-          fontFamily: "var(--font-mono)",
-          fontSize: 11,
-          lineHeight: `${PREVIEW_LINE_PX}px`,
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "flex-end",
-          whiteSpace: "pre",
-        }}
-      >
-        {tailLines.length === 0 ? (
-          <span style={{ color: colors.fg3, fontStyle: "italic" }}>
-            {terminal.reachable ? "no recent output" : "offline"}
-          </span>
-        ) : (
-          tailLines.map((line, i) => (
-            <span
-              key={i}
-              style={{
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {line || " " /* keep blank lines visible */}
-            </span>
-          ))
-        )}
-      </div>
-
-      <div
-        style={{
-          padding: "8px 12px 10px",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          fontFamily: "var(--font-mono)",
-          fontSize: 10.5,
-          color: colors.fg3,
-        }}
-      >
-        <span
-          style={{
-            minWidth: 0,
-            flex: 1,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {terminal.cwd.replace(/^\/home\/[^/]+/, "~")}
-        </span>
-        <span>
-          {terminal.cols}×{terminal.rows}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function StatsPage({
-  machine,
-  stats,
-  isController,
-  onRequestControl,
-  onReleaseControl,
-  onOpenSettings,
-}: {
-  machine: MachineInfo | null;
-  stats: ResourceStats | undefined;
-  isController: boolean;
-  onRequestControl?: () => void;
-  onReleaseControl?: () => void;
-  onOpenSettings: () => void;
-}) {
-  const cpu = stats ? Math.round(stats.cpu_percent) : 0;
-  const mem =
-    stats && stats.memory_total > 0
-      ? Math.round((stats.memory_used / stats.memory_total) * 100)
-      : 0;
-  const cpuSeries = useMemo(() => mockSeries(3 + cpu, 40, 0.04, 0.4), [cpu]);
-  const memSeries = useMemo(() => mockSeries(7 + mem, 40, 0.18, 0.42), [mem]);
-  return (
-    <div style={{ height: "100%", overflow: "auto", padding: "12px 12px 20px" }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 10,
-        }}
-      >
-        <BigStat label="CPU" value={`${cpu}%`} series={cpuSeries} color={colors.accent} fill="rgba(251, 157, 89, 0.16)" />
-        <BigStat label="MEM" value={`${mem}%`} series={memSeries} color={colors.info} fill="rgba(105, 193, 252, 0.16)" />
-      </div>
-
-      {machine && (
-        <Panel title={`${machine.name} · ${machine.os}`}>
-          <KV k="Terminals" v={stats ? String(stats.disks.length) : "—"} />
-          <KV
-            k="Memory"
-            v={
-              stats
-                ? `${formatBytes(stats.memory_used)} / ${formatBytes(stats.memory_total)}`
-                : "—"
-            }
-          />
-          <KV k="Home" v={machine.home_dir} />
-          <KV k="Controlling" v={isController ? "yes" : "no"} />
-        </Panel>
-      )}
-
-      <Panel title="Actions">
-        {isController && onReleaseControl && (
-          <ActionRow
-            icon={<Square size={15} fill="currentColor" />}
-            label="Release control"
-            danger
-            onClick={onReleaseControl}
-          />
-        )}
-        {!isController && onRequestControl && (
-          <ActionRow
-            icon={<CircuitBoard size={16} />}
-            label="Request control"
-            onClick={onRequestControl}
-          />
-        )}
-        <ActionRow
-          icon={<RefreshCw size={16} />}
-          label="Reconnect"
-          onClick={() => window.location.reload()}
-        />
-        <ActionRow
-          icon={<SettingsIcon size={16} />}
-          label="Settings"
-          onClick={onOpenSettings}
-        />
-      </Panel>
-    </div>
-  );
-}
-
-function BigStat({
-  label,
-  value,
-  series,
-  color,
-  fill,
-}: {
-  label: string;
-  value: string;
-  series: number[];
-  color: string;
-  fill: string;
-}) {
-  return (
-    <div
-      style={{
-        padding: 12,
-        border: `1px solid ${colors.lineSoft}`,
-        borderRadius: 12,
-        background: colors.bg1,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10.5,
-          color: colors.fg3,
-          textTransform: "uppercase",
-          letterSpacing: "0.1em",
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 24,
-          fontWeight: 600,
-          color: colors.fg0,
-          margin: "2px 0 6px",
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
-        {value}
-      </div>
-      <Sparkline data={series} width={140} height={28} color={color} fill={fill} />
-    </div>
-  );
-}
-
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        marginTop: 14,
-        padding: 14,
-        border: `1px solid ${colors.lineSoft}`,
-        borderRadius: 12,
-        background: colors.bg1,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10.5,
-          color: colors.fg3,
-          textTransform: "uppercase",
-          letterSpacing: "0.1em",
-          marginBottom: 10,
-          fontWeight: 600,
-        }}
-      >
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function KV({ k, v }: { k: string; v: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        padding: "8px 0",
-        borderBottom: `1px dashed ${colors.lineSoft}`,
-        fontSize: 13,
-      }}
-    >
-      <span style={{ color: colors.fg3 }}>{k}</span>
-      <span
-        style={{
-          color: colors.fg0,
-          fontFamily: "var(--font-mono)",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          maxWidth: "60%",
-        }}
-      >
-        {v}
-      </span>
-    </div>
-  );
-}
-
-function ActionRow({
-  icon,
-  label,
-  danger,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  danger?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        width: "100%",
-        padding: "10px 2px",
-        color: danger ? colors.err : colors.fg1,
-        textAlign: "left",
-        background: "none",
-        border: "none",
-        cursor: "pointer",
-      }}
-    >
-      {icon}
-      <span style={{ fontSize: 13, fontWeight: 500 }}>{label}</span>
-      <span style={{ flex: 1 }} />
-      <ChevronRight size={14} color={colors.fg3} />
-    </button>
-  );
-}
-
-/* ---------- Sheets ---------- */
+/* ---------- sheets ---------- */
 
 function Sheet({
   title,
@@ -1618,18 +883,22 @@ function MenuRow({
   label,
   disabled,
   danger,
+  testid,
   onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   disabled?: boolean;
   danger?: boolean;
+  testid?: string;
   onClick: () => void;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
+      data-testid={testid}
       style={{
         display: "flex",
         alignItems: "center",
@@ -1650,53 +919,4 @@ function MenuRow({
       <span style={{ flex: 1 }} />
     </button>
   );
-}
-
-function SectionHead({
-  children,
-  style,
-}: {
-  children: React.ReactNode;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <div
-      style={{
-        padding: "14px 16px 6px",
-        fontSize: 10.5,
-        color: colors.fg3,
-        textTransform: "uppercase",
-        letterSpacing: "0.1em",
-        fontWeight: 600,
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function SubHead({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        padding: "10px 16px 4px",
-        fontSize: 10,
-        color: colors.fg3,
-        letterSpacing: "0.05em",
-        fontWeight: 500,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-/* ---------- utils ---------- */
-
-function formatBytes(bytes: number): string {
-  const gb = bytes / (1024 * 1024 * 1024);
-  if (gb >= 1) return `${gb.toFixed(1)}G`;
-  const mb = bytes / (1024 * 1024);
-  return `${mb.toFixed(0)}M`;
 }

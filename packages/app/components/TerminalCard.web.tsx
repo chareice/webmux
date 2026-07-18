@@ -6,6 +6,7 @@ import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { TerminalPreviewText } from "./TerminalPreviewText.web";
 import { terminalWsUrl } from "@/lib/api";
 import { colors, terminalTheme } from "@/lib/colors";
+import { ctrlLatchTransform } from "@/lib/ctrlLatch";
 
 const LiveTerminalView = lazy(() =>
   import("./TerminalView.web").then((module) => ({
@@ -31,6 +32,9 @@ interface TerminalCardProps {
   displayMode: "card" | "tab";
   isMobile: boolean;
   isController: boolean;
+  canType: boolean;
+  eventsReconnecting: boolean;
+  reconnectIndicatorActive: boolean;
   deviceId: string;
   workpathLabel?: string; // shown in the top-left of the card body when in card mode
   onSelectTab: (id: string | null) => void;
@@ -44,6 +48,9 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   displayMode,
   isMobile,
   isController,
+  canType,
+  eventsReconnecting,
+  reconnectIndicatorActive,
   deviceId,
   workpathLabel,
   onSelectTab,
@@ -56,8 +63,39 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   const fitRefRetryTimer = useRef<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
+  const [terminalReconnecting, setTerminalReconnecting] = useState(false);
   const [selectSnapshot, setSelectSnapshot] = useState<SelectionSnapshot | null>(null);
   const isTab = displayMode === "tab";
+
+  // ---- Ctrl latch (mobile key bar) ----
+  // The latch state lives here because TerminalCard owns both ends of the
+  // input path: key-bar keys (handleToolbarKey) and soft-keyboard input
+  // (via inputTransformRef, which TerminalView applies inside xterm's
+  // onData). While armed, the next character key from either path is sent
+  // as its control byte and the latch disarms.
+  const [ctrlArmed, setCtrlArmed] = useState(false);
+  const ctrlArmedRef = useRef(false);
+  const inputTransformRef = useRef<((data: string) => string) | null>(null);
+  const setCtrlLatch = useCallback((armed: boolean) => {
+    ctrlArmedRef.current = armed;
+    setCtrlArmed(armed);
+  }, []);
+
+  useEffect(() => {
+    inputTransformRef.current = (data: string) => {
+      if (!ctrlArmedRef.current) return data;
+      setCtrlLatch(false);
+      return ctrlLatchTransform(data) ?? data;
+    };
+    return () => {
+      inputTransformRef.current = null;
+    };
+  }, [setCtrlLatch]);
+
+  // A new terminal or a lost lease starts with a clean latch.
+  useEffect(() => {
+    setCtrlLatch(false);
+  }, [setCtrlLatch, terminal.id, isController]);
 
   const clearFitRefRetryTimer = useCallback(() => {
     if (fitRefRetryTimer.current !== null) {
@@ -119,19 +157,30 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   }), [fitToContainer]);
 
   useEffect(() => {
-    if (isController) {
+    if (canType) {
       return;
     }
     setKeyboardVisible(false);
-  }, [isController]);
+  }, [canType]);
 
   const handleToolbarKey = useCallback((data: string) => {
-    if (!isController) return;
+    if (!canType) return;
+    if (ctrlArmedRef.current) {
+      setCtrlLatch(false);
+      termViewRef.current?.sendCommandInput(ctrlLatchTransform(data) ?? data);
+      return;
+    }
     termViewRef.current?.sendCommandInput(data);
-  }, [isController]);
+  }, [canType, setCtrlLatch]);
+
+  const handleToggleCtrl = useCallback(() => {
+    if (!canType) return;
+    // Tapping Ctrl again while armed disarms without sending anything.
+    setCtrlLatch(!ctrlArmedRef.current);
+  }, [canType, setCtrlLatch]);
 
   const handleAttachFile = useCallback(async (file: File) => {
-    if (!isController) return;
+    if (!canType) return;
     try {
       await termViewRef.current?.sendImageFile(file);
     } catch (err) {
@@ -145,10 +194,10 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         window.alert(msg);
       }
     }
-  }, [isController]);
+  }, [canType]);
 
   const handleToggleKeyboard = useCallback(() => {
-    if (!isController) return;
+    if (!canType) return;
     const nextVisible = !keyboardVisible;
     setKeyboardVisible(nextVisible);
     if (nextVisible) {
@@ -156,10 +205,10 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
     } else {
       termViewRef.current?.blur();
     }
-  }, [isController, keyboardVisible]);
+  }, [canType, keyboardVisible]);
 
   const handleEnterSelectMode = useCallback(() => {
-    if (!isController) return;
+    if (!canType) return;
     // Snapshot the visible viewport BEFORE we touch focus or mouse modes
     // so we render exactly what was on screen when the user tapped.
     const snapshot = termViewRef.current?.getSelectionSnapshot() ?? null;
@@ -171,7 +220,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
     setKeyboardVisible(false);
     setSelectSnapshot(snapshot);
     setSelectMode(true);
-  }, [isController]);
+  }, [canType]);
 
   const handleExitSelectMode = useCallback(() => {
     termViewRef.current?.setMouseTrackingEnabled(true);
@@ -221,6 +270,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
               display: "flex",
               flexDirection: "column" as const,
               background: colors.surface,
+              position: "relative" as const,
             }
           : {
               position: "relative" as const,
@@ -262,11 +312,58 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         </div>
       )}
 
+      {reconnectIndicatorActive &&
+        (eventsReconnecting || terminalReconnecting) && (
+          <>
+            <div
+              data-testid="reconnect-indicator-bar"
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 2,
+                overflow: "hidden",
+                zIndex: 20,
+                pointerEvents: "none",
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: "38%",
+                  height: "100%",
+                  background: colors.accent,
+                  animation: "webmuxReconnect 1.1s ease-in-out infinite",
+                }}
+              />
+            </div>
+            <div
+              data-testid="reconnect-indicator-chip"
+              style={{
+                position: "absolute",
+                top: 8,
+                right: 10,
+                zIndex: 20,
+                pointerEvents: "none",
+                padding: "3px 7px",
+                borderRadius: 999,
+                background: "rgba(20, 20, 24, 0.88)",
+                border: `1px solid ${colors.border}`,
+                color: colors.foregroundSecondary,
+                fontSize: 10,
+              }}
+            >
+              重连中…
+            </div>
+          </>
+        )}
+
       {/* Mobile controls (Stop Control / Fit / Controlling indicator)
           used to live here as a separate row, but they duplicated the
-          header — the ctrl pill in ExpandedTerminal's header now toggles
-          control, and the Fit icon stayed in the header. The keybar's
-          accent-tinted buttons already signal "Controlling". */}
+          workspace chrome — the ctrl pill in the mobile workspace top bar
+          now toggles control, and the Fit icon lives there too. The
+          keybar's accent-tinted buttons already signal "Controlling". */}
 
       {/* Card mode: title bar */}
       {!isTab && (
@@ -415,7 +512,10 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                   rows={terminal.rows}
                   displayMode={isTab ? "immersive" : "card"}
                   isController={isController}
+                  canType={canType}
                   canResizeTerminal={isTab && isController}
+                  onReconnectingChange={setTerminalReconnecting}
+                  inputTransformRef={inputTransformRef}
                 />
               </Suspense>
             ) : !isTab ? (
@@ -492,7 +592,9 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
             onCopySelection={handleCopySelection}
             selectMode={selectMode}
             keyboardVisible={keyboardVisible}
-            isController={isController}
+            isController={canType}
+            ctrlArmed={ctrlArmed}
+            onToggleCtrl={handleToggleCtrl}
           />
         )}
       </div>
@@ -526,6 +628,9 @@ function areTerminalCardPropsEqual(
     previous.displayMode === next.displayMode &&
     previous.isMobile === next.isMobile &&
     previous.isController === next.isController &&
+    previous.canType === next.canType &&
+    previous.eventsReconnecting === next.eventsReconnecting &&
+    previous.reconnectIndicatorActive === next.reconnectIndicatorActive &&
     previous.deviceId === next.deviceId &&
     previous.workpathLabel === next.workpathLabel &&
     previous.onSelectTab === next.onSelectTab &&

@@ -20,7 +20,7 @@ pub fn find_workspace_layouts_by_user(
     user_id: &str,
 ) -> rusqlite::Result<Vec<WorkspaceLayoutRow>> {
     let mut stmt = conn.prepare(
-        "SELECT user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at
+        "SELECT user_id, machine_id, group_key, root_json, updated_at
          FROM workspace_layouts WHERE user_id = ?1
          ORDER BY machine_id ASC, group_key ASC",
     )?;
@@ -34,7 +34,7 @@ pub fn find_workspace_layouts_by_machine(
     machine_id: &str,
 ) -> rusqlite::Result<Vec<WorkspaceLayoutRow>> {
     let mut stmt = conn.prepare(
-        "SELECT user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at
+        "SELECT user_id, machine_id, group_key, root_json, updated_at
          FROM workspace_layouts WHERE user_id = ?1 AND machine_id = ?2
          ORDER BY group_key ASC",
     )?;
@@ -49,7 +49,7 @@ pub fn find_workspace_layout(
     group_key: &str,
 ) -> rusqlite::Result<Option<WorkspaceLayoutRow>> {
     let mut stmt = conn.prepare(
-        "SELECT user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at
+        "SELECT user_id, machine_id, group_key, root_json, updated_at
          FROM workspace_layouts
          WHERE user_id = ?1 AND machine_id = ?2 AND group_key = ?3",
     )?;
@@ -60,49 +60,40 @@ pub fn find_workspace_layout(
     rows.next().transpose()
 }
 
-pub fn upsert_workspace_layout_full(
+pub fn upsert_workspace_layout(
     conn: &mut Connection,
     user_id: &str,
     machine_id: &str,
     group_key: &str,
     root_json: &str,
-    layout_mode: Option<&str>,
-    aux_json: Option<&str>,
 ) -> rusqlite::Result<WorkspaceLayoutRow> {
     let now = now_ms();
     let updated_at = find_workspace_layout(conn, user_id, machine_id, group_key)?
         .map(|row| (row.updated_at + 1).max(now))
         .unwrap_or(now);
     conn.execute(
-        "INSERT INTO workspace_layouts (user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "INSERT INTO workspace_layouts (user_id, machine_id, group_key, root_json, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(user_id, machine_id, group_key) DO UPDATE SET
              root_json = excluded.root_json,
-             layout_mode = excluded.layout_mode,
-             aux_json = excluded.aux_json,
              updated_at = excluded.updated_at",
-        params![user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at],
+        params![user_id, machine_id, group_key, root_json, updated_at],
     )?;
     Ok(WorkspaceLayoutRow {
         user_id: user_id.into(),
         machine_id: machine_id.into(),
         group_key: group_key.into(),
         root_json: root_json.into(),
-        layout_mode: layout_mode.map(str::to_string),
-        aux_json: aux_json.map(str::to_string),
         updated_at,
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn upsert_workspace_layout_full_checked(
+pub fn upsert_workspace_layout_checked(
     conn: &mut Connection,
     user_id: &str,
     machine_id: &str,
     group_key: &str,
     root_json: &str,
-    layout_mode: Option<&str>,
-    aux_json: Option<&str>,
     base_updated_at: i64,
 ) -> Result<WorkspaceLayoutRow, WorkspaceLayoutSaveError> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -116,14 +107,12 @@ pub fn upsert_workspace_layout_full_checked(
         .map(|row| (row.updated_at + 1).max(now))
         .unwrap_or(now);
     tx.execute(
-        "INSERT INTO workspace_layouts (user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "INSERT INTO workspace_layouts (user_id, machine_id, group_key, root_json, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(user_id, machine_id, group_key) DO UPDATE SET
              root_json = excluded.root_json,
-             layout_mode = excluded.layout_mode,
-             aux_json = excluded.aux_json,
              updated_at = excluded.updated_at",
-        params![user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at],
+        params![user_id, machine_id, group_key, root_json, updated_at],
     )?;
     tx.commit()?;
     Ok(WorkspaceLayoutRow {
@@ -131,40 +120,8 @@ pub fn upsert_workspace_layout_full_checked(
         machine_id: machine_id.into(),
         group_key: group_key.into(),
         root_json: root_json.into(),
-        layout_mode: layout_mode.map(str::to_string),
-        aux_json: aux_json.map(str::to_string),
         updated_at,
     })
-}
-
-pub fn upsert_workspace_layout(
-    conn: &mut Connection,
-    user_id: &str,
-    machine_id: &str,
-    group_key: &str,
-    root_json: &str,
-) -> rusqlite::Result<WorkspaceLayoutRow> {
-    upsert_workspace_layout_full(conn, user_id, machine_id, group_key, root_json, None, None)
-}
-
-pub fn upsert_workspace_layout_checked(
-    conn: &mut Connection,
-    user_id: &str,
-    machine_id: &str,
-    group_key: &str,
-    root_json: &str,
-    base_updated_at: i64,
-) -> Result<WorkspaceLayoutRow, WorkspaceLayoutSaveError> {
-    upsert_workspace_layout_full_checked(
-        conn,
-        user_id,
-        machine_id,
-        group_key,
-        root_json,
-        None,
-        None,
-        base_updated_at,
-    )
 }
 
 pub fn delete_workspace_layout(
@@ -199,20 +156,13 @@ pub fn delete_workspace_layout_checked(
         .map(|row| (row.updated_at + 1).max(now))
         .unwrap_or(now);
     let root_json = "null";
-    // Preserve the previous mode so consumers branching on it after a delete
-    // still see the layout's most recent kind. aux_json stays NULL because the
-    // scrollable payload (if any) was specific to the deleted layout's content.
-    let layout_mode = existing.as_ref().and_then(|row| row.layout_mode.clone());
-    let aux_json: Option<&str> = None;
     tx.execute(
-        "INSERT INTO workspace_layouts (user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "INSERT INTO workspace_layouts (user_id, machine_id, group_key, root_json, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(user_id, machine_id, group_key) DO UPDATE SET
              root_json = excluded.root_json,
-             layout_mode = excluded.layout_mode,
-             aux_json = excluded.aux_json,
              updated_at = excluded.updated_at",
-        params![user_id, machine_id, group_key, root_json, layout_mode.as_deref(), aux_json, updated_at],
+        params![user_id, machine_id, group_key, root_json, updated_at],
     )?;
     tx.commit()?;
     Ok(WorkspaceLayoutRow {
@@ -220,8 +170,6 @@ pub fn delete_workspace_layout_checked(
         machine_id: machine_id.to_string(),
         group_key: group_key.to_string(),
         root_json: root_json.to_string(),
-        layout_mode,
-        aux_json: None,
         updated_at,
     })
 }
@@ -241,9 +189,7 @@ fn workspace_layout_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Worksp
         machine_id: row.get(1)?,
         group_key: row.get(2)?,
         root_json: row.get(3)?,
-        layout_mode: row.get(4)?,
-        aux_json: row.get(5)?,
-        updated_at: row.get(6)?,
+        updated_at: row.get(4)?,
     })
 }
 
@@ -252,31 +198,7 @@ mod tests {
     use rusqlite::Connection;
     use tc_protocol::{WorkspaceLayoutNode, WorkspaceSplitDirection};
 
-    use super::{
-        find_workspace_layouts_by_machine, upsert_workspace_layout, upsert_workspace_layout_full,
-    };
-
-    #[test]
-    fn upsert_round_trips_mode_and_aux() {
-        let mut conn = Connection::open_in_memory().unwrap();
-        crate::db::init_db(&conn).unwrap();
-        crate::db::users::create_user(&conn, "u1", "test", "u1", "U", None, "admin").unwrap();
-        crate::db::machines::ensure_machine_for_user(&conn, "m1", "u1", "M", None, None).unwrap();
-        upsert_workspace_layout_full(
-            &mut conn,
-            "u1",
-            "m1",
-            "g1",
-            "null",
-            Some("scrollable"),
-            Some(r#"{"columns":[]}"#),
-        )
-        .unwrap();
-        let rows = find_workspace_layouts_by_machine(&conn, "u1", "m1").unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].layout_mode.as_deref(), Some("scrollable"));
-        assert_eq!(rows[0].aux_json.as_deref(), Some(r#"{"columns":[]}"#));
-    }
+    use super::{find_workspace_layouts_by_machine, upsert_workspace_layout};
 
     #[test]
     fn legacy_workspace_layout_rows_backfill_to_tiling() {
@@ -291,8 +213,69 @@ mod tests {
         ).unwrap();
         let rows = find_workspace_layouts_by_machine(&conn, "u1", "m1").unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].layout_mode.as_deref(), None); // NULL means legacy / tiling
-        assert!(rows[0].aux_json.is_none());
+        assert_eq!(rows[0].root_json, "null");
+    }
+
+    #[test]
+    fn legacy_scrollable_layout_migrates_column_order_to_split_tree() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE workspace_layouts (
+                user_id TEXT NOT NULL,
+                machine_id TEXT NOT NULL,
+                group_key TEXT NOT NULL,
+                root_json TEXT NOT NULL,
+                layout_mode TEXT,
+                aux_json TEXT,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (user_id, machine_id, group_key)
+            );
+            INSERT INTO workspace_layouts (
+                user_id, machine_id, group_key, root_json, layout_mode, aux_json, updated_at
+            ) VALUES (
+                'u1', 'm1', 'g1', 'null', 'scrollable',
+                '{"columns":[{"terminalId":"a","width":{"kind":"preset","value":"half"}},{"terminalId":"b","width":{"kind":"preset","value":"full"}},{"terminalId":"c","width":{"kind":"fraction","value":0.7}}]}',
+                1234
+            );
+            "#,
+        )
+        .unwrap();
+
+        crate::db::init_db(&conn).unwrap();
+
+        let row = find_workspace_layouts_by_machine(&conn, "u1", "m1")
+            .unwrap()
+            .remove(0);
+        let root: Option<WorkspaceLayoutNode> = serde_json::from_str(&row.root_json).unwrap();
+        assert_eq!(
+            root,
+            Some(WorkspaceLayoutNode::Split {
+                direction: WorkspaceSplitDirection::Horizontal,
+                ratio: 0.5,
+                first: Box::new(WorkspaceLayoutNode::Leaf {
+                    terminal_id: "a".to_string(),
+                }),
+                second: Box::new(WorkspaceLayoutNode::Split {
+                    direction: WorkspaceSplitDirection::Horizontal,
+                    ratio: 0.5,
+                    first: Box::new(WorkspaceLayoutNode::Leaf {
+                        terminal_id: "b".to_string(),
+                    }),
+                    second: Box::new(WorkspaceLayoutNode::Leaf {
+                        terminal_id: "c".to_string(),
+                    }),
+                }),
+            })
+        );
+        let legacy_fields: (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT layout_mode, aux_json FROM workspace_layouts WHERE group_key = 'g1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(legacy_fields, (None, None));
     }
 
     #[test]

@@ -37,29 +37,10 @@ export type WorkspaceLayoutNode =
       second: WorkspaceLayoutNode
     }
 
-export type WorkspaceLayoutMode = "tiling" | "scrollable"
-
-export type WorkspaceColumnPreset = "half" | "two_thirds" | "full"
-
-export type WorkspaceColumnWidth =
-  | { kind: "preset"; value: WorkspaceColumnPreset }
-  | { kind: "fraction"; value: number }
-
-export interface WorkspaceScrollableColumn {
-  terminalId: string
-  width: WorkspaceColumnWidth
-}
-
-export interface WorkspaceScrollableLayout {
-  columns: WorkspaceScrollableColumn[]
-}
-
 export interface WorkspaceLayoutInfo {
   machine_id: string
   group_key: string
   root: WorkspaceLayoutNode | null
-  mode?: WorkspaceLayoutMode
-  scrollable?: WorkspaceScrollableLayout | null
   updated_at: number
 }
 
@@ -87,6 +68,7 @@ export interface ControlLeaseSnapshot {
 
 export interface BrowserStateSnapshot {
   snapshot_seq: number
+  last_focused_terminal_id?: string | null
   machines: MachineInfo[]
   terminals: TerminalInfo[]
   workspace_groups?: WorkspaceGroupInfo[]
@@ -326,6 +308,16 @@ export namespace BrowserEvent {
 export interface BrowserEventEnvelope {
   seq: number
   event: BrowserEvent
+}
+
+export interface EventsPing {
+  type: "ping"
+  t: number
+}
+
+export interface EventsPong {
+  type: "pong"
+  t: number
 }
 
 // ── Auth / persistence types (not in Rust yet) ──

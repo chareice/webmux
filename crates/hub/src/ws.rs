@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tc_protocol::{
     decode_attach_output_frame, encode_terminal_preview_output_frame, BrowserEventEnvelope,
-    HubToMachine, MachineToHub,
+    BrowserEventsClientMessage, BrowserEventsPong, HubToMachine, MachineToHub,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -106,6 +106,23 @@ fn client_message_allowed(
         | ClientMessage::Resize { .. }
         | ClientMessage::ImagePaste { .. } => is_controller,
     }
+}
+
+fn client_message_claims_control(
+    message: &ClientMessage,
+    device_id: &str,
+    is_controller: bool,
+    is_authenticated: bool,
+) -> bool {
+    !is_controller
+        && is_authenticated
+        && !device_id.is_empty()
+        && matches!(
+            message,
+            ClientMessage::Input { .. }
+                | ClientMessage::CommandInput { .. }
+                | ClientMessage::ImagePaste { .. }
+        )
 }
 
 async fn terminal_ws_handler(
@@ -221,10 +238,25 @@ async fn handle_terminal_ws(
             match msg {
                 Message::Text(text) => match serde_json::from_str::<ClientMessage>(&text) {
                     Ok(client_msg) => {
-                        let can_control = uid
+                        let mut can_control = uid
                             .as_deref()
                             .map(|user_id| manager.is_controller(user_id, &mid, &did))
                             .unwrap_or(true);
+
+                        if client_message_claims_control(
+                            &client_msg,
+                            &did,
+                            can_control,
+                            uid.is_some(),
+                        ) {
+                            manager.request_control(
+                                uid.as_deref()
+                                    .expect("authenticated sessions have a user id"),
+                                &mid,
+                                &did,
+                            );
+                            can_control = true;
+                        }
 
                         if !client_message_allowed(&client_msg, &did, can_control, uid.is_some()) {
                             continue;
@@ -751,12 +783,22 @@ async fn handle_events(
     let mut rx = subscription.receiver;
     let event_user_id = session_user_id.clone();
     let lag_device_id = device_id.clone();
+    let (out_tx, mut out_rx) = mpsc::channel::<Message>(64);
+
+    let mut writer_task = tokio::spawn(async move {
+        while let Some(message) = out_rx.recv().await {
+            if sender.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
 
     // Task: forward events to browser
-    let send_task = tokio::spawn(async move {
+    let event_out_tx = out_tx.clone();
+    let mut send_task = tokio::spawn(async move {
         for envelope in replay {
             let msg = serde_json::to_string(&envelope).unwrap();
-            if sender.send(Message::Text(msg.into())).await.is_err() {
+            if event_out_tx.send(Message::Text(msg.into())).await.is_err() {
                 return;
             }
         }
@@ -774,7 +816,7 @@ async fn handle_events(
                         event: envelope.event,
                     })
                     .unwrap();
-                    if sender.send(Message::Text(msg.into())).await.is_err() {
+                    if event_out_tx.send(Message::Text(msg.into())).await.is_err() {
                         break;
                     }
                 }
@@ -795,19 +837,37 @@ async fn handle_events(
         }
     });
 
-    // Task: detect client disconnect
-    let recv_task = tokio::spawn(async move {
+    // Task: respond to per-connection pings and detect client disconnect.
+    let recv_out_tx = out_tx.clone();
+    let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
-            if matches!(msg, Message::Close(_)) {
-                break;
+            match msg {
+                Message::Text(text) => {
+                    let Ok(BrowserEventsClientMessage::Ping { t }) =
+                        serde_json::from_str::<BrowserEventsClientMessage>(&text)
+                    else {
+                        continue;
+                    };
+                    let pong = serde_json::to_string(&BrowserEventsPong { t }).unwrap();
+                    if recv_out_tx.send(Message::Text(pong.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Message::Close(_) => break,
+                _ => {}
             }
         }
     });
+    drop(out_tx);
 
     tokio::select! {
-        _ = send_task => {},
-        _ = recv_task => {},
+        _ = &mut writer_task => {},
+        _ = &mut send_task => {},
+        _ = &mut recv_task => {},
     }
+    writer_task.abort();
+    send_task.abort();
+    recv_task.abort();
 
     schedule_device_disconnect_cleanup(&state, session_user_id.as_deref(), &device_id);
 }
@@ -872,6 +932,43 @@ mod tests {
             "",
             false,
             false,
+        ));
+    }
+
+    #[test]
+    fn authenticated_input_from_a_non_controller_claims_control() {
+        assert!(client_message_claims_control(
+            &ClientMessage::Input {
+                data: "ls\r".to_string(),
+            },
+            "watcher-device",
+            false,
+            true,
+        ));
+    }
+
+    #[test]
+    fn resize_from_a_non_controller_does_not_claim_control() {
+        assert!(!client_message_claims_control(
+            &ClientMessage::Resize {
+                cols: 120,
+                rows: 40
+            },
+            "watcher-device",
+            false,
+            true,
+        ));
+    }
+
+    #[test]
+    fn authenticated_input_without_a_device_id_does_not_claim_control() {
+        assert!(!client_message_claims_control(
+            &ClientMessage::Input {
+                data: "ls\r".to_string(),
+            },
+            "",
+            false,
+            true,
         ));
     }
 }

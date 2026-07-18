@@ -25,6 +25,20 @@ function envelope(seq: number, event: BrowserEvent): BrowserEventEnvelope {
 }
 
 describe("applyBootstrapSnapshot", () => {
+  it("maps the last focused terminal", () => {
+    const state = applyBootstrapSnapshot({
+      snapshot_seq: 5,
+      machines: [],
+      terminals: [],
+      workspace_groups: [],
+      machine_stats: [],
+      control_leases: [],
+      last_focused_terminal_id: "term-1",
+    });
+
+    expect(state.lastFocusedTerminalId).toBe("term-1");
+  });
+
   it("maps control_leases from snapshot", () => {
     const state = applyBootstrapSnapshot({
       snapshot_seq: 5,

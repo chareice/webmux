@@ -1,13 +1,8 @@
 import type {
   TerminalInfo,
-  WorkspaceColumnPreset,
-  WorkspaceColumnWidth,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
-  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
-  WorkspaceScrollableColumn,
-  WorkspaceScrollableLayout,
 } from "@webmux/shared";
 
 export type WorkspaceSplitDirection = "horizontal" | "vertical";
@@ -24,9 +19,6 @@ export interface WorkspaceGroup {
   persistent: boolean;
   root: WorkspacePaneNode | null;
   paneCount: number;
-  layoutMode: WorkspaceLayoutMode;
-  scrollable: WorkspaceScrollableLayout | null;
-  auxRoot: WorkspacePaneNode | null;
 }
 
 export interface TerminalWorkspace {
@@ -92,27 +84,6 @@ export function splitWorkspacePane(
   );
   if (!group) return workspace;
 
-  // Scrollable mode: append new column at end
-  if (group.layoutMode === "scrollable") {
-    const columns = (group.scrollable?.columns ?? []).filter(
-      (c) => c.terminalId !== input.newTerminalId,
-    );
-    columns.push({
-      terminalId: input.newTerminalId,
-      width: { kind: "preset", value: "half" },
-    });
-    const groups = workspace.groups.map((candidate) =>
-      candidate.id === group.id
-        ? { ...candidate, scrollable: { columns }, paneCount: columns.length }
-        : candidate,
-    );
-    return {
-      groups,
-      activeGroupId: group.id,
-      activeTerminalId: input.newTerminalId,
-    };
-  }
-
   const direction: WorkspaceSplitDirection =
     input.direction === "right" ? "horizontal" : "vertical";
   const sourceRoot = removeNode(group.root, input.newTerminalId) ?? group.root;
@@ -152,27 +123,6 @@ export function appendWorkspacePaneToGroup(
   const group = workspace.groups.find((candidate) => candidate.id === input.groupId);
   if (!group) return workspace;
 
-  if (group.layoutMode === "scrollable") {
-    const existing = group.scrollable?.columns ?? [];
-    if (existing.some((c) => c.terminalId === input.newTerminalId)) {
-      return workspace;
-    }
-    const columns = [
-      ...existing,
-      { terminalId: input.newTerminalId, width: { kind: "preset", value: "half" } as WorkspaceColumnWidth },
-    ];
-    const groups = workspace.groups.map((candidate) =>
-      candidate.id === group.id
-        ? { ...candidate, scrollable: { columns }, paneCount: columns.length }
-        : candidate,
-    );
-    return {
-      groups,
-      activeGroupId: group.id,
-      activeTerminalId: input.newTerminalId,
-    };
-  }
-
   const groups = workspace.groups.map((candidate) => {
     if (candidate.id !== group.id) return candidate;
     const root = appendNode(candidate.root, {
@@ -199,23 +149,6 @@ export function closeWorkspacePane(
   let nextActiveTerminalId = workspace.activeTerminalId;
   const groups = workspace.groups
     .map((group) => {
-      // Scrollable mode: remove from columns array
-      if (group.layoutMode === "scrollable") {
-        const columns = group.scrollable?.columns ?? [];
-        if (!columns.some((c) => c.terminalId === terminalId)) {
-          return group;
-        }
-        const nextColumns = columns.filter((c) => c.terminalId !== terminalId);
-        if (workspace.activeTerminalId === terminalId) {
-          nextActiveTerminalId = nextColumns[0]?.terminalId ?? null;
-        }
-        return {
-          ...group,
-          scrollable: { columns: nextColumns },
-          paneCount: nextColumns.length,
-        };
-      }
-
       if (!collectPaneTerminalIds(group.root).includes(terminalId)) {
         return group;
       }
@@ -260,36 +193,10 @@ export function swapWorkspacePanes(
 ): TerminalWorkspace {
   if (sourceTerminalId === targetTerminalId) return workspace;
   const group = workspace.groups.find((candidate) => {
-    if (candidate.layoutMode === "scrollable") {
-      const cols = candidate.scrollable?.columns ?? [];
-      return (
-        cols.some((c) => c.terminalId === sourceTerminalId) &&
-        cols.some((c) => c.terminalId === targetTerminalId)
-      );
-    }
     const ids = collectPaneTerminalIds(candidate.root);
     return ids.includes(sourceTerminalId) && ids.includes(targetTerminalId);
   });
   if (!group) return workspace;
-
-  // Scrollable mode: swap positions in the columns array
-  if (group.layoutMode === "scrollable") {
-    const columns = (group.scrollable?.columns ?? []).map((c) => {
-      if (c.terminalId === sourceTerminalId) return { ...c, terminalId: targetTerminalId };
-      if (c.terminalId === targetTerminalId) return { ...c, terminalId: sourceTerminalId };
-      return c;
-    });
-    const groups = workspace.groups.map((candidate) =>
-      candidate.id === group.id
-        ? { ...candidate, scrollable: { columns }, paneCount: columns.length }
-        : candidate,
-    );
-    return {
-      groups,
-      activeGroupId: group.id,
-      activeTerminalId: sourceTerminalId,
-    };
-  }
 
   if (!group.root) return workspace;
   const root = swapLeafTerminalIds(
@@ -330,27 +237,6 @@ export function reconcileTerminalWorkspace(
     if (!previous) return group;
 
     const groupTerminalIds = new Set(collectPaneTerminalIds(group.root));
-
-    // Scrollable mode: reconcile the columns array
-    if (previous.layoutMode === "scrollable") {
-      const surviving = (previous.scrollable?.columns ?? []).filter((c) =>
-        groupTerminalIds.has(c.terminalId),
-      );
-      const survivingIds = new Set(surviving.map((c) => c.terminalId));
-      const additions = Array.from(groupTerminalIds)
-        .filter((id) => !survivingIds.has(id))
-        .map((id) => ({
-          terminalId: id,
-          width: { kind: "preset", value: "half" } as WorkspaceColumnWidth,
-        }));
-      return {
-        ...group,
-        scrollable: { columns: [...surviving, ...additions] },
-        layoutMode: "scrollable" as const,
-        auxRoot: previous.auxRoot,
-        paneCount: surviving.length + additions.length,
-      };
-    }
 
     let root = previous.root;
     for (const id of collectPaneTerminalIds(root)) {
@@ -424,9 +310,6 @@ function preserveActiveEmptyGroup(
       ...activeGroup,
       root: null,
       paneCount: 0,
-      layoutMode: activeGroup.layoutMode,
-      scrollable: activeGroup.scrollable,
-      auxRoot: activeGroup.auxRoot,
     },
   ];
 }
@@ -458,7 +341,7 @@ export function getMobileWorkspaceTabs(
 ): MobileWorkspaceTab[] {
   const group = getActiveWorkspaceGroup(workspace);
   if (!group) return [];
-  return collectPaneTerminalIds(group.root).map((id) => ({
+  return workspacePaneOrder(group.root).map((id) => ({
     id,
     label: `Terminal ${id}`,
     cwd: group.cwd,
@@ -466,13 +349,27 @@ export function getMobileWorkspaceTabs(
   }));
 }
 
-export function collectPaneTerminalIds(root: WorkspacePaneNode | null): string[] {
+export function workspacePaneOrder(root: WorkspacePaneNode | null): string[] {
   if (!root) return [];
   if (root.type === "leaf") return [root.terminalId];
   return [
-    ...collectPaneTerminalIds(root.first),
-    ...collectPaneTerminalIds(root.second),
+    ...workspacePaneOrder(root.first),
+    ...workspacePaneOrder(root.second),
   ];
+}
+
+export function collectPaneTerminalIds(root: WorkspacePaneNode | null): string[] {
+  return workspacePaneOrder(root);
+}
+
+export function groupPaneTerminalIds(group: WorkspaceGroup): string[] {
+  return workspacePaneOrder(group.root);
+}
+
+// Flat order across groups (persistent by sort_order, then cwd fallback) —
+// the mobile session-strip / edge-swipe order.
+export function collectGroupPaneTerminalIds(groups: WorkspaceGroup[]): string[] {
+  return groups.flatMap((group) => groupPaneTerminalIds(group));
 }
 
 export function findAdjacentWorkspacePane(
@@ -525,146 +422,8 @@ export function findAdjacentWorkspacePane(
   return candidates[0]?.pane.terminalId ?? null;
 }
 
-const PRESET_ORDER: readonly WorkspaceColumnPreset[] = [
-  "half",
-  "two_thirds",
-  "full",
-] as const;
-
-export function setWorkspaceColumnWidth(
-  workspace: TerminalWorkspace,
-  terminalId: string,
-  width: WorkspaceColumnWidth,
-): TerminalWorkspace {
-  const groups = workspace.groups.map((group) => {
-    if (!group.scrollable) return group;
-    const idx = group.scrollable.columns.findIndex(
-      (c) => c.terminalId === terminalId,
-    );
-    if (idx === -1) return group;
-    const columns = group.scrollable.columns.slice();
-    columns[idx] = { ...columns[idx], width };
-    return { ...group, scrollable: { columns } };
-  });
-  return { ...workspace, groups };
-}
-
-export function cycleWorkspaceColumnWidth(
-  workspace: TerminalWorkspace,
-  terminalId: string,
-  direction: "grow" | "shrink",
-): TerminalWorkspace {
-  for (const group of workspace.groups) {
-    if (!group.scrollable) continue;
-    const column = group.scrollable.columns.find(
-      (c) => c.terminalId === terminalId,
-    );
-    if (!column) continue;
-    const currentPreset: WorkspaceColumnPreset =
-      column.width.kind === "preset"
-        ? column.width.value
-        : nearestPreset(column.width.value);
-    const idx = PRESET_ORDER.indexOf(currentPreset);
-    const next =
-      direction === "grow"
-        ? PRESET_ORDER[Math.min(idx + 1, PRESET_ORDER.length - 1)]
-        : PRESET_ORDER[Math.max(idx - 1, 0)];
-    return setWorkspaceColumnWidth(workspace, terminalId, {
-      kind: "preset",
-      value: next,
-    });
-  }
-  return workspace;
-}
-
-function nearestPreset(fraction: number): WorkspaceColumnPreset {
-  if (fraction >= 0.85) return "full";
-  if (fraction >= 0.6) return "two_thirds";
-  return "half";
-}
-
-export function findAdjacentScrollableColumn(
-  layout: WorkspaceScrollableLayout,
-  direction: WorkspacePaneFocusDirection,
-  activeTerminalId: string | null,
-): string | null {
-  if (direction === "up" || direction === "down") return null;
-  if (!activeTerminalId) return null;
-  const idx = layout.columns.findIndex((c) => c.terminalId === activeTerminalId);
-  if (idx === -1) return null;
-  const offset = direction === "left" ? -1 : 1;
-  return layout.columns[idx + offset]?.terminalId ?? null;
-}
-
 function groupContainsTerminal(group: WorkspaceGroup, terminalId: string): boolean {
-  if (group.layoutMode === "scrollable") {
-    return (group.scrollable?.columns ?? []).some((c) => c.terminalId === terminalId);
-  }
   return collectPaneTerminalIds(group.root).includes(terminalId);
-}
-
-export function flattenTreeToColumns(
-  root: WorkspacePaneNode | null,
-): WorkspaceScrollableColumn[] {
-  const ids = collectPaneTerminalIds(root);
-  return ids.map((terminalId) => ({
-    terminalId,
-    width: { kind: "preset", value: "half" } as WorkspaceColumnWidth,
-  }));
-}
-
-export function buildTreeFromColumns(
-  columns: WorkspaceScrollableColumn[],
-): WorkspacePaneNode | null {
-  if (columns.length === 0) return null;
-  if (columns.length === 1) {
-    return { type: "leaf", terminalId: columns[0].terminalId };
-  }
-  const [first, ...rest] = columns;
-  return {
-    type: "split",
-    direction: "horizontal",
-    ratio: 0.5,
-    first: { type: "leaf", terminalId: first.terminalId },
-    second: buildTreeFromColumns(rest)!,
-  };
-}
-
-export function setWorkspaceLayoutMode(
-  workspace: TerminalWorkspace,
-  groupId: string,
-  nextMode: WorkspaceLayoutMode,
-): TerminalWorkspace {
-  const groups = workspace.groups.map((group) => {
-    if (group.id !== groupId) return group;
-    if (group.layoutMode === nextMode) return group;
-    if (nextMode === "scrollable") {
-      return {
-        ...group,
-        layoutMode: nextMode,
-        scrollable: { columns: flattenTreeToColumns(group.root) },
-        auxRoot: group.root,
-      };
-    }
-    // scrollable -> tiling
-    const restored = group.auxRoot ?? buildTreeFromColumns(group.scrollable?.columns ?? []);
-    // Append columns added while in scrollable mode that aren't in the restored tree
-    const restoredIds = new Set(collectPaneTerminalIds(restored));
-    let merged = restored;
-    for (const column of group.scrollable?.columns ?? []) {
-      if (!restoredIds.has(column.terminalId)) {
-        merged = appendNode(merged, { type: "leaf", terminalId: column.terminalId });
-      }
-    }
-    return {
-      ...group,
-      layoutMode: nextMode,
-      root: merged,
-      scrollable: group.scrollable, // keep so re-toggle is cheap
-      auxRoot: null,
-    };
-  });
-  return { ...workspace, groups };
 }
 
 function createGroups(
@@ -677,16 +436,12 @@ function createGroups(
     string,
     {
       root: WorkspaceLayoutNode | null;
-      mode: WorkspaceLayoutMode;
-      scrollable: WorkspaceScrollableLayout | null;
     }
   >(
     workspaceLayouts.map((layout) => [
       layout.group_key,
       {
         root: layout.root,
-        mode: layout.mode ?? "tiling",
-        scrollable: layout.scrollable ?? null,
       },
     ]),
   );
@@ -754,9 +509,6 @@ function createGroups(
         persistent: group.persistent,
         root,
         paneCount: group.terminals.length,
-        layoutMode: layoutEntry?.mode ?? "tiling" as WorkspaceLayoutMode,
-        scrollable: layoutEntry?.scrollable ?? null,
-        auxRoot: null,
       };
     });
 }

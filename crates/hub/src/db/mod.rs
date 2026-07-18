@@ -1,6 +1,8 @@
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
+use serde::Deserialize;
+use tc_protocol::{WorkspaceLayoutNode, WorkspaceSplitDirection};
 
 pub mod bookmarks;
 pub mod hub_state;
@@ -9,6 +11,7 @@ pub mod settings;
 pub mod terminal_sessions;
 pub mod tokens;
 pub mod types;
+pub mod user_focus;
 pub mod users;
 pub mod workspace_groups;
 pub mod workspace_layouts;
@@ -82,8 +85,6 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
             group_key TEXT NOT NULL,
             root_json TEXT NOT NULL,
-            layout_mode TEXT,
-            aux_json TEXT,
             updated_at INTEGER NOT NULL,
             PRIMARY KEY (user_id, machine_id, group_key)
         );
@@ -110,6 +111,13 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             value TEXT NOT NULL,
             updated_at INTEGER NOT NULL,
             PRIMARY KEY (user_id, key)
+        );
+
+        CREATE TABLE IF NOT EXISTS user_focus (
+            user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            terminal_id TEXT NOT NULL,
+            machine_id TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
         );
 
         CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
@@ -152,23 +160,87 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
-    if !column_exists(conn, "workspace_layouts", "layout_mode")? {
-        conn.execute(
-            "ALTER TABLE workspace_layouts ADD COLUMN layout_mode TEXT",
-            [],
-        )?;
-    }
-    if !column_exists(conn, "workspace_layouts", "aux_json")? {
-        conn.execute(
-            "ALTER TABLE workspace_layouts ADD COLUMN aux_json TEXT",
-            [],
-        )?;
-    }
+    migrate_scrollable_workspace_layouts(conn)?;
 
     // Startup recovery: mark all machines offline
     conn.execute("UPDATE machines SET status = 'offline'", [])?;
 
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct LegacyScrollableLayout {
+    columns: Vec<LegacyScrollableColumn>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyScrollableColumn {
+    terminal_id: String,
+}
+
+fn migrate_scrollable_workspace_layouts(conn: &Connection) -> rusqlite::Result<()> {
+    if !column_exists(conn, "workspace_layouts", "layout_mode")?
+        || !column_exists(conn, "workspace_layouts", "aux_json")?
+    {
+        return Ok(());
+    }
+
+    let legacy_rows = {
+        let mut statement = conn.prepare(
+            "SELECT rowid, aux_json FROM workspace_layouts WHERE layout_mode = 'scrollable'",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+
+    for (row_id, aux_json) in legacy_rows {
+        let Some(layout) = aux_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<LegacyScrollableLayout>(json).ok())
+        else {
+            continue;
+        };
+        let terminal_ids = layout
+            .columns
+            .into_iter()
+            .map(|column| column.terminal_id)
+            .collect::<Vec<_>>();
+        let root_json = serde_json::to_string(&split_tree_from_terminal_ids(&terminal_ids))
+            .expect("workspace split trees are serializable");
+        conn.execute(
+            "UPDATE workspace_layouts SET root_json = ?1 WHERE rowid = ?2",
+            rusqlite::params![root_json, row_id],
+        )?;
+    }
+
+    conn.execute(
+        "UPDATE workspace_layouts SET layout_mode = NULL, aux_json = NULL",
+        [],
+    )?;
+    Ok(())
+}
+
+fn split_tree_from_terminal_ids(terminal_ids: &[String]) -> Option<WorkspaceLayoutNode> {
+    match terminal_ids {
+        [] => None,
+        [terminal_id] => Some(WorkspaceLayoutNode::Leaf {
+            terminal_id: terminal_id.clone(),
+        }),
+        [terminal_id, remaining @ ..] => Some(WorkspaceLayoutNode::Split {
+            direction: WorkspaceSplitDirection::Horizontal,
+            ratio: 0.5,
+            first: Box::new(WorkspaceLayoutNode::Leaf {
+                terminal_id: terminal_id.clone(),
+            }),
+            second: Box::new(
+                split_tree_from_terminal_ids(remaining)
+                    .expect("a non-empty remainder produces a split tree"),
+            ),
+        }),
+    }
 }
 
 fn column_exists(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {

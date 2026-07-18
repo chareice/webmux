@@ -9,31 +9,56 @@
 ## Steps
 
 1. **action:** Set device to "iPhone 14" and open http://localhost:4317
-   **eval:** The mobile workbench loads with a dark background. A top app bar shows a rounded "host chip" on the left containing a green online dot, the host name "e2e-machine", an OS label "linux", and a chevron. Next to it is an overflow (⋯) button. At the bottom is a 3-tab navigation: "Hosts", "Terminals" (selected, showing badge "0"), and "Stats". The main area shows a "Workpath" picker card labelled "All" and, below it, the empty state "No terminals here yet — Tap + to start one".
+   **eval:** The mobile shell loads with a dark background and exactly two
+   permanent chrome elements. Top: a ~44px session strip — a horizontally
+   scrollable row of terminal chips on the left (empty when no terminals), a
+   "＋" new-terminal chip, and a fixed right end with tiny cpu/mem
+   micro-meters (c/m labels) plus a host button (online dot + short host
+   name + chevron). Bottom: the two-row extended key bar — pinned row with
+   keyboard toggle (ABC), attach, select-mode, then Esc, ⇧Tab, ↑, ↓ and an
+   accent-colored ^C; scrollable row with Ctrl (latch), Tab, /, @, ←, →, ~,
+   |, -, _. With no terminals the middle shows a centered "No terminals
+   yet" empty state.
 
-2. **action:** Tap the "Hosts" bottom tab
-   **eval:** The Hosts page loads. It shows a "HOSTS" section with one row for "e2e-machine" (green dot, "linux" label, "0 term" meta), and a "WORKPATHS · e2e-machine" section below with an "Add workpath" action, an "All workpaths" row (highlighted), and an "All · 1" subsection containing a "~" row with path "/root".
+2. **action:** Tap the host button at the strip's right end, then tap "Take control" in the bottom sheet
+   **eval:** The host sheet opens listing hosts (dot, name, OS, term count)
+   with "Add host", "Take control", "Reconnect session" and "Settings"
+   rows. After taking control the sheet closes and the empty state now
+   shows an accent "Start terminal" button.
 
-3. **action:** Take control from the Terminals tab, return to Hosts, tap "Add workpath", enter "/tmp", and tap "Add".
-   **eval:** The workpath list gains a "tmp" row with path "/tmp". The add form closes and the existing workpath list remains usable.
+3. **action:** Tap "Start terminal"
+   **eval:** A new terminal is created and the shell opens straight into it:
+   the live terminal fills the middle, the strip gains one chip
+   ("{group} · {title}", highlighted), and the key bar shows the
+   keyboard-toggle (ABC) button.
 
-4. **action:** Tap the "~" workpath row
-   **eval:** The bottom tab switches back to "Terminals". The "Workpath" picker card at the top now reads "~" (with the path "/root" next to it). The main area still shows the "No terminals here yet" empty state. The overflow menu (tapped via the ⋯ button in the top bar) or the header still offers a "Control Here" action — use it in the next step.
+4. **action:** Tap ABC, type "echo hello" and press Enter on the soft keyboard
+   **eval:** The terminal renders "# echo hello" followed by "hello" on the
+   next line, followed by a fresh "#" prompt. Every keystroke sends
+   immediately (no input field, no send button).
 
-5. **action:** Return to the "Terminals" tab and tap the "+" floating action button (FAB) in the bottom-right.
-   **eval:** A new terminal is created. Because creating a terminal auto-opens the fullscreen focus view, the app transitions directly into the mobile terminal focus screen (see step 6). The "Terminals" tab's badge becomes "1".
+5. **action:** Tap "Ctrl" in the scrollable key row, then type "c" on the soft keyboard
+   **eval:** Ctrl highlights (info-blue). The "c" arrives as ^C (the shell
+   shows a fresh prompt instead of echoing "c"), and Ctrl disarms —
+   typing "c" again echoes normally.
 
-6. **action:** Observe the fullscreen focus screen that opened after step 5
-   **eval:** The full viewport shows the live terminal. A top header has a back chevron on the left, then a tint dot, the terminal title (e.g. "Terminal abcd1234"), a subtitle line showing "/root · pid {n}", and an overflow (⋯) button on the right. Below the terminal body is a horizontal key-bar (44px) with keys "Esc", "Tab", "Ctrl", "Alt", "↑", "↓", "←", "→", "|", "/", "-", "~". If there are sibling terminals, a prev/next strip appears at the very bottom (disabled buttons when there are no siblings).
+6. **action:** Create a second terminal via the "＋" chip, then tap the first terminal's chip
+   **eval:** The strip shows two chips; tapping one switches the middle
+   terminal immediately. Long-pressing a chip opens a small sheet with
+   "Close terminal" and "New terminal here".
 
-7. **action:** Tap the terminal body, type "echo hello" and press Enter on the soft keyboard
-   **eval:** The terminal renders "# echo hello" followed by "hello" on the next line, followed by a fresh "#" prompt.
+7. **action:** Swipe horizontally from the left screen edge (within ~24px of the edge)
+   **eval:** The terminal switches to the previous chip in strip order.
+   Swipes starting in the middle of the screen are NOT intercepted —
+   terminal scroll and mouse-tracking apps keep working.
 
-8. **action:** Tap the back chevron in the focus header
-   **eval:** The focus view closes and returns to the "Terminals" tab. The terminal is still alive — it appears as a `MobileTermCard` in the list: tint dot, title, short id chip, cwd footer "/root", and `{cols}×{rows}` size indicator.
+8. **action:** Open the host sheet and tap "Stop control"
+   **eval:** The mode flips to viewing: the ABC keyboard toggle disappears
+   from the key bar, the "＋" chip becomes disabled, and key-bar keys no
+   longer send input. The terminal stays fully visible and live.
 
-9. **action:** Tap the "Stats" bottom tab, then tap the "Release control" action row (danger-styled).
-   **eval:** The mode flips to viewing. Returning to the "Terminals" tab, the FAB is gone (the + only appears while controlling). Tapping the terminal card still opens the fullscreen focus view, but the bottom key-bar buttons do nothing (no input is accepted) and there is no `Fit to Window` action.
-
-10. **action:** Tap the "Stats" tab, tap "Request control" to regain control. Return to the "Terminals" tab and confirm the FAB is visible. Open a desktop browser session for the same account, click "Control Here" (this takes control away from mobile), then destroy the terminal from the desktop grid card's close (×) button.
-   **eval:** On mobile, control is released back ("Control Here" reappears, FAB disappears). After the desktop closes the terminal, the mobile "Terminals" tab updates live to the empty state "No terminals here yet — Tap + to start one" and the tab badge clears.
+9. **action:** Take control again via the host sheet, then open a desktop browser session for the same account, click "Control Here" (this takes control away from mobile), then destroy the terminal from the desktop pane's close action
+   **eval:** On mobile, control is released (host sheet shows "Take
+   control" again, ＋ chip disabled). After the desktop closes the
+   terminal, the mobile shell updates live: the chip disappears and the
+   empty state "No terminals yet" returns.

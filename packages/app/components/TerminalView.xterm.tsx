@@ -36,7 +36,8 @@ import {
 import { createSelectionAutoCopyController } from "@/lib/selectionAutoCopy";
 import { createTerminalClipboardProvider } from "@/lib/terminalClipboard";
 import { isTauri } from "@/lib/platform";
-import { isAppShortcut } from "@/lib/shortcuts";
+import { useIsMobile } from "@/lib/hooks";
+import { usePrefixKey } from "@/lib/prefixKeyContext";
 import { filterBrowserGeneratedTerminalInput } from "@/lib/terminalInputFilter";
 import { resolveTerminalFontFamily } from "@/lib/terminalFonts";
 
@@ -86,8 +87,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     rows,
     displayMode = "immersive",
     isController,
+    canType,
     canResizeTerminal,
     onTitleChange,
+    onReconnectingChange,
+    inputTransformRef,
     style,
   }, ref) {
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -96,6 +100,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const wsRef = useRef<WebSocket | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const isControllerRef = useRef(isController ?? true);
+    const canTypeRef = useRef(canType ?? isController ?? true);
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
     const recentClipboardImagePasteRef =
@@ -105,9 +110,22 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const [sessionGeneration, setSessionGeneration] = useState(0);
     const viewportSizeRef = useRef(viewportSize);
 
+    // Prefix engine access for the xterm key handler below. The handler is
+    // attached once at mount, so the latest values go through a ref.
+    const prefixKey = usePrefixKey();
+    const isMobileViewport = useIsMobile();
+    const prefixKeyRef = useRef({ prefixKey, isMobile: isMobileViewport });
+    useEffect(() => {
+      prefixKeyRef.current = { prefixKey, isMobile: isMobileViewport };
+    }, [prefixKey, isMobileViewport]);
+
     useEffect(() => {
       isControllerRef.current = isController ?? true;
     }, [isController]);
+
+    useEffect(() => {
+      canTypeRef.current = canType ?? isController ?? true;
+    }, [canType, isController]);
 
     useEffect(() => {
       canResizeTerminalRef.current = canResizeTerminal ?? false;
@@ -227,8 +245,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     // mobile users can't see console.warn.
     const sendImageFile = useCallback(
       async (file: Blob & { name?: string }): Promise<void> => {
-        if (!isControllerRef.current) {
-          throw new Error("Take control first to attach an image.");
+        if (!canTypeRef.current) {
+          throw new Error("Unlock view only to attach an image.");
         }
         if (file.size > MAX_IMAGE_PASTE_BYTES) {
           const mb = Math.round(MAX_IMAGE_PASTE_BYTES / (1024 * 1024));
@@ -305,13 +323,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       () => ({
         sendInput(data: string) {
           const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) {
+          if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
             ws.send(JSON.stringify({ type: "input", data }));
           }
         },
         sendCommandInput(data: string) {
           const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) {
+          if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
             ws.send(JSON.stringify({ type: "command_input", data }));
           }
         },
@@ -420,13 +438,19 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         winAny.__webmuxTerminals.set(terminalId, term);
       }
 
-      // Forward terminal input to the current WebSocket
+      // Forward terminal input to the current WebSocket. Per-keystroke,
+      // unbuffered: xterm's hidden textarea (and its IME composition
+      // handling) delivers data to onData as it is committed, and each
+      // event is sent immediately. The optional transform hook is the
+      // mobile Ctrl latch — it rewrites the armed key to its control byte.
       term.onData((data) => {
         const filteredData = filterBrowserGeneratedTerminalInput(data);
         if (!filteredData) return;
+        const transformed =
+          inputTransformRef?.current?.(filteredData) ?? filteredData;
         const ws = wsRef.current;
-        if (ws?.readyState === WebSocket.OPEN && isControllerRef.current) {
-          ws.send(JSON.stringify({ type: "input", data: filteredData }));
+        if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
+          ws.send(JSON.stringify({ type: "input", data: transformed }));
         }
       });
 
@@ -444,6 +468,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         filename: string,
         options: { dedupeClipboardImage?: boolean } = {},
       ) => {
+        if (!canTypeRef.current) return;
         if (options.dedupeClipboardImage) {
           const result = shouldSendClipboardImagePaste(
             recentClipboardImagePasteRef.current,
@@ -462,8 +487,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // Ctrl+C / Cmd+C copies selection to clipboard instead of sending SIGINT
       // Ctrl+V / Cmd+V checks clipboard for images before letting xterm paste text
       term.attachCustomKeyEventHandler((event) => {
-        // Let app-level shortcuts bubble up to the window handler
-        if (isAppShortcut(event)) {
+        // Keep app-level prefix keys out of xterm: the Ctrl+B trigger, and
+        // every key while the engine is armed. Returning false covers
+        // keydown, keypress and keyup so no stray input reaches the pty;
+        // the window keydown listener does the actual dispatch. Desktop
+        // only — mobile has no prefix engine.
+        const { prefixKey: pk, isMobile: mobile } = prefixKeyRef.current;
+        if (!mobile && pk.isPrefixKeyEvent(event)) {
           return false;
         }
 
@@ -560,8 +590,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       container.addEventListener("drop", handleDrop);
 
       // Suppress the browser default context menu on the terminal — the custom
-      // context menu is rendered by Canvas.web.tsx via an onContextMenu handler
-      // on the wrapping container div.
+      // context menu is rendered by TerminalWorkspace.web.tsx via an
+      // onContextMenu handler on the wrapping pane div.
       const handleContextMenu = (e: MouseEvent) => {
         e.preventDefault();
       };
@@ -696,6 +726,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       scheduleMeasure,
       sessionGeneration,
       setSessionGeneration,
+      onReconnectingChange,
     });
 
     useEffect(() => {

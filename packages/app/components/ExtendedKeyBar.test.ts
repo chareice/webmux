@@ -82,4 +82,25 @@ describe("ExtendedKeyBar", () => {
     expect(html).not.toContain('data-testid="extended-keybar-ctrl-c"');
     expect(html).not.toContain('data-testid="extended-keybar-attach"');
   });
+
+  it("renders ⇧Tab in the pinned row", () => {
+    const html = renderToStaticMarkup(createElement(ExtendedKeyBar, baseProps));
+    expect(html).toContain('data-testid="extended-keybar-shift-tab"');
+    expect(html).toContain("⇧Tab");
+  });
+
+  it("renders the Ctrl latch key only when onToggleCtrl is provided", () => {
+    const without = renderToStaticMarkup(createElement(ExtendedKeyBar, baseProps));
+    expect(without).not.toContain('data-testid="extended-keybar-ctrl-latch"');
+
+    const withLatch = renderToStaticMarkup(
+      createElement(ExtendedKeyBar, {
+        ...baseProps,
+        ctrlArmed: true,
+        onToggleCtrl: () => {},
+      }),
+    );
+    expect(withLatch).toContain('data-testid="extended-keybar-ctrl-latch"');
+    expect(withLatch).toContain('aria-pressed="true"');
+  });
 });

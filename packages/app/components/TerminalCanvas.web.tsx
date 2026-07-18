@@ -13,27 +13,29 @@ import type {
   Bookmark,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
-  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
-  WorkspaceScrollableLayout,
 } from "@webmux/shared";
 import { AppTitleBar } from "./AppTitleBar.web";
-import { WorkbenchHeader } from "./WorkbenchHeader.web";
-import { TerminalWorkspace } from "./TerminalWorkspace.web";
+import { TabBar } from "./TabBar.web";
+import {
+  CommandPalette,
+  type PaletteFilter,
+  type PaletteRow,
+} from "./CommandPalette.web";
+import { TerminalWorkspace, type WorkspaceCommandChannel } from "./TerminalWorkspace.web";
 import { MobileWorkbench } from "./MobileWorkbench.web";
+import { HandoffBanner } from "./HandoffBanner";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { Terminal as TerminalIcon } from "lucide-react";
 import {
-  createBookmark,
   createTerminal,
   destroyTerminal,
   checkForegroundProcess,
-  createWorkspaceGroup,
-  deleteWorkspaceGroup,
   assignTerminalWorkspaceGroup,
   eventsWsUrl,
   getBootstrap,
   listBookmarks,
+  putFocus,
   requestControl,
   reorderWorkspaceGroups,
   releaseControl,
@@ -52,7 +54,17 @@ import {
 import { getPersistentDeviceId } from "@/lib/deviceId";
 import { colors } from "@/lib/colors";
 import { useIsMobile, useVisualViewportHeight } from "@/lib/hooks";
-import { useShortcuts } from "@/lib/shortcuts";
+import {
+  formatPrefixBinding,
+  isEditableShortcutTarget,
+  loadPrefixBindings,
+  type PrefixActionId,
+} from "@/lib/prefixKey";
+import { PrefixKeyProvider, usePrefixKey } from "@/lib/prefixKeyContext";
+import { CheatSheetOverlay } from "./CheatSheetOverlay.web";
+import { UpdateNotification } from "./UpdateNotification";
+import { useAuth } from "@/lib/auth";
+import { collectGroupPaneTerminalIds, createTerminalWorkspace, type WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
 import {
   createInitialMainLayout,
   mainLayoutReducer,
@@ -63,14 +75,12 @@ import {
 } from "@/lib/unloadControlRelease";
 import { TerminalPreviewMuxProvider } from "@/lib/terminalPreviewMuxReact";
 import { createTerminalReconnectController } from "@/lib/terminalReconnect";
+import { readViewOnlyLock, writeViewOnlyLock } from "@/lib/viewOnlyLock";
 
 const OnboardingView = lazy(() =>
   import("./OnboardingView.web").then((module) => ({
     default: module.OnboardingView,
   })),
-);
-const StatusBar = lazy(() =>
-  import("./StatusBar").then((module) => ({ default: module.StatusBar })),
 );
 const SettingsPage = lazy(() =>
   import("./SettingsPage").then((module) => ({ default: module.SettingsPage })),
@@ -79,7 +89,16 @@ const ConfirmDialog = lazy(() =>
   import("./ConfirmDialog").then((module) => ({ default: module.ConfirmDialog })),
 );
 
-const STATUS_BAR_KEY = "webmux:show-status-bar";
+// Prefix actions owned by TerminalCanvas (workspace-owned actions are
+// registered by TerminalWorkspace).
+const CANVAS_PREFIX_ACTIONS: PrefixActionId[] = [
+  "newTerminal",
+  "cheatSheet",
+  "sessionSwitcher",
+  "switchHost",
+  "commandPalette",
+  "copyMode",
+];
 
 interface CreateTerminalOptions {
   selectWorkpath?: boolean;
@@ -93,31 +112,34 @@ interface DestroyTerminalOptions {
 
 type DestroyTerminalRequestResult = "accepted" | "pending";
 
-function useViewportWidth() {
-  const [w, setW] = useState(
-    typeof window !== "undefined" ? window.innerWidth : 1280,
-  );
-  useEffect(() => {
-    const onResize = () => setW(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return w;
+const LAST_FOCUS_PUT_KEY = "webmux:last-focus-put";
+const SAME_SESSION_FOCUS_WINDOW_MS = 2 * 60_000;
+
+function recordLastFocusPut(terminalId: string): void {
+  try {
+    window.sessionStorage.setItem(
+      LAST_FOCUS_PUT_KEY,
+      JSON.stringify({ terminalId, atMs: Date.now() }),
+    );
+  } catch {
+    /* ignore unavailable browser storage */
+  }
 }
 
-function useStatusBarPref() {
-  const [visible, setVisible] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(STATUS_BAR_KEY) === "1";
-  });
-  useEffect(() => {
-    const handler = (e: StorageEvent) => {
-      if (e.key === STATUS_BAR_KEY) setVisible(e.newValue === "1");
-    };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
-  }, []);
-  return visible;
+function wasRecentlyFocusedByThisSession(terminalId: string): boolean {
+  try {
+    const raw = window.sessionStorage.getItem(LAST_FOCUS_PUT_KEY);
+    if (!raw) return false;
+    const record = JSON.parse(raw) as { terminalId?: unknown; atMs?: unknown };
+    return (
+      record.terminalId === terminalId &&
+      typeof record.atMs === "number" &&
+      Date.now() - record.atMs >= 0 &&
+      Date.now() - record.atMs < SAME_SESSION_FOCUS_WINDOW_MS
+    );
+  } catch {
+    return false;
+  }
 }
 
 function upsertTerminalInfo(
@@ -129,23 +151,6 @@ function upsertTerminalInfo(
   const next = terminals.slice();
   next[index] = terminal;
   return next;
-}
-
-function upsertWorkspaceGroup(
-  groups: WorkspaceGroupInfo[],
-  group: WorkspaceGroupInfo,
-): WorkspaceGroupInfo[] {
-  const index = groups.findIndex((item) => item.id === group.id);
-  const next =
-    index === -1
-      ? [...groups, group]
-      : groups.map((item) => (item.id === group.id ? group : item));
-  return next.sort(
-    (a, b) =>
-      a.machine_id.localeCompare(b.machine_id) ||
-      a.sort_order - b.sort_order ||
-      a.name.localeCompare(b.name),
-  );
 }
 
 function replaceMachineWorkspaceGroups(
@@ -187,6 +192,14 @@ function upsertWorkspaceLayoutInfo(
 }
 
 export function TerminalCanvas() {
+  return (
+    <PrefixKeyProvider>
+      <TerminalCanvasInner />
+    </PrefixKeyProvider>
+  );
+}
+
+function TerminalCanvasInner() {
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
   const [layout, dispatchLayout] = useReducer(
     mainLayoutReducer,
@@ -195,12 +208,20 @@ export function TerminalCanvas() {
   );
   const isMobile = useIsMobile();
   const viewportHeight = useVisualViewportHeight();
-  const viewportWidth = useViewportWidth();
   const rootHeight: string =
     viewportHeight !== null ? `${viewportHeight}px` : "100dvh";
+  const { logout } = useAuth();
 
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
+  const [eventsReconnecting, setEventsReconnecting] = useState(false);
+  const [rttMs, setRttMs] = useState<number | null>(null);
+  const [viewOnlyLocked, setViewOnlyLocked] = useState(() =>
+    typeof window === "undefined"
+      ? false
+      : readViewOnlyLock(window.localStorage),
+  );
+  const [showHandoffBanner, setShowHandoffBanner] = useState(false);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -210,6 +231,8 @@ export function TerminalCanvas() {
   const keepWorkspaceOpenDestroyedTerminalIdsRef = useRef(new Set<string>());
   const [workspaceAnchorTerminal, setWorkspaceAnchorTerminal] =
     useState<TerminalInfo | null>(null);
+  const handoffLandingHandledRef = useRef(false);
+  const lastSentFocusTerminalIdRef = useRef<string | null>(null);
 
   const [closeConfirmation, setCloseConfirmation] = useState<
     | {
@@ -236,11 +259,21 @@ export function TerminalCanvas() {
       deviceId !== null && controlLeases[machineId] === deviceId,
     [controlLeases, deviceId],
   );
+  const canTypeOnMachine = useCallback(
+    (machineId: string) =>
+      isMachineController(machineId) || !viewOnlyLocked,
+    [isMachineController, viewOnlyLocked],
+  );
+  const updateViewOnlyLock = useCallback((locked: boolean) => {
+    setViewOnlyLocked(locked);
+    writeViewOnlyLock(window.localStorage, locked);
+  }, []);
+  const hideHandoffBanner = useCallback(() => {
+    setShowHandoffBanner(false);
+  }, []);
   const isActiveController = activeMachineId
     ? isMachineController(activeMachineId)
     : false;
-
-  const statusBarVisible = useStatusBarPref();
 
   // ---- device id, bootstrap, events WS ----
 
@@ -352,6 +385,7 @@ export function TerminalCanvas() {
   useEffect(() => {
     if (!deviceId) return;
     const pending = takePendingControlRelease(window.sessionStorage);
+    if (viewOnlyLocked) return;
     if (pending.length === 0) return;
     let cancelled = false;
     void Promise.allSettled(
@@ -362,7 +396,7 @@ export function TerminalCanvas() {
     return () => {
       cancelled = true;
     };
-  }, [deviceId]);
+  }, [deviceId, viewOnlyLocked]);
 
   useEffect(() => {
     if (!deviceId) return;
@@ -401,6 +435,19 @@ export function TerminalCanvas() {
     if (!bootstrapReady || !deviceId) return;
     const ws = new WebSocket(eventsWsUrl(deviceId, lastSeqRef.current));
     let disposed = false;
+    let pingTimer: ReturnType<typeof window.setInterval> | null = null;
+
+    const clearPingTimer = () => {
+      if (pingTimer !== null) {
+        window.clearInterval(pingTimer);
+        pingTimer = null;
+      }
+    };
+
+    const sendPing = () => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "ping", t: Math.round(performance.now()) }));
+    };
 
     const reconnect = () => {
       if (disposed) return;
@@ -421,6 +468,15 @@ export function TerminalCanvas() {
     ws.onmessage = (event) => {
       try {
         const envelope = JSON.parse(event.data);
+        if (envelope?.type === "pong" && typeof envelope.t === "number") {
+          const sample = performance.now() - envelope.t;
+          if (Number.isFinite(sample) && sample >= 0) {
+            setRttMs((current) =>
+              current === null ? sample : current * 0.7 + sample * 0.3,
+            );
+          }
+          return;
+        }
         let needsResync = false;
         setBrowserState((prev) => {
           if (shouldResyncForEnvelope(prev, envelope)) {
@@ -456,10 +512,16 @@ export function TerminalCanvas() {
 
     ws.onopen = () => {
       reconnectController.handleSocketOpen();
+      setEventsReconnecting(false);
+      clearPingTimer();
+      sendPing();
+      pingTimer = window.setInterval(sendPing, 5000);
     };
 
     ws.onclose = () => {
       if (disposed) return;
+      clearPingTimer();
+      setEventsReconnecting(true);
       reconnectController.scheduleReconnect();
     };
 
@@ -468,9 +530,11 @@ export function TerminalCanvas() {
         document.visibilityState,
         ws.readyState,
       );
+      setEventsReconnecting(reconnectController.hasPendingReconnect());
     };
     const onPageShow = () => {
       reconnectController.handleVisibilityChange("visible", ws.readyState);
+      setEventsReconnecting(reconnectController.hasPendingReconnect());
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pageshow", onPageShow);
@@ -479,6 +543,7 @@ export function TerminalCanvas() {
       disposed = true;
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pageshow", onPageShow);
+      clearPingTimer();
       reconnectController.cancelReconnect();
       ws.onclose = null;
       ws.close();
@@ -530,6 +595,34 @@ export function TerminalCanvas() {
     );
   }, [workspaceLayouts, activeMachine]);
 
+  // ---- desktop TabBar / command palette state (Phase 2) ----
+  // Same grouping the workspace computes (persistent groups + cwd fallback),
+  // derived here so the TabBar can render above the workspace.
+  const scopedTerminalsById = useMemo(
+    () => new Map(scopedTerminals.map((t) => [t.id, t])),
+    [scopedTerminals],
+  );
+  const tabGroups = useMemo(
+    () =>
+      createTerminalWorkspace(
+        scopedTerminals,
+        null,
+        activeMachineWorkspaceGroups,
+        activeMachineWorkspaceLayouts,
+      ).groups,
+    [scopedTerminals, activeMachineWorkspaceGroups, activeMachineWorkspaceLayouts],
+  );
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const workspaceCommandsRef = useRef<WorkspaceCommandChannel>({});
+  const [paletteState, setPaletteState] = useState<{
+    open: boolean;
+    filter: PaletteFilter;
+  }>({ open: false, filter: "all" });
+  const openPalette = useCallback(
+    (filter: PaletteFilter = "all") => setPaletteState({ open: true, filter }),
+    [],
+  );
+
   const expandedTerminal = layout.zoomedTerminalId
     ? terminals.find((t) => t.id === layout.zoomedTerminalId) ?? null
     : null;
@@ -544,6 +637,50 @@ export function TerminalCanvas() {
     activeMachine,
     scopedTerminals,
   ]);
+
+  useEffect(() => {
+    if (!bootstrapReady || handoffLandingHandledRef.current) return;
+    handoffLandingHandledRef.current = true;
+
+    if (window.location.hash.startsWith("#/t/")) return;
+    const terminalId = browserState.lastFocusedTerminalId;
+    if (!terminalId) return;
+    const terminal = terminals.find((item) => item.id === terminalId);
+    if (!terminal) return;
+
+    if (activeMachineId !== terminal.machine_id) {
+      setActiveMachineId(terminal.machine_id);
+    }
+    dispatchLayout({ type: "ZOOM_TERMINAL", terminalId });
+    window.history.replaceState(null, "", `#/t/${terminalId}`);
+    if (!wasRecentlyFocusedByThisSession(terminalId)) {
+      setShowHandoffBanner(true);
+    }
+  }, [
+    activeMachineId,
+    bootstrapReady,
+    browserState.lastFocusedTerminalId,
+    terminals,
+  ]);
+
+  useEffect(() => {
+    if (!bootstrapReady || !deviceId || !workspaceTerminal) return;
+    if (lastSentFocusTerminalIdRef.current === workspaceTerminal.id) return;
+
+    const terminalId = workspaceTerminal.id;
+    const machineId = workspaceTerminal.machine_id;
+    const timer = window.setTimeout(() => {
+      recordLastFocusPut(terminalId);
+      lastSentFocusTerminalIdRef.current = terminalId;
+      void putFocus(terminalId, machineId).catch(() => {
+        if (lastSentFocusTerminalIdRef.current === terminalId) {
+          lastSentFocusTerminalIdRef.current = null;
+        }
+      });
+    }, 900);
+
+    return () => window.clearTimeout(timer);
+  }, [bootstrapReady, deviceId, workspaceTerminal]);
 
   useEffect(() => {
     if (expandedTerminal) {
@@ -650,6 +787,20 @@ export function TerminalCanvas() {
     [deviceId],
   );
 
+  const handleEngageViewOnly = useCallback(
+    (machineId: string) => {
+      updateViewOnlyLock(true);
+      if (isMachineController(machineId)) {
+        void handleReleaseControl(machineId);
+      }
+    },
+    [handleReleaseControl, isMachineController, updateViewOnlyLock],
+  );
+
+  const handleDisengageViewOnly = useCallback(() => {
+    updateViewOnlyLock(false);
+  }, [updateViewOnlyLock]);
+
   const handleDestroyTerminal = useCallback(
     async (
       terminal: TerminalInfo,
@@ -710,27 +861,6 @@ export function TerminalCanvas() {
     window.history.pushState(null, "", `#/t/${id}`);
   }, []);
 
-  const handleUnzoom = useCallback(() => {
-    dispatchLayout({ type: "UNZOOM" });
-    window.history.pushState(null, "", window.location.pathname);
-  }, []);
-
-  const handleSelectWorkpath = useCallback(
-    (id: string) => {
-      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: id });
-      if (window.location.hash.startsWith("#/t/")) {
-        window.history.pushState(null, "", window.location.pathname);
-      }
-    },
-    [],
-  );
-
-  const handleCloseZoomedTerminal = useCallback(async () => {
-    if (!layout.zoomedTerminalId) return;
-    const t = terminals.find((x) => x.id === layout.zoomedTerminalId);
-    if (t) await handleDestroyTerminal(t);
-  }, [layout.zoomedTerminalId, terminals, handleDestroyTerminal]);
-
   const handleSplitWorkspacePane = useCallback(
     async (terminal: TerminalInfo) => {
       return handleCreateTerminal(terminal.machine_id, terminal.cwd, undefined, {
@@ -755,19 +885,56 @@ export function TerminalCanvas() {
     [handleCreateTerminal],
   );
 
-  const handleCreateWorkspaceGroup = useCallback(
-    async (machineId: string, name: string) => {
-      const group = await createWorkspaceGroup(machineId, name);
-      setBrowserState((prev) => ({
-        ...prev,
-        workspaceGroups: upsertWorkspaceGroup(prev.workspaceGroups, group),
-      }));
-      // Default new groups to scrollable mode so the DB row is created with the right layout_mode.
-      await handleSaveWorkspaceLayout(machineId, group.id, null, "scrollable", { columns: [] });
-      return group;
+  // Mobile session-strip actions: ＋ / "New terminal here" create in the
+  // group's cwd (machine home when there is no group); chip close goes
+  // through the shared destroy flow (running-process confirm included).
+  const handleMobileNewTerminal = useCallback(
+    (group: WorkspaceGroup | null) => {
+      if (!activeMachine) return;
+      void handleCreateWorkspacePane({
+        machineId: activeMachine.id,
+        cwd: group?.cwd || activeMachine.home_dir || "~",
+        workspaceGroupId: group?.workspaceGroupId ?? null,
+      });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [activeMachine, handleCreateWorkspacePane],
+  );
+
+  const handleMobileCloseTerminal = useCallback(
+    (target: TerminalInfo) => {
+      // Closing the active terminal moves to its strip-order neighbor so the
+      // shell doesn't land on an empty-group view. `wasActive` is captured
+      // synchronously: the terminal_destroyed event may clear the zoom
+      // before the destroy promise settles, which must not suppress the
+      // fallback pick.
+      const wasActive = zoomedTerminalIdRef.current === target.id;
+      const ids = collectGroupPaneTerminalIds(tabGroups).filter((id) =>
+        scopedTerminalsById.has(id),
+      );
+      const index = ids.indexOf(target.id);
+      const nextId =
+        index === -1 ? null : (ids[index + 1] ?? ids[index - 1] ?? null);
+      const pickFallback = () => {
+        if (!wasActive || !nextId) return;
+        handleZoomTerminal(nextId);
+      };
+      void (async () => {
+        try {
+          const result = await handleDestroyTerminal(target, {
+            afterAccepted: pickFallback,
+          });
+          if (result === "accepted") pickFallback();
+        } catch (error) {
+          console.error("Failed to close terminal", error);
+        }
+      })();
+    },
+    [
+      handleDestroyTerminal,
+      handleZoomTerminal,
+      scopedTerminalsById,
+      tabGroups,
+    ],
   );
 
   const handleReorderWorkspaceGroups = useCallback(
@@ -786,36 +953,11 @@ export function TerminalCanvas() {
     [],
   );
 
-  const handleDeleteWorkspaceGroup = useCallback(
-    async (machineId: string, groupId: string) => {
-      await deleteWorkspaceGroup(machineId, groupId);
-      setBrowserState((prev) => ({
-        ...prev,
-        workspaceGroups: prev.workspaceGroups.filter(
-          (group) => !(group.machine_id === machineId && group.id === groupId),
-        ),
-        workspaceLayouts: prev.workspaceLayouts.filter(
-          (layout) =>
-            !(layout.machine_id === machineId && layout.group_key === groupId),
-        ),
-        terminals: prev.terminals.map((terminal) =>
-          terminal.machine_id === machineId &&
-          terminal.workspace_group_id === groupId
-            ? { ...terminal, workspace_group_id: null }
-            : terminal,
-        ),
-      }));
-    },
-    [],
-  );
-
   const handleSaveWorkspaceLayout = useCallback(
     async (
       machineId: string,
       groupKey: string,
       root: WorkspaceLayoutNode | null,
-      mode: WorkspaceLayoutMode | null,
-      scrollable: WorkspaceScrollableLayout | null,
     ) => {
       const baseUpdatedAt =
         workspaceLayoutsRef.current.find(
@@ -827,8 +969,6 @@ export function TerminalCanvas() {
         groupKey,
         root,
         baseUpdatedAt,
-        mode,
-        scrollable,
       );
       setBrowserState((prev) => ({
         ...prev,
@@ -878,72 +1018,71 @@ export function TerminalCanvas() {
     scopeBookmark,
   ]);
 
-  const handleConfirmAddDirectory = useCallback(
-    async (machineId: string, path: string) => {
-      const parts = path.replace(/\/+$/, "").split("/");
-      const label = parts[parts.length - 1] || path;
-      try {
-        const bm = await createBookmark(machineId, path, label);
-        setBookmarks((prev) => [...prev, bm]);
-      } catch {
-        setBookmarks((prev) => [
-          ...prev,
-          {
-            id: `local-${Date.now()}`,
-            machine_id: machineId,
-            path,
-            label,
-            sort_order: prev.length,
-          },
-        ]);
+  // ---- prefix-key shortcut engine (⌃B) ----
+  // The engine singleton lives in PrefixKeyProvider; this window listener is
+  // the only place keydowns enter it. Workspace-owned actions (splits, pane
+  // focus, group tabs, zoom/close pane, literal ⌃B) are registered by
+  // TerminalWorkspace into the same dispatcher.
+  const prefixKey = usePrefixKey();
+  const prefixKeyRef = useRef(prefixKey);
+  useEffect(() => {
+    prefixKeyRef.current = prefixKey;
+  }, [prefixKey]);
+  const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
+
+  const canvasPrefixActionsRef = useRef<
+    Partial<Record<PrefixActionId, () => void>>
+  >({});
+  canvasPrefixActionsRef.current = {
+    newTerminal: isActiveController
+      ? () => void handleNewTerminalFromHeader()
+      : undefined,
+    cheatSheet: () => setCheatSheetOpen((open) => !open),
+    // ⌃B w opens the palette pre-filtered to tab rows, ⌃B s to host rows,
+    // ⌃B k to the full palette.
+    sessionSwitcher: () => openPalette("tabs"),
+    switchHost: () => openPalette("hosts"),
+    commandPalette: () => openPalette("all"),
+    // TODO(phase 3+): copy mode. Registered as a no-op so armed + key is
+    // swallowed, not typed.
+    copyMode: () => {},
+  };
+
+  useEffect(() => {
+    for (const action of CANVAS_PREFIX_ACTIONS) {
+      prefixKeyRef.current.setActionHandler(action, () =>
+        canvasPrefixActionsRef.current[action]?.(),
+      );
+    }
+    return () => {
+      for (const action of CANVAS_PREFIX_ACTIONS) {
+        prefixKeyRef.current.clearActionHandler(action);
       }
-    },
-    [],
-  );
+    };
+  }, []);
 
-  const handleSelectWorkpathByIndex = useCallback(
-    (index: number) => {
-      if (index === 0) {
-        handleSelectWorkpath("all");
-        return;
-      }
-      const list = bookmarks.filter((b) => b.machine_id === activeMachineId);
-      const target = list[index - 1];
-      if (target) handleSelectWorkpath(target.id);
-    },
-    [bookmarks, activeMachineId, handleSelectWorkpath],
-  );
-
-  const currentWorkpathTerminals = useCallback(
-    (): TerminalInfo[] => scopedTerminals,
-    [scopedTerminals],
-  );
-
-  useShortcuts({
-    newTerminal: isActiveController ? handleNewTerminalFromHeader : undefined,
-    closeTab: handleCloseZoomedTerminal,
-    nextTab: () => {
-      const s = currentWorkpathTerminals();
-      if (s.length <= 1) return;
-      const idx = s.findIndex((t) => t.id === layout.zoomedTerminalId);
-      const next = (idx === -1 ? 0 : idx + 1) % s.length;
-      handleZoomTerminal(s[next].id);
-    },
-    prevTab: () => {
-      const s = currentWorkpathTerminals();
-      if (s.length <= 1) return;
-      const idx = s.findIndex((t) => t.id === layout.zoomedTerminalId);
-      const prev = idx === -1 ? 0 : (idx - 1 + s.length) % s.length;
-      handleZoomTerminal(s[prev].id);
-    },
-    selectAll: () => handleSelectWorkpath("all"),
-    selectTab: handleSelectWorkpathByIndex,
-  });
+  useEffect(() => {
+    if (isMobile) return;
+    const onKeydown = (event: KeyboardEvent) => {
+      const insideTerminal =
+        event.target instanceof Element &&
+        Boolean(event.target.closest(".xterm"));
+      if (!insideTerminal && isEditableShortcutTarget(event.target)) return;
+      const result = prefixKeyRef.current.handleKeydown(event);
+      if (result.type === "pass") return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    window.addEventListener("keydown", onKeydown);
+    return () => window.removeEventListener("keydown", onKeydown);
+  }, [isMobile]);
 
   // Esc unzooms the expanded view, unless focus is inside xterm (which needs
   // Esc for its own bindings — the expanded overlay handles that case).
+  // Desktop only: on mobile the workspace is the shell itself, there is no
+  // overlay to dismiss.
   useEffect(() => {
-    if (!layout.zoomedTerminalId) return;
+    if (isMobile || !layout.zoomedTerminalId) return;
     const onKey = (e: KeyboardEvent) => {
       if (
         e.key === "Escape" &&
@@ -957,7 +1096,7 @@ export function TerminalCanvas() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [layout.zoomedTerminalId]);
+  }, [isMobile, layout.zoomedTerminalId]);
 
   // ---- render ----
 
@@ -970,6 +1109,100 @@ export function TerminalCanvas() {
       )?.label ?? "All"
     );
   }, [layout.selectedWorkpathId, activeMachine, bookmarks]);
+
+  // Command palette rows, in the spec's fixed order. Workspace-owned actions
+  // (splits, tab selection) go through the workspace command channel.
+  const paletteRows = useMemo<PaletteRow[]>(() => {
+    const bindings = loadPrefixBindings();
+    const otherOnlineMachines = machines.filter(
+      (machine) =>
+        machine.id !== activeMachine?.id &&
+        (Boolean(machineStats[machine.id]) ||
+          terminals.some((t) => t.machine_id === machine.id && t.reachable)),
+    );
+    return [
+      {
+        id: "new-terminal",
+        section: "actions",
+        label: "New terminal",
+        hint: formatPrefixBinding("newTerminal", bindings),
+        disabled: !isActiveController,
+        action: () => void handleNewTerminalFromHeader(),
+      },
+      {
+        id: "split-right",
+        section: "actions",
+        label: "Split right",
+        hint: formatPrefixBinding("splitRight", bindings),
+        disabled: !isActiveController,
+        action: () =>
+          workspaceCommandsRef.current.runPrefixAction?.("splitRight"),
+      },
+      {
+        id: "split-down",
+        section: "actions",
+        label: "Split down",
+        hint: formatPrefixBinding("splitDown", bindings),
+        disabled: !isActiveController,
+        action: () =>
+          workspaceCommandsRef.current.runPrefixAction?.("splitDown"),
+      },
+      ...tabGroups.map((group, index): PaletteRow => {
+        const tabAction = `selectTab${index + 1}` as PrefixActionId;
+        return {
+          id: `tab-${group.id}`,
+          section: "tabs",
+          label: group.label,
+          keywords: group.cwd,
+          hint:
+            index < 9 ? formatPrefixBinding(tabAction, bindings) : undefined,
+          action: () => workspaceCommandsRef.current.selectGroup?.(group.id),
+        };
+      }),
+      ...otherOnlineMachines.map(
+        (machine): PaletteRow => ({
+          id: `host-${machine.id}`,
+          section: "hosts",
+          label: machine.name,
+          keywords: machine.os,
+          action: () => setActiveMachineId(machine.id),
+        }),
+      ),
+      {
+        id: "add-host",
+        section: "actions",
+        label: "Add host…",
+        action: () => setAddMachineOpen(true),
+      },
+      {
+        id: "reconnect",
+        section: "actions",
+        label: "Reconnect session",
+        action: () => window.location.reload(),
+      },
+      {
+        id: "settings",
+        section: "actions",
+        label: "Settings",
+        action: () => setShowSettings(true),
+      },
+      {
+        id: "sign-out",
+        section: "actions",
+        label: "Sign out",
+        action: () => void logout(),
+      },
+    ];
+  }, [
+    machines,
+    activeMachine,
+    machineStats,
+    terminals,
+    tabGroups,
+    isActiveController,
+    handleNewTerminalFromHeader,
+    logout,
+  ]);
 
   return (
     <div
@@ -1008,19 +1241,45 @@ export function TerminalCanvas() {
               controlLeases={controlLeases}
               deviceId={deviceId}
               machineStats={machineStats}
-              bookmarks={bookmarks}
+              rttMs={rttMs}
               terminals={terminals}
-              selectedWorkpathId={layout.selectedWorkpathId}
+              groups={tabGroups}
+              activeTerminalId={workspaceTerminal?.id ?? null}
               canCreateTerminal={isActiveController}
+              onPickTerminal={handleZoomTerminal}
+              onNewTerminal={handleMobileNewTerminal}
+              onCloseTerminal={handleMobileCloseTerminal}
               onSelectMachine={setActiveMachineId}
-              onSelectWorkpath={handleSelectWorkpath}
-              onAddWorkpath={handleConfirmAddDirectory}
-              onOpenTerminal={handleZoomTerminal}
-              onNewTerminal={handleNewTerminalFromHeader}
+              onAddMachine={() => setAddMachineOpen(true)}
               onRequestControl={handleRequestControl}
-              onReleaseControl={handleReleaseControl}
+              viewOnlyLocked={viewOnlyLocked}
+              onEngageViewOnly={handleEngageViewOnly}
+              onDisengageViewOnly={handleDisengageViewOnly}
               onOpenSettings={() => setShowSettings(true)}
-            />
+            >
+              {scopedTerminals.length > 0 && workspaceTerminal ? (
+                <TerminalWorkspace
+                  terminal={workspaceTerminal}
+                  siblings={scopedTerminals}
+                  workspaceGroups={activeMachineWorkspaceGroups}
+                  workspaceLayouts={activeMachineWorkspaceLayouts}
+                  isController={isMachineController(workspaceTerminal.machine_id)}
+                  canType={canTypeOnMachine(workspaceTerminal.machine_id)}
+                  eventsReconnecting={eventsReconnecting}
+                  deviceId={deviceId ?? ""}
+                  isMobile={true}
+                  onPick={handleZoomTerminal}
+                  onDestroy={handleDestroyTerminal}
+                  onSplit={handleSplitWorkspacePane}
+                  onCreatePane={handleCreateWorkspacePane}
+                  onReorderGroups={handleReorderWorkspaceGroups}
+                  onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
+                  onAssignGroup={handleAssignWorkspaceGroup}
+                  onRequestControl={handleRequestControl}
+                  onReleaseControl={handleReleaseControl}
+                />
+              ) : null}
+            </MobileWorkbench>
           ) : (
             <main
               style={{
@@ -1031,35 +1290,41 @@ export function TerminalCanvas() {
                 background: colors.bg0,
               }}
             >
-              <WorkbenchHeader
-                scopeLabel={scopeLabel}
+              <TabBar
+                groups={tabGroups}
+                activeGroupId={activeGroupId}
+                terminalsById={scopedTerminalsById}
+                terminals={terminals}
                 machines={machines}
                 activeMachineId={activeMachineId}
                 controlLeases={controlLeases}
                 deviceId={deviceId}
                 machineStats={machineStats}
-                terminals={terminals}
-                isController={isActiveController}
-                terminalCount={scopedTerminals.length}
                 stats={activeStats}
-                viewportWidth={viewportWidth}
+                rttMs={rttMs}
+                isController={isActiveController}
+                viewOnlyLocked={viewOnlyLocked}
                 canCreateTerminal={isActiveController}
+                onSelectGroup={(groupId) =>
+                  workspaceCommandsRef.current.selectGroup?.(groupId)
+                }
+                onReorderGroups={(sourceGroupId, targetGroupId, placement) =>
+                  workspaceCommandsRef.current.reorderGroups?.(
+                    sourceGroupId,
+                    targetGroupId,
+                    placement,
+                  )
+                }
+                onNewTerminal={() => void handleNewTerminalFromHeader()}
                 onSelectMachine={setActiveMachineId}
-                onOpenSettings={() => setShowSettings(true)}
-                onOpenAddMachine={() => setAddMachineOpen(true)}
-                onNewTerminal={
-                  isActiveController ? handleNewTerminalFromHeader : undefined
-                }
-                onReleaseControl={
-                  isActiveController && activeMachine
-                    ? () => handleReleaseControl(activeMachine.id)
-                    : undefined
-                }
-                onRequestControl={
-                  !isActiveController && activeMachine
-                    ? () => handleRequestControl(activeMachine.id)
-                    : undefined
-                }
+                onAddMachine={() => setAddMachineOpen(true)}
+                onRequestControl={() => {
+                  if (activeMachine) void handleRequestControl(activeMachine.id);
+                }}
+                onEngageViewOnly={() => {
+                  if (activeMachine) handleEngageViewOnly(activeMachine.id);
+                }}
+                onDisengageViewOnly={handleDisengageViewOnly}
               />
 
               {scopedTerminals.length === 0 ? (
@@ -1081,73 +1346,79 @@ export function TerminalCanvas() {
                   workspaceGroups={activeMachineWorkspaceGroups}
                   workspaceLayouts={activeMachineWorkspaceLayouts}
                   isController={isMachineController(workspaceTerminal!.machine_id)}
+                  canType={canTypeOnMachine(workspaceTerminal!.machine_id)}
+                  eventsReconnecting={eventsReconnecting}
                   deviceId={deviceId ?? ""}
                   isMobile={isMobile}
-                  onClose={handleUnzoom}
                   onPick={handleZoomTerminal}
                   onDestroy={handleDestroyTerminal}
                   onSplit={handleSplitWorkspacePane}
                   onCreatePane={handleCreateWorkspacePane}
-                  onCreateGroup={handleCreateWorkspaceGroup}
                   onReorderGroups={handleReorderWorkspaceGroups}
-                  onDeleteGroup={handleDeleteWorkspaceGroup}
                   onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
                   onAssignGroup={handleAssignWorkspaceGroup}
                   onRequestControl={handleRequestControl}
                   onReleaseControl={handleReleaseControl}
+                  commandsRef={workspaceCommandsRef}
+                  onActiveGroupChange={setActiveGroupId}
                 />
               )}
             </main>
           )}
+          {showHandoffBanner && (
+            <HandoffBanner
+              isMobile={isMobile}
+              onDone={hideHandoffBanner}
+            />
+          )}
         </div>
 
-        {isMobile && layout.zoomedTerminalId && workspaceTerminal && (
-          <TerminalWorkspace
-            terminal={workspaceTerminal}
-            siblings={
-              scopedTerminals.length > 0
-                ? scopedTerminals
-                : workspaceTerminal
-                  ? [workspaceTerminal]
-                  : []
-            }
-            workspaceGroups={activeMachineWorkspaceGroups}
-            workspaceLayouts={activeMachineWorkspaceLayouts}
-            isController={isMachineController(workspaceTerminal.machine_id)}
-            deviceId={deviceId ?? ""}
-            isMobile={true}
-            onClose={handleUnzoom}
-            onPick={handleZoomTerminal}
-            onDestroy={handleDestroyTerminal}
-            onSplit={handleSplitWorkspacePane}
-            onCreatePane={handleCreateWorkspacePane}
-            onCreateGroup={handleCreateWorkspaceGroup}
-            onReorderGroups={handleReorderWorkspaceGroups}
-            onDeleteGroup={handleDeleteWorkspaceGroup}
-            onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
-            onAssignGroup={handleAssignWorkspaceGroup}
-            onRequestControl={handleRequestControl}
-            onReleaseControl={handleReleaseControl}
-          />
-        )}
-
-        {statusBarVisible && machines.length > 0 && (
-          <Suspense fallback={null}>
-            <StatusBar
-              machines={machines}
-              activeMachineId={activeMachineId}
-              onSelectMachine={setActiveMachineId}
-              machineStats={machineStats}
-              isMobile={isMobile}
-              isController={isActiveController}
-              onRequestControl={handleRequestControl}
-              onReleaseControl={handleReleaseControl}
-            />
-          </Suspense>
+        {!isMobile && (
+          // Tauri updater toast — floating bottom-right mount, replaces the
+          // deleted StatusBar's slot. Renders nothing outside Tauri.
+          <div style={{ position: "fixed", right: 12, bottom: 12, zIndex: 55 }}>
+            <UpdateNotification />
+          </div>
         )}
 
         {addMachineOpen && (
           <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
+        )}
+
+        {!isMobile && paletteState.open && (
+          <CommandPalette
+            rows={paletteRows}
+            filter={paletteState.filter}
+            onClose={() =>
+              setPaletteState((current) => ({ ...current, open: false }))
+            }
+          />
+        )}
+
+        {!isMobile && prefixKey.armed && (
+          <div
+            data-testid="prefix-armed-indicator"
+            style={{
+              position: "fixed",
+              right: 16,
+              bottom: 16,
+              zIndex: 60,
+              padding: "4px 10px",
+              borderRadius: 6,
+              background: colors.accent,
+              color: "#120904",
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "var(--font-mono)",
+              pointerEvents: "none",
+            }}
+          >
+            ⌃B
+          </div>
+        )}
+
+        {cheatSheetOpen && (
+          <CheatSheetOverlay onClose={() => setCheatSheetOpen(false)} />
         )}
 
         {closeConfirmation && (

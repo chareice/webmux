@@ -1337,17 +1337,6 @@ impl MachineManager {
                         machine_id: row.machine_id,
                         group_key: row.group_key,
                         root,
-                        mode: row
-                            .layout_mode
-                            .as_deref()
-                            .map(|s| match s {
-                                "scrollable" => tc_protocol::WorkspaceLayoutMode::Scrollable,
-                                _ => tc_protocol::WorkspaceLayoutMode::Tiling,
-                            })
-                            .unwrap_or_default(),
-                        scrollable: row.aux_json.as_deref().and_then(|s| {
-                            serde_json::from_str::<tc_protocol::WorkspaceScrollableLayout>(s).ok()
-                        }),
                         updated_at: row.updated_at,
                     }),
                     Err(error) => {
@@ -1392,8 +1381,22 @@ impl MachineManager {
             }
         }
 
+        let last_focused_terminal_id = self
+            .db
+            .get()
+            .ok()
+            .and_then(|conn| crate::db::user_focus::get_user_focus(&conn, user_id).ok())
+            .flatten()
+            .map(|(terminal_id, _, _)| terminal_id)
+            .filter(|terminal_id| {
+                all_terminals
+                    .iter()
+                    .any(|terminal| terminal.id == *terminal_id)
+            });
+
         BrowserStateSnapshot {
             snapshot_seq,
+            last_focused_terminal_id,
             machines: all_machines,
             terminals: all_terminals,
             workspace_groups,
@@ -1657,6 +1660,21 @@ mod tests {
     }
 
     #[test]
+    fn requesting_control_is_last_writer_wins() {
+        let manager = MachineManager::new(test_db());
+
+        manager.request_control("user-a", "machine-a", "device-a");
+        manager.request_control("user-a", "machine-a", "device-b");
+
+        assert!(!manager.is_controller("user-a", "machine-a", "device-a"));
+        assert!(manager.is_controller("user-a", "machine-a", "device-b"));
+        assert_eq!(
+            manager.get_controller("user-a", "machine-a"),
+            Some("device-b".to_string())
+        );
+    }
+
+    #[test]
     fn unregistering_a_device_releases_its_machine_control() {
         let manager = MachineManager::new(test_db());
 
@@ -1713,6 +1731,15 @@ mod tests {
     async fn snapshot_for_user_includes_visible_state_and_sequence_watermark() {
         let manager = MachineManager::new(test_db());
 
+        {
+            let conn = manager.db.get().unwrap();
+            crate::db::users::create_user(
+                &conn, "user-a", "test", "user-a", "User A", None, "user",
+            )
+            .unwrap();
+            crate::db::user_focus::set_user_focus(&conn, "user-a", "term-a", "machine-a").unwrap();
+        }
+
         manager
             .register_machine(machine("machine-a"), Some("user-a".to_string()))
             .await;
@@ -1744,11 +1771,25 @@ mod tests {
         assert_eq!(snapshot.machine_stats[0].machine_id, "machine-a");
         assert_eq!(snapshot.control_leases.len(), 1);
         assert_eq!(snapshot.control_leases[0].machine_id, "machine-a");
+        assert_eq!(snapshot.last_focused_terminal_id.as_deref(), Some("term-a"));
         assert_eq!(
             snapshot.control_leases[0].controller_device_id.as_deref(),
             Some("device-a")
         );
         assert!(snapshot.snapshot_seq > 0);
+
+        {
+            let conn = manager.db.get().unwrap();
+            crate::db::user_focus::set_user_focus(&conn, "user-a", "destroyed-term", "machine-a")
+                .unwrap();
+        }
+        assert_eq!(
+            manager
+                .snapshot_for_user("user-a")
+                .await
+                .last_focused_terminal_id,
+            None
+        );
     }
 
     #[tokio::test]

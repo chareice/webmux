@@ -1,3 +1,5 @@
+import type { MutableRefObject } from "react";
+
 export interface TerminalViewRef {
   sendInput: (data: string) => void;
   sendCommandInput: (data: string) => void;
@@ -43,8 +45,14 @@ export interface TerminalViewProps {
   rows: number;
   displayMode?: "card" | "immersive";
   isController?: boolean;
+  canType?: boolean;
   canResizeTerminal?: boolean;
   onTitleChange?: (title: string) => void;
+  onReconnectingChange?: (reconnecting: boolean) => void;
+  // Optional outgoing-input transform (mobile Ctrl latch). Stored behind a
+  // ref because the xterm onData handler is registered once at mount; the
+  // ref keeps it reading the latest transform. Returns the data to send.
+  inputTransformRef?: MutableRefObject<((data: string) => string) | null>;
   /** Platform-specific style object (CSSProperties on web, ViewStyle on native) */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   style?: any;

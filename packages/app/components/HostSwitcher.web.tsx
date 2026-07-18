@@ -16,6 +16,8 @@ interface HostSwitcherProps {
   terminals: TerminalInfo[];
   onSelectMachine: (id: string) => void;
   onAddMachine?: () => void;
+  // Chromeless trigger (dot + name + chevron) for the Phase 2 TabBar.
+  compact?: boolean;
 }
 
 function HostSwitcherComponent({
@@ -27,6 +29,7 @@ function HostSwitcherComponent({
   terminals,
   onSelectMachine,
   onAddMachine,
+  compact = false,
 }: HostSwitcherProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -76,20 +79,36 @@ function HostSwitcherComponent({
       <button
         onClick={() => setOpen((v) => !v)}
         data-testid="host-switcher-button"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          width: "100%",
-          padding: "6px 10px",
-          borderRadius: 10,
-          background: open ? colors.bg2 : colors.bg1,
-          border: `1px solid ${colors.lineSoft}`,
-          textAlign: "left",
-          minWidth: 0,
-          color: colors.fg1,
-          cursor: "pointer",
-        }}
+        style={
+          compact
+            ? {
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                padding: "3px 4px",
+                borderRadius: 6,
+                background: "transparent",
+                border: "none",
+                textAlign: "left",
+                minWidth: 0,
+                color: colors.fg1,
+                cursor: "pointer",
+              }
+            : {
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                width: "100%",
+                padding: "6px 10px",
+                borderRadius: 10,
+                background: open ? colors.bg2 : colors.bg1,
+                border: `1px solid ${colors.lineSoft}`,
+                textAlign: "left",
+                minWidth: 0,
+                color: colors.fg1,
+                cursor: "pointer",
+              }
+        }
       >
         <HostDot online={onlineFor(active.id)} controlling={controllingActive} />
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -112,16 +131,18 @@ function HostSwitcherComponent({
             >
               {active.name}
             </span>
-            <span
-              style={{
-                fontSize: 10,
-                color: colors.fg3,
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-              }}
-            >
-              {active.os}
-            </span>
+            {!compact && (
+              <span
+                style={{
+                  fontSize: 10,
+                  color: colors.fg3,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                {active.os}
+              </span>
+            )}
           </div>
         </div>
         <ChevronRight
@@ -140,7 +161,7 @@ function HostSwitcherComponent({
           style={{
             position: "absolute",
             top: "calc(100% + 6px)",
-            left: 0,
+            ...(compact ? { right: 0 } : { left: 0 }),
             minWidth: 240,
             zIndex: 20,
             background: colors.bg1,

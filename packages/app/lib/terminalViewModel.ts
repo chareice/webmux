@@ -48,9 +48,9 @@ interface EstimateInitialTerminalDimensionsOptions {
 const DESKTOP_ESTIMATE_CELL_WIDTH = 8.5;
 const DESKTOP_ESTIMATE_CELL_HEIGHT = 17;
 
-// Mobile fullscreen terminals sit inside ExpandedTerminal + TerminalCard
-// chrome before xterm exists, so creation needs to estimate the inner terminal
-// viewport rather than the whole screen.
+// Mobile fullscreen terminals sit inside the mobile TerminalWorkspace +
+// TerminalCard chrome before xterm exists, so creation needs to estimate the
+// inner terminal viewport rather than the whole screen.
 const MOBILE_TERMINAL_HORIZONTAL_CHROME_PX = 20;
 const MOBILE_TERMINAL_VERTICAL_CHROME_PX = 194;
 const MOBILE_ESTIMATE_CELL_WIDTH = 7.1;

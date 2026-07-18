@@ -4,16 +4,16 @@ import { isTauri } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import { getSettings, updateSettings } from "@/lib/api";
 import {
-  DEFAULT_WORKSPACE_SHORTCUTS,
-  WORKSPACE_SHORTCUT_DEFINITIONS,
-  type WorkspaceShortcutActionId,
-  eventToShortcut,
-  formatShortcut,
-  getWorkspaceShortcutConflict,
-  loadWorkspaceShortcuts,
-  resetWorkspaceShortcuts,
-  saveWorkspaceShortcut,
-} from "@/lib/workspaceShortcuts";
+  DEFAULT_PREFIX_BINDINGS,
+  PREFIX_ACTION_DEFINITIONS,
+  type PrefixActionId,
+  formatPrefixBinding,
+  getPrefixBindingConflict,
+  loadPrefixBindings,
+  normalizePrefixKey,
+  resetPrefixBindings,
+  savePrefixBinding,
+} from "@/lib/prefixKey";
 import { ArrowLeft } from "lucide-react";
 
 // Common UI (proportional) fonts
@@ -216,27 +216,6 @@ function SettingRow({
 }
 
 export function SettingsPage({ onClose }: SettingsPageProps) {
-  // Status bar visibility (hidden by default — see TerminalCanvas.web).
-  const [showStatusBar, setShowStatusBar] = useState(
-    () => localStorage.getItem("webmux:show-status-bar") === "1",
-  );
-  const toggleStatusBar = useCallback(() => {
-    setShowStatusBar((prev) => {
-      const next = !prev;
-      localStorage.setItem("webmux:show-status-bar", next ? "1" : "0");
-      // Notify the orchestrator (listens for the same key via StorageEvent,
-      // which only fires cross-tab — dispatch one locally so this tab updates
-      // immediately).
-      window.dispatchEvent(
-        new StorageEvent("storage", {
-          key: "webmux:show-status-bar",
-          newValue: next ? "1" : "0",
-        }),
-      );
-      return next;
-    });
-  }, []);
-
   // Terminal font settings
   const [terminalFont, setTerminalFont] = useState(
     () => localStorage.getItem("webmux:terminal-font-family") || "",
@@ -259,12 +238,13 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
 
   // Server URL (desktop only)
   const [serverUrl, setServerUrlState] = useState(() => getServerUrl());
-  const [workspaceShortcuts, setWorkspaceShortcuts] = useState(() =>
-    loadWorkspaceShortcuts(),
+  const [prefixBindings, setPrefixBindings] = useState(() =>
+    loadPrefixBindings(),
   );
-  const [recordingShortcut, setRecordingShortcut] =
-    useState<WorkspaceShortcutActionId | null>(null);
-  const [shortcutConflict, setShortcutConflict] = useState<string | null>(null);
+  const [recordingAction, setRecordingAction] = useState<PrefixActionId | null>(
+    null,
+  );
+  const [bindingConflict, setBindingConflict] = useState<string | null>(null);
 
   // Load quick commands
   useEffect(() => {
@@ -377,63 +357,65 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     window.location.reload();
   }, [serverUrl]);
 
-  const handleShortcutRecordKeyDown = useCallback(
+  const handlePrefixRecordKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLButtonElement>) => {
-      if (!recordingShortcut) return;
+      if (!recordingAction) return;
       event.preventDefault();
       event.stopPropagation();
 
       if (event.key === "Escape") {
-        setRecordingShortcut(null);
-        setShortcutConflict(null);
+        setRecordingAction(null);
+        setBindingConflict(null);
         return;
       }
 
       if (event.key === "Backspace" || event.key === "Delete") {
-        const next = saveWorkspaceShortcut(
-          recordingShortcut,
-          DEFAULT_WORKSPACE_SHORTCUTS[recordingShortcut],
+        const next = savePrefixBinding(
+          recordingAction,
+          DEFAULT_PREFIX_BINDINGS[recordingAction],
         );
-        setWorkspaceShortcuts(next);
-        setRecordingShortcut(null);
-        setShortcutConflict(null);
+        setPrefixBindings(next);
+        setRecordingAction(null);
+        setBindingConflict(null);
         return;
       }
 
-      const shortcut = eventToShortcut(event.nativeEvent);
-      if (!shortcut) return;
-      const conflict = getWorkspaceShortcutConflict(
-        recordingShortcut,
-        shortcut,
-        workspaceShortcuts,
+      // Single-key capture: the prefix (⌃B) is fixed, only the second key is
+      // recorded. Modifier-only presses keep the recorder waiting.
+      const key = normalizePrefixKey(event.key);
+      if (!key) return;
+      const conflict = getPrefixBindingConflict(
+        recordingAction,
+        key,
+        prefixBindings,
       );
       if (conflict) {
         const conflictLabel =
-          WORKSPACE_SHORTCUT_DEFINITIONS.find(
+          PREFIX_ACTION_DEFINITIONS.find(
             (definition) => definition.id === conflict,
-          )?.label ?? "another shortcut";
-        setShortcutConflict(`Already used by ${conflictLabel}`);
+          )?.label ?? "another action";
+        setBindingConflict(`Already used by ${conflictLabel}`);
         return;
       }
-      const next = saveWorkspaceShortcut(recordingShortcut, shortcut);
-      setWorkspaceShortcuts(next);
-      setRecordingShortcut(null);
-      setShortcutConflict(null);
+      const next = savePrefixBinding(recordingAction, key);
+      setPrefixBindings(next);
+      setRecordingAction(null);
+      setBindingConflict(null);
     },
-    [recordingShortcut, workspaceShortcuts],
+    [recordingAction, prefixBindings],
   );
 
-  const handleResetShortcut = useCallback((id: WorkspaceShortcutActionId) => {
-    const next = saveWorkspaceShortcut(id, DEFAULT_WORKSPACE_SHORTCUTS[id]);
-    setWorkspaceShortcuts(next);
-    setRecordingShortcut(null);
-    setShortcutConflict(null);
+  const handleResetBinding = useCallback((id: PrefixActionId) => {
+    const next = savePrefixBinding(id, DEFAULT_PREFIX_BINDINGS[id]);
+    setPrefixBindings(next);
+    setRecordingAction(null);
+    setBindingConflict(null);
   }, []);
 
-  const handleResetAllShortcuts = useCallback(() => {
-    setWorkspaceShortcuts(resetWorkspaceShortcuts());
-    setRecordingShortcut(null);
-    setShortcutConflict(null);
+  const handleResetAllBindings = useCallback(() => {
+    setPrefixBindings(resetPrefixBindings());
+    setRecordingAction(null);
+    setBindingConflict(null);
   }, []);
 
   const inputStyle: React.CSSProperties = {
@@ -509,44 +491,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
           <SectionTitle>Appearance</SectionTitle>
 
           <SettingRow
-            label="Show status bar"
-            description="Adds a 24px monospace bar with CPU/MEM/DISK at the bottom."
-          >
-            <button
-              data-testid="toggle-status-bar"
-              onClick={toggleStatusBar}
-              role="switch"
-              aria-checked={showStatusBar}
-              style={{
-                width: 40,
-                height: 22,
-                borderRadius: 999,
-                border: `1px solid ${colors.border}`,
-                background: showStatusBar ? colors.accent : colors.surface,
-                position: "relative",
-                cursor: "pointer",
-                padding: 0,
-                transition: "background 120ms",
-              }}
-            >
-              <span
-                style={{
-                  position: "absolute",
-                  top: 2,
-                  left: showStatusBar ? 20 : 2,
-                  width: 16,
-                  height: 16,
-                  borderRadius: 999,
-                  background: showStatusBar ? "#120904" : colors.foregroundMuted,
-                  transition: "left 120ms",
-                }}
-              />
-            </button>
-          </SettingRow>
-
-          <SettingRow
             label="UI Font"
-            description="Font used for the interface (sidebar, tabs, status bar)"
+            description="Font used for the interface (tabs, dialogs, palette)"
           >
             <FontSelect
               value={uiFont}
@@ -599,7 +545,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
 
         </section>
 
-        {/* Workspace Shortcuts Section */}
+        {/* Prefix Shortcuts Section */}
         <section style={{ marginBottom: 32 }}>
           <div
             style={{
@@ -609,11 +555,11 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               marginBottom: 16,
             }}
           >
-            <SectionTitle>Workspace Shortcuts</SectionTitle>
+            <SectionTitle>Prefix Shortcuts</SectionTitle>
             <div style={{ flex: 1 }} />
             <button
               type="button"
-              onClick={handleResetAllShortcuts}
+              onClick={handleResetAllBindings}
               style={{
                 background: "none",
                 border: `1px solid ${colors.border}`,
@@ -634,18 +580,19 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               marginBottom: 12,
             }}
           >
-            Click a shortcut, then press the new key combination. Backspace
-            restores the default.
+            Every shortcut starts with the fixed prefix ⌃B (Ctrl+B); all other
+            keys pass through to the terminal. Click a key, then press the new
+            second key. Backspace restores the default.
           </div>
           <div style={{ display: "grid", gap: 8 }}>
-            {WORKSPACE_SHORTCUT_DEFINITIONS.map((shortcut) => {
-              const recording = recordingShortcut === shortcut.id;
+            {PREFIX_ACTION_DEFINITIONS.map((action) => {
+              const recording = recordingAction === action.id;
               return (
                 <div
-                  key={shortcut.id}
+                  key={action.id}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "minmax(0, 1fr) minmax(170px, auto) 58px",
+                    gridTemplateColumns: "minmax(0, 1fr) minmax(110px, auto) 58px",
                     alignItems: "center",
                     gap: 8,
                   }}
@@ -657,16 +604,16 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                       color: colors.foreground,
                     }}
                   >
-                    {shortcut.label}
+                    {action.label}
                   </div>
                   <button
                     type="button"
-                    data-testid={`workspace-shortcut-recorder-${shortcut.id}`}
+                    data-testid={`prefix-binding-recorder-${action.id}`}
                     onClick={() => {
-                      setRecordingShortcut(shortcut.id);
-                      setShortcutConflict(null);
+                      setRecordingAction(action.id);
+                      setBindingConflict(null);
                     }}
-                    onKeyDown={handleShortcutRecordKeyDown}
+                    onKeyDown={handlePrefixRecordKeyDown}
                     style={{
                       minHeight: 32,
                       borderRadius: 6,
@@ -685,12 +632,12 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                     }}
                   >
                     {recording
-                      ? "Press keys..."
-                      : formatShortcut(workspaceShortcuts[shortcut.id])}
+                      ? "⌃B + key..."
+                      : formatPrefixBinding(action.id, prefixBindings)}
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleResetShortcut(shortcut.id)}
+                    onClick={() => handleResetBinding(action.id)}
                     style={{
                       background: "none",
                       border: "none",
@@ -706,16 +653,16 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               );
             })}
           </div>
-          {shortcutConflict && (
+          {bindingConflict && (
             <div
-              data-testid="workspace-shortcut-conflict"
+              data-testid="prefix-binding-conflict"
               style={{
                 marginTop: 10,
                 fontSize: 12,
                 color: colors.danger,
               }}
             >
-              {shortcutConflict}
+              {bindingConflict}
             </div>
           )}
         </section>

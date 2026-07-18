@@ -1,8 +1,9 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 import {
   expectControlState,
   openApp,
+  pressPrefixKey,
   resetMachineState,
   selectHomeWorkpath,
   takeControlFromHeader,
@@ -24,40 +25,44 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await selectHomeWorkpath(pageA);
   await pageA.getByTestId("empty-new-terminal").click();
 
-  // The workspace is now the main view. Session A is controller.
+  // The workspace is now the main view. Session A is controller: the
+  // control-gated tab-bar action is enabled for it.
   await pageA.getByTestId("expanded-terminal").waitFor({ state: "visible" });
-  const getCloseBtn = (page: Page) =>
-    page.locator("[data-testid^='expanded-thumb-close-']").first();
-  const closeBtnA = getCloseBtn(pageA);
-  await expect(closeBtnA).toBeEnabled();
+  await expect(pageA.getByTestId("tab-bar-new-terminal")).toBeEnabled();
 
-  // Session B arrives in view-only mode with the workspace already visible.
+  // Session B arrives in view-only mode with the workspace already visible;
+  // the same gated action is disabled for it.
   await openApp(pageB);
   await expectControlState(pageB, "viewing");
   await pageB.getByTestId("expanded-terminal").waitFor({ state: "visible" });
-  const closeBtnB = getCloseBtn(pageB);
-  await expect(closeBtnB).toBeDisabled();
+  await expect(pageB.getByTestId("tab-bar-new-terminal")).toBeDisabled();
 
-  // Handoff: B takes control, A flips to viewing.
+  // Handoff: B takes control, A flips to viewing and its gated action
+  // disables; B's enables.
   await takeControlFromHeader(pageB);
-  await expect(closeBtnB).toBeEnabled();
-
+  await expect(pageB.getByTestId("tab-bar-new-terminal")).toBeEnabled();
   await expectControlState(pageA, "viewing");
-  await expect(closeBtnA).toBeDisabled();
+  await expect(pageA.getByTestId("tab-bar-new-terminal")).toBeDisabled();
 
-  // Destroying from B removes the terminal everywhere.
-  await closeBtnB.click();
+  // B closes the terminal through the real ⌃B x prefix path (idle shell:
+  // no foreground process, so no confirm dialog).
+  await pageB.locator("[data-testid^='workspace-pane-']").first().click();
+  await pressPrefixKey(pageB, "x");
   await expect(pageA.getByText(/No terminals/)).toBeVisible();
   await expect(pageB.getByText(/No terminals/)).toBeVisible();
 
-  // Reload: A never had control (stays "Control Here"), B had control
+  // Reload: A never had control (stays "viewing"), B had control
   // (auto-restored via the hub's WS-disconnect grace period).
   await pageA.reload();
   await pageB.reload();
-  await pageA.getByTestId("workbench-header").waitFor({ state: "visible", timeout: 20_000 });
-  await pageB.getByTestId("workbench-header").waitFor({ state: "visible", timeout: 20_000 });
+  await pageA.getByTestId("tab-bar").waitFor({ state: "visible", timeout: 20_000 });
+  await pageB.getByTestId("tab-bar").waitFor({ state: "visible", timeout: 20_000 });
   await expectControlState(pageA, "viewing");
   await expectControlState(pageB, "controlling");
+  // Positive controller signal: the empty-state CTA only renders for the
+  // controller, so this also proves the lease was restored, not just that
+  // the pill hasn't appeared yet.
+  await expect(pageB.getByTestId("empty-new-terminal")).toBeVisible();
 
   await contextA.close();
   await contextB.close();

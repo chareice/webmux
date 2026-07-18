@@ -6,7 +6,8 @@ import {
   createTerminalViaApi,
   getImmersiveTerminal,
   listTerminals,
-  listWorkspaceGroupsViaApi,
+  longPressStripChip,
+  mobileTakeControl,
   openApp,
   requestMachineControl,
   resetMachineState,
@@ -21,57 +22,54 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await openApp(page);
   await resetMachineState(page);
 
-  // The mobile shell is a three-tab bottom-nav surface. The "Terminals" tab
-  // is selected by default and shows the empty state.
+  // The mobile shell is session strip (top) + terminal (middle) + key bar
+  // (bottom). With no terminals it shows the strip and a centered
+  // "Start terminal" empty state; the start button needs control.
   await expect(page.getByTestId("mobile-workbench")).toBeVisible();
-  await expect(page.getByText(/No terminals here yet/)).toBeVisible();
+  await expect(page.getByTestId("mobile-session-strip")).toBeVisible();
+  await expect(page.getByText(/No terminals yet/)).toBeVisible();
+  await expect(page.getByTestId("empty-new-terminal")).toHaveCount(0);
 
-  // Take control without leaving the Terminals tab.
-  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
-    "Control Here",
-  );
-  await page.getByTestId("mobile-control-toggle").click();
-  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
-    "Stop Control",
-  );
+  // Take control from the host sheet (strip right-end host button).
+  await mobileTakeControl(page);
+  await expect(page.getByTestId("empty-new-terminal")).toBeVisible();
 
-  // After taking control the FAB appears on the Terminals tab.
-  await expect(page.getByTestId("mobile-fab-new-terminal")).toBeVisible();
-
-  // Create a terminal — use the FAB.
-  await page.getByTestId("mobile-fab-new-terminal").click();
-
-  // Mobile auto-zooms after create → the ExpandedTerminal overlay opens at
-  // full viewport size and the immersive TerminalCard renders inside.
-  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
+  // Create a terminal — the shell opens straight into it.
+  await page.getByTestId("empty-new-terminal").click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
-  // Control toggle and Fit live in the slim ExpandedTerminal header on
-  // mobile. The pill text is "ctrl" while controlling and "control"
-  // (i.e. take-control CTA) when viewing — CSS uppercases for display.
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("ctrl");
-  await expect(page.getByTestId("terminal-fit-button")).toBeVisible();
-  // Extended key bar surfaces the keyboard toggle while controlling.
-  await expect(page.getByTitle("Show keyboard")).toBeVisible();
-
-  // Toggle control off and on via the header pill.
-  await page.getByTestId("terminal-mode-toggle").click();
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("control");
-  await page.getByTestId("terminal-mode-toggle").click();
-  await expect(page.getByTestId("terminal-mode-toggle")).toHaveText("ctrl");
-
-  // Close the overlay with the expanded-close button — this just dismisses
-  // the overlay, the terminal stays alive.
-  await page.getByTestId("expanded-close").click();
-  await expect(page.getByTestId("expanded-terminal")).toHaveCount(0);
-
-  // Back on the Terminals tab: the mobile card list shows the live terminal.
-  await expect(page.locator("[data-testid^='mobile-term-card-']")).toHaveCount(1);
-
-  // Destroy via API (no mobile UI path for destroying terminals yet).
-  await createTerminalViaApi; // touch import to keep tree-shaking stable
+  // The strip now carries one chip per terminal; the key bar surfaces the
+  // keyboard toggle while controlling.
   const [terminal] = await listTerminals(page);
   expect(terminal).toBeDefined();
+  await expect(
+    page.getByTestId(`mobile-strip-chip-${terminal.id}`),
+  ).toBeVisible();
+  await expect(page.getByTitle("Show keyboard")).toBeVisible();
+
+  // Engage view-only via the host sheet: this releases control, so the
+  // keyboard toggle disappears and the new-terminal chip becomes disabled.
+  await page.getByTestId("mobile-host-button").click();
+  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
+    "View only",
+  );
+  await page.getByTestId("mobile-control-toggle").click();
+  await expect(page.getByTitle("Show keyboard")).toHaveCount(0);
+  await expect(page.getByTestId("mobile-strip-new-terminal")).toBeDisabled();
+
+  // Unlock without claiming; the existing Take control flow remains explicit.
+  await page.getByTestId("mobile-host-button").click();
+  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
+    "Unlock view only",
+  );
+  await page.getByTestId("mobile-control-toggle").click();
+
+  // Take control back.
+  await mobileTakeControl(page);
+  await expect(page.getByTestId("mobile-strip-new-terminal")).toBeEnabled();
+
+  // Destroy via API → the shell returns to the empty state and the chip
+  // disappears.
   const deviceId = await page.evaluate(() => sessionStorage.getItem("tc-device-id"));
   const token = await page.evaluate(() => localStorage.getItem("webmux:token"));
   const resp = await page.request.delete(
@@ -79,8 +77,10 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
     { headers: { Authorization: `Bearer ${token}` } },
   );
   expect(resp.ok()).toBeTruthy();
-
-  await expect(page.getByText(/No terminals here yet/)).toBeVisible();
+  await expect(page.getByText(/No terminals yet/)).toBeVisible();
+  await expect(
+    page.getByTestId(`mobile-strip-chip-${terminal.id}`),
+  ).toHaveCount(0);
 });
 
 test("mobile new terminal starts fitted without an immediate resize", async ({ page }) => {
@@ -96,49 +96,24 @@ test("mobile new terminal starts fitted without an immediate resize", async ({ p
 
   await openApp(page);
   await resetMachineState(page);
-  await page.getByTestId("mobile-control-toggle").click();
-  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
-    "Stop Control",
-  );
+  await mobileTakeControl(page);
 
-  await page.getByTestId("mobile-fab-new-terminal").click();
-  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
+  await page.getByTestId("empty-new-terminal").click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
   await page.waitForTimeout(1_200);
   const resizeFrames = terminalFramesSent.filter((payload) =>
     payload.includes('"type":"resize"'),
   );
-  // Mobile auto-fits on entry now. The server creates the FAB terminal
-  // at our estimated mobile dims; the live fit may agree (no resize) or
-  // produce slightly different dims (one resize). Either is fine — what
-  // matters is that the terminal isn't stuck at the desktop default
-  // 80 cols and there's no resize storm.
+  // Mobile auto-fits on entry now. The server creates the terminal at our
+  // estimated mobile dims; the live fit may agree (no resize) or produce
+  // slightly different dims (one resize). Either is fine — what matters is
+  // that the terminal isn't stuck at the desktop default 80 cols and
+  // there's no resize storm.
   expect(resizeFrames.length).toBeLessThanOrEqual(1);
 
   const [terminal] = await listTerminals(page);
   expect(terminal.cols).toBeLessThan(80);
-});
-
-test("mobile controller can add a workpath from the Hosts tab", async ({
-  page,
-}) => {
-  await openApp(page);
-  await resetMachineState(page);
-  await page.getByTestId("mobile-control-toggle").click();
-  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
-    "Stop Control",
-  );
-
-  await page.getByText("Hosts", { exact: true }).click();
-  await expect(page.getByTestId("mobile-add-workpath")).toBeVisible();
-
-  await page.getByTestId("mobile-add-workpath").click();
-  await page.getByTestId("path-input").fill("/tmp");
-  await page.getByTestId("path-input-submit").click();
-
-  await expect(page.getByText("tmp", { exact: true })).toBeVisible();
-  await expect(page.getByText("/tmp", { exact: true })).toBeVisible();
 });
 
 test("mobile terminal only focuses after an explicit input gesture", async ({
@@ -148,9 +123,8 @@ test("mobile terminal only focuses after an explicit input gesture", async ({
   await resetMachineState(page);
   await requestMachineControl(page);
   await createTerminalViaApi(page);
-  const card = page.locator("[data-testid^='mobile-term-card-']:visible").first();
-  await expect(card).toBeVisible();
-  await card.click();
+
+  // No card list anymore — the shell shows the terminal directly.
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
   await expect
@@ -167,7 +141,7 @@ test("mobile terminal only focuses after an explicit input gesture", async ({
     .poll(() => terminalHasKeyboardFocus(page), { timeout: 20_000 })
     .toBe(false);
 
-  await getImmersiveTerminal(page).click({ position: { x: 24, y: 24 } });
+  await getImmersiveTerminal(page).click({ position: { x: 40, y: 40 } });
   await expect
     .poll(() => terminalHasKeyboardFocus(page), { timeout: 20_000 })
     .toBe(true);
@@ -181,13 +155,19 @@ test("mobile terminal switch does not focus the new terminal automatically", asy
   await requestMachineControl(page);
   const firstTerminalId = await createTerminalViaApi(page);
   const secondTerminalId = await createTerminalViaApi(page);
-  await expect(page.locator("[data-testid^='mobile-term-card-']")).toHaveCount(2);
-  await page.getByTestId(`mobile-term-card-${firstTerminalId}`).click();
+  await expect(
+    page.getByTestId(`mobile-strip-chip-${firstTerminalId}`),
+  ).toBeVisible();
+  await expect(
+    page.getByTestId(`mobile-strip-chip-${secondTerminalId}`),
+  ).toBeVisible();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
   await page.locator("body").click({ position: { x: 4, y: 4 } });
-  await page.getByTestId(`expanded-thumb-${secondTerminalId}`).click();
-  await expect(page.getByTestId(`expanded-thumb-${firstTerminalId}`)).toBeVisible();
+  await page.getByTestId(`mobile-strip-chip-${secondTerminalId}`).click();
+  await expect(
+    page.getByTestId(`workspace-pane-${secondTerminalId}`),
+  ).toBeVisible();
 
   await expect
     .poll(() => terminalHasKeyboardFocus(page), { timeout: 20_000 })
@@ -217,7 +197,6 @@ test("mobile touch drag sends terminal scroll input", async ({ page }) => {
     startupCommand: "sleep 600",
   });
 
-  await page.getByTestId(`mobile-term-card-${terminalId}`).click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
   await expect.poll(() => hasXtermInstance(page, terminalId)).toBe(true);
 
@@ -239,7 +218,7 @@ test("mobile touch drag sends terminal scroll input", async ({ page }) => {
     .toBe(true);
 });
 
-test("mobile workspace has direct terminal close and group switching", async ({
+test("mobile session strip switches terminals and closes them via the chip sheet", async ({
   page,
 }) => {
   await openApp(page);
@@ -263,80 +242,81 @@ test("mobile workspace has direct terminal close and group switching", async ({
     workspaceGroupId: secondGroup.id,
   });
 
+  // One chip per terminal, ordered by group.
   await expect(
-    page.getByTestId(`mobile-term-card-${firstTerminalId}`),
+    page.getByTestId(`mobile-strip-chip-${firstTerminalId}`),
   ).toBeVisible();
-  await page.getByTestId(`mobile-term-card-${firstTerminalId}`).click();
-  await expect(getImmersiveTerminal(page)).toBeVisible();
+  await expect(
+    page.getByTestId(`mobile-strip-chip-${secondTerminalId}`),
+  ).toBeVisible();
 
-  await expect(page.getByTestId(`workspace-mobile-group-tab-${firstGroup.id}`))
-    .toBeVisible();
-  await expect(page.getByTestId(`workspace-mobile-group-tab-${secondGroup.id}`))
-    .toBeVisible();
-
-  await page
-    .getByTestId(`workspace-mobile-group-tab-${secondGroup.id}`)
-    .click();
+  // Tap a chip to switch across groups.
+  await page.getByTestId(`mobile-strip-chip-${secondTerminalId}`).click();
   await expect(
     page.getByTestId(`workspace-pane-${secondTerminalId}`),
   ).toBeVisible();
-  await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
-    .toHaveCount(0);
-
-  await page.getByTestId("workspace-close-active-terminal").click();
-  await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
-  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
-  await expect(page.getByTestId(`workspace-mobile-group-tab-${secondGroup.id}`))
-    .toBeVisible();
-  await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
-  await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
-    .toHaveCount(0);
-
-  await page.getByTestId("expanded-close").click();
-  await expect(page.getByTestId("expanded-terminal")).toHaveCount(0);
   await expect(
-    page.getByTestId(`mobile-term-card-${firstTerminalId}`),
+    page.getByTestId(`workspace-pane-${firstTerminalId}`),
+  ).toHaveCount(0);
+
+  // Long-press the chip → sheet → Close terminal (no foreground process, so
+  // no confirm dialog). The shell falls back to the remaining terminal.
+  await longPressStripChip(page, secondTerminalId);
+  await page.getByTestId("mobile-chip-close-terminal").click();
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
+  await expect(
+    page.getByTestId(`mobile-strip-chip-${secondTerminalId}`),
+  ).toHaveCount(0);
+  await expect(
+    page.getByTestId(`workspace-pane-${firstTerminalId}`),
   ).toBeVisible();
-  await expect(page.getByTestId(`mobile-term-card-${secondTerminalId}`))
-    .toHaveCount(0);
 });
 
-test("mobile workspace can delete a group without closing its terminal", async ({
+test("mobile Ctrl latch and pinned key-bar keys send bytes directly", async ({
   page,
 }) => {
+  const inputFrames: string[] = [];
+  const commandFrames: string[] = [];
+  page.on("websocket", (socket) => {
+    if (!socket.url().includes("/ws/terminal/")) return;
+    socket.on("framesent", (frame) => {
+      if (typeof frame.payload !== "string") return;
+      const payload = JSON.parse(frame.payload) as {
+        type: string;
+        data?: string;
+      };
+      if (payload.type === "input" && payload.data) {
+        inputFrames.push(payload.data);
+      }
+      if (payload.type === "command_input" && payload.data) {
+        commandFrames.push(payload.data);
+      }
+    });
+  });
+
   await openApp(page);
   await resetMachineState(page);
   await requestMachineControl(page);
-
-  const group = await createWorkspaceGroupViaApi(
-    page,
-    `Mobile Delete ${Date.now()}`,
-  );
-  const terminalId = await createTerminalViaApi(page, {
-    cwd: "/tmp",
-    workspaceGroupId: group.id,
-  });
-
-  await page.getByTestId(`mobile-term-card-${terminalId}`).click();
+  await createTerminalViaApi(page, { startupCommand: "sleep 600" });
   await expect(getImmersiveTerminal(page)).toBeVisible();
-  await page.getByTestId(`workspace-mobile-group-delete-${group.id}`).click();
-  await page.getByRole("button", { name: "Delete group", exact: true }).click();
 
+  // Pinned ⇧Tab / ^C send their bytes immediately, unbuffered.
+  await page.getByTestId("extended-keybar-shift-tab").click();
+  await page.getByTestId("extended-keybar-ctrl-c").click();
+  await expect.poll(() => commandFrames).toContain("\x1b[Z");
+  await expect.poll(() => commandFrames).toContain("\x03");
+
+  // Latch Ctrl: the next soft-keyboard letter goes out as its control byte,
+  // then the latch disarms and the following letter sends as-is.
+  await page.getByTitle("Show keyboard").click();
   await expect
-    .poll(async () => {
-      const terminals = await listTerminals(page);
-      return terminals.find((terminal) => terminal.id === terminalId)
-        ?.workspace_group_id;
-    })
-    .toBeNull();
-  await expect(page.getByTestId(`workspace-pane-${terminalId}`)).toBeVisible();
-  await expect
-    .poll(async () =>
-      (await listWorkspaceGroupsViaApi(page)).some(
-        (candidate) => candidate.id === group.id,
-      ),
-    )
-    .toBe(false);
+    .poll(() => terminalHasKeyboardFocus(page), { timeout: 20_000 })
+    .toBe(true);
+  await page.getByTestId("extended-keybar-ctrl-latch").click();
+  await page.keyboard.press("c");
+  await expect.poll(() => inputFrames.includes("\x03")).toBe(true);
+  await page.keyboard.press("c");
+  await expect.poll(() => inputFrames.includes("c")).toBe(true);
 });
 
 test("mobile live streams reconnect after returning from background", async ({
@@ -351,9 +331,6 @@ test("mobile live streams reconnect after returning from background", async ({
   await resetMachineState(page);
   await requestMachineControl(page);
   await createTerminalViaApi(page);
-  const card = page.locator("[data-testid^='mobile-term-card-']:visible").first();
-  await expect(card).toBeVisible();
-  await card.click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
   await expect

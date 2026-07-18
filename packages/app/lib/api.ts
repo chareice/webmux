@@ -7,9 +7,7 @@ import type {
   Bookmark,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
-  WorkspaceLayoutMode,
   WorkspaceLayoutNode,
-  WorkspaceScrollableLayout,
   ResourceStats,
 } from "@webmux/shared";
 
@@ -60,6 +58,11 @@ export const listMachines = () =>
   request<MachineInfo[]>("GET", "/api/machines");
 export const getBootstrap = () =>
   request<BrowserStateSnapshot>("GET", "/api/bootstrap");
+export const putFocus = (terminalId: string, machineId: string) =>
+  request<void>("PUT", "/api/focus", {
+    terminal_id: terminalId,
+    machine_id: machineId,
+  });
 
 // Terminals
 export const listTerminals = () =>
@@ -159,8 +162,6 @@ export const saveWorkspaceLayout = (
   groupKey: string,
   root: WorkspaceLayoutNode | null,
   baseUpdatedAt: number | null,
-  mode: WorkspaceLayoutMode | null,
-  scrollable: WorkspaceScrollableLayout | null,
 ) =>
   request<WorkspaceLayoutInfo>(
     "PUT",
@@ -168,8 +169,6 @@ export const saveWorkspaceLayout = (
     {
       group_key: groupKey,
       root,
-      mode,
-      scrollable,
       base_updated_at: baseUpdatedAt ?? -1,
     },
   );

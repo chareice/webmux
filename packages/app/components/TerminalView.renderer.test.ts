@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error Vitest runs this source check in Node, but the app tsconfig intentionally omits Node types.
 import { readFileSync } from "node:fs";
-import expandedTerminalSource from "./ExpandedTerminal.web.tsx?raw";
 import terminalCardSource from "./TerminalCard.web.tsx?raw";
 import source from "./TerminalView.xterm.tsx?raw";
 
@@ -30,7 +29,7 @@ describe("TerminalView renderer", () => {
   });
 
   it("keeps terminal previews on the plain text renderer", () => {
-    for (const previewSource of [terminalCardSource, expandedTerminalSource]) {
+    for (const previewSource of [terminalCardSource]) {
       expect(previewSource).toContain("TerminalPreviewText");
       expect(previewSource).not.toContain("outputSource=");
       expect(previewSource).not.toContain("allowTerminalScale");

@@ -10,28 +10,28 @@
 ## Steps
 
 1. **action:** In browser session A, open http://localhost:4317
-   **eval:** The desktop workbench loads with the Rail open on the left (host "e2e-machine" shown at the top with an online status dot, a "Filter workpaths…" input, an "All" row selected, and a "Workpaths" section listing "~" with path "/root"). The header shows breadcrumb "e2e-machine / All", a "Viewing" pill, CPU/MEM/TERM stat chips, and a "Control Here" button top-right. The main area shows the empty state "No terminals yet" (no "Start terminal" button is shown because session A is not yet the controller).
+   **eval:** The desktop workbench loads with the TabBar on top (host name with an online status dot on the right, cpu/mem micro-meters, and a "viewing" pill — the pill only appears while the session is not the controller). The main area shows the empty state "No terminals yet" (no "Start terminal" button is shown because session A is not yet the controller).
 
-2. **action:** In browser session A, click "Control Here" in the header. Then click the "~" row in the Rail, then click "Start terminal" (or the "New terminal" button in the header).
-   **eval:** The "Viewing" pill becomes "Controlling" and the top-right button changes to "Stop Control". A terminal card appears in the grid with a tint dot, the generated title starting with "Terminal", a short id chip, an "ctrl" badge, and a "/root" footer. The card body shows live terminal content.
+2. **action:** In browser session A, click the "viewing" pill in the TabBar to take control, then click "Start terminal" in the empty state (or the TabBar's ＋ button / press `⌃B c`).
+   **eval:** The "viewing" pill disappears (controlling is the normal state and shows no pill). A terminal pane appears in the workspace, showing live terminal content.
 
 3. **action:** In browser session B, open http://localhost:4317
-   **eval:** Session B loads in view-only mode — the header shows a "Viewing" pill and a "Control Here" button. The same terminal card is already present in the grid but its header does NOT show the "ctrl" badge. Its close (×) button is disabled (tooltip reads "View only — cannot close").
+   **eval:** Session B loads in view-only mode — the TabBar shows the "viewing" pill. The same terminal pane is already present in the workspace, but the "Close pane" item in the pane's right-click context menu is disabled.
 
-4. **action:** In browser session B, click "Control Here" in the header
-   **eval:** Session B becomes the controller — the pill flips to "Controlling" and the button to "Stop Control". The card now shows the "ctrl" badge and its close button becomes active.
+4. **action:** In browser session B, click the "viewing" pill in the TabBar
+   **eval:** Session B becomes the controller — its "viewing" pill disappears, and the "Close pane" context-menu item becomes enabled.
 
 5. **action:** In browser session A, wait for the live update without reloading the page
-   **eval:** Session A flips into view-only mode — the pill returns to "Viewing" and the button to "Control Here". The card's "ctrl" badge disappears and its close button is disabled again.
+   **eval:** Session A flips into view-only mode — the "viewing" pill reappears in its TabBar, and its "Close pane" context-menu item is disabled again.
 
-6. **action:** In browser session B, click the close (×) button in the terminal card's header
-   **eval:** The terminal disappears from session B's grid. The empty state "No terminals yet" is visible again. The header still shows "Controlling" and "Stop Control".
+6. **action:** In browser session B, right-click the terminal pane and choose "Close pane" from the context menu
+   **eval:** The terminal disappears from session B's workspace. The empty state "No terminals yet" is visible again. Session B remains the controller (no pill in its TabBar).
 
 7. **action:** In browser session A, wait for the live update without reloading the page
-   **eval:** The terminal also disappears from session A's grid. The empty state "No terminals yet" is visible. The header remains in view-only mode ("Viewing" pill, "Control Here" button).
+   **eval:** The terminal also disappears from session A's workspace. The empty state "No terminals yet" is visible. Session A's TabBar remains in view-only mode ("viewing" pill).
 
 8. **action:** In browser session A, reload the page
-   **eval:** After reload, session A still shows the empty "No terminals yet" grid, with "Viewing" pill and "Control Here" button top-right.
+   **eval:** After reload, session A still shows the empty "No terminals yet" state with the "viewing" pill in the TabBar.
 
 9. **action:** In browser session B, reload the page
-   **eval:** After reload, session B also shows the empty "No terminals yet" grid with "Viewing" pill and "Control Here" button — a full page reload is treated as leaving control.
+   **eval:** After reload, session B also shows the empty "No terminals yet" state with the "viewing" pill in the TabBar — a full page reload is treated as leaving control.
