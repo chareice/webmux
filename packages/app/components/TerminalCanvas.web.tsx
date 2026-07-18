@@ -24,6 +24,7 @@ import {
 } from "./CommandPalette.web";
 import { TerminalWorkspace, type WorkspaceCommandChannel } from "./TerminalWorkspace.web";
 import { MobileWorkbench } from "./MobileWorkbench.web";
+import { HandoffBanner } from "./HandoffBanner";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { Terminal as TerminalIcon } from "lucide-react";
 import {
@@ -34,6 +35,7 @@ import {
   eventsWsUrl,
   getBootstrap,
   listBookmarks,
+  putFocus,
   requestControl,
   reorderWorkspaceGroups,
   releaseControl,
@@ -73,6 +75,7 @@ import {
 } from "@/lib/unloadControlRelease";
 import { TerminalPreviewMuxProvider } from "@/lib/terminalPreviewMuxReact";
 import { createTerminalReconnectController } from "@/lib/terminalReconnect";
+import { readViewOnlyLock, writeViewOnlyLock } from "@/lib/viewOnlyLock";
 
 const OnboardingView = lazy(() =>
   import("./OnboardingView.web").then((module) => ({
@@ -108,6 +111,36 @@ interface DestroyTerminalOptions {
 }
 
 type DestroyTerminalRequestResult = "accepted" | "pending";
+
+const LAST_FOCUS_PUT_KEY = "webmux:last-focus-put";
+const SAME_SESSION_FOCUS_WINDOW_MS = 2 * 60_000;
+
+function recordLastFocusPut(terminalId: string): void {
+  try {
+    window.sessionStorage.setItem(
+      LAST_FOCUS_PUT_KEY,
+      JSON.stringify({ terminalId, atMs: Date.now() }),
+    );
+  } catch {
+    /* ignore unavailable browser storage */
+  }
+}
+
+function wasRecentlyFocusedByThisSession(terminalId: string): boolean {
+  try {
+    const raw = window.sessionStorage.getItem(LAST_FOCUS_PUT_KEY);
+    if (!raw) return false;
+    const record = JSON.parse(raw) as { terminalId?: unknown; atMs?: unknown };
+    return (
+      record.terminalId === terminalId &&
+      typeof record.atMs === "number" &&
+      Date.now() - record.atMs >= 0 &&
+      Date.now() - record.atMs < SAME_SESSION_FOCUS_WINDOW_MS
+    );
+  } catch {
+    return false;
+  }
+}
 
 function upsertTerminalInfo(
   terminals: TerminalInfo[],
@@ -181,6 +214,14 @@ function TerminalCanvasInner() {
 
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
+  const [eventsReconnecting, setEventsReconnecting] = useState(false);
+  const [rttMs, setRttMs] = useState<number | null>(null);
+  const [viewOnlyLocked, setViewOnlyLocked] = useState(() =>
+    typeof window === "undefined"
+      ? false
+      : readViewOnlyLock(window.localStorage),
+  );
+  const [showHandoffBanner, setShowHandoffBanner] = useState(false);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -190,6 +231,8 @@ function TerminalCanvasInner() {
   const keepWorkspaceOpenDestroyedTerminalIdsRef = useRef(new Set<string>());
   const [workspaceAnchorTerminal, setWorkspaceAnchorTerminal] =
     useState<TerminalInfo | null>(null);
+  const handoffLandingHandledRef = useRef(false);
+  const lastSentFocusTerminalIdRef = useRef<string | null>(null);
 
   const [closeConfirmation, setCloseConfirmation] = useState<
     | {
@@ -216,6 +259,18 @@ function TerminalCanvasInner() {
       deviceId !== null && controlLeases[machineId] === deviceId,
     [controlLeases, deviceId],
   );
+  const canTypeOnMachine = useCallback(
+    (machineId: string) =>
+      isMachineController(machineId) || !viewOnlyLocked,
+    [isMachineController, viewOnlyLocked],
+  );
+  const updateViewOnlyLock = useCallback((locked: boolean) => {
+    setViewOnlyLocked(locked);
+    writeViewOnlyLock(window.localStorage, locked);
+  }, []);
+  const hideHandoffBanner = useCallback(() => {
+    setShowHandoffBanner(false);
+  }, []);
   const isActiveController = activeMachineId
     ? isMachineController(activeMachineId)
     : false;
@@ -330,6 +385,7 @@ function TerminalCanvasInner() {
   useEffect(() => {
     if (!deviceId) return;
     const pending = takePendingControlRelease(window.sessionStorage);
+    if (viewOnlyLocked) return;
     if (pending.length === 0) return;
     let cancelled = false;
     void Promise.allSettled(
@@ -340,7 +396,7 @@ function TerminalCanvasInner() {
     return () => {
       cancelled = true;
     };
-  }, [deviceId]);
+  }, [deviceId, viewOnlyLocked]);
 
   useEffect(() => {
     if (!deviceId) return;
@@ -379,6 +435,19 @@ function TerminalCanvasInner() {
     if (!bootstrapReady || !deviceId) return;
     const ws = new WebSocket(eventsWsUrl(deviceId, lastSeqRef.current));
     let disposed = false;
+    let pingTimer: ReturnType<typeof window.setInterval> | null = null;
+
+    const clearPingTimer = () => {
+      if (pingTimer !== null) {
+        window.clearInterval(pingTimer);
+        pingTimer = null;
+      }
+    };
+
+    const sendPing = () => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "ping", t: Math.round(performance.now()) }));
+    };
 
     const reconnect = () => {
       if (disposed) return;
@@ -399,6 +468,15 @@ function TerminalCanvasInner() {
     ws.onmessage = (event) => {
       try {
         const envelope = JSON.parse(event.data);
+        if (envelope?.type === "pong" && typeof envelope.t === "number") {
+          const sample = performance.now() - envelope.t;
+          if (Number.isFinite(sample) && sample >= 0) {
+            setRttMs((current) =>
+              current === null ? sample : current * 0.7 + sample * 0.3,
+            );
+          }
+          return;
+        }
         let needsResync = false;
         setBrowserState((prev) => {
           if (shouldResyncForEnvelope(prev, envelope)) {
@@ -434,10 +512,16 @@ function TerminalCanvasInner() {
 
     ws.onopen = () => {
       reconnectController.handleSocketOpen();
+      setEventsReconnecting(false);
+      clearPingTimer();
+      sendPing();
+      pingTimer = window.setInterval(sendPing, 5000);
     };
 
     ws.onclose = () => {
       if (disposed) return;
+      clearPingTimer();
+      setEventsReconnecting(true);
       reconnectController.scheduleReconnect();
     };
 
@@ -446,9 +530,11 @@ function TerminalCanvasInner() {
         document.visibilityState,
         ws.readyState,
       );
+      setEventsReconnecting(reconnectController.hasPendingReconnect());
     };
     const onPageShow = () => {
       reconnectController.handleVisibilityChange("visible", ws.readyState);
+      setEventsReconnecting(reconnectController.hasPendingReconnect());
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pageshow", onPageShow);
@@ -457,6 +543,7 @@ function TerminalCanvasInner() {
       disposed = true;
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pageshow", onPageShow);
+      clearPingTimer();
       reconnectController.cancelReconnect();
       ws.onclose = null;
       ws.close();
@@ -550,6 +637,50 @@ function TerminalCanvasInner() {
     activeMachine,
     scopedTerminals,
   ]);
+
+  useEffect(() => {
+    if (!bootstrapReady || handoffLandingHandledRef.current) return;
+    handoffLandingHandledRef.current = true;
+
+    if (window.location.hash.startsWith("#/t/")) return;
+    const terminalId = browserState.lastFocusedTerminalId;
+    if (!terminalId) return;
+    const terminal = terminals.find((item) => item.id === terminalId);
+    if (!terminal) return;
+
+    if (activeMachineId !== terminal.machine_id) {
+      setActiveMachineId(terminal.machine_id);
+    }
+    dispatchLayout({ type: "ZOOM_TERMINAL", terminalId });
+    window.history.replaceState(null, "", `#/t/${terminalId}`);
+    if (!wasRecentlyFocusedByThisSession(terminalId)) {
+      setShowHandoffBanner(true);
+    }
+  }, [
+    activeMachineId,
+    bootstrapReady,
+    browserState.lastFocusedTerminalId,
+    terminals,
+  ]);
+
+  useEffect(() => {
+    if (!bootstrapReady || !deviceId || !workspaceTerminal) return;
+    if (lastSentFocusTerminalIdRef.current === workspaceTerminal.id) return;
+
+    const terminalId = workspaceTerminal.id;
+    const machineId = workspaceTerminal.machine_id;
+    const timer = window.setTimeout(() => {
+      recordLastFocusPut(terminalId);
+      lastSentFocusTerminalIdRef.current = terminalId;
+      void putFocus(terminalId, machineId).catch(() => {
+        if (lastSentFocusTerminalIdRef.current === terminalId) {
+          lastSentFocusTerminalIdRef.current = null;
+        }
+      });
+    }, 900);
+
+    return () => window.clearTimeout(timer);
+  }, [bootstrapReady, deviceId, workspaceTerminal]);
 
   useEffect(() => {
     if (expandedTerminal) {
@@ -655,6 +786,20 @@ function TerminalCanvasInner() {
     },
     [deviceId],
   );
+
+  const handleEngageViewOnly = useCallback(
+    (machineId: string) => {
+      updateViewOnlyLock(true);
+      if (isMachineController(machineId)) {
+        void handleReleaseControl(machineId);
+      }
+    },
+    [handleReleaseControl, isMachineController, updateViewOnlyLock],
+  );
+
+  const handleDisengageViewOnly = useCallback(() => {
+    updateViewOnlyLock(false);
+  }, [updateViewOnlyLock]);
 
   const handleDestroyTerminal = useCallback(
     async (
@@ -1096,6 +1241,7 @@ function TerminalCanvasInner() {
               controlLeases={controlLeases}
               deviceId={deviceId}
               machineStats={machineStats}
+              rttMs={rttMs}
               terminals={terminals}
               groups={tabGroups}
               activeTerminalId={workspaceTerminal?.id ?? null}
@@ -1106,7 +1252,9 @@ function TerminalCanvasInner() {
               onSelectMachine={setActiveMachineId}
               onAddMachine={() => setAddMachineOpen(true)}
               onRequestControl={handleRequestControl}
-              onReleaseControl={handleReleaseControl}
+              viewOnlyLocked={viewOnlyLocked}
+              onEngageViewOnly={handleEngageViewOnly}
+              onDisengageViewOnly={handleDisengageViewOnly}
               onOpenSettings={() => setShowSettings(true)}
             >
               {scopedTerminals.length > 0 && workspaceTerminal ? (
@@ -1116,6 +1264,8 @@ function TerminalCanvasInner() {
                   workspaceGroups={activeMachineWorkspaceGroups}
                   workspaceLayouts={activeMachineWorkspaceLayouts}
                   isController={isMachineController(workspaceTerminal.machine_id)}
+                  canType={canTypeOnMachine(workspaceTerminal.machine_id)}
+                  eventsReconnecting={eventsReconnecting}
                   deviceId={deviceId ?? ""}
                   isMobile={true}
                   onPick={handleZoomTerminal}
@@ -1151,7 +1301,9 @@ function TerminalCanvasInner() {
                 deviceId={deviceId}
                 machineStats={machineStats}
                 stats={activeStats}
+                rttMs={rttMs}
                 isController={isActiveController}
+                viewOnlyLocked={viewOnlyLocked}
                 canCreateTerminal={isActiveController}
                 onSelectGroup={(groupId) =>
                   workspaceCommandsRef.current.selectGroup?.(groupId)
@@ -1169,6 +1321,10 @@ function TerminalCanvasInner() {
                 onRequestControl={() => {
                   if (activeMachine) void handleRequestControl(activeMachine.id);
                 }}
+                onEngageViewOnly={() => {
+                  if (activeMachine) handleEngageViewOnly(activeMachine.id);
+                }}
+                onDisengageViewOnly={handleDisengageViewOnly}
               />
 
               {scopedTerminals.length === 0 ? (
@@ -1190,6 +1346,8 @@ function TerminalCanvasInner() {
                   workspaceGroups={activeMachineWorkspaceGroups}
                   workspaceLayouts={activeMachineWorkspaceLayouts}
                   isController={isMachineController(workspaceTerminal!.machine_id)}
+                  canType={canTypeOnMachine(workspaceTerminal!.machine_id)}
+                  eventsReconnecting={eventsReconnecting}
                   deviceId={deviceId ?? ""}
                   isMobile={isMobile}
                   onPick={handleZoomTerminal}
@@ -1206,6 +1364,12 @@ function TerminalCanvasInner() {
                 />
               )}
             </main>
+          )}
+          {showHandoffBanner && (
+            <HandoffBanner
+              isMobile={isMobile}
+              onDone={hideHandoffBanner}
+            />
           )}
         </div>
 

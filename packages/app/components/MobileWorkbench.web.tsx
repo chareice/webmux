@@ -24,10 +24,11 @@ import type {
 import {
   ChevronRight,
   CircuitBoard,
+  Lock,
+  LockOpen,
   Plus,
   RefreshCw,
   Settings as SettingsIcon,
-  Square,
   Terminal as TerminalIcon,
   X,
 } from "lucide-react";
@@ -48,6 +49,7 @@ interface MobileWorkbenchProps {
   controlLeases: Record<string, string>;
   deviceId: string | null;
   machineStats: Record<string, ResourceStats>;
+  rttMs: number | null;
   // All terminals across machines (the strip scopes them to the active
   // machine via `groups`; the host sheet needs the full list for counts).
   terminals: TerminalInfo[];
@@ -63,7 +65,9 @@ interface MobileWorkbenchProps {
   onSelectMachine: (id: string) => void;
   onAddMachine: () => void;
   onRequestControl: (machineId: string) => void;
-  onReleaseControl: (machineId: string) => void;
+  viewOnlyLocked: boolean;
+  onEngageViewOnly: (machineId: string) => void;
+  onDisengageViewOnly: () => void;
   onOpenSettings: () => void;
   // The inline TerminalWorkspace (null while the machine has no terminals).
   children: React.ReactNode;
@@ -76,6 +80,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     controlLeases,
     deviceId,
     machineStats,
+    rttMs,
     terminals,
     groups,
     activeTerminalId,
@@ -86,7 +91,9 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     onSelectMachine,
     onAddMachine,
     onRequestControl,
-    onReleaseControl,
+    viewOnlyLocked,
+    onEngageViewOnly,
+    onDisengageViewOnly,
     onOpenSettings,
     children,
   } = props;
@@ -317,6 +324,18 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           }}
         >
           <StripMeters stats={activeStats} />
+          <span
+            data-testid="mobile-strip-rtt"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 9,
+              color: colors.fg2,
+              minWidth: 28,
+              textAlign: "right",
+            }}
+          >
+            {rttMs === null ? "—" : `${Math.round(rttMs)}ms`}
+          </span>
           <button
             type="button"
             data-testid="mobile-host-button"
@@ -494,15 +513,24 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             }}
           />
           {activeMachine &&
-            (isController ? (
+            (viewOnlyLocked ? (
               <MenuRow
-                icon={<Square size={15} fill="currentColor" />}
-                label="Stop control"
-                danger
+                icon={<LockOpen size={17} />}
+                label="Unlock view only"
                 testid="mobile-control-toggle"
                 onClick={() => {
                   setHostSheetOpen(false);
-                  onReleaseControl(activeMachine.id);
+                  onDisengageViewOnly();
+                }}
+              />
+            ) : isController ? (
+              <MenuRow
+                icon={<Lock size={17} />}
+                label="View only"
+                testid="mobile-control-toggle"
+                onClick={() => {
+                  setHostSheetOpen(false);
+                  onEngageViewOnly(activeMachine.id);
                 }}
               />
             ) : (

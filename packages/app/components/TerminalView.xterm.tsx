@@ -87,8 +87,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     rows,
     displayMode = "immersive",
     isController,
+    canType,
     canResizeTerminal,
     onTitleChange,
+    onReconnectingChange,
     inputTransformRef,
     style,
   }, ref) {
@@ -98,6 +100,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const wsRef = useRef<WebSocket | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const isControllerRef = useRef(isController ?? true);
+    const canTypeRef = useRef(canType ?? isController ?? true);
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
     const recentClipboardImagePasteRef =
@@ -119,6 +122,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     useEffect(() => {
       isControllerRef.current = isController ?? true;
     }, [isController]);
+
+    useEffect(() => {
+      canTypeRef.current = canType ?? isController ?? true;
+    }, [canType, isController]);
 
     useEffect(() => {
       canResizeTerminalRef.current = canResizeTerminal ?? false;
@@ -238,8 +245,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     // mobile users can't see console.warn.
     const sendImageFile = useCallback(
       async (file: Blob & { name?: string }): Promise<void> => {
-        if (!isControllerRef.current) {
-          throw new Error("Take control first to attach an image.");
+        if (!canTypeRef.current) {
+          throw new Error("Unlock view only to attach an image.");
         }
         if (file.size > MAX_IMAGE_PASTE_BYTES) {
           const mb = Math.round(MAX_IMAGE_PASTE_BYTES / (1024 * 1024));
@@ -316,13 +323,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       () => ({
         sendInput(data: string) {
           const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) {
+          if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
             ws.send(JSON.stringify({ type: "input", data }));
           }
         },
         sendCommandInput(data: string) {
           const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) {
+          if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
             ws.send(JSON.stringify({ type: "command_input", data }));
           }
         },
@@ -442,7 +449,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         const transformed =
           inputTransformRef?.current?.(filteredData) ?? filteredData;
         const ws = wsRef.current;
-        if (ws?.readyState === WebSocket.OPEN && isControllerRef.current) {
+        if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
           ws.send(JSON.stringify({ type: "input", data: transformed }));
         }
       });
@@ -461,6 +468,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         filename: string,
         options: { dedupeClipboardImage?: boolean } = {},
       ) => {
+        if (!canTypeRef.current) return;
         if (options.dedupeClipboardImage) {
           const result = shouldSendClipboardImagePaste(
             recentClipboardImagePasteRef.current,
@@ -718,6 +726,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       scheduleMeasure,
       sessionGeneration,
       setSessionGeneration,
+      onReconnectingChange,
     });
 
     useEffect(() => {

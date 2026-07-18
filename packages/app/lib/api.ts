@@ -58,6 +58,11 @@ export const listMachines = () =>
   request<MachineInfo[]>("GET", "/api/machines");
 export const getBootstrap = () =>
   request<BrowserStateSnapshot>("GET", "/api/bootstrap");
+export const putFocus = (terminalId: string, machineId: string) =>
+  request<void>("PUT", "/api/focus", {
+    terminal_id: terminalId,
+    machine_id: machineId,
+  });
 
 // Terminals
 export const listTerminals = () =>

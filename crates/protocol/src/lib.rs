@@ -107,6 +107,7 @@ pub struct WorkspaceLayoutInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BrowserStateSnapshot {
     pub snapshot_seq: u64,
+    pub last_focused_terminal_id: Option<String>,
     pub machines: Vec<MachineInfo>,
     pub terminals: Vec<TerminalInfo>,
     pub workspace_groups: Vec<WorkspaceGroupInfo>,
@@ -280,6 +281,19 @@ pub struct BrowserEventEnvelope {
     pub event: BrowserEvent,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum BrowserEventsClientMessage {
+    #[serde(rename = "ping")]
+    Ping { t: u64 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename = "pong")]
+pub struct BrowserEventsPong {
+    pub t: u64,
+}
+
 /// Magic byte at the head of every per-attach binary frame. Originally
 /// added to disambiguate from the legacy `encode_terminal_output_frame`
 /// during the migration window; that codec is gone now, but the magic
@@ -377,6 +391,7 @@ mod tests {
     use super::{
         decode_attach_output_frame, decode_terminal_preview_output_frame,
         encode_attach_output_frame, encode_terminal_preview_output_frame,
+        BrowserEventsClientMessage, BrowserEventsPong,
     };
 
     #[test]
@@ -414,5 +429,19 @@ mod tests {
         let frame = encode_attach_output_frame("attach-x", b"not a preview");
         let error = decode_terminal_preview_output_frame(&frame).unwrap_err();
         assert!(error.contains("expected terminal preview"));
+    }
+
+    #[test]
+    fn browser_events_ping_and_pong_preserve_the_timestamp() {
+        let ping =
+            serde_json::from_str::<BrowserEventsClientMessage>(r#"{"type":"ping","t":123456}"#)
+                .unwrap();
+        assert!(matches!(
+            ping,
+            BrowserEventsClientMessage::Ping { t: 123456 }
+        ));
+
+        let pong = serde_json::to_string(&BrowserEventsPong { t: 123456 }).unwrap();
+        assert_eq!(pong, r#"{"type":"pong","t":123456}"#);
     }
 }

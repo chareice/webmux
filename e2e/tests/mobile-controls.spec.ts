@@ -47,15 +47,22 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   ).toBeVisible();
   await expect(page.getByTitle("Show keyboard")).toBeVisible();
 
-  // Release control via the host sheet: the keyboard toggle disappears and
-  // the new-terminal chip becomes disabled.
+  // Engage view-only via the host sheet: this releases control, so the
+  // keyboard toggle disappears and the new-terminal chip becomes disabled.
   await page.getByTestId("mobile-host-button").click();
   await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
-    "Stop control",
+    "View only",
   );
   await page.getByTestId("mobile-control-toggle").click();
   await expect(page.getByTitle("Show keyboard")).toHaveCount(0);
   await expect(page.getByTestId("mobile-strip-new-terminal")).toBeDisabled();
+
+  // Unlock without claiming; the existing Take control flow remains explicit.
+  await page.getByTestId("mobile-host-button").click();
+  await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
+    "Unlock view only",
+  );
+  await page.getByTestId("mobile-control-toggle").click();
 
   // Take control back.
   await mobileTakeControl(page);

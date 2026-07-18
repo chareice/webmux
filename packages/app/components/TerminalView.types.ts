@@ -45,8 +45,10 @@ export interface TerminalViewProps {
   rows: number;
   displayMode?: "card" | "immersive";
   isController?: boolean;
+  canType?: boolean;
   canResizeTerminal?: boolean;
   onTitleChange?: (title: string) => void;
+  onReconnectingChange?: (reconnecting: boolean) => void;
   // Optional outgoing-input transform (mobile Ctrl latch). Stored behind a
   // ref because the xterm onData handler is registered once at mount; the
   // ref keeps it reading the latest transform. Returns the data to send.

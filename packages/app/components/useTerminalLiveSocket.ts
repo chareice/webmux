@@ -11,6 +11,7 @@ interface UseTerminalLiveSocketOptions {
   scheduleMeasure: () => void;
   sessionGeneration: number;
   setSessionGeneration: (next: (value: number) => number) => void;
+  onReconnectingChange?: (reconnecting: boolean) => void;
 }
 
 const MAX_PENDING_OUTPUT_BYTES = 128 * 1024;
@@ -22,6 +23,7 @@ export function useTerminalLiveSocket({
   scheduleMeasure,
   sessionGeneration,
   setSessionGeneration,
+  onReconnectingChange,
 }: UseTerminalLiveSocketOptions) {
   useEffect(() => {
     const term = termRef.current;
@@ -108,11 +110,13 @@ export function useTerminalLiveSocket({
         document.visibilityState,
         ws.readyState,
       );
+      onReconnectingChange?.(reconnectController.hasPendingReconnect());
     };
 
     const handlePageShow = () => {
       refreshTerminalSurface();
       reconnectController.handleVisibilityChange("visible", ws.readyState);
+      onReconnectingChange?.(reconnectController.hasPendingReconnect());
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -120,11 +124,13 @@ export function useTerminalLiveSocket({
 
     ws.onopen = () => {
       reconnectController.handleSocketOpen();
+      onReconnectingChange?.(false);
       refreshTerminalSurface();
     };
 
     ws.onclose = () => {
       if (disposed) return;
+      onReconnectingChange?.(true);
       reconnectController.scheduleReconnect();
     };
 
@@ -145,6 +151,7 @@ export function useTerminalLiveSocket({
     sessionGeneration,
     setSessionGeneration,
     termRef,
+    onReconnectingChange,
     wsRef,
     wsUrl,
   ]);

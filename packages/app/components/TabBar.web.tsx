@@ -23,7 +23,7 @@ import type {
   ResourceStats,
   TerminalInfo,
 } from "@webmux/shared";
-import { Plus } from "lucide-react";
+import { Lock, Plus } from "lucide-react";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import { collectPaneTerminalIds, type WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
 import { HostSwitcher } from "./HostSwitcher.web";
@@ -42,7 +42,9 @@ interface TabBarProps {
   deviceId: string | null;
   machineStats: Record<string, ResourceStats>;
   stats: ResourceStats | undefined;
+  rttMs: number | null;
   isController: boolean;
+  viewOnlyLocked: boolean;
   canCreateTerminal: boolean;
   onSelectGroup: (groupId: string) => void;
   onReorderGroups: (
@@ -54,6 +56,8 @@ interface TabBarProps {
   onSelectMachine: (id: string) => void;
   onAddMachine: () => void;
   onRequestControl: () => void;
+  onEngageViewOnly: () => void;
+  onDisengageViewOnly: () => void;
 }
 
 function TabBarComponent({
@@ -67,7 +71,9 @@ function TabBarComponent({
   deviceId,
   machineStats,
   stats,
+  rttMs,
   isController,
+  viewOnlyLocked,
   canCreateTerminal,
   onSelectGroup,
   onReorderGroups,
@@ -75,6 +81,8 @@ function TabBarComponent({
   onSelectMachine,
   onAddMachine,
   onRequestControl,
+  onEngageViewOnly,
+  onDisengageViewOnly,
 }: TabBarProps) {
   // ---- tab drag-to-reorder (persistent groups only) ----
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
@@ -300,27 +308,35 @@ function TabBarComponent({
           onAddMachine={onAddMachine}
         />
         <MicroMeters stats={stats} />
-        {!isController && (
+        <span
+          data-testid="tab-bar-rtt"
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: colors.fg1,
+            minWidth: 34,
+            textAlign: "right",
+          }}
+        >
+          {rttMs === null ? "—" : `${Math.round(rttMs)}ms`}
+        </span>
+        {viewOnlyLocked ? (
+          <button
+            type="button"
+            data-testid="workbench-request-control"
+            onClick={onDisengageViewOnly}
+            title="Unlock input claims"
+            style={controlPillStyle}
+          >
+            🔒 view only
+          </button>
+        ) : !isController ? (
           <button
             type="button"
             data-testid="workbench-request-control"
             onClick={onRequestControl}
             title="Take control"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              height: 22,
-              padding: "0 9px",
-              borderRadius: 999,
-              background: colorAlpha.mutedLight,
-              border: `1px solid ${colors.line}`,
-              color: colors.fg2,
-              fontSize: 11,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              cursor: "pointer",
-            }}
+            style={controlPillStyle}
           >
             <span
               style={{
@@ -332,6 +348,29 @@ function TabBarComponent({
             />
             viewing
           </button>
+        ) : (
+          <button
+            type="button"
+            data-testid="workbench-view-only-lock"
+            onClick={onEngageViewOnly}
+            title="Lock to view only"
+            aria-label="Lock to view only"
+            style={{
+              width: 24,
+              height: 24,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+              borderRadius: 6,
+              background: "transparent",
+              border: `1px solid ${colors.line}`,
+              color: colors.fg2,
+              cursor: "pointer",
+            }}
+          >
+            <Lock size={13} />
+          </button>
         )}
       </div>
     </div>
@@ -339,6 +378,22 @@ function TabBarComponent({
 }
 
 export const TabBar = memo(TabBarComponent);
+
+const controlPillStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  height: 22,
+  padding: "0 9px",
+  borderRadius: 999,
+  background: colorAlpha.mutedLight,
+  border: `1px solid ${colors.line}`,
+  color: colors.fg2,
+  fontSize: 11,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+  cursor: "pointer",
+};
 
 /* ---------- tab annotation ---------- */
 

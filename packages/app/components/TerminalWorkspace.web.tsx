@@ -45,6 +45,8 @@ interface TerminalWorkspaceProps {
   workspaceGroups: WorkspaceGroupInfo[];
   workspaceLayouts: WorkspaceLayoutInfo[];
   isController: boolean;
+  canType: boolean;
+  eventsReconnecting: boolean;
   deviceId: string;
   isMobile: boolean;
   onPick: (id: string) => void;
@@ -136,6 +138,8 @@ function TerminalWorkspaceComponent({
   workspaceGroups,
   workspaceLayouts,
   isController,
+  canType,
+  eventsReconnecting,
   deviceId,
   isMobile,
   onPick,
@@ -661,6 +665,8 @@ function TerminalWorkspaceComponent({
               terminal={activeTerminal}
               isActive
               isController={isController}
+              canType={canType}
+              eventsReconnecting={eventsReconnecting}
               deviceId={deviceId}
               isMobile
               focusRing={activeGroupPaneCount > 1}
@@ -784,6 +790,8 @@ function TerminalWorkspaceComponent({
             }
             isActive
             isController={isController}
+            canType={canType}
+            eventsReconnecting={eventsReconnecting}
             deviceId={deviceId}
             isMobile={false}
             focusRing={activeGroupPaneCount > 1}
@@ -812,6 +820,8 @@ function TerminalWorkspaceComponent({
             terminalsById={terminalsById}
             activeTerminalId={activeTerminal?.id ?? null}
             isController={isController}
+            canType={canType}
+            eventsReconnecting={eventsReconnecting}
             deviceId={deviceId}
             focusRing={activeGroupPaneCount > 1}
             fitRequest={fitRequest}
@@ -852,6 +862,8 @@ function WorkspacePaneTree({
   terminalsById,
   activeTerminalId,
   isController,
+  canType,
+  eventsReconnecting,
   deviceId,
   focusRing = true,
   fitRequest,
@@ -867,6 +879,8 @@ function WorkspacePaneTree({
   terminalsById: Map<string, TerminalInfo>;
   activeTerminalId: string | null;
   isController: boolean;
+  canType: boolean;
+  eventsReconnecting: boolean;
   deviceId: string;
   focusRing?: boolean;
   fitRequest: WorkspaceFitRequest | null;
@@ -889,6 +903,8 @@ function WorkspacePaneTree({
         terminal={terminal}
         isActive={terminal.id === activeTerminalId}
         isController={isController}
+        canType={canType}
+        eventsReconnecting={eventsReconnecting}
         deviceId={deviceId}
         isMobile={false}
         focusRing={focusRing}
@@ -927,6 +943,8 @@ function WorkspacePaneTree({
           terminalsById={terminalsById}
           activeTerminalId={activeTerminalId}
           isController={isController}
+          canType={canType}
+          eventsReconnecting={eventsReconnecting}
           deviceId={deviceId}
           focusRing={focusRing}
           fitRequest={fitRequest}
@@ -945,6 +963,8 @@ function WorkspacePaneTree({
           terminalsById={terminalsById}
           activeTerminalId={activeTerminalId}
           isController={isController}
+          canType={canType}
+          eventsReconnecting={eventsReconnecting}
           deviceId={deviceId}
           focusRing={focusRing}
           fitRequest={fitRequest}
@@ -965,6 +985,8 @@ export function WorkspacePaneLeaf({
   terminal,
   isActive,
   isController,
+  canType,
+  eventsReconnecting,
   deviceId,
   isMobile,
   focusRing = true,
@@ -981,6 +1003,8 @@ export function WorkspacePaneLeaf({
   terminal: TerminalInfo;
   isActive: boolean;
   isController: boolean;
+  canType: boolean;
+  eventsReconnecting: boolean;
   deviceId: string;
   isMobile: boolean;
   // False when the group has a single pane — a lone pane renders the plain
@@ -1006,12 +1030,12 @@ export function WorkspacePaneLeaf({
     const frame = requestAnimationFrame(() => {
       if (isMobile && isController) {
         cardRef.current?.fitToContainer({ skipIfUnchanged: true });
-      } else {
+      } else if (canType) {
         cardRef.current?.focus();
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [isActive, isController, isMobile, terminal.id]);
+  }, [canType, isActive, isController, isMobile, terminal.id]);
 
   useEffect(() => {
     if (!isController || fitRequestNonce === null) return;
@@ -1082,6 +1106,9 @@ export function WorkspacePaneLeaf({
         displayMode="tab"
         isMobile={isMobile}
         isController={isController}
+        canType={canType}
+        eventsReconnecting={eventsReconnecting}
+        reconnectIndicatorActive={isActive}
         deviceId={deviceId}
         onSelectTab={() => {}}
         onDestroy={onDestroy}

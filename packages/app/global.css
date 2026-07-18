@@ -141,3 +141,7 @@ body {
 @keyframes webmuxSpin {
   to { transform: rotate(360deg); }
 }
+@keyframes webmuxReconnect {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(265%); }
+}

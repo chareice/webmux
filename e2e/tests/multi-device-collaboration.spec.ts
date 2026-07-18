@@ -59,9 +59,9 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   // terminal (there is no card list anymore).
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
-  // In view-only mode the key bar hides the keyboard toggle, and the host
-  // sheet offers "Take control".
-  await expect(mobilePage.getByTitle("Show keyboard")).toHaveCount(0);
+  // An unlocked viewer can open the keyboard and implicitly claim by typing;
+  // the host sheet keeps the explicit "Take control" path as well.
+  await expect(mobilePage.getByTitle("Show keyboard")).toBeVisible();
   await mobilePage.getByTestId("mobile-host-button").click();
   await expect(mobilePage.getByTestId("mobile-control-toggle")).toHaveText(
     "Take control",

@@ -68,6 +68,7 @@ export interface ControlLeaseSnapshot {
 
 export interface BrowserStateSnapshot {
   snapshot_seq: number
+  last_focused_terminal_id?: string | null
   machines: MachineInfo[]
   terminals: TerminalInfo[]
   workspace_groups?: WorkspaceGroupInfo[]
@@ -307,6 +308,16 @@ export namespace BrowserEvent {
 export interface BrowserEventEnvelope {
   seq: number
   event: BrowserEvent
+}
+
+export interface EventsPing {
+  type: "ping"
+  t: number
+}
+
+export interface EventsPong {
+  type: "pong"
+  t: number
 }
 
 // ── Auth / persistence types (not in Rust yet) ──

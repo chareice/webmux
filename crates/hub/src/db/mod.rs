@@ -11,6 +11,7 @@ pub mod settings;
 pub mod terminal_sessions;
 pub mod tokens;
 pub mod types;
+pub mod user_focus;
 pub mod users;
 pub mod workspace_groups;
 pub mod workspace_layouts;
@@ -110,6 +111,13 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             value TEXT NOT NULL,
             updated_at INTEGER NOT NULL,
             PRIMARY KEY (user_id, key)
+        );
+
+        CREATE TABLE IF NOT EXISTS user_focus (
+            user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            terminal_id TEXT NOT NULL,
+            machine_id TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
         );
 
         CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);

@@ -11,6 +11,7 @@ import type {
 
 export interface BrowserSessionState {
   lastSeq: number;
+  lastFocusedTerminalId: string | null;
   machines: MachineInfo[];
   terminals: TerminalInfo[];
   workspaceGroups: WorkspaceGroupInfo[];
@@ -21,6 +22,7 @@ export interface BrowserSessionState {
 
 export const EMPTY_BROWSER_SESSION_STATE: BrowserSessionState = {
   lastSeq: 0,
+  lastFocusedTerminalId: null,
   machines: [],
   terminals: [],
   workspaceGroups: [],
@@ -34,6 +36,7 @@ export function applyBootstrapSnapshot(
 ): BrowserSessionState {
   return {
     lastSeq: snapshot.snapshot_seq,
+    lastFocusedTerminalId: snapshot.last_focused_terminal_id ?? null,
     machines: snapshot.machines,
     terminals: snapshot.terminals,
     workspaceGroups: snapshot.workspace_groups ?? [],
