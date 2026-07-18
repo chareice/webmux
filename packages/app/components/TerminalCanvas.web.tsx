@@ -52,7 +52,9 @@ import {
 import { getPersistentDeviceId } from "@/lib/deviceId";
 import { colors } from "@/lib/colors";
 import { useIsMobile, useVisualViewportHeight } from "@/lib/hooks";
-import { useShortcuts } from "@/lib/shortcuts";
+import { isEditableShortcutTarget, type PrefixActionId } from "@/lib/prefixKey";
+import { PrefixKeyProvider, usePrefixKey } from "@/lib/prefixKeyContext";
+import { CheatSheetOverlay } from "./CheatSheetOverlay.web";
 import {
   createInitialMainLayout,
   mainLayoutReducer,
@@ -80,6 +82,17 @@ const ConfirmDialog = lazy(() =>
 );
 
 const STATUS_BAR_KEY = "webmux:show-status-bar";
+
+// Prefix actions owned by TerminalCanvas (workspace-owned actions are
+// registered by TerminalWorkspace).
+const CANVAS_PREFIX_ACTIONS: PrefixActionId[] = [
+  "newTerminal",
+  "cheatSheet",
+  "sessionSwitcher",
+  "switchHost",
+  "commandPalette",
+  "copyMode",
+];
 
 interface CreateTerminalOptions {
   selectWorkpath?: boolean;
@@ -187,6 +200,14 @@ function upsertWorkspaceLayoutInfo(
 }
 
 export function TerminalCanvas() {
+  return (
+    <PrefixKeyProvider>
+      <TerminalCanvasInner />
+    </PrefixKeyProvider>
+  );
+}
+
+function TerminalCanvasInner() {
   const [browserState, setBrowserState] = useState(EMPTY_BROWSER_SESSION_STATE);
   const [layout, dispatchLayout] = useReducer(
     mainLayoutReducer,
@@ -725,12 +746,6 @@ export function TerminalCanvas() {
     [],
   );
 
-  const handleCloseZoomedTerminal = useCallback(async () => {
-    if (!layout.zoomedTerminalId) return;
-    const t = terminals.find((x) => x.id === layout.zoomedTerminalId);
-    if (t) await handleDestroyTerminal(t);
-  }, [layout.zoomedTerminalId, terminals, handleDestroyTerminal]);
-
   const handleSplitWorkspacePane = useCallback(
     async (terminal: TerminalInfo) => {
       return handleCreateTerminal(terminal.machine_id, terminal.cwd, undefined, {
@@ -901,44 +916,62 @@ export function TerminalCanvas() {
     [],
   );
 
-  const handleSelectWorkpathByIndex = useCallback(
-    (index: number) => {
-      if (index === 0) {
-        handleSelectWorkpath("all");
-        return;
+  // ---- prefix-key shortcut engine (⌃B) ----
+  // The engine singleton lives in PrefixKeyProvider; this window listener is
+  // the only place keydowns enter it. Workspace-owned actions (splits, pane
+  // focus, group tabs, zoom/close pane, literal ⌃B) are registered by
+  // TerminalWorkspace into the same dispatcher.
+  const prefixKey = usePrefixKey();
+  const prefixKeyRef = useRef(prefixKey);
+  useEffect(() => {
+    prefixKeyRef.current = prefixKey;
+  }, [prefixKey]);
+  const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
+
+  const canvasPrefixActionsRef = useRef<
+    Partial<Record<PrefixActionId, () => void>>
+  >({});
+  canvasPrefixActionsRef.current = {
+    newTerminal: isActiveController
+      ? () => void handleNewTerminalFromHeader()
+      : undefined,
+    cheatSheet: () => setCheatSheetOpen((open) => !open),
+    // TODO(later phases): session switcher, host switcher, command palette,
+    // copy mode. Registered as no-ops so armed + key is swallowed, not typed.
+    sessionSwitcher: () => {},
+    switchHost: () => {},
+    commandPalette: () => {},
+    copyMode: () => {},
+  };
+
+  useEffect(() => {
+    for (const action of CANVAS_PREFIX_ACTIONS) {
+      prefixKeyRef.current.setActionHandler(action, () =>
+        canvasPrefixActionsRef.current[action]?.(),
+      );
+    }
+    return () => {
+      for (const action of CANVAS_PREFIX_ACTIONS) {
+        prefixKeyRef.current.clearActionHandler(action);
       }
-      const list = bookmarks.filter((b) => b.machine_id === activeMachineId);
-      const target = list[index - 1];
-      if (target) handleSelectWorkpath(target.id);
-    },
-    [bookmarks, activeMachineId, handleSelectWorkpath],
-  );
+    };
+  }, []);
 
-  const currentWorkpathTerminals = useCallback(
-    (): TerminalInfo[] => scopedTerminals,
-    [scopedTerminals],
-  );
-
-  useShortcuts({
-    newTerminal: isActiveController ? handleNewTerminalFromHeader : undefined,
-    closeTab: handleCloseZoomedTerminal,
-    nextTab: () => {
-      const s = currentWorkpathTerminals();
-      if (s.length <= 1) return;
-      const idx = s.findIndex((t) => t.id === layout.zoomedTerminalId);
-      const next = (idx === -1 ? 0 : idx + 1) % s.length;
-      handleZoomTerminal(s[next].id);
-    },
-    prevTab: () => {
-      const s = currentWorkpathTerminals();
-      if (s.length <= 1) return;
-      const idx = s.findIndex((t) => t.id === layout.zoomedTerminalId);
-      const prev = idx === -1 ? 0 : (idx - 1 + s.length) % s.length;
-      handleZoomTerminal(s[prev].id);
-    },
-    selectAll: () => handleSelectWorkpath("all"),
-    selectTab: handleSelectWorkpathByIndex,
-  });
+  useEffect(() => {
+    if (isMobile) return;
+    const onKeydown = (event: KeyboardEvent) => {
+      const insideTerminal =
+        event.target instanceof Element &&
+        Boolean(event.target.closest(".xterm"));
+      if (!insideTerminal && isEditableShortcutTarget(event.target)) return;
+      const result = prefixKeyRef.current.handleKeydown(event);
+      if (result.type === "pass") return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    window.addEventListener("keydown", onKeydown);
+    return () => window.removeEventListener("keydown", onKeydown);
+  }, [isMobile]);
 
   // Esc unzooms the expanded view, unless focus is inside xterm (which needs
   // Esc for its own bindings — the expanded overlay handles that case).
@@ -1148,6 +1181,32 @@ export function TerminalCanvas() {
 
         {addMachineOpen && (
           <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
+        )}
+
+        {!isMobile && prefixKey.armed && (
+          <div
+            data-testid="prefix-armed-indicator"
+            style={{
+              position: "fixed",
+              right: 16,
+              bottom: 16,
+              zIndex: 60,
+              padding: "4px 10px",
+              borderRadius: 6,
+              background: colors.accent,
+              color: "#120904",
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "var(--font-mono)",
+              pointerEvents: "none",
+            }}
+          >
+            ⌃B
+          </div>
+        )}
+
+        {cheatSheetOpen && (
+          <CheatSheetOverlay onClose={() => setCheatSheetOpen(false)} />
         )}
 
         {closeConfirmation && (

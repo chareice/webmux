@@ -36,7 +36,8 @@ import {
 import { createSelectionAutoCopyController } from "@/lib/selectionAutoCopy";
 import { createTerminalClipboardProvider } from "@/lib/terminalClipboard";
 import { isTauri } from "@/lib/platform";
-import { isAppShortcut } from "@/lib/shortcuts";
+import { useIsMobile } from "@/lib/hooks";
+import { usePrefixKey } from "@/lib/prefixKeyContext";
 import { filterBrowserGeneratedTerminalInput } from "@/lib/terminalInputFilter";
 import { resolveTerminalFontFamily } from "@/lib/terminalFonts";
 
@@ -104,6 +105,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
     const [sessionGeneration, setSessionGeneration] = useState(0);
     const viewportSizeRef = useRef(viewportSize);
+
+    // Prefix engine access for the xterm key handler below. The handler is
+    // attached once at mount, so the latest values go through a ref.
+    const prefixKey = usePrefixKey();
+    const isMobileViewport = useIsMobile();
+    const prefixKeyRef = useRef({ prefixKey, isMobile: isMobileViewport });
+    useEffect(() => {
+      prefixKeyRef.current = { prefixKey, isMobile: isMobileViewport };
+    }, [prefixKey, isMobileViewport]);
 
     useEffect(() => {
       isControllerRef.current = isController ?? true;
@@ -462,8 +472,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // Ctrl+C / Cmd+C copies selection to clipboard instead of sending SIGINT
       // Ctrl+V / Cmd+V checks clipboard for images before letting xterm paste text
       term.attachCustomKeyEventHandler((event) => {
-        // Let app-level shortcuts bubble up to the window handler
-        if (isAppShortcut(event)) {
+        // Keep app-level prefix keys out of xterm: the Ctrl+B trigger, and
+        // every key while the engine is armed. Returning false covers
+        // keydown, keypress and keyup so no stray input reaches the pty;
+        // the window keydown listener does the actual dispatch. Desktop
+        // only — mobile has no prefix engine.
+        const { prefixKey: pk, isMobile: mobile } = prefixKeyRef.current;
+        if (!mobile && pk.isPrefixKeyEvent(event)) {
           return false;
         }
 

@@ -46,7 +46,6 @@ import {
   appendWorkspacePaneToGroup,
   closeWorkspacePane,
   createTerminalWorkspace,
-  cycleWorkspaceColumnWidth,
   findAdjacentScrollableColumn,
   findAdjacentWorkspacePane,
   getActiveWorkspaceGroup,
@@ -58,11 +57,8 @@ import {
   swapWorkspacePanes,
 } from "@/lib/terminalWorkspaceLayout";
 import { ScrollableWorkspace } from "./ScrollableWorkspace";
-import {
-  findWorkspaceShortcutAction,
-  getWorkspaceGroupShortcutIndex,
-  isEditableShortcutTarget,
-} from "@/lib/workspaceShortcuts";
+import type { PrefixActionId } from "@/lib/prefixKey";
+import { usePrefixKey } from "@/lib/prefixKeyContext";
 
 interface TerminalWorkspaceProps {
   terminal: TerminalInfo;
@@ -112,6 +108,29 @@ interface TerminalWorkspaceProps {
 }
 
 type GroupDropPlacement = "before" | "after";
+
+// Prefix actions owned by this component (TerminalCanvas owns the rest).
+const WORKSPACE_PREFIX_ACTIONS: PrefixActionId[] = [
+  "splitRight",
+  "splitDown",
+  "paneLeft",
+  "paneRight",
+  "paneUp",
+  "paneDown",
+  "zoomPane",
+  "closePane",
+  "nextTab",
+  "prevTab",
+  "selectTab1",
+  "selectTab2",
+  "selectTab3",
+  "selectTab4",
+  "selectTab5",
+  "selectTab6",
+  "selectTab7",
+  "selectTab8",
+  "selectTab9",
+];
 
 export interface WorkspaceFitRequest {
   terminalIds: string[];
@@ -731,112 +750,6 @@ function TerminalWorkspaceComponent({
     [activateGroup, workspace.activeGroupId, workspace.groups],
   );
 
-  useEffect(() => {
-    if (isMobile) return;
-    const handler = (event: KeyboardEvent) => {
-      if (event.type !== "keydown") return;
-      const insideTerminal =
-        event.target instanceof Element &&
-        Boolean(event.target.closest(".xterm"));
-      if (!insideTerminal && isEditableShortcutTarget(event.target)) return;
-
-      const action = findWorkspaceShortcutAction(event);
-      if (!action) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-
-      if (action === "paneLeft") {
-        if (activeGroup?.layoutMode === "scrollable") {
-          const nextId = activeGroup.scrollable
-            ? findAdjacentScrollableColumn(activeGroup.scrollable, "left", workspace.activeTerminalId)
-            : null;
-          if (nextId) activateTerminal(nextId);
-        } else {
-          focusPaneByDirection("left");
-        }
-        return;
-      }
-      if (action === "paneRight") {
-        if (activeGroup?.layoutMode === "scrollable") {
-          const nextId = activeGroup.scrollable
-            ? findAdjacentScrollableColumn(activeGroup.scrollable, "right", workspace.activeTerminalId)
-            : null;
-          if (nextId) activateTerminal(nextId);
-        } else {
-          focusPaneByDirection("right");
-        }
-        return;
-      }
-      if (action === "paneUp") {
-        // No-op in scrollable mode; columns have no vertical neighbour concept
-        if (activeGroup?.layoutMode !== "scrollable") {
-          focusPaneByDirection("up");
-        }
-        return;
-      }
-      if (action === "paneDown") {
-        // No-op in scrollable mode; columns have no vertical neighbour concept
-        if (activeGroup?.layoutMode !== "scrollable") {
-          focusPaneByDirection("down");
-        }
-        return;
-      }
-      if (action === "groupPrevious") {
-        switchGroupByOffset(-1);
-        return;
-      }
-      if (action === "groupNext") {
-        switchGroupByOffset(1);
-        return;
-      }
-      if (action === "columnWidthShrink") {
-        if (activeTerminal && activeGroup?.layoutMode === "scrollable") {
-          setWorkspace((prev) => {
-            const next = cycleWorkspaceColumnWidth(prev, activeTerminal.id, "shrink");
-            const nextGroup = next.groups.find((g) => g.id === activeGroup.id);
-            if (nextGroup) schedulePersistColumns(nextGroup);
-            return next;
-          });
-        }
-        return;
-      }
-      if (action === "columnWidthGrow") {
-        if (activeTerminal && activeGroup?.layoutMode === "scrollable") {
-          setWorkspace((prev) => {
-            const next = cycleWorkspaceColumnWidth(prev, activeTerminal.id, "grow");
-            const nextGroup = next.groups.find((g) => g.id === activeGroup.id);
-            if (nextGroup) schedulePersistColumns(nextGroup);
-            return next;
-          });
-        }
-        return;
-      }
-      if (action === "layoutModeToggle") {
-        handleToggleLayoutMode();
-        return;
-      }
-
-      const groupIndex = getWorkspaceGroupShortcutIndex(action);
-      if (groupIndex !== null) switchGroupByIndex(groupIndex);
-    };
-
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
-  }, [
-    activeGroup,
-    activeTerminal,
-    activateTerminal,
-    focusPaneByDirection,
-    handleToggleLayoutMode,
-    isMobile,
-    schedulePersistColumns,
-    switchGroupByIndex,
-    switchGroupByOffset,
-    workspace.activeTerminalId,
-  ]);
-
   const handleDestroy = useCallback(
     (target: TerminalInfo) => {
       if (!isController) return;
@@ -885,23 +798,90 @@ function TerminalWorkspaceComponent({
     ],
   );
 
-  useEffect(() => {
-    if (isMobile) return;
-    const handler = (event: KeyboardEvent) => {
-      if (event.type !== "keydown") return;
-      const mod = event.ctrlKey || event.metaKey;
-      if (!mod || event.altKey || event.shiftKey || event.code !== "KeyW") return;
+  // ---- prefix-key engine wiring (⌃B) ----
+  // Workspace-owned prefix actions register into the shared dispatcher (the
+  // window keydown listener lives in TerminalCanvas). Handlers sit in a ref
+  // so the registration effect stays stable while calling the latest
+  // closures.
+  const prefixKey = usePrefixKey();
+  const workspacePrefixActionsRef = useRef<
+    Partial<Record<PrefixActionId, () => void>>
+  >({});
 
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
+  // Pane focus keeps the old scrollable-layout behaviour: left/right walk
+  // columns, up/down are no-ops there; tiling mode walks the split tree.
+  const focusPrefixPane = useCallback(
+    (direction: WorkspacePaneFocusDirection) => {
+      if (activeGroup?.layoutMode === "scrollable") {
+        if (direction === "up" || direction === "down") return;
+        const nextId = activeGroup.scrollable
+          ? findAdjacentScrollableColumn(
+              activeGroup.scrollable,
+              direction,
+              workspace.activeTerminalId,
+            )
+          : null;
+        if (nextId) activateTerminal(nextId);
+        return;
+      }
+      focusPaneByDirection(direction);
+    },
+    [
+      activeGroup,
+      activateTerminal,
+      focusPaneByDirection,
+      workspace.activeTerminalId,
+    ],
+  );
 
+  const toggleMaximizeActivePane = useCallback(() => {
+    if (!activeTerminal) return;
+    setMaximizedTerminalId((value) =>
+      value === activeTerminal.id ? null : activeTerminal.id,
+    );
+  }, [activeTerminal]);
+
+  workspacePrefixActionsRef.current = {
+    splitRight: () => void handleSplit("right"),
+    splitDown: () => void handleSplit("down"),
+    paneLeft: () => focusPrefixPane("left"),
+    paneRight: () => focusPrefixPane("right"),
+    paneUp: () => focusPrefixPane("up"),
+    paneDown: () => focusPrefixPane("down"),
+    zoomPane: toggleMaximizeActivePane,
+    closePane: () => {
       if (activeTerminal) handleDestroy(activeTerminal);
-    };
+    },
+    nextTab: () => switchGroupByOffset(1),
+    prevTab: () => switchGroupByOffset(-1),
+    selectTab1: () => switchGroupByIndex(0),
+    selectTab2: () => switchGroupByIndex(1),
+    selectTab3: () => switchGroupByIndex(2),
+    selectTab4: () => switchGroupByIndex(3),
+    selectTab5: () => switchGroupByIndex(4),
+    selectTab6: () => switchGroupByIndex(5),
+    selectTab7: () => switchGroupByIndex(6),
+    selectTab8: () => switchGroupByIndex(7),
+    selectTab9: () => switchGroupByIndex(8),
+  };
 
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
-  }, [activeTerminal, handleDestroy, isMobile]);
+  useEffect(() => {
+    for (const action of WORKSPACE_PREFIX_ACTIONS) {
+      prefixKey.setActionHandler(action, () =>
+        workspacePrefixActionsRef.current[action]?.(),
+      );
+    }
+    // ⌃B ⌃B sends a literal Ctrl+B byte (0x02) to the focused terminal.
+    prefixKey.setLiteralHandler(() => {
+      activeCardRef.current?.sendInput("\x02");
+    });
+    return () => {
+      for (const action of WORKSPACE_PREFIX_ACTIONS) {
+        prefixKey.clearActionHandler(action);
+      }
+      prefixKey.setLiteralHandler(null);
+    };
+  }, [prefixKey]);
 
   if (isMobile) {
     return (
