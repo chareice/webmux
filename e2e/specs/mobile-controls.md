@@ -42,10 +42,15 @@
    shows a fresh prompt instead of echoing "c"), and Ctrl disarms —
    typing "c" again echoes normally.
 
-6. **action:** Create a second terminal via the "＋" chip, then tap the first terminal's chip
-   **eval:** The strip shows two chips; tapping one switches the middle
-   terminal immediately. Long-pressing a chip opens a small sheet with
-   "Close terminal" and "New terminal here".
+6. **action:** Create a second terminal via the "＋" chip, tap the inactive
+   terminal chip, then tap the active chip
+   **eval:** The strip shows two chips; tapping an inactive chip switches the
+   middle terminal immediately. Only the first chip in each workspace group
+   includes the group label. Tapping the active chip opens a grouped session
+   sheet with one global "New terminal" row, group headers with pane counts,
+   full terminal titles and cwd values, and a highlighted active row. Tapping
+   another session switches to it and closes the sheet. Long-pressing a chip
+   still opens the sheet with "Close terminal" and "New terminal here".
 
 7. **action:** Swipe horizontally from the left screen edge (within ~24px of the edge)
    **eval:** The terminal switches to the previous chip in strip order.
@@ -62,3 +67,11 @@
    control" again, ＋ chip disabled). After the desktop closes the
    terminal, the mobile shell updates live: the chip disappears and the
    empty state "No terminals yet" returns.
+
+10. **action:** While controlling a terminal at 390×844, open the soft
+    keyboard so the visual viewport shrinks, then close it
+    **eval:** After the viewport settles, the terminal row count decreases so
+    the cursor row, session strip, and key bar remain visible above the
+    keyboard. Closing the keyboard grows the terminal row count again. A
+    view-only client does not resize the shared PTY and instead scrolls the
+    terminal to the bottom after a viewport shrink.

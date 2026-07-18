@@ -1105,6 +1105,7 @@ export function WorkspacePaneLeaf({
         terminal={terminal}
         displayMode="tab"
         isMobile={isMobile}
+        isActive={isActive}
         isController={isController}
         canType={canType}
         eventsReconnecting={eventsReconnecting}
