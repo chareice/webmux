@@ -57,19 +57,25 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       }
     };
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Capture phase + stopPropagation: the menu must win over a focused
+      // xterm textarea, which otherwise consumes Escape and sends \x1b to
+      // the pty while the menu stays open.
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
     };
     const handleScroll = () => onClose();
 
     requestAnimationFrame(() => {
       document.addEventListener("mousedown", handleClickOutside);
     });
-    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("keydown", handleEscape, true);
     window.addEventListener("scroll", handleScroll, true);
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("keydown", handleEscape, true);
       window.removeEventListener("scroll", handleScroll, true);
     };
   }, [onClose]);

@@ -1,8 +1,9 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 import {
   expectControlState,
   openApp,
+  pressPrefixKey,
   resetMachineState,
   selectHomeWorkpath,
   takeControlFromHeader,
@@ -24,42 +25,29 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await selectHomeWorkpath(pageA);
   await pageA.getByTestId("empty-new-terminal").click();
 
-  // The workspace is now the main view. Session A is controller.
+  // The workspace is now the main view. Session A is controller: the
+  // control-gated tab-bar action is enabled for it.
   await pageA.getByTestId("expanded-terminal").waitFor({ state: "visible" });
-  // Open the pane's context menu and read the Close pane item's enabled
-  // state; dismiss the menu again with Escape.
-  const getCloseItemState = async (page: Page) => {
-    await page
-      .locator("[data-testid^='workspace-pane-']")
-      .first()
-      .click({ button: "right" });
-    const item = page.getByRole("button", { name: "Close pane" });
-    await expect(item).toBeVisible();
-    const enabled = await item.isEnabled();
-    return { item, enabled };
-  };
-  const dismissMenu = async (page: Page) => {
-    await page.keyboard.press("Escape");
-    await expect(page.getByTestId("context-menu")).toHaveCount(0);
-  };
+  await expect(pageA.getByTestId("tab-bar-new-terminal")).toBeEnabled();
 
-  await expect.poll(async () => (await getCloseItemState(pageA)).enabled).toBe(true);
-  await dismissMenu(pageA);
-
-  // Session B arrives in view-only mode with the workspace already visible.
+  // Session B arrives in view-only mode with the workspace already visible;
+  // the same gated action is disabled for it.
   await openApp(pageB);
   await expectControlState(pageB, "viewing");
   await pageB.getByTestId("expanded-terminal").waitFor({ state: "visible" });
-  await expect.poll(async () => (await getCloseItemState(pageB)).enabled).toBe(false);
-  await dismissMenu(pageB);
+  await expect(pageB.getByTestId("tab-bar-new-terminal")).toBeDisabled();
 
-  // Handoff: B takes control, A flips to viewing.
+  // Handoff: B takes control, A flips to viewing and its gated action
+  // disables; B's enables.
   await takeControlFromHeader(pageB);
-  await expect.poll(async () => (await getCloseItemState(pageB)).enabled).toBe(true);
-
+  await expect(pageB.getByTestId("tab-bar-new-terminal")).toBeEnabled();
   await expectControlState(pageA, "viewing");
-  // B closes the terminal from the same context menu.
-  await (await getCloseItemState(pageB)).item.click();
+  await expect(pageA.getByTestId("tab-bar-new-terminal")).toBeDisabled();
+
+  // B closes the terminal through the real ⌃B x prefix path (idle shell:
+  // no foreground process, so no confirm dialog).
+  await pageB.locator("[data-testid^='workspace-pane-']").first().click();
+  await pressPrefixKey(pageB, "x");
   await expect(pageA.getByText(/No terminals/)).toBeVisible();
   await expect(pageB.getByText(/No terminals/)).toBeVisible();
 
