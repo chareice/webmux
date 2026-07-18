@@ -96,14 +96,11 @@ test("terminal size stays stable across overlay and cross-device handoff until f
     .poll(async () => listTerminals(desktopPage))
     .toEqual([initialTerminal]);
 
-  // Mobile viewer: the terminal appears in the "Terminals" tab's mobile card
-  // list. Tap it to open the fullscreen focus view (which on mobile uses the
-  // same ExpandedTerminal component in full-bleed mode, then renders the
-  // immersive TerminalCard inside).
+  // Mobile viewer: the shell opens straight into the shared terminal (there
+  // is no card list anymore) — watching needs no control. The mobile
+  // session still sees the same authoritative cols/rows and renders at
+  // scale 1.
   await openApp(mobilePage);
-  const mobileCard = mobilePage.locator("[data-testid^='mobile-term-card-']:visible").first();
-  await expect(mobileCard).toBeVisible();
-  await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
   // Server pty size is unchanged because opening a view never resizes it.
@@ -118,14 +115,11 @@ test("terminal size stays stable across overlay and cross-device handoff until f
     )
     .toBe(1);
 
-  // Mobile viewer cannot resize without control — no fit button is visible.
-  await expect(mobilePage.getByTestId("terminal-fit-button")).toHaveCount(0);
-
   await mobile.close();
   await desktop.close();
 });
 
-test("mobile controller can resize the shared pty with Fit to Window", async ({
+test("mobile controller resizes the shared pty on activation (auto-fit)", async ({
   browser,
 }) => {
   const desktop = await browser.newContext({ viewport: { width: 1440, height: 960 } });
@@ -154,23 +148,20 @@ test("mobile controller can resize the shared pty with Fit to Window", async ({
     return true;
   }).toBe(true);
 
-  // Mobile opens same terminal; desktop releases control so mobile can fit.
+  // Mobile opens the same terminal directly (no card list); desktop
+  // releases control so mobile can take it.
   await openApp(mobilePage);
-  const mobileCard = mobilePage.locator("[data-testid^='mobile-term-card-']:visible").first();
-  await expect(mobileCard).toBeVisible();
-  await mobileCard.click();
   await expect(getImmersiveTerminal(mobilePage)).toBeVisible();
 
   // Desktop releases via the API (the new chrome has no release button),
-  // mobile takes control via the in-terminal toggle.
+  // mobile takes control via the host sheet.
   await releaseMachineControl(desktopPage);
   await expect(desktopPage.getByTestId("workbench-request-control")).toBeVisible();
 
-  await mobilePage.getByTestId("terminal-mode-toggle").click();
-  await expect(mobilePage.getByTestId("terminal-mode-toggle")).toHaveText("ctrl");
+  await mobileTakeControl(mobilePage);
 
-  // Fit to mobile viewport → server cols/rows shrink.
-  await mobilePage.getByTestId("terminal-fit-button").click();
+  // Becoming the controller auto-fits to the mobile viewport → server
+  // cols/rows shrink (no manual Fit button anymore).
   await expect
     .poll(async () => {
       const [terminal] = await listTerminals(mobilePage);
@@ -239,15 +230,12 @@ test("Fit to Window updates the local terminal size before resize output can arr
   await resetMachineState(page);
   await mobileTakeControl(page);
   const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
-  await page.getByRole("button", { name: "Terminals" }).click();
-  const mobileCard = page.locator("[data-testid^='mobile-term-card-']:visible").first();
-  await expect(mobileCard).toBeVisible();
-  // Opening the mobile overlay auto-fits the terminal as the controller —
-  // the contract this test guards is that the local terminal size moves
-  // in lockstep with the resize frame the client sends, never lagging
-  // behind a server echo. (Used to be triggered by a manual Fit click;
-  // mobile now does it automatically on entry.)
-  await mobileCard.click();
+  // The shell shows the terminal directly (no card list); as the controller,
+  // activating the pane auto-fits it. The contract this test guards is that
+  // the local terminal size moves in lockstep with the resize frame the
+  // client sends, never lagging behind a server echo. (Used to be
+  // triggered by a manual Fit click; mobile now does it automatically on
+  // entry.)
   await expect(getImmersiveTerminal(page)).toBeVisible();
   await resizeFrameSeen;
   expect(resizeFrame).not.toBeNull();

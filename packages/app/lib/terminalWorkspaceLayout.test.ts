@@ -3,12 +3,14 @@ import type { TerminalInfo } from "@webmux/shared";
 import {
   appendWorkspacePaneToGroup,
   closeWorkspacePane,
+  collectGroupPaneTerminalIds,
   collectPaneTerminalIds,
   createTerminalWorkspace,
   getActiveWorkspaceGroup,
   findAdjacentWorkspacePane,
   findAdjacentScrollableColumn,
   getMobileWorkspaceTabs,
+  groupPaneTerminalIds,
   reconcileTerminalWorkspace,
   selectWorkspaceGroup,
   splitWorkspacePane,
@@ -799,5 +801,37 @@ describe("reconcile in scrollable mode", () => {
       "c",
     ]);
     expect(next.activeTerminalId).toBe("c");
+  });
+});
+
+describe("strip order helpers", () => {
+  it("groupPaneTerminalIds uses the scrollable column order in scrollable mode", () => {
+    let ws = createTerminalWorkspace(
+      [terminal("a", "/x"), terminal("b", "/x"), terminal("c", "/x")],
+      "a",
+    );
+    ws = setWorkspaceLayoutMode(ws, ws.groups[0].id, "scrollable");
+    const group = ws.groups[0];
+    expect(groupPaneTerminalIds(group)).toEqual(["a", "b", "c"]);
+    // Reordered columns win over the underlying tree.
+    const swapped = swapWorkspacePanes(ws, "a", "c").groups[0];
+    expect(groupPaneTerminalIds(swapped)).toEqual(["c", "b", "a"]);
+  });
+
+  it("collectGroupPaneTerminalIds flattens groups in strip order", () => {
+    const ws = createTerminalWorkspace(
+      [
+        terminal("web-1", "/home/web"),
+        terminal("web-2", "/home/web"),
+        terminal("api-1", "/home/api"),
+      ],
+      "web-1",
+    );
+    // cwd fallback groups sort by label: api before web.
+    expect(collectGroupPaneTerminalIds(ws.groups)).toEqual([
+      "api-1",
+      "web-1",
+      "web-2",
+    ]);
   });
 });

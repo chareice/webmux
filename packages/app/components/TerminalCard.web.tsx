@@ -6,6 +6,7 @@ import { ExtendedKeyBar } from "./ExtendedKeyBar";
 import { TerminalPreviewText } from "./TerminalPreviewText.web";
 import { terminalWsUrl } from "@/lib/api";
 import { colors, terminalTheme } from "@/lib/colors";
+import { ctrlLatchTransform } from "@/lib/ctrlLatch";
 
 const LiveTerminalView = lazy(() =>
   import("./TerminalView.web").then((module) => ({
@@ -58,6 +59,36 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   const [selectMode, setSelectMode] = useState(false);
   const [selectSnapshot, setSelectSnapshot] = useState<SelectionSnapshot | null>(null);
   const isTab = displayMode === "tab";
+
+  // ---- Ctrl latch (mobile key bar) ----
+  // The latch state lives here because TerminalCard owns both ends of the
+  // input path: key-bar keys (handleToolbarKey) and soft-keyboard input
+  // (via inputTransformRef, which TerminalView applies inside xterm's
+  // onData). While armed, the next character key from either path is sent
+  // as its control byte and the latch disarms.
+  const [ctrlArmed, setCtrlArmed] = useState(false);
+  const ctrlArmedRef = useRef(false);
+  const inputTransformRef = useRef<((data: string) => string) | null>(null);
+  const setCtrlLatch = useCallback((armed: boolean) => {
+    ctrlArmedRef.current = armed;
+    setCtrlArmed(armed);
+  }, []);
+
+  useEffect(() => {
+    inputTransformRef.current = (data: string) => {
+      if (!ctrlArmedRef.current) return data;
+      setCtrlLatch(false);
+      return ctrlLatchTransform(data) ?? data;
+    };
+    return () => {
+      inputTransformRef.current = null;
+    };
+  }, [setCtrlLatch]);
+
+  // A new terminal or a lost lease starts with a clean latch.
+  useEffect(() => {
+    setCtrlLatch(false);
+  }, [setCtrlLatch, terminal.id, isController]);
 
   const clearFitRefRetryTimer = useCallback(() => {
     if (fitRefRetryTimer.current !== null) {
@@ -127,8 +158,19 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
 
   const handleToolbarKey = useCallback((data: string) => {
     if (!isController) return;
+    if (ctrlArmedRef.current) {
+      setCtrlLatch(false);
+      termViewRef.current?.sendCommandInput(ctrlLatchTransform(data) ?? data);
+      return;
+    }
     termViewRef.current?.sendCommandInput(data);
-  }, [isController]);
+  }, [isController, setCtrlLatch]);
+
+  const handleToggleCtrl = useCallback(() => {
+    if (!isController) return;
+    // Tapping Ctrl again while armed disarms without sending anything.
+    setCtrlLatch(!ctrlArmedRef.current);
+  }, [isController, setCtrlLatch]);
 
   const handleAttachFile = useCallback(async (file: File) => {
     if (!isController) return;
@@ -416,6 +458,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                   displayMode={isTab ? "immersive" : "card"}
                   isController={isController}
                   canResizeTerminal={isTab && isController}
+                  inputTransformRef={inputTransformRef}
                 />
               </Suspense>
             ) : !isTab ? (
@@ -493,6 +536,8 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
             selectMode={selectMode}
             keyboardVisible={keyboardVisible}
             isController={isController}
+            ctrlArmed={ctrlArmed}
+            onToggleCtrl={handleToggleCtrl}
           />
         )}
       </div>

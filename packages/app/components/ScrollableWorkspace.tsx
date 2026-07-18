@@ -211,6 +211,7 @@ export function ScrollableWorkspace(props: ScrollableWorkspaceProps) {
                 isController={props.isController}
                 deviceId={props.deviceId}
                 isMobile={isMobile}
+                focusRing={columns.length > 1}
                 fitRequestNonce={
                   props.fitRequest?.terminalIds.includes(terminal.id)
                     ? props.fitRequest.nonce

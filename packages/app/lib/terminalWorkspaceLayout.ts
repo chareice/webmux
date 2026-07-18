@@ -475,6 +475,21 @@ export function collectPaneTerminalIds(root: WorkspacePaneNode | null): string[]
   ];
 }
 
+// Panes of one group in workspace pane order: DFS of the split tree, or the
+// column order for scrollable groups.
+export function groupPaneTerminalIds(group: WorkspaceGroup): string[] {
+  if (group.layoutMode === "scrollable" && group.scrollable) {
+    return group.scrollable.columns.map((column) => column.terminalId);
+  }
+  return collectPaneTerminalIds(group.root);
+}
+
+// Flat order across groups (persistent by sort_order, then cwd fallback) —
+// the mobile session-strip / edge-swipe order.
+export function collectGroupPaneTerminalIds(groups: WorkspaceGroup[]): string[] {
+  return groups.flatMap((group) => groupPaneTerminalIds(group));
+}
+
 export function findAdjacentWorkspacePane(
   root: WorkspacePaneNode | null,
   direction: WorkspacePaneFocusDirection,

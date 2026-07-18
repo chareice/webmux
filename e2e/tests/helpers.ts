@@ -400,26 +400,71 @@ export async function readTerminalBuffer(
 }
 
 /**
- * Mobile-specific: tap the "Stats" bottom tab and click Request/Stop control
- * from the Actions panel.
+ * Mobile-specific: the host sheet (opened from the strip's right-end host
+ * button) carries the control toggle row — "Take control" while viewing,
+ * "Stop control" while controlling. Tapping it closes the sheet.
  */
+export async function mobileOpenHostSheet(page: Page): Promise<void> {
+  await page.getByTestId("mobile-host-button").click();
+  await expect(page.getByTestId("mobile-control-toggle")).toBeVisible();
+}
+
 export async function mobileTakeControl(page: Page): Promise<void> {
-  await page.getByText("Stats", { exact: true }).click();
-  await page
-    .getByRole("button", { name: /Request control/i })
-    .click();
+  await mobileOpenHostSheet(page);
+  await page.getByTestId("mobile-control-toggle").click();
 }
 
 export async function mobileReleaseControl(page: Page): Promise<void> {
-  await page.getByText("Stats", { exact: true }).click();
-  await page
-    .getByRole("button", { name: /Release control/i })
-    .click();
+  await mobileOpenHostSheet(page);
+  await page.getByTestId("mobile-control-toggle").click();
 }
 
-export async function mobileSwitchTab(
+/**
+ * Mobile-specific: long-press a session-strip chip (touch held for 600ms)
+ * to open its action sheet (Close terminal / New terminal here).
+ */
+export async function longPressStripChip(
   page: Page,
-  label: "Hosts" | "Terminals" | "Stats",
+  terminalId: string,
 ): Promise<void> {
-  await page.getByText(label, { exact: true }).click();
+  const chip = page.getByTestId(`mobile-strip-chip-${terminalId}`);
+  await chip.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const touch = new Touch({
+      identifier: 7,
+      target: element,
+      clientX: x,
+      clientY: y,
+    });
+    element.dispatchEvent(
+      new TouchEvent("touchstart", {
+        bubbles: true,
+        cancelable: true,
+        touches: [touch],
+        targetTouches: [touch],
+        changedTouches: [touch],
+      }),
+    );
+  });
+  await page.waitForTimeout(600);
+  await chip.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const touch = new Touch({
+      identifier: 7,
+      target: element,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    });
+    element.dispatchEvent(
+      new TouchEvent("touchend", {
+        bubbles: true,
+        cancelable: true,
+        touches: [],
+        targetTouches: [],
+        changedTouches: [touch],
+      }),
+    );
+  });
 }

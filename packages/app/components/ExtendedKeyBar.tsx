@@ -1,5 +1,12 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { colors, colorAlpha } from "@/lib/colors";
+
+// Two-row mobile key bar (SPEC-PHASE3 §2, design doc §4).
+// Row 1 (pinned, no scroll): ABC keyboard toggle · attach · select-mode ·
+//   flex spacer · Esc · ⇧Tab · ↑ · ↓ · ^C (accent).
+// Row 2 (scrollable): Ctrl (latch) · Tab · / · @ · ← · → · ~ · | · - · _.
+// Every key sends its bytes immediately through the same per-keystroke path
+// as the soft keyboard — no buffering anywhere.
 
 interface ExtendedKeyBarProps {
   onKey: (data: string) => void;
@@ -14,40 +21,48 @@ interface ExtendedKeyBarProps {
   selectMode?: boolean;
   keyboardVisible: boolean;
   isController: boolean;
+  // Ctrl latch. Owned by the parent (TerminalCard) so the same latch also
+  // transforms soft-keyboard input: while armed, the next character key is
+  // sent as its control byte, then the latch disarms. Tapping Ctrl again
+  // disarms without sending.
+  ctrlArmed?: boolean;
+  onToggleCtrl?: () => void;
 }
 
-const ARROW_KEYS = [
-  { label: '←', data: '\x1b[D' },
-  { label: '↑', data: '\x1b[A' },
-  { label: '↓', data: '\x1b[B' },
-  { label: '→', data: '\x1b[C' },
+// Long-press auto-repeat for the arrow keys: fire once on press, again after
+// the initial delay, then continuously until the touch ends or leaves.
+const REPEAT_INITIAL_DELAY_MS = 350;
+const REPEAT_INTERVAL_MS = 60;
+
+interface KeyDef {
+  label: string;
+  data: string;
+  testid?: string;
+}
+
+// Pinned row keys right of the spacer (arrows come after ⇧Tab).
+const FIXED_PREFIX_KEYS: KeyDef[] = [
+  { label: "Esc", data: "\x1b", testid: "extended-keybar-esc" },
+  { label: "⇧Tab", data: "\x1b[Z", testid: "extended-keybar-shift-tab" },
 ];
 
-const SCROLLABLE_GROUPS = [
-  [
-    { label: 'Esc', data: '\x1b' },
-    { label: 'Tab', data: '\t' },
-    { label: '|', data: '|' },
-    { label: '~', data: '~' },
-  ],
-  [
-    { label: 'C-d', data: '\x04' },
-    { label: 'C-z', data: '\x1a' },
-    { label: 'C-l', data: '\x0c' },
-  ],
-  [
-    { label: 'C-a', data: '\x01' },
-    { label: 'C-e', data: '\x05' },
-    { label: 'C-r', data: '\x12' },
-    { label: 'C-w', data: '\x17' },
-  ],
-  [
-    { label: '/', data: '/' },
-    { label: '-', data: '-' },
-    { label: '_', data: '_' },
-    { label: '.', data: '.' },
-  ],
+const UP_KEY: KeyDef = { label: "↑", data: "\x1b[A" };
+const DOWN_KEY: KeyDef = { label: "↓", data: "\x1b[B" };
+
+// Scrollable row, in spec order. Ctrl is rendered separately (latch).
+const SCROLLABLE_KEYS: KeyDef[] = [
+  { label: "Tab", data: "\t" },
+  { label: "/", data: "/" },
+  { label: "@", data: "@" },
+  { label: "←", data: "\x1b[D" },
+  { label: "→", data: "\x1b[C" },
+  { label: "~", data: "~" },
+  { label: "|", data: "|" },
+  { label: "-", data: "-" },
+  { label: "_", data: "_" },
 ];
+
+const REPEATABLE_LABELS = new Set(["↑", "↓", "←", "→"]);
 
 const BAR_HEIGHT = 40;
 const BUTTON_HEIGHT = 30;
@@ -63,6 +78,8 @@ export function ExtendedKeyBar({
   selectMode = false,
   keyboardVisible,
   isController,
+  ctrlArmed = false,
+  onToggleCtrl,
 }: ExtendedKeyBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -182,11 +199,6 @@ export function ExtendedKeyBar({
     );
   }
 
-  // Two-row layout. Row 1 = utility cluster (kb/attach/select) + ^C +
-  // arrows, all pinned (no scroll). Row 2 = the rest (Esc/Tab/Ctrl-keys/
-  // symbols), scrollable but with much more visible width than the
-  // single-row layout had — typically ~10 keys visible without scrolling
-  // instead of ~6.
   return (
     <div style={{
       display: 'flex',
@@ -196,7 +208,7 @@ export function ExtendedKeyBar({
       flexShrink: 0,
       touchAction: 'none',
     }}>
-      {/* Row 1 — pinned essentials */}
+      {/* Row 1 — pinned: utility cluster left, Esc/⇧Tab/↑/↓/^C right. */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -329,7 +341,32 @@ export function ExtendedKeyBar({
           </button>
         )}
 
-        {/* Pinned ^C — highest-frequency action, must never scroll off. */}
+        {/* Spacer pushes the pinned keys to the right edge. */}
+        <div style={{ flex: 1, minWidth: 0 }} />
+
+        {FIXED_PREFIX_KEYS.map((key) => (
+          <KeyButton
+            key={key.label}
+            label={key.label}
+            onPress={() => isController && onKey(key.data)}
+            isController={isController}
+            testid={key.testid}
+          />
+        ))}
+        <KeyButton
+          label={UP_KEY.label}
+          onPress={() => isController && onKey(UP_KEY.data)}
+          isController={isController}
+          repeat
+        />
+        <KeyButton
+          label={DOWN_KEY.label}
+          onPress={() => isController && onKey(DOWN_KEY.data)}
+          isController={isController}
+          repeat
+        />
+
+        {/* Pinned ^C — highest-frequency action, accent-colored. */}
         <KeyButton
           label="^C"
           onPress={() => isController && onKey('\x03')}
@@ -337,30 +374,9 @@ export function ExtendedKeyBar({
           pinned
           testid="extended-keybar-ctrl-c"
         />
-
-        {/* Arrow keys — flex:1 makes them spread across remaining row 1
-            width so they're easy to hit. */}
-        <div style={{
-          display: 'flex',
-          flex: 1,
-          minWidth: 0,
-          gap: 2,
-          padding: '0 6px',
-          justifyContent: 'flex-end',
-        }}>
-          {ARROW_KEYS.map((key) => (
-            <KeyButton
-              key={key.label}
-              label={key.label}
-              onPress={() => isController && onKey(key.data)}
-              isController={isController}
-            />
-          ))}
-        </div>
       </div>
 
-      {/* Row 2 — secondary keys, scrollable but with much more visible
-          width than the previous single-row layout. */}
+      {/* Row 2 — scrollable: Ctrl latch, then the symbol/arrow keys. */}
       <div style={{
         position: 'relative',
         height: BAR_HEIGHT,
@@ -375,24 +391,62 @@ export function ExtendedKeyBar({
           gap: 2,
           padding: '0 6px',
         }}>
-          {SCROLLABLE_GROUPS.map((group, gi) => (
-            <div key={gi} style={{
-              display: 'flex',
-              gap: 2,
-              padding: '0 2px',
-              borderRight: gi < SCROLLABLE_GROUPS.length - 1 ? `1px solid ${colors.border}` : 'none',
-              paddingRight: gi < SCROLLABLE_GROUPS.length - 1 ? 6 : 2,
-              marginRight: gi < SCROLLABLE_GROUPS.length - 1 ? 2 : 0,
-            }}>
-              {group.map((key) => (
-                <KeyButton
-                  key={key.label}
-                  label={key.label}
-                  onPress={() => isController && onKey(key.data)}
-                  isController={isController}
-                />
-              ))}
-            </div>
+          {onToggleCtrl && (
+            <button
+              // Activate on pointerup with a canceled pointerdown: a plain
+              // click would focus the button, dismiss the soft keyboard and
+              // break the arm → type flow the latch exists for.
+              onPointerDown={(event) => event.preventDefault()}
+              onPointerUp={(event) => {
+                event.preventDefault();
+                if (isController) onToggleCtrl();
+              }}
+              disabled={!isController}
+              data-testid="extended-keybar-ctrl-latch"
+              aria-pressed={ctrlArmed}
+              style={{
+                background: ctrlArmed
+                  ? 'rgb(var(--color-info) / 0.18)'
+                  : colors.surface,
+                border: `1px solid ${
+                  ctrlArmed ? colors.info : colors.border
+                }`,
+                borderRadius: 4,
+                color: !isController
+                  ? colors.foregroundMuted
+                  : ctrlArmed
+                    ? colors.info
+                    : colors.foreground,
+                padding: '4px 10px',
+                fontSize: 12,
+                fontFamily: "'JetBrains Mono', monospace",
+                fontWeight: ctrlArmed ? 700 : 400,
+                cursor: isController ? 'pointer' : 'not-allowed',
+                whiteSpace: 'nowrap',
+                minWidth: 36,
+                height: BUTTON_HEIGHT,
+                marginRight: 6,
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+              }}
+              title={ctrlArmed ? 'Ctrl armed — next key sends as Ctrl+<key>' : 'Arm Ctrl for the next key'}
+              aria-label={ctrlArmed ? 'Disarm Ctrl' : 'Arm Ctrl'}
+            >
+              Ctrl
+            </button>
+          )}
+          {SCROLLABLE_KEYS.map((key) => (
+            <KeyButton
+              key={key.label}
+              label={key.label}
+              onPress={() => isController && onKey(key.data)}
+              isController={isController}
+              repeat={REPEATABLE_LABELS.has(key.label)}
+            />
           ))}
         </div>
         <div
@@ -418,14 +472,62 @@ interface KeyButtonProps {
   isController: boolean;
   pinned?: boolean;
   testid?: string;
+  // Arrow keys auto-repeat on long-press: one press fires immediately, then
+  // after REPEAT_INITIAL_DELAY_MS the key repeats every REPEAT_INTERVAL_MS
+  // until the touch ends or slides off the button.
+  repeat?: boolean;
 }
 
-function KeyButton({ label, onPress, isController, pinned, testid }: KeyButtonProps) {
+function KeyButton({ label, onPress, isController, pinned, testid, repeat }: KeyButtonProps) {
+  const delayTimerRef = useRef<number | null>(null);
+  const intervalTimerRef = useRef<number | null>(null);
+
+  const stopRepeat = () => {
+    if (delayTimerRef.current !== null) {
+      window.clearTimeout(delayTimerRef.current);
+      delayTimerRef.current = null;
+    }
+    if (intervalTimerRef.current !== null) {
+      window.clearInterval(intervalTimerRef.current);
+      intervalTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => stopRepeat, []);
+
+  const startRepeat = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!isController) return;
+    // Prevent the compatibility click so a tap doesn't double-send, and
+    // keep the button from stealing terminal focus.
+    event.preventDefault();
+    onPress();
+    delayTimerRef.current = window.setTimeout(() => {
+      delayTimerRef.current = null;
+      intervalTimerRef.current = window.setInterval(
+        onPress,
+        REPEAT_INTERVAL_MS,
+      );
+    }, REPEAT_INITIAL_DELAY_MS);
+  };
+
+  const activationProps = repeat
+    ? {
+        onPointerDown: startRepeat,
+        onPointerUp: stopRepeat,
+        onPointerLeave: stopRepeat,
+        onPointerCancel: stopRepeat,
+        // Long-pressing a button would otherwise open the browser context
+        // menu and swallow the touch end that stops the repeat.
+        onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) =>
+          event.preventDefault(),
+      }
+    : { onClick: onPress };
+
   return (
     <button
-      onClick={onPress}
       disabled={!isController}
       data-testid={testid}
+      {...activationProps}
       style={{
         background: pinned ? colorAlpha.accentSoft : colors.surface,
         border: `1px solid ${pinned ? colorAlpha.accentLine : colors.border}`,

@@ -89,6 +89,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     isController,
     canResizeTerminal,
     onTitleChange,
+    inputTransformRef,
     style,
   }, ref) {
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -430,13 +431,19 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         winAny.__webmuxTerminals.set(terminalId, term);
       }
 
-      // Forward terminal input to the current WebSocket
+      // Forward terminal input to the current WebSocket. Per-keystroke,
+      // unbuffered: xterm's hidden textarea (and its IME composition
+      // handling) delivers data to onData as it is committed, and each
+      // event is sent immediately. The optional transform hook is the
+      // mobile Ctrl latch — it rewrites the armed key to its control byte.
       term.onData((data) => {
         const filteredData = filterBrowserGeneratedTerminalInput(data);
         if (!filteredData) return;
+        const transformed =
+          inputTransformRef?.current?.(filteredData) ?? filteredData;
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN && isControllerRef.current) {
-          ws.send(JSON.stringify({ type: "input", data: filteredData }));
+          ws.send(JSON.stringify({ type: "input", data: transformed }));
         }
       });
 

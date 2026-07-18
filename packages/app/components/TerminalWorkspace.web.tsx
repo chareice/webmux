@@ -10,7 +10,6 @@ import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
   MutableRefObject,
-  ReactNode,
 } from "react";
 import type {
   TerminalInfo,
@@ -21,14 +20,7 @@ import type {
   WorkspaceLayoutNode,
   WorkspaceScrollableLayout,
 } from "@webmux/shared";
-import {
-  ChevronDown,
-  Expand,
-  Plus,
-  Trash2,
-  X,
-} from "lucide-react";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { Plus } from "lucide-react";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
@@ -62,7 +54,6 @@ interface TerminalWorkspaceProps {
   isController: boolean;
   deviceId: string;
   isMobile: boolean;
-  onClose: () => void;
   onPick: (id: string) => void;
   onDestroy: (
     terminal: TerminalInfo,
@@ -77,15 +68,10 @@ interface TerminalWorkspaceProps {
     cwd: string;
     workspaceGroupId: string | null;
   }) => Promise<TerminalInfo | null>;
-  onCreateGroup: (
-    machineId: string,
-    name: string,
-  ) => Promise<WorkspaceGroupInfo | null | void>;
   onReorderGroups: (
     machineId: string,
     groupIds: string[],
   ) => Promise<WorkspaceGroupInfo[] | null | void>;
-  onDeleteGroup: (machineId: string, groupId: string) => Promise<void>;
   onSaveWorkspaceLayout: (
     machineId: string,
     groupKey: string,
@@ -161,14 +147,11 @@ function TerminalWorkspaceComponent({
   isController,
   deviceId,
   isMobile,
-  onClose,
   onPick,
   onDestroy,
   onSplit,
   onCreatePane,
-  onCreateGroup,
   onReorderGroups,
-  onDeleteGroup,
   onSaveWorkspaceLayout,
   onAssignGroup,
   onRequestControl,
@@ -203,8 +186,6 @@ function TerminalWorkspaceComponent({
   const [maximizedTerminalId, setMaximizedTerminalId] = useState<string | null>(
     null,
   );
-  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
-  const [deleteGroup, setDeleteGroup] = useState<WorkspaceGroup | null>(null);
   const [paneMenu, setPaneMenu] = useState<{
     terminalId: string;
     x: number;
@@ -238,6 +219,13 @@ function TerminalWorkspaceComponent({
     ? terminalsById.get(workspace.activeTerminalId) ?? null
     : null;
   const commandMachineId = activeTerminal?.machine_id ?? terminal.machine_id;
+  // Panes in the active group — a group with a single pane renders no
+  // focused-pane accent border (a lone pane needs no focus indicator).
+  const activeGroupPaneCount = activeGroup
+    ? activeGroup.layoutMode === "scrollable"
+      ? activeGroup.scrollable?.columns.length ?? 0
+      : collectIds(activeGroup.root).length
+    : 0;
   const layoutSaveQueuesRef = useRef(new Map<string, Promise<void>>());
 
   const persistGroupLayout = useCallback(
@@ -435,39 +423,6 @@ function TerminalWorkspaceComponent({
     activeCardRef.current?.fitToContainer();
   }, []);
 
-  const handleCreateGroup = useCallback(async () => {
-    const name = window.prompt("New tab name", activeGroup?.label ?? "");
-    const trimmed = name?.trim();
-    if (!trimmed) return;
-    const group = await onCreateGroup(commandMachineId, trimmed);
-    if (!group) return;
-    const nextWorkspaceGroups = [
-      ...workspaceGroups.filter((candidate) => candidate.id !== group.id),
-      group,
-    ];
-    setMaximizedTerminalId(null);
-    updateWorkspace((prev) =>
-      selectWorkspaceGroup(
-        reconcileTerminalWorkspace(
-          prev,
-          siblings,
-          prev.activeTerminalId,
-          nextWorkspaceGroups,
-          workspaceLayouts,
-        ),
-        group.id,
-      ),
-    );
-  }, [
-    activeGroup?.label,
-    commandMachineId,
-    onCreateGroup,
-    siblings,
-    updateWorkspace,
-    workspaceGroups,
-    workspaceLayouts,
-  ]);
-
   const handleReorderGroups = useCallback(
     async (
       sourceGroupId: string,
@@ -511,38 +466,6 @@ function TerminalWorkspaceComponent({
       workspaceLayouts,
     ],
   );
-
-  const confirmDeleteGroup = useCallback(async () => {
-    const group = deleteGroup;
-    if (!group?.workspaceGroupId) return;
-    setDeleteGroup(null);
-    await onDeleteGroup(commandMachineId, group.workspaceGroupId);
-    const nextWorkspaceGroups = workspaceGroups.filter(
-      (candidate) => candidate.id !== group.workspaceGroupId,
-    );
-    const nextSiblings = siblings.map((sibling) =>
-      sibling.workspace_group_id === group.workspaceGroupId
-        ? { ...sibling, workspace_group_id: null }
-        : sibling,
-    );
-    updateWorkspace((prev) =>
-      reconcileTerminalWorkspace(
-        prev,
-        nextSiblings,
-        prev.activeTerminalId,
-        nextWorkspaceGroups,
-        workspaceLayouts,
-      ),
-    );
-  }, [
-    commandMachineId,
-    deleteGroup,
-    onDeleteGroup,
-    siblings,
-    updateWorkspace,
-    workspaceGroups,
-    workspaceLayouts,
-  ]);
 
   const persistColumnsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistColumnsPendingRef = useRef<WorkspaceGroup | null>(null);
@@ -808,41 +731,21 @@ function TerminalWorkspaceComponent({
   );
 
   if (isMobile) {
+    // Mobile P1 shell: the workspace renders chromeless inside
+    // MobileWorkbench — the session strip above and the key bar below (the
+    // key bar lives inside TerminalCard) are the only permanent chrome.
     return (
       <div
         data-testid="expanded-terminal"
         style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 50,
+          flex: 1,
+          minHeight: 0,
           background: terminalTheme.background,
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
         }}
       >
-        <WorkspaceTopBar
-          activeTerminal={activeTerminal}
-          machineId={commandMachineId}
-          isController={isController}
-          onOpenDrawer={() => setMobileDrawerOpen(true)}
-          onSplitRight={() => void handleSplit("right")}
-          onFit={handleFit}
-          onDestroyActive={() => {
-            if (activeTerminal) handleDestroy(activeTerminal);
-          }}
-          onClose={onClose}
-          onRequestControl={onRequestControl}
-          onReleaseControl={onReleaseControl}
-        />
-        <MobileGroupTabs
-          groups={workspace.groups}
-          activeGroupId={workspace.activeGroupId}
-          isController={isController}
-          onGroupSelect={activateGroup}
-          onCreateGroup={handleCreateGroup}
-          onDeleteGroup={setDeleteGroup}
-        />
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
           {activeGroup?.layoutMode === "scrollable" &&
           (activeGroup.scrollable?.columns?.length ?? 0) > 0 ? (
@@ -872,6 +775,7 @@ function TerminalWorkspaceComponent({
               isController={isController}
               deviceId={deviceId}
               isMobile
+              focusRing={activeGroupPaneCount > 1}
               fitRequestNonce={
                 fitRequest?.terminalIds.includes(activeTerminal.id)
                   ? fitRequest.nonce
@@ -897,45 +801,6 @@ function TerminalWorkspaceComponent({
             />
           )}
         </div>
-        <MobilePaneTabs
-          group={activeGroup}
-          terminalsById={terminalsById}
-          activeTerminalId={activeTerminal?.id ?? null}
-          isController={isController}
-          onPick={activateTerminal}
-          onNew={() => void handleSplit("right")}
-        />
-        {mobileDrawerOpen && (
-          <MobilePaneDrawer
-            groups={workspace.groups}
-            activeGroupId={workspace.activeGroupId}
-            activeTerminalId={activeTerminal?.id ?? null}
-            terminalsById={terminalsById}
-            isController={isController}
-            onClose={() => setMobileDrawerOpen(false)}
-            onGroupPick={(id) => {
-              activateGroup(id);
-              setMobileDrawerOpen(false);
-            }}
-            onPick={(id) => {
-              activateTerminal(id);
-              setMobileDrawerOpen(false);
-            }}
-            onDestroy={handleDestroy}
-            onNew={() => void handleSplit("right")}
-            onDeleteGroup={setDeleteGroup}
-          />
-        )}
-        <ConfirmDialog
-          open={Boolean(deleteGroup)}
-          title="Delete group"
-          message={`Delete "${deleteGroup?.label ?? "this group"}"? Terminals stay open and move back to cwd grouping.`}
-          confirmLabel="Delete group"
-          cancelLabel="Cancel"
-          variant="danger"
-          onConfirm={() => void confirmDeleteGroup()}
-          onCancel={() => setDeleteGroup(null)}
-        />
       </div>
     );
   }
@@ -1033,6 +898,7 @@ function TerminalWorkspaceComponent({
             isController={isController}
             deviceId={deviceId}
             isMobile={false}
+            focusRing={activeGroupPaneCount > 1}
             fitRequestNonce={
               maximizedTerminalId &&
               fitRequest?.terminalIds.includes(maximizedTerminalId)
@@ -1081,6 +947,7 @@ function TerminalWorkspaceComponent({
             activeTerminalId={activeTerminal?.id ?? null}
             isController={isController}
             deviceId={deviceId}
+            focusRing={activeGroupPaneCount > 1}
             fitRequest={fitRequest}
             onActiveRef={(ref) => {
               activeCardRef.current = ref;
@@ -1108,243 +975,11 @@ function TerminalWorkspaceComponent({
           onClose={() => setPaneMenu(null)}
         />
       )}
-      <ConfirmDialog
-        open={Boolean(deleteGroup)}
-        title="Delete group"
-        message={`Delete "${deleteGroup?.label ?? "this group"}"? Terminals stay open and move back to cwd grouping.`}
-        confirmLabel="Delete group"
-        cancelLabel="Cancel"
-        variant="danger"
-        onConfirm={() => void confirmDeleteGroup()}
-        onCancel={() => setDeleteGroup(null)}
-      />
     </div>
   );
 }
 
 export const TerminalWorkspace = memo(TerminalWorkspaceComponent);
-
-// Mobile-only top bar (Phase 2 removed the desktop toolbar row; the desktop
-// chrome now lives in TabBar). Shows the panes drawer button, the control
-// pill, and the mobile icon actions.
-function WorkspaceTopBar({
-  activeTerminal,
-  machineId,
-  isController,
-  onOpenDrawer,
-  onSplitRight,
-  onFit,
-  onDestroyActive,
-  onClose,
-  onRequestControl,
-  onReleaseControl,
-}: {
-  activeTerminal: TerminalInfo | null;
-  machineId: string;
-  isController: boolean;
-  onOpenDrawer: () => void;
-  onSplitRight: () => void;
-  onFit: () => void;
-  onDestroyActive: () => void;
-  onClose: () => void;
-  onRequestControl?: (machineId: string) => void;
-  onReleaseControl?: (machineId: string) => void;
-}) {
-  const activeTitle =
-    activeTerminal?.title || activeTerminal?.id.slice(0, 8) || "No panes";
-
-  return (
-    <div
-      style={{
-        height: 44,
-        borderBottom: `1px solid ${colors.lineSoft}`,
-        background: colors.bg1,
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "0 8px",
-        flexShrink: 0,
-        minWidth: 0,
-      }}
-    >
-      <button
-        type="button"
-        onClick={onOpenDrawer}
-        style={mobileTitleButton}
-        data-testid="workspace-mobile-groups"
-        title="Panes"
-        aria-label="Panes"
-      >
-        <span style={truncateStyle}>{activeTitle}</span>
-        <ChevronDown size={14} />
-      </button>
-
-      {isController ? (
-        <button
-          type="button"
-          data-testid="terminal-mode-toggle"
-          onClick={() => onReleaseControl?.(activeTerminal?.machine_id ?? machineId)}
-          style={controlPillStyle}
-          title="Release control"
-        >
-          ctrl
-        </button>
-      ) : (
-        <button
-          type="button"
-          data-testid="terminal-mode-toggle"
-          onClick={() => onRequestControl?.(activeTerminal?.machine_id ?? machineId)}
-          style={{
-            ...controlPillStyle,
-            background: colors.accent,
-            color: "#120904",
-          }}
-          title="Take control"
-        >
-          control
-        </button>
-      )}
-
-      {isController && activeTerminal && (
-        <IconButton
-          title="Fit"
-          testId="terminal-fit-button"
-          onClick={onFit}
-        >
-          <Expand size={15} />
-        </IconButton>
-      )}
-      <IconButton
-        disabled={!isController}
-        title="New pane"
-        onClick={onSplitRight}
-      >
-        <Plus size={15} />
-      </IconButton>
-      <IconButton
-        disabled={!isController || !activeTerminal}
-        title="Close terminal"
-        testId="workspace-close-active-terminal"
-        onClick={onDestroyActive}
-      >
-        <Trash2 size={15} />
-      </IconButton>
-      <IconButton
-        title="Exit workspace"
-        testId="expanded-close"
-        onClick={onClose}
-      >
-        <X size={15} />
-      </IconButton>
-    </div>
-  );
-}
-
-function MobileGroupTabs({
-  groups,
-  activeGroupId,
-  isController,
-  onGroupSelect,
-  onCreateGroup,
-  onDeleteGroup,
-}: {
-  groups: WorkspaceGroup[];
-  activeGroupId: string | null;
-  isController: boolean;
-  onGroupSelect: (id: string) => void;
-  onCreateGroup: () => void;
-  onDeleteGroup: (group: WorkspaceGroup) => void;
-}) {
-  if (groups.length === 0) return null;
-  return (
-    <div
-      data-testid="workspace-mobile-group-tabs"
-      style={{
-        minHeight: 42,
-        display: "flex",
-        gap: 6,
-        alignItems: "center",
-        padding: "6px 8px",
-        borderBottom: `1px solid ${colors.lineSoft}`,
-        background: colors.bg1,
-        overflowX: "auto",
-        flexShrink: 0,
-      }}
-    >
-      {groups.map((group) => {
-        const active = group.id === activeGroupId;
-        return (
-          <div
-            key={group.id}
-            style={{
-              ...mobileGroupTabShellStyle,
-              borderRadius: 7,
-              border: `1px solid ${
-                active ? colorAlpha.accentLine : colors.lineSoft
-              }`,
-              background: active ? colors.bg2 : "transparent",
-            }}
-          >
-            <button
-              type="button"
-              data-testid={`workspace-mobile-group-tab-${group.id}`}
-              onClick={() => onGroupSelect(group.id)}
-              style={{
-                ...mobileGroupTabSelectStyle,
-                color: active ? colors.fg0 : colors.fg2,
-              }}
-              title={group.label}
-              aria-label={`Switch to group ${group.label}`}
-            >
-              <span style={truncateStyle}>{group.label}</span>
-              <span style={{ color: active ? colors.accent : colors.fg3 }}>
-                {group.paneCount}
-              </span>
-            </button>
-            {group.persistent && (
-              <button
-                type="button"
-                data-testid={`workspace-mobile-group-delete-${group.id}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDeleteGroup(group);
-                }}
-                style={{
-                  ...smallIconButtonStyle,
-                  width: 20,
-                  height: 20,
-                  color: active ? colors.fg2 : colors.fg3,
-                  flexShrink: 0,
-                }}
-                title="Delete group"
-                aria-label={`Delete group ${group.label}`}
-              >
-                <Trash2 size={12} />
-              </button>
-            )}
-          </div>
-        );
-      })}
-      <button
-        type="button"
-        disabled={!isController}
-        onClick={onCreateGroup}
-        title="New tab"
-        aria-label="New tab"
-        style={{
-          ...mobilePaneTabStyle,
-          minWidth: 36,
-          width: 36,
-          padding: 0,
-          opacity: isController ? 1 : 0.45,
-          cursor: isController ? "pointer" : "not-allowed",
-        }}
-      >
-        <Plus size={14} />
-      </button>
-    </div>
-  );
-}
 
 function WorkspacePaneTree({
   node,
@@ -1352,6 +987,7 @@ function WorkspacePaneTree({
   activeTerminalId,
   isController,
   deviceId,
+  focusRing = true,
   fitRequest,
   onActiveRef,
   onFitRequestHandled,
@@ -1366,6 +1002,7 @@ function WorkspacePaneTree({
   activeTerminalId: string | null;
   isController: boolean;
   deviceId: string;
+  focusRing?: boolean;
   fitRequest: WorkspaceFitRequest | null;
   onActiveRef: (ref: TerminalCardRef | null) => void;
   onFitRequestHandled: (nonce: number, terminalId: string) => void;
@@ -1388,6 +1025,7 @@ function WorkspacePaneTree({
         isController={isController}
         deviceId={deviceId}
         isMobile={false}
+        focusRing={focusRing}
         fitRequestNonce={
           fitRequest?.terminalIds.includes(terminal.id)
             ? fitRequest.nonce
@@ -1424,6 +1062,7 @@ function WorkspacePaneTree({
           activeTerminalId={activeTerminalId}
           isController={isController}
           deviceId={deviceId}
+          focusRing={focusRing}
           fitRequest={fitRequest}
           onActiveRef={onActiveRef}
           onFitRequestHandled={onFitRequestHandled}
@@ -1441,6 +1080,7 @@ function WorkspacePaneTree({
           activeTerminalId={activeTerminalId}
           isController={isController}
           deviceId={deviceId}
+          focusRing={focusRing}
           fitRequest={fitRequest}
           onActiveRef={onActiveRef}
           onFitRequestHandled={onFitRequestHandled}
@@ -1461,6 +1101,7 @@ export function WorkspacePaneLeaf({
   isController,
   deviceId,
   isMobile,
+  focusRing = true,
   fitRequestNonce,
   fitRequestShouldFocus,
   onActiveRef,
@@ -1476,6 +1117,9 @@ export function WorkspacePaneLeaf({
   isController: boolean;
   deviceId: string;
   isMobile: boolean;
+  // False when the group has a single pane — a lone pane renders the plain
+  // line border instead of the focused-pane accent ring.
+  focusRing?: boolean;
   fitRequestNonce: number | null;
   fitRequestShouldFocus: boolean;
   onActiveRef: (ref: TerminalCardRef | null) => void;
@@ -1554,9 +1198,15 @@ export function WorkspacePaneLeaf({
         display: "flex",
         flexDirection: "column",
         background: colors.bg0,
-        // Focused pane: subtle 1px accent inner border; unfocused: line.
-        border: `1px solid ${isActive ? colorAlpha.accentLine : colors.line}`,
-        boxShadow: isActive ? `0 0 0 1px ${colorAlpha.accentLine}` : "none",
+        // Focused pane: subtle 1px accent inner border; unfocused (or lone
+        // pane in a single-pane group): plain line.
+        border: `1px solid ${
+          isActive && focusRing ? colorAlpha.accentLine : colors.line
+        }`,
+        boxShadow:
+          isActive && focusRing
+            ? `0 0 0 1px ${colorAlpha.accentLine}`
+            : "none",
         overflow: "hidden",
       }}
     >
@@ -1615,387 +1265,6 @@ function EmptyWorkspaceGroup({
   );
 }
 
-function MobilePaneTabs({
-  group,
-  terminalsById,
-  activeTerminalId,
-  isController,
-  onPick,
-  onNew,
-}: {
-  group: WorkspaceGroup | null;
-  terminalsById: Map<string, TerminalInfo>;
-  activeTerminalId: string | null;
-  isController: boolean;
-  onPick: (id: string) => void;
-  onNew: () => void;
-}) {
-  const ids = group ? collectIds(group.root) : [];
-  return (
-    <div
-      style={{
-        minHeight: 48,
-        display: "flex",
-        gap: 6,
-        alignItems: "center",
-        padding: "7px 8px",
-        borderTop: `1px solid ${colors.lineSoft}`,
-        background: colors.bg1,
-        overflowX: "auto",
-        flexShrink: 0,
-      }}
-    >
-      {ids.map((id) => {
-        const terminal = terminalsById.get(id);
-        if (!terminal) return null;
-        const active = id === activeTerminalId;
-        return (
-          <button
-            key={id}
-            type="button"
-            data-testid={`expanded-thumb-${id}`}
-            onClick={() => onPick(id)}
-            style={{
-              ...mobilePaneTabStyle,
-              color: active ? colors.fg0 : colors.fg2,
-              background: active ? colors.bg2 : "transparent",
-              borderColor: active ? colors.accent : colors.lineSoft,
-            }}
-          >
-            {terminal.id.slice(0, 4)}
-          </button>
-        );
-      })}
-      <button
-        type="button"
-        disabled={!isController}
-        onClick={onNew}
-        style={mobilePaneTabStyle}
-        title="New pane"
-      >
-        <Plus size={14} />
-      </button>
-    </div>
-  );
-}
-
-function MobilePaneDrawer({
-  groups,
-  activeGroupId,
-  activeTerminalId,
-  terminalsById,
-  isController,
-  onClose,
-  onGroupPick,
-  onPick,
-  onDestroy,
-  onNew,
-  onDeleteGroup,
-}: {
-  groups: WorkspaceGroup[];
-  activeGroupId: string | null;
-  activeTerminalId: string | null;
-  terminalsById: Map<string, TerminalInfo>;
-  isController: boolean;
-  onClose: () => void;
-  onGroupPick: (groupId: string) => void;
-  onPick: (terminalId: string) => void;
-  onDestroy: (terminal: TerminalInfo) => void;
-  onNew: () => void;
-  onDeleteGroup: (group: WorkspaceGroup) => void;
-}) {
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 70,
-        background: "rgba(0,0,0,0.52)",
-        display: "flex",
-        alignItems: "flex-end",
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          width: "100%",
-          maxHeight: "78dvh",
-          background: colors.bg1,
-          borderTop: `1px solid ${colors.line}`,
-          padding: "10px 10px 14px",
-          overflow: "auto",
-        }}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div
-          style={{ display: "flex", alignItems: "center", marginBottom: 10 }}
-        >
-          <strong style={{ color: colors.fg0, fontSize: 14 }}>Panes</strong>
-          <div style={{ flex: 1 }} />
-          <button type="button" onClick={onClose} style={drawerDoneButtonStyle}>
-            Done
-          </button>
-        </div>
-        {groups.map((group) => (
-          <div key={group.id} style={{ marginBottom: 12 }}>
-            <button
-              type="button"
-              onClick={() => onGroupPick(group.id)}
-              style={{
-                ...drawerGroupButtonStyle,
-                color: group.id === activeGroupId ? colors.fg0 : colors.fg2,
-              }}
-            >
-              {group.label}
-              <span style={{ color: colors.fg3 }}>{group.paneCount}</span>
-            </button>
-            {group.persistent && (
-              <button
-                type="button"
-                disabled={!isController}
-                onClick={() => onDeleteGroup(group)}
-                data-testid={`workspace-drawer-group-delete-${group.id}`}
-                style={{
-                  ...drawerNewButtonStyle,
-                  height: 30,
-                  marginBottom: 6,
-                  justifyContent: "flex-start",
-                  color: isController ? colors.danger : colors.fg3,
-                  opacity: isController ? 1 : 0.45,
-                }}
-              >
-                <Trash2 size={13} />
-                Delete group
-              </button>
-            )}
-            {collectIds(group.root).map((id) => {
-              const terminal = terminalsById.get(id);
-              if (!terminal) return null;
-              return (
-                <div key={id} style={drawerPaneRowStyle}>
-                  <button
-                    type="button"
-                    onClick={() => onPick(id)}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      textAlign: "left",
-                      background: "none",
-                      border: "none",
-                      color:
-                        id === activeTerminalId ? colors.accent : colors.fg1,
-                      padding: 0,
-                    }}
-                  >
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>
-                      {terminal.title || terminal.id.slice(0, 8)}
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 2,
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 10,
-                        color: colors.fg3,
-                        ...truncateStyle,
-                      }}
-                    >
-                      {shortenHome(terminal.cwd)}
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!isController}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onDestroy(terminal);
-                    }}
-                    style={smallIconButtonStyle}
-                    title="Close pane"
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-        <button
-          type="button"
-          disabled={!isController}
-          onClick={onNew}
-          style={drawerNewButtonStyle}
-        >
-          <Plus size={14} />
-          New pane
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function IconButton({
-  children,
-  title,
-  disabled = false,
-  testId,
-  onClick,
-}: {
-  children: ReactNode;
-  title: string;
-  disabled?: boolean;
-  testId?: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={title}
-      title={title}
-      data-testid={testId}
-      disabled={disabled}
-      onClick={onClick}
-      style={{
-        ...iconButtonStyle,
-        color: disabled ? colors.fg3 : colors.fg2,
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.45 : 1,
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-const iconButtonStyle: CSSProperties = {
-  width: 30,
-  height: 30,
-  borderRadius: 6,
-  border: `1px solid ${colors.lineSoft}`,
-  background: colors.bg2,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 0,
-  flexShrink: 0,
-};
-
-const smallIconButtonStyle: CSSProperties = {
-  width: 22,
-  height: 22,
-  borderRadius: 5,
-  border: "none",
-  background: "transparent",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 0,
-  color: colors.fg2,
-};
-
-const controlPillStyle: CSSProperties = {
-  height: 24,
-  borderRadius: 5,
-  border: `1px solid ${colorAlpha.accentLine}`,
-  background: colorAlpha.accentSoft,
-  color: colors.accent,
-  padding: "0 8px",
-  fontSize: 10.5,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  flexShrink: 0,
-  cursor: "pointer",
-};
-
-const mobileTitleButton: CSSProperties = {
-  height: 30,
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  borderRadius: 6,
-  border: `1px solid ${colors.lineSoft}`,
-  background: colors.bg2,
-  color: colors.fg0,
-  padding: "0 9px",
-  fontSize: 12,
-  fontWeight: 700,
-  minWidth: 0,
-  flex: 1,
-  cursor: "pointer",
-};
-
-const mobilePaneTabStyle: CSSProperties = {
-  height: 32,
-  minWidth: 44,
-  borderRadius: 6,
-  border: `1px solid ${colors.lineSoft}`,
-  background: "transparent",
-  color: colors.fg2,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "0 10px",
-  fontSize: 12,
-  fontWeight: 700,
-  flexShrink: 0,
-};
-
-const mobileGroupTabShellStyle: CSSProperties = {
-  height: 30,
-  maxWidth: 170,
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 4,
-  padding: "0 4px",
-  flexShrink: 0,
-};
-
-const mobileGroupTabSelectStyle: CSSProperties = {
-  minWidth: 0,
-  height: "100%",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 7,
-  border: "none",
-  background: "transparent",
-  padding: "0 5px",
-  fontSize: 12,
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const drawerDoneButtonStyle: CSSProperties = {
-  height: 30,
-  borderRadius: 6,
-  border: `1px solid ${colors.lineSoft}`,
-  background: colors.bg2,
-  color: colors.fg1,
-  padding: "0 10px",
-  fontSize: 12,
-};
-
-const drawerGroupButtonStyle: CSSProperties = {
-  width: "100%",
-  height: 28,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  background: "none",
-  border: "none",
-  padding: 0,
-  fontSize: 12,
-  fontWeight: 700,
-};
-
-const drawerPaneRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  minHeight: 48,
-  borderTop: `1px solid ${colors.lineSoft}`,
-  padding: "7px 0",
-};
-
 const drawerNewButtonStyle: CSSProperties = {
   width: "100%",
   height: 38,
@@ -2009,13 +1278,6 @@ const drawerNewButtonStyle: CSSProperties = {
   color: colors.fg1,
   fontSize: 13,
   fontWeight: 700,
-};
-
-const truncateStyle: CSSProperties = {
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  minWidth: 0,
 };
 
 function collectIds(root: WorkspacePaneNode | null): string[] {
@@ -2082,8 +1344,4 @@ function moveRelative<T>(
 
 function containsTerminal(root: WorkspacePaneNode | null, terminalId: string) {
   return collectIds(root).includes(terminalId);
-}
-
-function shortenHome(path: string): string {
-  return path.replace(/^\/home\/[^/]+/, "~");
 }

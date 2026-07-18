@@ -29,12 +29,9 @@ import { MobileWorkbench } from "./MobileWorkbench.web";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { Terminal as TerminalIcon } from "lucide-react";
 import {
-  createBookmark,
   createTerminal,
   destroyTerminal,
   checkForegroundProcess,
-  createWorkspaceGroup,
-  deleteWorkspaceGroup,
   assignTerminalWorkspaceGroup,
   eventsWsUrl,
   getBootstrap,
@@ -67,7 +64,7 @@ import { PrefixKeyProvider, usePrefixKey } from "@/lib/prefixKeyContext";
 import { CheatSheetOverlay } from "./CheatSheetOverlay.web";
 import { UpdateNotification } from "./UpdateNotification";
 import { useAuth } from "@/lib/auth";
-import { createTerminalWorkspace } from "@/lib/terminalWorkspaceLayout";
+import { collectGroupPaneTerminalIds, createTerminalWorkspace, type WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
 import {
   createInitialMainLayout,
   mainLayoutReducer,
@@ -123,23 +120,6 @@ function upsertTerminalInfo(
   const next = terminals.slice();
   next[index] = terminal;
   return next;
-}
-
-function upsertWorkspaceGroup(
-  groups: WorkspaceGroupInfo[],
-  group: WorkspaceGroupInfo,
-): WorkspaceGroupInfo[] {
-  const index = groups.findIndex((item) => item.id === group.id);
-  const next =
-    index === -1
-      ? [...groups, group]
-      : groups.map((item) => (item.id === group.id ? group : item));
-  return next.sort(
-    (a, b) =>
-      a.machine_id.localeCompare(b.machine_id) ||
-      a.sort_order - b.sort_order ||
-      a.name.localeCompare(b.name),
-  );
 }
 
 function replaceMachineWorkspaceGroups(
@@ -738,21 +718,6 @@ function TerminalCanvasInner() {
     window.history.pushState(null, "", `#/t/${id}`);
   }, []);
 
-  const handleUnzoom = useCallback(() => {
-    dispatchLayout({ type: "UNZOOM" });
-    window.history.pushState(null, "", window.location.pathname);
-  }, []);
-
-  const handleSelectWorkpath = useCallback(
-    (id: string) => {
-      dispatchLayout({ type: "SELECT_WORKPATH", workpathId: id });
-      if (window.location.hash.startsWith("#/t/")) {
-        window.history.pushState(null, "", window.location.pathname);
-      }
-    },
-    [],
-  );
-
   const handleSplitWorkspacePane = useCallback(
     async (terminal: TerminalInfo) => {
       return handleCreateTerminal(terminal.machine_id, terminal.cwd, undefined, {
@@ -777,19 +742,56 @@ function TerminalCanvasInner() {
     [handleCreateTerminal],
   );
 
-  const handleCreateWorkspaceGroup = useCallback(
-    async (machineId: string, name: string) => {
-      const group = await createWorkspaceGroup(machineId, name);
-      setBrowserState((prev) => ({
-        ...prev,
-        workspaceGroups: upsertWorkspaceGroup(prev.workspaceGroups, group),
-      }));
-      // Default new groups to scrollable mode so the DB row is created with the right layout_mode.
-      await handleSaveWorkspaceLayout(machineId, group.id, null, "scrollable", { columns: [] });
-      return group;
+  // Mobile session-strip actions: ＋ / "New terminal here" create in the
+  // group's cwd (machine home when there is no group); chip close goes
+  // through the shared destroy flow (running-process confirm included).
+  const handleMobileNewTerminal = useCallback(
+    (group: WorkspaceGroup | null) => {
+      if (!activeMachine) return;
+      void handleCreateWorkspacePane({
+        machineId: activeMachine.id,
+        cwd: group?.cwd || activeMachine.home_dir || "~",
+        workspaceGroupId: group?.workspaceGroupId ?? null,
+      });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [activeMachine, handleCreateWorkspacePane],
+  );
+
+  const handleMobileCloseTerminal = useCallback(
+    (target: TerminalInfo) => {
+      // Closing the active terminal moves to its strip-order neighbor so the
+      // shell doesn't land on an empty-group view. `wasActive` is captured
+      // synchronously: the terminal_destroyed event may clear the zoom
+      // before the destroy promise settles, which must not suppress the
+      // fallback pick.
+      const wasActive = zoomedTerminalIdRef.current === target.id;
+      const ids = collectGroupPaneTerminalIds(tabGroups).filter((id) =>
+        scopedTerminalsById.has(id),
+      );
+      const index = ids.indexOf(target.id);
+      const nextId =
+        index === -1 ? null : (ids[index + 1] ?? ids[index - 1] ?? null);
+      const pickFallback = () => {
+        if (!wasActive || !nextId) return;
+        handleZoomTerminal(nextId);
+      };
+      void (async () => {
+        try {
+          const result = await handleDestroyTerminal(target, {
+            afterAccepted: pickFallback,
+          });
+          if (result === "accepted") pickFallback();
+        } catch (error) {
+          console.error("Failed to close terminal", error);
+        }
+      })();
+    },
+    [
+      handleDestroyTerminal,
+      handleZoomTerminal,
+      scopedTerminalsById,
+      tabGroups,
+    ],
   );
 
   const handleReorderWorkspaceGroups = useCallback(
@@ -804,29 +806,6 @@ function TerminalCanvasInner() {
         ),
       }));
       return groups;
-    },
-    [],
-  );
-
-  const handleDeleteWorkspaceGroup = useCallback(
-    async (machineId: string, groupId: string) => {
-      await deleteWorkspaceGroup(machineId, groupId);
-      setBrowserState((prev) => ({
-        ...prev,
-        workspaceGroups: prev.workspaceGroups.filter(
-          (group) => !(group.machine_id === machineId && group.id === groupId),
-        ),
-        workspaceLayouts: prev.workspaceLayouts.filter(
-          (layout) =>
-            !(layout.machine_id === machineId && layout.group_key === groupId),
-        ),
-        terminals: prev.terminals.map((terminal) =>
-          terminal.machine_id === machineId &&
-          terminal.workspace_group_id === groupId
-            ? { ...terminal, workspace_group_id: null }
-            : terminal,
-        ),
-      }));
     },
     [],
   );
@@ -900,29 +879,6 @@ function TerminalCanvasInner() {
     scopeBookmark,
   ]);
 
-  const handleConfirmAddDirectory = useCallback(
-    async (machineId: string, path: string) => {
-      const parts = path.replace(/\/+$/, "").split("/");
-      const label = parts[parts.length - 1] || path;
-      try {
-        const bm = await createBookmark(machineId, path, label);
-        setBookmarks((prev) => [...prev, bm]);
-      } catch {
-        setBookmarks((prev) => [
-          ...prev,
-          {
-            id: `local-${Date.now()}`,
-            machine_id: machineId,
-            path,
-            label,
-            sort_order: prev.length,
-          },
-        ]);
-      }
-    },
-    [],
-  );
-
   // ---- prefix-key shortcut engine (⌃B) ----
   // The engine singleton lives in PrefixKeyProvider; this window listener is
   // the only place keydowns enter it. Workspace-owned actions (splits, pane
@@ -984,8 +940,10 @@ function TerminalCanvasInner() {
 
   // Esc unzooms the expanded view, unless focus is inside xterm (which needs
   // Esc for its own bindings — the expanded overlay handles that case).
+  // Desktop only: on mobile the workspace is the shell itself, there is no
+  // overlay to dismiss.
   useEffect(() => {
-    if (!layout.zoomedTerminalId) return;
+    if (isMobile || !layout.zoomedTerminalId) return;
     const onKey = (e: KeyboardEvent) => {
       if (
         e.key === "Escape" &&
@@ -999,7 +957,7 @@ function TerminalCanvasInner() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [layout.zoomedTerminalId]);
+  }, [isMobile, layout.zoomedTerminalId]);
 
   // ---- render ----
 
@@ -1144,19 +1102,40 @@ function TerminalCanvasInner() {
               controlLeases={controlLeases}
               deviceId={deviceId}
               machineStats={machineStats}
-              bookmarks={bookmarks}
               terminals={terminals}
-              selectedWorkpathId={layout.selectedWorkpathId}
+              groups={tabGroups}
+              activeTerminalId={workspaceTerminal?.id ?? null}
               canCreateTerminal={isActiveController}
+              onPickTerminal={handleZoomTerminal}
+              onNewTerminal={handleMobileNewTerminal}
+              onCloseTerminal={handleMobileCloseTerminal}
               onSelectMachine={setActiveMachineId}
-              onSelectWorkpath={handleSelectWorkpath}
-              onAddWorkpath={handleConfirmAddDirectory}
-              onOpenTerminal={handleZoomTerminal}
-              onNewTerminal={handleNewTerminalFromHeader}
+              onAddMachine={() => setAddMachineOpen(true)}
               onRequestControl={handleRequestControl}
               onReleaseControl={handleReleaseControl}
               onOpenSettings={() => setShowSettings(true)}
-            />
+            >
+              {scopedTerminals.length > 0 && workspaceTerminal ? (
+                <TerminalWorkspace
+                  terminal={workspaceTerminal}
+                  siblings={scopedTerminals}
+                  workspaceGroups={activeMachineWorkspaceGroups}
+                  workspaceLayouts={activeMachineWorkspaceLayouts}
+                  isController={isMachineController(workspaceTerminal.machine_id)}
+                  deviceId={deviceId ?? ""}
+                  isMobile={true}
+                  onPick={handleZoomTerminal}
+                  onDestroy={handleDestroyTerminal}
+                  onSplit={handleSplitWorkspacePane}
+                  onCreatePane={handleCreateWorkspacePane}
+                  onReorderGroups={handleReorderWorkspaceGroups}
+                  onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
+                  onAssignGroup={handleAssignWorkspaceGroup}
+                  onRequestControl={handleRequestControl}
+                  onReleaseControl={handleReleaseControl}
+                />
+              ) : null}
+            </MobileWorkbench>
           ) : (
             <main
               style={{
@@ -1219,14 +1198,11 @@ function TerminalCanvasInner() {
                   isController={isMachineController(workspaceTerminal!.machine_id)}
                   deviceId={deviceId ?? ""}
                   isMobile={isMobile}
-                  onClose={handleUnzoom}
                   onPick={handleZoomTerminal}
                   onDestroy={handleDestroyTerminal}
                   onSplit={handleSplitWorkspacePane}
                   onCreatePane={handleCreateWorkspacePane}
-                  onCreateGroup={handleCreateWorkspaceGroup}
                   onReorderGroups={handleReorderWorkspaceGroups}
-                  onDeleteGroup={handleDeleteWorkspaceGroup}
                   onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
                   onAssignGroup={handleAssignWorkspaceGroup}
                   onRequestControl={handleRequestControl}
@@ -1238,36 +1214,6 @@ function TerminalCanvasInner() {
             </main>
           )}
         </div>
-
-        {isMobile && layout.zoomedTerminalId && workspaceTerminal && (
-          <TerminalWorkspace
-            terminal={workspaceTerminal}
-            siblings={
-              scopedTerminals.length > 0
-                ? scopedTerminals
-                : workspaceTerminal
-                  ? [workspaceTerminal]
-                  : []
-            }
-            workspaceGroups={activeMachineWorkspaceGroups}
-            workspaceLayouts={activeMachineWorkspaceLayouts}
-            isController={isMachineController(workspaceTerminal.machine_id)}
-            deviceId={deviceId ?? ""}
-            isMobile={true}
-            onClose={handleUnzoom}
-            onPick={handleZoomTerminal}
-            onDestroy={handleDestroyTerminal}
-            onSplit={handleSplitWorkspacePane}
-            onCreatePane={handleCreateWorkspacePane}
-            onCreateGroup={handleCreateWorkspaceGroup}
-            onReorderGroups={handleReorderWorkspaceGroups}
-            onDeleteGroup={handleDeleteWorkspaceGroup}
-            onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
-            onAssignGroup={handleAssignWorkspaceGroup}
-            onRequestControl={handleRequestControl}
-            onReleaseControl={handleReleaseControl}
-          />
-        )}
 
         {!isMobile && (
           // Tauri updater toast — floating bottom-right mount, replaces the
