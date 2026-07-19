@@ -50,6 +50,8 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          build-args: |
+            BUILD_ID=${{ github.sha }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
