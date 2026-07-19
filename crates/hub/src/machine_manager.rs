@@ -853,6 +853,46 @@ impl MachineManager {
                     return;
                 }
             }
+            MachineToHub::TerminalTitle {
+                terminal_id,
+                title,
+                source,
+            } => {
+                let outcome = match self.db.get() {
+                    Ok(db_conn) => crate::db::terminal_sessions::apply_title_update(
+                        &db_conn,
+                        &terminal_id,
+                        &title,
+                        source,
+                    )
+                    .map_err(|error| error.to_string()),
+                    Err(error) => Err(error.to_string()),
+                };
+                match outcome {
+                    Ok(crate::db::terminal_sessions::TitleUpdateOutcome::Updated) => {
+                        let mut machines = self.machines.lock().await;
+                        if let Some(conn) = machines.get_mut(machine_id) {
+                            let target_user_id = conn.user_id.clone();
+                            if let Some(terminal) = conn.terminals.get_mut(&terminal_id) {
+                                terminal.title = title;
+                                let terminal = terminal.clone();
+                                drop(machines);
+                                self.send_event(
+                                    target_user_id,
+                                    BrowserEvent::TerminalUpdated { terminal },
+                                );
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        tracing::warn!(
+                            terminal_id = %terminal_id,
+                            "Failed to apply terminal title update: {error}"
+                        );
+                    }
+                }
+            }
             MachineToHub::FsListResult {
                 request_id,
                 entries,
@@ -898,6 +938,9 @@ impl MachineManager {
                         if let Some(persisted_terminal) = persisted_by_id.get(&terminal.id) {
                             terminal.workspace_group_id =
                                 persisted_terminal.workspace_group_id.clone();
+                            // Titles are hub-authoritative so an older machine
+                            // sidecar cannot erase an OSC-derived title.
+                            terminal.title = persisted_terminal.title.clone();
                         }
                         conn.terminals.insert(terminal.id.clone(), terminal.clone());
 

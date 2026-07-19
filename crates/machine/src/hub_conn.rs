@@ -2,11 +2,14 @@ use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use std::sync::Arc;
 use std::time::Duration;
-use tc_protocol::{encode_attach_output_frame, DirEntry, HubToMachine, MachineToHub};
+use tc_protocol::{
+    encode_attach_output_frame, DirEntry, HubToMachine, MachineToHub, TerminalTitleSource,
+};
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::attach::{AttachEvent, AttachManager};
+use crate::osc_title::OscTitleScanner;
 use crate::pty::{tmux_resize_window, PtyManager};
 use crate::session_watcher::SessionWatcher;
 use crate::stats::should_emit_stats;
@@ -179,6 +182,32 @@ impl HubConnection {
             }
         });
 
+        // Foreground process names are the fallback while no OSC title has
+        // won. The hub owns precedence and ignores these reports after OSC.
+        let pty_for_titles = pty.clone();
+        let send_tx_for_titles = send_tx.clone();
+        let mut title_fallback_task = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                for terminal_id in pty_for_titles.list_terminal_ids() {
+                    let (_, process_name) = pty_for_titles.check_foreground_process(&terminal_id);
+                    if send_tx_for_titles
+                        .send(OutboundHubMessage::Json(MachineToHub::TerminalTitle {
+                            terminal_id,
+                            title: process_name.unwrap_or_default(),
+                            source: TerminalTitleSource::Process,
+                        }))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            }
+        });
+
         // Task: forward send_tx messages to WebSocket, with periodic WS ping
         let mut send_task = tokio::spawn(async move {
             let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
@@ -251,12 +280,14 @@ impl HubConnection {
             _ = &mut send_task => {},
             _ = &mut recv_task => {},
             _ = &mut stats_task => {},
+            _ = &mut title_fallback_task => {},
         }
 
         // Abort all tasks to ensure full cleanup
         send_task.abort();
         recv_task.abort();
         stats_task.abort();
+        title_fallback_task.abort();
 
         // Kill every per-attach tmux client we spawned for this hub
         // connection — when hub comes back, browsers will reattach freshly.
@@ -392,14 +423,41 @@ async fn handle_hub_message(
             cols,
             rows,
         } => {
+            let scanner_terminal_id = terminal_id.clone();
             let mut events_rx = attach_mgr
                 .open(attach_id.clone(), terminal_id, cols, rows)
                 .await;
             let send_tx = send_tx.clone();
             tokio::spawn(async move {
+                let mut scanner = OscTitleScanner::new();
+                let mut last_observed_title: Option<String> = None;
+                let mut debounce_task: Option<tokio::task::JoinHandle<()>> = None;
                 while let Some(ev) = events_rx.recv().await {
                     match ev {
                         AttachEvent::Output(bytes) => {
+                            for title in scanner.push(&bytes) {
+                                if last_observed_title.as_deref() == Some(title.as_str()) {
+                                    continue;
+                                }
+                                last_observed_title = Some(title.clone());
+                                if let Some(task) = debounce_task.take() {
+                                    task.abort();
+                                }
+                                let send_title = send_tx.clone();
+                                let terminal_id = scanner_terminal_id.clone();
+                                debounce_task = Some(tokio::spawn(async move {
+                                    tokio::time::sleep(Duration::from_millis(300)).await;
+                                    let _ = send_title
+                                        .send(OutboundHubMessage::Json(
+                                            MachineToHub::TerminalTitle {
+                                                terminal_id,
+                                                title,
+                                                source: TerminalTitleSource::Osc,
+                                            },
+                                        ))
+                                        .await;
+                                }));
+                            }
                             if send_tx
                                 .send(OutboundHubMessage::AttachOutput {
                                     attach_id: attach_id.clone(),

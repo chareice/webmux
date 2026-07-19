@@ -46,7 +46,7 @@ function group(
 }
 
 describe("buildMobileSessionGroups", () => {
-  it("groups panes in workspace order and only prefixes the first chip with its group", () => {
+  it("groups panes in workspace order", () => {
     const result = buildMobileSessionGroups(
       [group("alpha", "Alpha", ["one", "two"]), group("beta", "Beta", ["three"])],
       [
@@ -58,15 +58,11 @@ describe("buildMobileSessionGroups", () => {
 
     expect(result.map((entry) => entry.panes.length)).toEqual([2, 1]);
     expect(
-      result.flatMap((entry) => entry.panes.map((pane) => pane.chipLabel)),
-    ).toEqual([
-      "Alpha · Terminal One",
-      "Terminal Two",
-      "Beta · Terminal Three",
-    ]);
+      result.flatMap((entry) => entry.panes.map((pane) => pane.terminal.id)),
+    ).toEqual(["one", "two", "three"]);
   });
 
-  it("prefixes the first available chip when a stale layout leaf is missing", () => {
+  it("skips stale layout leaves", () => {
     const result = buildMobileSessionGroups(
       [group("alpha", "Alpha", ["missing", "one", "two"])],
       [
@@ -75,9 +71,9 @@ describe("buildMobileSessionGroups", () => {
       ],
     );
 
-    expect(result[0]?.panes.map((pane) => pane.chipLabel)).toEqual([
-      "Alpha · Terminal One",
-      "Terminal Two",
+    expect(result[0]?.panes.map((pane) => pane.terminal.id)).toEqual([
+      "one",
+      "two",
     ]);
   });
 });

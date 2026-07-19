@@ -132,6 +132,7 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             id TEXT PRIMARY KEY,
             machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
             title TEXT NOT NULL,
+            title_source TEXT NOT NULL DEFAULT 'none',
             cwd TEXT NOT NULL,
             workspace_group_id TEXT REFERENCES workspace_groups(id) ON DELETE SET NULL,
             cols INTEGER NOT NULL,
@@ -156,6 +157,13 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     if !column_exists(conn, "terminal_sessions", "workspace_group_id")? {
         conn.execute(
             "ALTER TABLE terminal_sessions ADD COLUMN workspace_group_id TEXT REFERENCES workspace_groups(id) ON DELETE SET NULL",
+            [],
+        )?;
+    }
+
+    if !column_exists(conn, "terminal_sessions", "title_source")? {
+        conn.execute(
+            "ALTER TABLE terminal_sessions ADD COLUMN title_source TEXT NOT NULL DEFAULT 'none'",
             [],
         )?;
     }

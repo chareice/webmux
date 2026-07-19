@@ -92,6 +92,13 @@ impl PtyManager {
             return Err(format!("tmux new-session failed (exit {})", status));
         }
 
+        // tmux initializes every pane title to the host name. With
+        // set-titles-string "#T", that metadata would otherwise be emitted
+        // as OSC 0 to each attached client and mistaken for an application
+        // title. Start empty; a real OSC 0/2 from the pane can still replace
+        // it normally.
+        let _ = tmux_cmd().args(clear_pane_title_args(&tmux_name)).status();
+
         // Pin the window size to "manual" *after* the session exists, so
         // browser attaches with different viewport sizes don't tug the
         // window. The session's size is whatever new-session set it to;
@@ -132,7 +139,7 @@ impl PtyManager {
 
         let info = SessionInfo {
             id: id.to_string(),
-            title: format!("Terminal {}", &id[..8.min(id.len())]),
+            title: String::new(),
             cwd: cwd.to_string(),
             cols,
             rows,
@@ -367,6 +374,8 @@ unbind C-b
 set -g mouse on
 set -s set-clipboard on
 set -g allow-passthrough on
+set -g set-titles on
+set -g set-titles-string \"#T\"
 set -g focus-events on
 set -g history-limit 10000
 bind -n WheelUpPane if -Ft= '#{mouse_any_flag}' 'send -M' 'if -Ft= \"#{pane_in_mode}\" \"send -M\" \"copy-mode -e\"'
@@ -435,6 +444,10 @@ pub fn check_tmux_available() -> bool {
 
 pub fn tmux_session_name(id: &str) -> String {
     format!("{}{}", TMUX_PREFIX, id)
+}
+
+fn clear_pane_title_args(tmux_name: &str) -> [&str; 7] {
+    ["-L", TMUX_SOCKET, "select-pane", "-t", tmux_name, "-T", ""]
 }
 
 fn sessions_file_path() -> PathBuf {
@@ -606,6 +619,18 @@ mod tests {
     #[test]
     fn tmux_config_contains_mouse_and_clipboard() {
         let content = build_tmux_config("/tmp/osc52copy.sh", "/tmp/tmux.user.conf");
+        assert!(
+            content.contains("set -g set-titles on"),
+            "tmux must emit pane title changes to attached clients"
+        );
+        assert!(
+            content.contains("set -g set-titles-string \"#T\""),
+            "tmux client titles must contain only the pane title"
+        );
+        assert!(
+            !content.contains("#S:#I:#W"),
+            "tmux client titles must not add session or window decoration"
+        );
         assert!(content.contains("set -g mouse on"), "missing mouse on");
         assert!(
             content.contains("set -s set-clipboard on"),
@@ -653,5 +678,21 @@ mod tests {
         assert!(!is_shell_name("python"));
         assert!(!is_shell_name("cargo"));
         assert!(!is_shell_name("node"));
+    }
+
+    #[test]
+    fn clear_pane_title_targets_the_new_sessions_active_pane() {
+        assert_eq!(
+            clear_pane_title_args("wmx_terminal-a"),
+            [
+                "-L",
+                TMUX_SOCKET,
+                "select-pane",
+                "-t",
+                "wmx_terminal-a",
+                "-T",
+                ""
+            ]
+        );
     }
 }

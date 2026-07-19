@@ -25,6 +25,7 @@ import type {
 } from "@webmux/shared";
 import { Lock, Plus } from "lucide-react";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
+import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
 import { collectPaneTerminalIds, type WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
 import { HostSwitcher } from "./HostSwitcher.web";
 
@@ -406,8 +407,10 @@ function groupAnnotation(
   const paneIds = collectPaneTerminalIds(group.root);
   const titles: string[] = [];
   for (const id of paneIds) {
-    const title = terminalsById.get(id)?.title ?? "";
-    if (title && !titles.includes(title)) titles.push(title);
+    const terminal = terminalsById.get(id);
+    if (!terminal) continue;
+    const title = displayTerminalTitle(terminal);
+    if (!titles.includes(title)) titles.push(title);
   }
   if (titles.length === 0) return null;
   if (paneIds.length === 1 && titles.length === 1 && titles[0] === group.label) {

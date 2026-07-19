@@ -447,10 +447,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // event is sent immediately. The optional transform hook is the
       // mobile Ctrl latch — it rewrites the armed key to its control byte.
       term.onData((data) => {
-        const filteredData = filterBrowserGeneratedTerminalInput(data);
-        if (!filteredData) return;
+        const userInput = filterBrowserGeneratedTerminalInput(data);
+        if (!userInput) return;
         const transformed =
-          inputTransformRef?.current?.(filteredData) ?? filteredData;
+          inputTransformRef?.current?.(userInput) ?? userInput;
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
           ws.send(JSON.stringify({ type: "input", data: transformed }));

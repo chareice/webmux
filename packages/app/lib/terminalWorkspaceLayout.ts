@@ -367,7 +367,7 @@ export function groupPaneTerminalIds(group: WorkspaceGroup): string[] {
 }
 
 // Flat order across groups (persistent by sort_order, then cwd fallback) —
-// the mobile session-strip / edge-swipe order.
+// the mobile title-bar / edge-swipe session order.
 export function collectGroupPaneTerminalIds(groups: WorkspaceGroup[]): string[] {
   return groups.flatMap((group) => groupPaneTerminalIds(group));
 }

@@ -13,6 +13,7 @@ import {
   getTerminalViewJustify,
   getTerminalViewScale,
   listTerminals,
+  mobileOpenHostSheet,
   mobileTakeControl,
   openApp,
   resetMachineState,
@@ -62,7 +63,7 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   // An unlocked viewer can open the keyboard and implicitly claim by typing;
   // the host sheet keeps the explicit "Take control" path as well.
   await expect(mobilePage.getByTitle("Show keyboard")).toBeVisible();
-  await mobilePage.getByTestId("mobile-host-button").click();
+  await mobileOpenHostSheet(mobilePage);
   await expect(mobilePage.getByTestId("mobile-control-toggle")).toHaveText(
     "Take control",
   );
@@ -140,7 +141,7 @@ test("terminal can be manually fitted by whichever device currently holds contro
   // Hand control back to desktop via the TabBar's viewing pill.
   await desktopPage.getByTestId("workbench-request-control").click();
   await expect(desktopPage.getByTestId("workbench-request-control")).toHaveCount(0);
-  await mobilePage.getByTestId("mobile-host-button").click();
+  await mobileOpenHostSheet(mobilePage);
   await expect(mobilePage.getByTestId("mobile-control-toggle")).toHaveText(
     "Take control",
   );
