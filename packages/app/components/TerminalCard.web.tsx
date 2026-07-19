@@ -10,11 +10,15 @@ import { ctrlLatchTransform } from "@/lib/ctrlLatch";
 import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
 import { useVisualViewportHeight } from "@/lib/hooks";
 import { getMobileViewportTerminalAction } from "@/lib/mobileViewportTerminal";
+import { lazyWithReload } from "@/lib/lazyWithReload";
+import { LazyLoadingFallback } from "./LazyLoadingFallback";
 
 const LiveTerminalView = lazy(() =>
-  import("./TerminalView.web").then((module) => ({
-    default: module.TerminalView,
-  })),
+  lazyWithReload(() =>
+    import("./TerminalView.web").then((module) => ({
+      default: module.TerminalView,
+    })),
+  ),
 );
 
 const FIT_REF_RETRY_LIMIT = 10;
@@ -509,21 +513,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
           }}>
             {terminal.reachable && isTab ? (
               <Suspense
-                fallback={
-                  <div
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: colors.foregroundSecondary,
-                      fontSize: 12,
-                    }}
-                  >
-                    Loading terminal…
-                  </div>
-                }
+                fallback={<LazyLoadingFallback />}
               >
                 <LiveTerminalView
                   key={terminal.id}

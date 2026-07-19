@@ -1,11 +1,14 @@
 import { lazy, Suspense } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { useColors } from "@/lib/theme";
+import { lazyWithReload } from "@/lib/lazyWithReload";
 
 const WebTerminalCanvas = lazy(() =>
-  import("../components/TerminalCanvas.web").then((module) => ({
-    default: module.TerminalCanvas,
-  })),
+  lazyWithReload(() =>
+    import("../components/TerminalCanvas.web").then((module) => ({
+      default: module.TerminalCanvas,
+    })),
+  ),
 );
 
 export default function HomeScreen() {

@@ -76,17 +76,27 @@ import {
 import { TerminalPreviewMuxProvider } from "@/lib/terminalPreviewMuxReact";
 import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 import { readViewOnlyLock, writeViewOnlyLock } from "@/lib/viewOnlyLock";
+import { lazyWithReload } from "@/lib/lazyWithReload";
+import { LazyLoadingFallback } from "./LazyLoadingFallback";
 
 const OnboardingView = lazy(() =>
-  import("./OnboardingView.web").then((module) => ({
-    default: module.OnboardingView,
-  })),
+  lazyWithReload(() =>
+    import("./OnboardingView.web").then((module) => ({
+      default: module.OnboardingView,
+    })),
+  ),
 );
 const SettingsPage = lazy(() =>
-  import("./SettingsPage").then((module) => ({ default: module.SettingsPage })),
+  lazyWithReload(() =>
+    import("./SettingsPage").then((module) => ({ default: module.SettingsPage })),
+  ),
 );
 const ConfirmDialog = lazy(() =>
-  import("./ConfirmDialog").then((module) => ({ default: module.ConfirmDialog })),
+  lazyWithReload(() =>
+    import("./ConfirmDialog").then((module) => ({
+      default: module.ConfirmDialog,
+    })),
+  ),
 );
 
 // Prefix actions owned by TerminalCanvas (workspace-owned actions are
@@ -1227,11 +1237,11 @@ function TerminalCanvasInner() {
           }}
         >
           {showSettings ? (
-            <Suspense fallback={null}>
+            <Suspense fallback={<LazyLoadingFallback />}>
               <SettingsPage onClose={() => setShowSettings(false)} />
             </Suspense>
           ) : machines.length === 0 ? (
-            <Suspense fallback={null}>
+            <Suspense fallback={<LazyLoadingFallback />}>
               <OnboardingView />
             </Suspense>
           ) : isMobile ? (
@@ -1422,7 +1432,7 @@ function TerminalCanvasInner() {
         )}
 
         {closeConfirmation && (
-          <Suspense fallback={null}>
+          <Suspense fallback={<LazyLoadingFallback />}>
             <ConfirmDialog
               open
               title="Close terminal?"

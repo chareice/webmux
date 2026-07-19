@@ -1,8 +1,12 @@
 import { forwardRef, lazy, Suspense } from "react";
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
+import { LazyLoadingFallback } from "./LazyLoadingFallback";
+import { lazyWithReload } from "@/lib/lazyWithReload";
 
 const LazyImpl = lazy(() =>
-  import("./TerminalView.xterm").then((m) => ({ default: m.TerminalView })),
+  lazyWithReload(() =>
+    import("./TerminalView.xterm").then((m) => ({ default: m.TerminalView })),
+  ),
 );
 
 export type { TerminalViewRef, TerminalViewProps };
@@ -10,7 +14,7 @@ export type { TerminalViewRef, TerminalViewProps };
 export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
   function TerminalView(props, ref) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<LazyLoadingFallback />}>
         <LazyImpl ref={ref} {...props} />
       </Suspense>
     );
