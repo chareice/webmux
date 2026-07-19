@@ -14,6 +14,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -163,23 +164,31 @@ function TabBarComponent({
     y: number;
   } | null>(null);
 
-  const tabMenuItems: ContextMenuEntry[] = tabMenu
-    ? [
-        {
-          label: "New tab",
-          disabled: !isController,
-          onClick: onNewGroup,
-        },
-        { type: "separator" },
-        {
-          label: `Delete tab "${tabMenu.group.label}"`,
-          // cwd fallback groups only exist while their panes do — there is
-          // nothing to delete; persistent groups are user-owned rows.
-          disabled: !tabMenu.group.persistent || !isController,
-          onClick: () => onDeleteGroup(tabMenu.group),
-        },
-      ]
-    : [];
+  // Menu content must be referentially stable while open: the bar re-renders
+  // every second with fresh stats, and an unstable subtree makes the menu
+  // jitter (Playwright "element is not stable" flakes on slow runners).
+  const closeTabMenu = useCallback(() => setTabMenu(null), []);
+  const tabMenuItems = useMemo<ContextMenuEntry[]>(
+    () =>
+      tabMenu
+        ? [
+            {
+              label: "New tab",
+              disabled: !isController,
+              onClick: onNewGroup,
+            },
+            { type: "separator" },
+            {
+              label: `Delete tab "${tabMenu.group.label}"`,
+              // cwd fallback groups only exist while their panes do — there
+              // is nothing to delete; persistent groups are user-owned rows.
+              disabled: !tabMenu.group.persistent || !isController,
+              onClick: () => onDeleteGroup(tabMenu.group),
+            },
+          ]
+        : [],
+    [tabMenu, isController, onNewGroup, onDeleteGroup],
+  );
 
   return (
     <div
@@ -325,7 +334,7 @@ function TabBarComponent({
           x={tabMenu.x}
           y={tabMenu.y}
           items={tabMenuItems}
-          onClose={() => setTabMenu(null)}
+          onClose={closeTabMenu}
         />
       )}
 

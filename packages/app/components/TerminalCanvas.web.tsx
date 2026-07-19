@@ -1052,6 +1052,10 @@ function TerminalCanvasInner() {
     [activeMachineId],
   );
 
+  const handleNewGroupClick = useCallback(() => {
+    void handleNewGroup();
+  }, [handleNewGroup]);
+
   const handleDeleteGroup = useCallback(
     (group: WorkspaceGroup) => {
       if (!isActiveController) return;
@@ -1363,7 +1367,7 @@ function TerminalCanvasInner() {
                 onSelectGroup={(groupId) =>
                   workspaceCommandsRef.current.selectGroup?.(groupId)
                 }
-                onNewGroup={() => void handleNewGroup()}
+                onNewGroup={handleNewGroupClick}
                 onDeleteGroup={handleDeleteGroup}
                 onReorderGroups={(sourceGroupId, targetGroupId, placement) =>
                   workspaceCommandsRef.current.reorderGroups?.(
