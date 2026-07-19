@@ -8,16 +8,11 @@ import {
 export interface MobileSessionPane {
   terminal: TerminalInfo;
   group: WorkspaceGroup;
-  chipLabel: string;
 }
 
 export interface MobileSessionGroup {
   group: WorkspaceGroup;
   panes: MobileSessionPane[];
-}
-
-function terminalTitle(terminal: TerminalInfo): string {
-  return terminal.title || terminal.id.slice(0, 8);
 }
 
 export function buildMobileSessionGroups(
@@ -34,14 +29,7 @@ export function buildMobileSessionGroups(
         const terminal = terminalsById.get(terminalId);
         return terminal ? [terminal] : [];
       })
-      .map((terminal, index) => {
-        const title = terminalTitle(terminal);
-        return {
-          terminal,
-          group,
-          chipLabel: index === 0 ? `${group.label} · ${title}` : title,
-        };
-      });
+      .map((terminal) => ({ terminal, group }));
     return panes.length > 0 ? [{ group, panes }] : [];
   });
 }

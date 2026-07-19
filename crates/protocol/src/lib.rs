@@ -29,6 +29,13 @@ fn default_reachable() -> bool {
     true
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalTitleSource {
+    Osc,
+    Process,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DirEntry {
     pub name: String,
@@ -221,6 +228,12 @@ pub enum MachineToHub {
         terminal_id: String,
         cols: u16,
         rows: u16,
+    },
+    #[serde(rename = "terminal_title")]
+    TerminalTitle {
+        terminal_id: String,
+        title: String,
+        source: TerminalTitleSource,
     },
     #[serde(rename = "pong")]
     Pong,

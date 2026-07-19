@@ -1,12 +1,12 @@
 // Mobile workbench shell (P1). Rendered when the viewport is below 768px.
-// Permanent chrome is exactly two elements: the session strip on top and
+// Permanent chrome is exactly two elements: the session title bar on top and
 // the extended key bar at the bottom (the key bar renders inside
 // TerminalCard); the active terminal fills everything between them. The old
 // 3-tab bottom nav (Hosts/Terminals/Stats), the app bar, the FAB and the
 // card-list landing are gone — the app opens straight into the last-active
 // terminal. Host switching, control toggling, reconnect and settings live
-// in the host sheet (strip right end); per-chip actions live in the
-// long-press sheet. See SPEC-PHASE3.md and the design doc §4.
+// in the host sheet (reached through the session switcher header); per-session
+// actions live in the long-press sheet. See SPEC-PHASE3.md and the design doc §4.
 
 import {
   memo,
@@ -33,13 +33,12 @@ import {
   X,
 } from "lucide-react";
 import { colors } from "@/lib/colors";
+import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
 import {
   buildMobileSessionGroups,
   type MobileSessionPane,
 } from "@/lib/mobileSessionSwitcher";
 import type { WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
-
-type StripChip = MobileSessionPane;
 
 interface MobileWorkbenchProps {
   machines: MachineInfo[];
@@ -48,10 +47,10 @@ interface MobileWorkbenchProps {
   deviceId: string | null;
   machineStats: Record<string, ResourceStats>;
   rttMs: number | null;
-  // All terminals across machines (the strip scopes them to the active
+  // All terminals across machines (the title bar scopes them to the active
   // machine via `groups`; the host sheet needs the full list for counts).
   terminals: TerminalInfo[];
-  // Strip order: persistent groups by sort_order, then cwd fallback groups
+  // Session order: persistent groups by sort_order, then cwd fallback groups
   // (same grouping the desktop TabBar renders).
   groups: WorkspaceGroup[];
   activeTerminalId: string | null;
@@ -98,7 +97,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
 
   const [hostSheetOpen, setHostSheetOpen] = useState(false);
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
-  const [chipSheet, setChipSheet] = useState<StripChip | null>(null);
+  const [chipSheet, setChipSheet] = useState<MobileSessionPane | null>(null);
 
   const activeMachine =
     machines.find((m) => m.id === activeMachineId) ?? machines[0] ?? null;
@@ -108,7 +107,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     deviceId !== null &&
     controlLeases[activeMachine.id] === deviceId;
 
-  // Strip chips only cover the active machine; the empty state keys off the
+  // Sessions only cover the active machine; the empty state keys off the
   // same scoped list the canvas uses to decide whether to mount the
   // workspace.
   const scopedTerminals = useMemo(() => {
@@ -125,8 +124,12 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     [sessionGroups],
   );
 
-  const activeGroup =
-    chips.find((chip) => chip.terminal.id === activeTerminalId)?.group ?? null;
+  const activeChip =
+    chips.find((chip) => chip.terminal.id === activeTerminalId) ?? null;
+  const activeGroup = activeChip?.group ?? null;
+  const activePosition = activeChip
+    ? chips.findIndex((chip) => chip.terminal.id === activeChip.terminal.id) + 1
+    : 0;
 
   // Prev/next in strip order; no wraparound at either end.
   const switchTerminalByOffset = useCallback(
@@ -138,6 +141,81 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
       if (next) onPickTerminal(next);
     },
     [chips, activeTerminalId, onPickTerminal],
+  );
+
+  const titleBarTimerRef = useRef<number | null>(null);
+  const titleBarTouchRef = useRef<{
+    x: number;
+    y: number;
+    allowSwipe: boolean;
+  } | null>(null);
+  const suppressTitleBarClickRef = useRef(false);
+  const cancelTitleBarTimer = useCallback(() => {
+    if (titleBarTimerRef.current !== null) {
+      window.clearTimeout(titleBarTimerRef.current);
+      titleBarTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => cancelTitleBarTimer, [cancelTitleBarTimer]);
+
+  const handleTitleBarTouchStart = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const touch = event.touches[0];
+      suppressTitleBarClickRef.current = false;
+      cancelTitleBarTimer();
+      titleBarTouchRef.current = touch
+        ? {
+            x: touch.clientX,
+            y: touch.clientY,
+            allowSwipe:
+              !(event.target instanceof Element) ||
+              !event.target.closest("[data-title-bar-swipe='ignore']"),
+          }
+        : null;
+      if (!activeChip) return;
+      titleBarTimerRef.current = window.setTimeout(() => {
+        titleBarTimerRef.current = null;
+        suppressTitleBarClickRef.current = true;
+        setChipSheet(activeChip);
+      }, 500);
+    },
+    [activeChip, cancelTitleBarTimer],
+  );
+
+  const handleTitleBarTouchMove = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const start = titleBarTouchRef.current;
+      const touch = event.touches[0];
+      if (!start || !touch) return;
+      if (
+        Math.abs(touch.clientX - start.x) > 10 ||
+        Math.abs(touch.clientY - start.y) > 10
+      ) {
+        cancelTitleBarTimer();
+      }
+    },
+    [cancelTitleBarTimer],
+  );
+
+  const handleTitleBarTouchEnd = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      cancelTitleBarTimer();
+      const start = titleBarTouchRef.current;
+      titleBarTouchRef.current = null;
+      const touch = event.changedTouches[0];
+      if (!start || !touch || suppressTitleBarClickRef.current) return;
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      if (
+        start.allowSwipe &&
+        Math.abs(dx) >= 48 &&
+        Math.abs(dx) > Math.abs(dy)
+      ) {
+        suppressTitleBarClickRef.current = true;
+        switchTerminalByOffset(dx < 0 ? 1 : -1);
+      }
+    },
+    [cancelTitleBarTimer, switchTerminalByOffset],
   );
 
   // Edge swipe: a horizontal swipe that STARTS within 24px of the left/right
@@ -218,6 +296,8 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
       data-testid="mobile-workbench"
       style={{
         height: "100%",
+        flex: 1,
+        minWidth: 0,
         display: "flex",
         flexDirection: "column",
         background: colors.bg0,
@@ -226,72 +306,117 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         position: "relative",
       }}
     >
-      {/* Session strip */}
+      {/* Mobile V1 session title bar */}
       <div
-        data-testid="mobile-session-strip"
+        data-testid="mobile-title-bar"
+        role="button"
+        tabIndex={0}
+        aria-label="Open session switcher"
+        onTouchStart={handleTitleBarTouchStart}
+        onTouchMove={handleTitleBarTouchMove}
+        onTouchEnd={handleTitleBarTouchEnd}
+        onTouchCancel={() => {
+          cancelTitleBarTimer();
+          titleBarTouchRef.current = null;
+        }}
+        onContextMenu={(event) => event.preventDefault()}
+        onClick={() => {
+          if (suppressTitleBarClickRef.current) {
+            suppressTitleBarClickRef.current = false;
+            return;
+          }
+          setSessionSwitcherOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setSessionSwitcherOpen(true);
+          }
+        }}
         style={{
-          height: 44,
+          height: 40,
           flexShrink: 0,
           display: "flex",
-          alignItems: "stretch",
+          alignItems: "center",
+          gap: 8,
+          padding: "0 8px 0 10px",
           background: colors.bg1,
           borderBottom: `1px solid ${colors.lineSoft}`,
+          cursor: "pointer",
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }}
       >
-        {/* Session chips + new-terminal button */}
         <div
+          data-testid="mobile-title-bar-label"
           style={{
             flex: 1,
             minWidth: 0,
             display: "flex",
             alignItems: "center",
-            gap: 4,
-            overflowX: "auto",
-            scrollbarWidth: "none",
-            padding: "0 6px",
+            gap: 5,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
           }}
         >
-          {chips.map((chip, index) => (
-            <span
-              key={chip.terminal.id}
-              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-            >
-              {index > 0 && chips[index - 1].group.id !== chip.group.id && (
-                <span
-                  aria-hidden
-                  style={{
-                    width: 1,
-                    height: 20,
-                    background: colors.lineSoft,
-                    flexShrink: 0,
-                    margin: "0 2px",
-                  }}
-                />
-              )}
-              <StripChipButton
-                chip={chip}
-                active={chip.terminal.id === activeTerminalId}
-                onTap={() => {
-                  if (chip.terminal.id === activeTerminalId) {
-                    setSessionSwitcherOpen(true);
-                  } else {
-                    onPickTerminal(chip.terminal.id);
-                  }
+          {activeChip ? (
+            <>
+              <span
+                style={{
+                  flex: "0 1 110px",
+                  minWidth: 0,
+                  maxWidth: "32vw",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  color: colors.fg2,
+                  fontSize: 12,
                 }}
-                onLongPress={() => setChipSheet(chip)}
-              />
+              >
+                {activeChip.group.label}
+              </span>
+              <span aria-hidden style={{ color: colors.fg3, flexShrink: 0 }}>
+                ·
+              </span>
+              <span
+                style={{
+                  flex: "1 1 12ch",
+                  minWidth: "12ch",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  color: colors.fg0,
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                {displayTerminalTitle(activeChip.terminal)}
+              </span>
+            </>
+          ) : (
+            <span
+              style={{ color: colors.fg2, fontSize: 12, overflow: "hidden" }}
+            >
+              No session
             </span>
-          ))}
+          )}
+        </div>
+
+        <span
+          onClick={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
+          onTouchMove={(event) => event.stopPropagation()}
+          onTouchEnd={(event) => event.stopPropagation()}
+          style={{ width: 34, height: 34, flexShrink: 0 }}
+        >
           <button
             type="button"
-            data-testid="mobile-strip-new-terminal"
+            data-testid="mobile-bar-new-terminal"
             disabled={!canCreateTerminal}
             onClick={() => onNewTerminal(activeGroup)}
             title="New terminal"
             aria-label="New terminal"
             style={{
-              width: 30,
-              height: 30,
+              width: 34,
+              height: 34,
               borderRadius: 6,
               border: `1px solid ${colors.lineSoft}`,
               background: "transparent",
@@ -300,83 +425,38 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
               alignItems: "center",
               justifyContent: "center",
               padding: 0,
-              flexShrink: 0,
               cursor: canCreateTerminal ? "pointer" : "not-allowed",
               opacity: canCreateTerminal ? 1 : 0.45,
             }}
           >
-            <Plus size={14} />
+            <Plus size={16} />
           </button>
-        </div>
+        </span>
 
-        {/* Fixed right end: cpu/mem micro-meters + host button */}
-        <div
+        <span
+          data-testid="mobile-title-bar-badge"
+          data-title-bar-swipe="ignore"
+          onClick={(event) => event.stopPropagation()}
           style={{
             flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "0 8px",
-            borderLeft: `1px solid ${colors.lineSoft}`,
+            minWidth: 37,
+            padding: "3px 6px",
+            borderRadius: 999,
+            background: colors.bg2,
+            color: colors.fg2,
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            textAlign: "center",
           }}
         >
-          <StripMeters stats={activeStats} />
-          <span
-            data-testid="mobile-strip-rtt"
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 9,
-              color: colors.fg2,
-              minWidth: 28,
-              textAlign: "right",
-            }}
-          >
-            {rttMs === null ? "—" : `${Math.round(rttMs)}ms`}
-          </span>
-          <button
-            type="button"
-            data-testid="mobile-host-button"
-            onClick={() => setHostSheetOpen(true)}
-            title="Host menu"
-            aria-label="Host menu"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              height: 30,
-              padding: "0 8px",
-              borderRadius: 6,
-              background: colors.bg2,
-              border: `1px solid ${colors.lineSoft}`,
-              cursor: "pointer",
-              maxWidth: 132,
-              flexShrink: 0,
-            }}
-          >
-            <HostDot
-              online={activeMachine ? machineOnline(activeMachine) : false}
-              isController={isController}
-            />
-            <span
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: colors.fg0,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                minWidth: 0,
-              }}
-            >
-              {activeMachine?.name ?? "No host"}
-            </span>
-            <ChevronRight
-              size={12}
-              color={colors.fg3}
-              style={{ transform: "rotate(90deg)", flexShrink: 0 }}
-            />
-          </button>
-        </div>
+          {activePosition}/{chips.length}
+        </span>
+        <span data-testid="mobile-title-bar-dot" style={{ display: "flex" }}>
+          <HostDot
+            online={activeMachine ? machineOnline(activeMachine) : false}
+            isController={false}
+          />
+        </span>
       </div>
 
       {/* Terminal area (edge swipes switch terminals in strip order) */}
@@ -435,7 +515,18 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
       {/* Session switcher sheet */}
       {sessionSwitcherOpen && (
         <Sheet
-          title="Sessions"
+          header={
+            <SessionSwitcherHeader
+              machine={activeMachine}
+              online={activeMachine ? machineOnline(activeMachine) : false}
+              stats={activeStats}
+              rttMs={rttMs}
+              onOpenHostSheet={() => {
+                setSessionSwitcherOpen(false);
+                setHostSheetOpen(true);
+              }}
+            />
+          }
           testid="mobile-session-switcher"
           onClose={() => setSessionSwitcherOpen(false)}
         >
@@ -501,7 +592,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                         overflowWrap: "anywhere",
                       }}
                     >
-                      {terminal.title || terminal.id.slice(0, 8)}
+                      {displayTerminalTitle(terminal)}
                     </span>
                     <span
                       style={{
@@ -652,7 +743,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
       {/* Chip long-press sheet */}
       {chipSheet && (
         <Sheet
-          title={`${chipSheet.group.label} · ${chipSheet.terminal.title || chipSheet.terminal.id.slice(0, 8)}`}
+          title={`${chipSheet.group.label} · ${displayTerminalTitle(chipSheet.terminal)}`}
           onClose={() => setChipSheet(null)}
         >
           <MenuRow
@@ -686,100 +777,21 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
 
 export const MobileWorkbench = memo(MobileWorkbenchComponent);
 
-/* ---------- strip subcomponents ---------- */
+/* ---------- title bar and sheet status ---------- */
 
-function StripChipButton({
-  chip,
-  active,
-  onTap,
-  onLongPress,
+function SessionSwitcherHeader({
+  machine,
+  online,
+  stats,
+  rttMs,
+  onOpenHostSheet,
 }: {
-  chip: StripChip;
-  active: boolean;
-  onTap: () => void;
-  onLongPress: () => void;
+  machine: MachineInfo | null;
+  online: boolean;
+  stats: ResourceStats | undefined;
+  rttMs: number | null;
+  onOpenHostSheet: () => void;
 }) {
-  const timerRef = useRef<number | null>(null);
-  const longPressedRef = useRef(false);
-  const startPosRef = useRef<{ x: number; y: number } | null>(null);
-
-  const cancelTimer = useCallback(() => {
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    startPosRef.current = null;
-  }, []);
-
-  useEffect(() => cancelTimer, [cancelTimer]);
-
-  return (
-    <button
-      type="button"
-      data-testid={`mobile-strip-chip-${chip.terminal.id}`}
-      aria-pressed={active}
-      onTouchStart={(event) => {
-        const touch = event.touches[0];
-        longPressedRef.current = false;
-        cancelTimer();
-        startPosRef.current = touch
-          ? { x: touch.clientX, y: touch.clientY }
-          : null;
-        timerRef.current = window.setTimeout(() => {
-          timerRef.current = null;
-          longPressedRef.current = true;
-          onLongPress();
-        }, 500);
-      }}
-      onTouchMove={(event) => {
-        const start = startPosRef.current;
-        const touch = event.touches[0];
-        if (!start || !touch) return;
-        // Sliding scrolls the strip; only a held press opens the sheet.
-        if (
-          Math.abs(touch.clientX - start.x) > 10 ||
-          Math.abs(touch.clientY - start.y) > 10
-        ) {
-          cancelTimer();
-        }
-      }}
-      onTouchEnd={cancelTimer}
-      onTouchCancel={cancelTimer}
-      onContextMenu={(event) => event.preventDefault()}
-      onClick={() => {
-        // The synthetic click after a long-press must not also switch.
-        if (longPressedRef.current) {
-          longPressedRef.current = false;
-          return;
-        }
-        onTap();
-      }}
-      title={`${chip.group.label} · ${chip.terminal.title || chip.terminal.id.slice(0, 8)}`}
-      style={{
-        height: 30,
-        borderRadius: 6,
-        border: "none",
-        background: active ? colors.bg3 : "transparent",
-        color: active ? colors.fg0 : colors.fg2,
-        padding: "0 9px",
-        fontSize: 12,
-        fontWeight: active ? 600 : 400,
-        whiteSpace: "nowrap",
-        maxWidth: 168,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        flexShrink: 0,
-        cursor: "pointer",
-        userSelect: "none",
-        WebkitUserSelect: "none",
-      }}
-    >
-      {chip.chipLabel}
-    </button>
-  );
-}
-
-function StripMeters({ stats }: { stats: ResourceStats | undefined }) {
   const cpu = stats ? Math.round(stats.cpu_percent) : null;
   const mem =
     stats && stats.memory_total > 0
@@ -787,23 +799,74 @@ function StripMeters({ stats }: { stats: ResourceStats | undefined }) {
       : null;
   return (
     <div
-      data-testid="mobile-strip-meters"
+      data-testid="mobile-session-header"
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 6,
+        gap: 10,
+        minWidth: 0,
+        padding: "4px 16px 10px",
         fontFamily: "var(--font-mono)",
-        fontSize: 9,
+        fontSize: 10,
         color: colors.fg3,
       }}
     >
-      <StripMeter label="c" percent={cpu} testid="mobile-strip-meter-cpu" />
-      <StripMeter label="m" percent={mem} testid="mobile-strip-meter-mem" />
+      <button
+        type="button"
+        data-testid="mobile-host-button"
+        onClick={onOpenHostSheet}
+        disabled={!machine}
+        aria-label="Open hosts"
+        style={{
+          minWidth: 0,
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: 0,
+          border: "none",
+          background: "transparent",
+          color: colors.fg0,
+          cursor: machine ? "pointer" : "default",
+          textAlign: "left",
+        }}
+      >
+        <span data-testid="mobile-session-header-dot" style={{ display: "flex" }}>
+          <HostDot online={online} isController={false} />
+        </span>
+        <span
+          style={{
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            fontFamily: "var(--font-sans)",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          {machine?.name ?? "No host"}
+        </span>
+        <ChevronRight size={14} style={{ flexShrink: 0, color: colors.fg3 }} />
+      </button>
+      <span data-testid="mobile-session-header-rtt" style={{ color: colors.fg1 }}>
+        {rttMs === null ? "—" : `${Math.round(rttMs)}ms`}
+      </span>
+      <HeaderMetric
+        label="cpu"
+        percent={cpu}
+        testid="mobile-session-header-cpu"
+      />
+      <HeaderMetric
+        label="mem"
+        percent={mem}
+        testid="mobile-session-header-mem"
+      />
     </div>
   );
 }
 
-function StripMeter({
+function HeaderMetric({
   label,
   percent,
   testid,
@@ -815,28 +878,15 @@ function StripMeter({
   return (
     <span
       data-testid={testid}
-      style={{ display: "inline-flex", alignItems: "center", gap: 3 }}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        color: colors.fg1,
+      }}
     >
-      <span>{label}</span>
-      <span
-        style={{
-          width: 26,
-          height: 4,
-          borderRadius: 2,
-          background: colors.bg3,
-          overflow: "hidden",
-          display: "inline-block",
-        }}
-      >
-        <span
-          style={{
-            display: "block",
-            height: "100%",
-            width: `${percent ?? 0}%`,
-            background: percent === null ? "transparent" : colors.fg2,
-            borderRadius: 2,
-          }}
-        />
+      <span>
+        {label} {percent === null ? "—" : `${percent}%`}
       </span>
     </span>
   );
@@ -890,11 +940,13 @@ function HostDot({
 
 function Sheet({
   title,
+  header,
   testid,
   onClose,
   children,
 }: {
   title?: string;
+  header?: React.ReactNode;
   testid?: string;
   onClose: () => void;
   children: React.ReactNode;
@@ -951,7 +1003,7 @@ function Sheet({
             }}
           />
         </div>
-        {title && (
+        {header ?? (title && (
           <div
             style={{
               padding: "4px 16px 8px",
@@ -962,7 +1014,7 @@ function Sheet({
           >
             {title}
           </div>
-        )}
+        ))}
         <div style={{ overflow: "auto", paddingBottom: 4 }}>{children}</div>
       </div>
     </div>

@@ -5,10 +5,10 @@
 1. **action:** In a desktop browser session, click the TabBar's "viewing" pill to take control, open a new terminal (TabBar ＋ button or `⌃B c`), right-click the pane and choose "Fit to window" from the context menu
    **eval:** The shared terminal is explicitly resized for the desktop viewport — the server's authoritative `cols`/`rows` match the desktop workspace size.
 
-2. **action:** Open the same app on a mobile browser session (web viewport < 768px) without taking control. The mobile shell opens straight into the shared terminal — session strip on top, terminal in the middle, key bar at the bottom.
+2. **action:** Open the same app on a mobile browser session (web viewport < 768px) without taking control. The mobile shell opens straight into the shared terminal — title bar on top, terminal in the middle, key bar at the bottom.
    **eval:** Mobile remains in viewing mode. The terminal still reflects the desktop-sized authoritative dimensions, but the local mobile view scales down so the full width stays readable.
 
-3. **action:** Inspect the mobile controls while still viewing, then open the host sheet from the strip's right-end host button
+3. **action:** Inspect the mobile controls while still viewing, then open the host sheet from the session switcher's host-name button
    **eval:** The key bar hides the keyboard (ABC) toggle and its keys send nothing; the host sheet offers "Take control".
 
 ## Scenario 2: Explicit sizing round-trips cleanly between desktop and mobile
@@ -31,7 +31,7 @@
    **eval:** Two live terminal panes exist in the desktop workspace for the same machine (as tabs and/or split panes).
 
 2. **action:** Open the same account on mobile
-   **eval:** Mobile sees one chip per terminal in the session strip, in viewing mode.
+   **eval:** Mobile sees the current session title and `{i}/{n}` position in the title bar, in viewing mode.
 
-3. **action:** On mobile, take control via the host sheet, then close one of the terminals (long-press its strip chip → "Close terminal").
+3. **action:** On mobile, take control via the host sheet, then close one of the terminals (switch to it, long-press the title bar → "Close terminal").
    **eval:** Both mobile and desktop update live to show exactly one remaining terminal, and both sessions agree on which terminal remains.

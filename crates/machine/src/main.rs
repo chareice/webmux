@@ -1,6 +1,7 @@
 mod attach;
 mod config;
 mod hub_conn;
+mod osc_title;
 mod pty;
 mod service;
 mod session_watcher;

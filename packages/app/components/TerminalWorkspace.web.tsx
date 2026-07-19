@@ -645,7 +645,7 @@ function TerminalWorkspaceComponent({
 
   if (isMobile) {
     // Mobile P1 shell: the workspace renders chromeless inside
-    // MobileWorkbench — the session strip above and the key bar below (the
+    // MobileWorkbench — the session title bar above and the key bar below (the
     // key bar lives inside TerminalCard) are the only permanent chrome.
     return (
       <div

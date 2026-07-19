@@ -400,11 +400,13 @@ export async function readTerminalBuffer(
 }
 
 /**
- * Mobile-specific: the host sheet (opened from the strip's right-end host
- * button) carries the control toggle row — "Take control" while viewing,
+ * Mobile-specific: the host sheet (opened through the title bar's session
+ * switcher header) carries the control toggle row — "Take control" while viewing,
  * "Stop control" while controlling. Tapping it closes the sheet.
  */
 export async function mobileOpenHostSheet(page: Page): Promise<void> {
+  await page.getByTestId("mobile-title-bar").click();
+  await expect(page.getByTestId("mobile-session-switcher")).toBeVisible();
   await page.getByTestId("mobile-host-button").click();
   await expect(page.getByTestId("mobile-control-toggle")).toBeVisible();
 }
@@ -420,15 +422,12 @@ export async function mobileReleaseControl(page: Page): Promise<void> {
 }
 
 /**
- * Mobile-specific: long-press a session-strip chip (touch held for 600ms)
+ * Mobile-specific: long-press the title bar (touch held for 600ms)
  * to open its action sheet (Close terminal / New terminal here).
  */
-export async function longPressStripChip(
-  page: Page,
-  terminalId: string,
-): Promise<void> {
-  const chip = page.getByTestId(`mobile-strip-chip-${terminalId}`);
-  await chip.evaluate((element) => {
+export async function longPressTitleBar(page: Page): Promise<void> {
+  const bar = page.getByTestId("mobile-title-bar");
+  await bar.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const x = rect.left + rect.width / 2;
     const y = rect.top + rect.height / 2;
@@ -449,7 +448,7 @@ export async function longPressStripChip(
     );
   });
   await page.waitForTimeout(600);
-  await chip.evaluate((element) => {
+  await bar.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     const touch = new Touch({
       identifier: 7,
@@ -467,4 +466,46 @@ export async function longPressStripChip(
       }),
     );
   });
+}
+
+export async function swipeTitleBar(
+  page: Page,
+  direction: "left" | "right",
+): Promise<void> {
+  await page.getByTestId("mobile-title-bar-label").evaluate(
+    (element, swipeDirection) => {
+      const rect = element.getBoundingClientRect();
+      const startX =
+        swipeDirection === "left" ? rect.right - 12 : rect.left + 12;
+      const endX =
+        swipeDirection === "left" ? rect.left + 12 : rect.right - 12;
+      const y = rect.top + rect.height / 2;
+
+      function dispatch(
+        type: "touchstart" | "touchmove" | "touchend",
+        x: number,
+      ) {
+        const touch = new Touch({
+          identifier: 8,
+          target: element,
+          clientX: x,
+          clientY: y,
+        });
+        element.dispatchEvent(
+          new TouchEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            touches: type === "touchend" ? [] : [touch],
+            targetTouches: type === "touchend" ? [] : [touch],
+            changedTouches: [touch],
+          }),
+        );
+      }
+
+      dispatch("touchstart", startX);
+      dispatch("touchmove", (startX + endX) / 2);
+      dispatch("touchend", endX);
+    },
+    direction,
+  );
 }

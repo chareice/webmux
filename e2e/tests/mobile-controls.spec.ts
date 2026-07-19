@@ -4,13 +4,16 @@ import type { Page } from "@playwright/test";
 import {
   createWorkspaceGroupViaApi,
   createTerminalViaApi,
+  expandTerminalById,
   getImmersiveTerminal,
   listTerminals,
-  longPressStripChip,
+  longPressTitleBar,
+  mobileOpenHostSheet,
   mobileTakeControl,
   openApp,
   requestMachineControl,
   resetMachineState,
+  swipeTitleBar,
 } from "./helpers";
 
 test.use({
@@ -22,15 +25,24 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await openApp(page);
   await resetMachineState(page);
 
-  // The mobile shell is session strip (top) + terminal (middle) + key bar
-  // (bottom). With no terminals it shows the strip and a centered
+  // The mobile shell is title bar (top) + terminal (middle) + key bar
+  // (bottom). With no terminals it shows the bar and a centered
   // "Start terminal" empty state; the start button needs control.
   await expect(page.getByTestId("mobile-workbench")).toBeVisible();
-  await expect(page.getByTestId("mobile-session-strip")).toBeVisible();
+  await expect(page.getByTestId("mobile-title-bar")).toBeVisible();
+  await expect(page.getByTestId("mobile-title-bar-dot")).toBeVisible();
+  await expect(page.getByTestId("mobile-bar-new-terminal")).toHaveCSS(
+    "width",
+    "34px",
+  );
+  await expect(page.getByTestId("mobile-bar-new-terminal")).toHaveCSS(
+    "height",
+    "34px",
+  );
   await expect(page.getByText(/No terminals yet/)).toBeVisible();
   await expect(page.getByTestId("empty-new-terminal")).toHaveCount(0);
 
-  // Take control from the host sheet (strip right-end host button).
+  // Take control from the host sheet through the switcher header.
   await mobileTakeControl(page);
   await expect(page.getByTestId("empty-new-terminal")).toBeVisible();
 
@@ -38,27 +50,27 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await page.getByTestId("empty-new-terminal").click();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
-  // The strip now carries one chip per terminal; the key bar surfaces the
+  // The title bar now identifies the session; the key bar surfaces the
   // keyboard toggle while controlling.
   const [terminal] = await listTerminals(page);
   expect(terminal).toBeDefined();
-  await expect(
-    page.getByTestId(`mobile-strip-chip-${terminal.id}`),
-  ).toBeVisible();
+  await expect(page.getByTestId("mobile-title-bar-label")).toContainText(
+    "shell",
+  );
   await expect(page.getByTitle("Show keyboard")).toBeVisible();
 
   // Engage view-only via the host sheet: this releases control, so the
-  // keyboard toggle disappears and the new-terminal chip becomes disabled.
-  await page.getByTestId("mobile-host-button").click();
+  // keyboard toggle disappears and the title-bar create button is disabled.
+  await mobileOpenHostSheet(page);
   await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
     "View only",
   );
   await page.getByTestId("mobile-control-toggle").click();
   await expect(page.getByTitle("Show keyboard")).toHaveCount(0);
-  await expect(page.getByTestId("mobile-strip-new-terminal")).toBeDisabled();
+  await expect(page.getByTestId("mobile-bar-new-terminal")).toBeDisabled();
 
   // Unlock without claiming; the existing Take control flow remains explicit.
-  await page.getByTestId("mobile-host-button").click();
+  await mobileOpenHostSheet(page);
   await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
     "Unlock view only",
   );
@@ -66,10 +78,9 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
 
   // Take control back.
   await mobileTakeControl(page);
-  await expect(page.getByTestId("mobile-strip-new-terminal")).toBeEnabled();
+  await expect(page.getByTestId("mobile-bar-new-terminal")).toBeEnabled();
 
-  // Destroy via API → the shell returns to the empty state and the chip
-  // disappears.
+  // Destroy via API → the shell returns to the empty state.
   const deviceId = await page.evaluate(() => sessionStorage.getItem("tc-device-id"));
   const token = await page.evaluate(() => localStorage.getItem("webmux:token"));
   const resp = await page.request.delete(
@@ -78,9 +89,9 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   );
   expect(resp.ok()).toBeTruthy();
   await expect(page.getByText(/No terminals yet/)).toBeVisible();
-  await expect(
-    page.getByTestId(`mobile-strip-chip-${terminal.id}`),
-  ).toHaveCount(0);
+  await expect(page.getByTestId("mobile-title-bar-label")).toContainText(
+    "No session",
+  );
 });
 
 test("mobile new terminal starts fitted without an immediate resize", async ({ page }) => {
@@ -184,16 +195,16 @@ test("mobile terminal switch does not focus the new terminal automatically", asy
   await requestMachineControl(page);
   const firstTerminalId = await createTerminalViaApi(page);
   const secondTerminalId = await createTerminalViaApi(page);
-  await expect(
-    page.getByTestId(`mobile-strip-chip-${firstTerminalId}`),
-  ).toBeVisible();
-  await expect(
-    page.getByTestId(`mobile-strip-chip-${secondTerminalId}`),
-  ).toBeVisible();
+  await expect(page.getByTestId("mobile-title-bar")).toBeVisible();
   await expect(getImmersiveTerminal(page)).toBeVisible();
 
-  await page.locator("body").click({ position: { x: 4, y: 4 } });
-  await page.getByTestId(`mobile-strip-chip-${secondTerminalId}`).click();
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+  await page.getByTestId("mobile-title-bar").click();
+  await page.getByTestId(`mobile-session-row-${secondTerminalId}`).click();
   await expect(
     page.getByTestId(`workspace-pane-${secondTerminalId}`),
   ).toBeVisible();
@@ -247,7 +258,7 @@ test("mobile touch drag sends terminal scroll input", async ({ page }) => {
     .toBe(true);
 });
 
-test("mobile session strip switches terminals and closes them via the chip sheet", async ({
+test("mobile title bar swipes between sessions and long-presses the current session", async ({
   page,
 }) => {
   await openApp(page);
@@ -271,37 +282,31 @@ test("mobile session strip switches terminals and closes them via the chip sheet
     workspaceGroupId: secondGroup.id,
   });
 
-  // One chip per terminal, ordered by group.
+  await page.getByTestId("mobile-title-bar").click();
+  await page.getByTestId(`mobile-session-row-${firstTerminalId}`).click();
   await expect(
-    page.getByTestId(`mobile-strip-chip-${firstTerminalId}`),
+    page.getByTestId(`workspace-pane-${firstTerminalId}`),
   ).toBeVisible();
-  await expect(
-    page.getByTestId(`mobile-strip-chip-${secondTerminalId}`),
-  ).toBeVisible();
+  await expect(page.getByTestId("mobile-title-bar-badge")).toHaveText("1/2");
 
-  // Tap a chip to switch across groups.
-  await page.getByTestId(`mobile-strip-chip-${secondTerminalId}`).click();
+  await swipeTitleBar(page, "left");
   await expect(
     page.getByTestId(`workspace-pane-${secondTerminalId}`),
   ).toBeVisible();
-  await expect(
-    page.getByTestId(`workspace-pane-${firstTerminalId}`),
-  ).toHaveCount(0);
+  await expect(page.getByTestId("mobile-title-bar-badge")).toHaveText("2/2");
 
-  // Long-press the chip → sheet → Close terminal (no foreground process, so
+  // Long-press the bar → sheet → Close terminal (no foreground process, so
   // no confirm dialog). The shell falls back to the remaining terminal.
-  await longPressStripChip(page, secondTerminalId);
+  await longPressTitleBar(page);
   await page.getByTestId("mobile-chip-close-terminal").click();
   await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
-  await expect(
-    page.getByTestId(`mobile-strip-chip-${secondTerminalId}`),
-  ).toHaveCount(0);
+  await expect(page.getByTestId("mobile-title-bar-badge")).toHaveText("1/1");
   await expect(
     page.getByTestId(`workspace-pane-${firstTerminalId}`),
   ).toBeVisible();
 });
 
-test("mobile active strip chip opens a grouped session switcher", async ({
+test("mobile title bar and grouped switcher expose titles, host stats, and create-current-group", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -327,22 +332,19 @@ test("mobile active strip chip opens a grouped session switcher", async ({
     workspaceGroupId: secondGroup.id,
   });
 
-  const firstChip = page.getByTestId(`mobile-strip-chip-${firstTerminalId}`);
-  const secondChip = page.getByTestId(`mobile-strip-chip-${secondTerminalId}`);
-  await expect(firstChip).toBeVisible();
-  await expect(secondChip).toBeVisible();
-  const activeChip = page.locator(
-    "button[data-testid^='mobile-strip-chip-'][aria-pressed='true']",
-  );
-  await expect(activeChip).toBeVisible();
-  const activeTestId = await activeChip.getAttribute("data-testid");
-  const activeIsFirst = activeTestId === `mobile-strip-chip-${firstTerminalId}`;
-  const activeTerminalId = activeIsFirst ? firstTerminalId : secondTerminalId;
-  const targetChip = activeIsFirst ? secondChip : firstChip;
-  const targetTerminalId = activeIsFirst ? secondTerminalId : firstTerminalId;
-
-  await activeChip.click();
+  await page.getByTestId("mobile-title-bar").click();
   const sheet = page.getByTestId("mobile-session-switcher");
+  await expect(sheet).toBeVisible();
+  await page.getByTestId(`mobile-session-row-${firstTerminalId}`).click();
+  await expect(page.getByTestId("mobile-title-bar-label")).toContainText(
+    firstGroup.name,
+  );
+  await expect(page.getByTestId("mobile-title-bar-label")).toContainText(
+    "shell",
+  );
+  await expect(page.getByTestId("mobile-title-bar-badge")).toHaveText("1/2");
+
+  await page.getByTestId("mobile-title-bar").click();
   await expect(sheet).toBeVisible();
   await expect(
     page.getByTestId(`mobile-session-group-${firstGroup.id}`),
@@ -354,24 +356,63 @@ test("mobile active strip chip opens a grouped session switcher", async ({
     page.getByTestId("mobile-session-switcher-new-terminal"),
   ).toBeVisible();
   await expect(
-    page.getByTestId(`mobile-session-row-${activeTerminalId}`),
+    page.getByTestId(`mobile-session-row-${firstTerminalId}`),
   ).toHaveAttribute("aria-current", "true");
+  const header = page.getByTestId("mobile-session-header");
+  await expect(header).toBeVisible();
+  await expect(page.getByTestId("mobile-session-header-dot")).toBeVisible();
+  await expect(page.getByTestId("mobile-host-button")).toContainText("e2e-machine");
+  await expect(page.getByTestId("mobile-session-header-rtt")).toHaveText(
+    /^(—|\d+ms)$/,
+  );
+  await expect(page.getByTestId("mobile-session-header-cpu")).toHaveText(
+    /^cpu (—|\d+%)$/,
+  );
+  await expect(page.getByTestId("mobile-session-header-mem")).toHaveText(
+    /^mem (—|\d+%)$/,
+  );
 
-  const terminalSnapshots = await listTerminals(page);
   for (const terminalId of [firstTerminalId, secondTerminalId]) {
-    const terminal = terminalSnapshots.find((item) => item.id === terminalId);
-    expect(terminal).toBeDefined();
     const row = page.getByTestId(`mobile-session-row-${terminalId}`);
-    await expect(row).toContainText(terminal!.title);
-    await expect(row).toContainText(terminal!.cwd);
+    await expect(row).toContainText("shell");
   }
 
-  await page.getByTestId(`mobile-session-row-${targetTerminalId}`).click();
-  await expect(targetChip).toHaveAttribute("aria-pressed", "true");
-  await expect(sheet).toHaveCount(0);
+  await page.getByTestId(`mobile-session-row-${firstTerminalId}`).click();
+  const beforeIds = (await listTerminals(page)).map((terminal) => terminal.id);
+  await page.getByTestId("mobile-bar-new-terminal").click();
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(3);
+  const created = (await listTerminals(page)).find(
+    (terminal) => !beforeIds.includes(terminal.id),
+  );
+  expect(created).toBeDefined();
+  expect(created?.cwd).toBe("/root");
+  expect(created?.workspace_group_id).toBe(firstGroup.id);
+  await expect(page.getByTestId(`workspace-pane-${created!.id}`)).toBeVisible();
   await expect
     .poll(() => getMountedXtermIds(page))
-    .toEqual([targetTerminalId]);
+    .toEqual([created!.id]);
+});
+
+test("mobile title bar receives a real OSC title through the terminal pipeline", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  const terminalId = await createTerminalViaApi(page);
+  await expandTerminalById(page, terminalId);
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+
+  await page.getByTitle("Show keyboard").click();
+  await page.keyboard.type("printf '\\033]2;my-task\\007'");
+  await page.keyboard.press("Enter");
+
+  await expect
+    .poll(
+      async () => page.getByTestId("mobile-title-bar-label").textContent(),
+      { timeout: 20_000 },
+    )
+    .toContain("my-task");
 });
 
 test("mobile Ctrl latch and pinned key-bar keys send bytes directly", async ({

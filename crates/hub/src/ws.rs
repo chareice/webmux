@@ -49,6 +49,8 @@ enum ClientMessage {
     Input { data: String },
     #[serde(rename = "command_input")]
     CommandInput { data: String },
+    #[serde(rename = "terminal_response")]
+    TerminalResponse { data: String },
     #[serde(rename = "resize")]
     Resize { cols: u16, rows: u16 },
     #[serde(rename = "image_paste")]
@@ -101,6 +103,7 @@ fn client_message_allowed(
     }
 
     match message {
+        ClientMessage::TerminalResponse { .. } => true,
         ClientMessage::Input { .. }
         | ClientMessage::CommandInput { .. }
         | ClientMessage::Resize { .. }
@@ -264,7 +267,8 @@ async fn handle_terminal_ws(
 
                         let to_send = match client_msg {
                             ClientMessage::Input { data }
-                            | ClientMessage::CommandInput { data } => {
+                            | ClientMessage::CommandInput { data }
+                            | ClientMessage::TerminalResponse { data } => {
                                 Some(HubToMachine::AttachInput {
                                     attach_id: aid_for_in.clone(),
                                     data,
@@ -954,6 +958,26 @@ mod tests {
                 cols: 120,
                 rows: 40
             },
+            "watcher-device",
+            false,
+            true,
+        ));
+    }
+
+    #[test]
+    fn terminal_response_from_a_non_controller_is_forwarded_without_claiming_control() {
+        let message = ClientMessage::TerminalResponse {
+            data: "\u{1b}]10;rgb:ffff/ffff/ffff\u{1b}\\".to_string(),
+        };
+
+        assert!(client_message_allowed(
+            &message,
+            "watcher-device",
+            false,
+            true,
+        ));
+        assert!(!client_message_claims_control(
+            &message,
             "watcher-device",
             false,
             true,

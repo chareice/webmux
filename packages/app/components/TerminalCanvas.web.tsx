@@ -885,7 +885,7 @@ function TerminalCanvasInner() {
     [handleCreateTerminal],
   );
 
-  // Mobile session-strip actions: ＋ / "New terminal here" create in the
+  // Mobile title-bar actions: ＋ / "New terminal here" create in the
   // group's cwd (machine home when there is no group); chip close goes
   // through the shared destroy flow (running-process confirm included).
   const handleMobileNewTerminal = useCallback(

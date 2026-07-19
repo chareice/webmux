@@ -7,6 +7,7 @@ import { TerminalPreviewText } from "./TerminalPreviewText.web";
 import { terminalWsUrl } from "@/lib/api";
 import { colors, terminalTheme } from "@/lib/colors";
 import { ctrlLatchTransform } from "@/lib/ctrlLatch";
+import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
 import { useVisualViewportHeight } from "@/lib/hooks";
 import { getMobileViewportTerminalAction } from "@/lib/mobileViewportTerminal";
 
@@ -460,7 +461,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                 whiteSpace: "nowrap",
               }}
             >
-              {terminal.title}
+              {displayTerminalTitle(terminal)}
             </span>
           </div>
         </div>

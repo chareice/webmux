@@ -70,6 +70,7 @@ pub struct TerminalSessionRow {
     pub id: String,
     pub machine_id: String,
     pub title: String,
+    pub title_source: String,
     pub cwd: String,
     pub workspace_group_id: Option<String>,
     pub cols: i64,
