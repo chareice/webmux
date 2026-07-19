@@ -29,6 +29,8 @@ import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { Terminal as TerminalIcon } from "lucide-react";
 import {
   createTerminal,
+  createWorkspaceGroup,
+  deleteWorkspaceGroup,
   destroyTerminal,
   checkForegroundProcess,
   assignTerminalWorkspaceGroup,
@@ -252,6 +254,8 @@ function TerminalCanvasInner() {
       }
     | null
   >(null);
+  const [groupDeleteConfirmation, setGroupDeleteConfirmation] =
+    useState<WorkspaceGroup | null>(null);
 
   const machines = browserState.machines;
   const terminals = browserState.terminals;
@@ -1028,6 +1032,38 @@ function TerminalCanvasInner() {
     scopeBookmark,
   ]);
 
+  const handleNewGroup = useCallback(async () => {
+    if (!activeMachineId || !isActiveController) return;
+    const taken = new Set(tabGroups.map((group) => group.label));
+    let n = tabGroups.length + 1;
+    while (taken.has(`tab ${n}`)) n += 1;
+    const created = await createWorkspaceGroup(activeMachineId, `tab ${n}`);
+    // The group also arrives via workspace_group_created; selecting by the
+    // response id is safe either way (selection is id-based).
+    workspaceCommandsRef.current.selectGroup?.(created.id);
+  }, [activeMachineId, isActiveController, tabGroups]);
+
+  const performDeleteGroup = useCallback(
+    async (group: WorkspaceGroup) => {
+      if (!activeMachineId || !group.workspaceGroupId) return;
+      await deleteWorkspaceGroup(activeMachineId, group.workspaceGroupId);
+      // Panes fall back to their cwd groups server-side; nothing to do here.
+    },
+    [activeMachineId],
+  );
+
+  const handleDeleteGroup = useCallback(
+    (group: WorkspaceGroup) => {
+      if (!isActiveController) return;
+      if (group.paneCount > 0) {
+        setGroupDeleteConfirmation(group);
+        return;
+      }
+      void performDeleteGroup(group);
+    },
+    [isActiveController, performDeleteGroup],
+  );
+
   // ---- prefix-key shortcut engine (⌃B) ----
   // The engine singleton lives in PrefixKeyProvider; this window listener is
   // the only place keydowns enter it. Workspace-owned actions (splits, pane
@@ -1140,6 +1176,14 @@ function TerminalCanvasInner() {
         action: () => void handleNewTerminalFromHeader(),
       },
       {
+        id: "new-tab",
+        section: "actions",
+        label: "New tab",
+        keywords: "group workspace",
+        disabled: !isActiveController,
+        action: () => void handleNewGroup(),
+      },
+      {
         id: "split-right",
         section: "actions",
         label: "Split right",
@@ -1211,6 +1255,7 @@ function TerminalCanvasInner() {
     tabGroups,
     isActiveController,
     handleNewTerminalFromHeader,
+    handleNewGroup,
     logout,
   ]);
 
@@ -1318,6 +1363,8 @@ function TerminalCanvasInner() {
                 onSelectGroup={(groupId) =>
                   workspaceCommandsRef.current.selectGroup?.(groupId)
                 }
+                onNewGroup={() => void handleNewGroup()}
+                onDeleteGroup={handleDeleteGroup}
                 onReorderGroups={(sourceGroupId, targetGroupId, placement) =>
                   workspaceCommandsRef.current.reorderGroups?.(
                     sourceGroupId,
@@ -1429,6 +1476,24 @@ function TerminalCanvasInner() {
 
         {cheatSheetOpen && (
           <CheatSheetOverlay onClose={() => setCheatSheetOpen(false)} />
+        )}
+
+        {groupDeleteConfirmation && (
+          <Suspense fallback={<LazyLoadingFallback />}>
+            <ConfirmDialog
+              open
+              title="Delete tab?"
+              message={`"${groupDeleteConfirmation.label}" has ${groupDeleteConfirmation.paneCount} pane(s). They will move back to their directory tabs; no terminal is closed.`}
+              confirmLabel="Delete tab"
+              variant="danger"
+              onConfirm={() => {
+                const group = groupDeleteConfirmation;
+                setGroupDeleteConfirmation(null);
+                void performDeleteGroup(group);
+              }}
+              onCancel={() => setGroupDeleteConfirmation(null)}
+            />
+          </Suspense>
         )}
 
         {closeConfirmation && (
