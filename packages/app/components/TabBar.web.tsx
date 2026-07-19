@@ -24,6 +24,7 @@ import type {
   TerminalInfo,
 } from "@webmux/shared";
 import { Lock, Plus } from "lucide-react";
+import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
 import { collectPaneTerminalIds, type WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
@@ -48,6 +49,8 @@ interface TabBarProps {
   viewOnlyLocked: boolean;
   canCreateTerminal: boolean;
   onSelectGroup: (groupId: string) => void;
+  onNewGroup: () => void;
+  onDeleteGroup: (group: WorkspaceGroup) => void;
   onReorderGroups: (
     sourceGroupId: string,
     targetGroupId: string,
@@ -77,6 +80,8 @@ function TabBarComponent({
   viewOnlyLocked,
   canCreateTerminal,
   onSelectGroup,
+  onNewGroup,
+  onDeleteGroup,
   onReorderGroups,
   onNewTerminal,
   onSelectMachine,
@@ -152,6 +157,29 @@ function TabBarComponent({
   );
 
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
+  const [tabMenu, setTabMenu] = useState<{
+    group: WorkspaceGroup;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const tabMenuItems: ContextMenuEntry[] = tabMenu
+    ? [
+        {
+          label: "New tab",
+          disabled: !isController,
+          onClick: onNewGroup,
+        },
+        { type: "separator" },
+        {
+          label: `Delete tab "${tabMenu.group.label}"`,
+          // cwd fallback groups only exist while their panes do — there is
+          // nothing to delete; persistent groups are user-owned rows.
+          disabled: !tabMenu.group.persistent || !isController,
+          onClick: () => onDeleteGroup(tabMenu.group),
+        },
+      ]
+    : [];
 
   return (
     <div
@@ -194,6 +222,11 @@ function TabBarComponent({
                   current === group.id ? null : current,
                 )
               }
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setTabMenu({ group, x: event.clientX, y: event.clientY });
+              }}
+              data-testid={`workspace-tab-${group.id}`}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -286,6 +319,15 @@ function TabBarComponent({
           <Plus size={14} />
         </button>
       </div>
+
+      {tabMenu && (
+        <ContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          items={tabMenuItems}
+          onClose={() => setTabMenu(null)}
+        />
+      )}
 
       {/* Right: host meta */}
       <div

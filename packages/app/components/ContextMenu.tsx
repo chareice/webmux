@@ -65,7 +65,20 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       e.stopPropagation();
       onClose();
     };
-    const handleScroll = () => onClose();
+    const handleScroll = (e: Event) => {
+      // Only page-level scrolls (a container that holds the menu) dismiss
+      // it. Inner scrollables — the xterm viewport streaming output, the
+      // tab strip — must not close a menu the user just opened.
+      const target = e.target;
+      if (
+        target instanceof Node &&
+        menuRef.current &&
+        !target.contains(menuRef.current)
+      ) {
+        return;
+      }
+      onClose();
+    };
 
     requestAnimationFrame(() => {
       document.addEventListener("mousedown", handleClickOutside);

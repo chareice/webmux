@@ -575,3 +575,50 @@ async function dragWorkspaceGroupTo(
   );
   await page.mouse.up();
 }
+
+test("tab context menu creates and deletes workspace tabs", async ({ page }) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+  await selectHomeWorkpath(page);
+
+  const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
+  await expandTerminalById(page, terminalId);
+
+  // Right-click the cwd tab → New tab creates a persistent group.
+  await page.locator("[data-testid^='workspace-tab-']").first().click({
+    button: "right",
+  });
+  await page.getByRole("button", { name: "New tab" }).click();
+  await expect
+    .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
+    .toBe(1);
+  const created = (await listWorkspaceGroupsViaApi(page))[0];
+
+  // Move the pane into the new tab, then delete the tab from its context
+  // menu — the confirm dialog appears because it holds a pane.
+  await openPaneContextMenu(page, terminalId);
+  await page.getByRole("button", { name: "Move pane to tab" }).hover();
+  await page
+    .getByTestId("context-menu")
+    .getByRole("button", { name: created.name })
+    .click();
+  await page
+    .locator(`[data-testid='workspace-tab-${created.id}']`)
+    .click({ button: "right" });
+  await page.getByRole("button", { name: `Delete tab "${created.name}"` }).click();
+  await page
+    .getByRole("dialog", { name: "Delete tab?" })
+    .getByRole("button", { name: "Delete tab" })
+    .click();
+
+  // Group row is gone server-side; the terminal survives in its cwd tab.
+  await expect
+    .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
+    .toBe(0);
+  const terminals = await listTerminals(page);
+  expect(terminals.map((t: { id: string }) => t.id)).toContain(terminalId);
+  await expect(
+    page.locator("[data-testid^='workspace-tab-']"),
+  ).toHaveCount(1);
+});
