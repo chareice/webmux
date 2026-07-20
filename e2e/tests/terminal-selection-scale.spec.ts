@@ -10,7 +10,7 @@ import {
   takeControlFromHeader,
 } from "./helpers";
 
-test("desktop immersive terminal selection maps pointer coordinates to visible cells", async ({
+test("slightly transformed desktop terminal maps selection to visible cells", async ({
   browser,
 }) => {
   const context = await browser.newContext({
@@ -36,8 +36,16 @@ test("desktop immersive terminal selection maps pointer coordinates to visible c
     .poll(async () => readBufferLine(page, terminalId, 0))
     .toContain(marker);
 
+  await page.evaluate(() => {
+    const terminal = document.querySelector<HTMLElement>(
+      "[data-terminal-display-mode='immersive']",
+    );
+    if (!terminal) throw new Error("immersive terminal is not mounted");
+    terminal.style.transform = "scale(0.95)";
+    terminal.style.transformOrigin = "top left";
+  });
+
   const layout = await readScaledTerminalLayout(page);
-  expect(layout.scale).toBe(1);
 
   const targetText = marker.slice(0, 20);
   const start = cellPoint(layout, 0.1, 0.5);
@@ -122,7 +130,6 @@ async function readScaledTerminalLayout(page: Page): Promise<ScaledLayout> {
       throw new Error("terminal layout is not ready");
     }
     return {
-      scale: Number(root.getAttribute("data-terminal-view-scale")),
       screen: {
         left: rect.left,
         top: rect.top,
@@ -143,7 +150,6 @@ function cellPoint(layout: ScaledLayout, col: number, row: number): Point {
 }
 
 interface ScaledLayout {
-  scale: number;
   screen: {
     left: number;
     top: number;
