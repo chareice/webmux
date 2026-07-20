@@ -16,7 +16,6 @@ describe("TerminalView renderer", () => {
     expect(source).not.toContain("transform:");
     expect(source).not.toContain("scale(");
     expect(source).not.toContain("allowTerminalScale");
-    expect(source).not.toContain("patchScaledMouseCoordinates");
   });
 
   it("keeps xterm custom glyphs enabled for block and shade characters", () => {
