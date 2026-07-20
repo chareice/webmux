@@ -17,7 +17,7 @@
    **eval:** The zoom hash is cleared; the workspace stays visible — it is the permanent desktop view, not an overlay.
 
 4. **action:** Create a second terminal in a different cwd (e.g. via the API or by launching from another workpath).
-   **eval:** A second tab appears in the TabBar. Clicking a tab switches the workspace to that group; the active tab is filled with the terminal background so it merges into the terminal below.
+   **eval:** A second tab appears in the TabBar. Hovering a tab switches the workspace to that group; the active tab is filled with the terminal background so it merges into the terminal below.
 
 5. **action:** Press `⌃B %` (Ctrl+B, then Shift+5).
    **eval:** The active pane splits to the right — the group now shows two panes side by side, and the tab's annotation lists the distinct pane titles. `⌃B "` splits down.

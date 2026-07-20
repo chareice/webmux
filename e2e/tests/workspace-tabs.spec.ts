@@ -332,7 +332,7 @@ test("confirming close for a busy cwd pane keeps an empty cwd group open", async
   await expect(page.getByText(/No terminals/)).toBeVisible();
 });
 
-test("selecting a workspace group tab switches to that group", async ({ page }) => {
+test("hovering a workspace group tab switches to that group", async ({ page }) => {
   await openApp(page);
   await resetMachineState(page);
   await takeControlFromHeader(page);
@@ -360,7 +360,7 @@ test("selecting a workspace group tab switches to that group", async ({ page }) 
   await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
     .toHaveCount(0);
 
-  await page.getByTestId(`workspace-group-${secondGroup.id}`).click();
+  await page.getByTestId(`workspace-group-${secondGroup.id}`).hover();
   await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
     .toBeVisible();
   await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))

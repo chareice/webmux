@@ -225,7 +225,15 @@ function TabBarComponent({
               data-workspace-group-drop-id={
                 group.persistent ? group.id : undefined
               }
-              onMouseEnter={() => setHoveredGroupId(group.id)}
+              onMouseEnter={() => {
+                setHoveredGroupId(group.id);
+                if (
+                  group.id !== activeGroupId &&
+                  groupDragRef.current === null
+                ) {
+                  onSelectGroup(group.id);
+                }
+              }}
               onMouseLeave={() =>
                 setHoveredGroupId((current) =>
                   current === group.id ? null : current,
