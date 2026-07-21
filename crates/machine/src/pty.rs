@@ -379,15 +379,20 @@ set -g set-titles-string \"#T\"
 set -g focus-events on
 set -g history-limit 10000
 bind -n WheelUpPane if -Ft= '#{mouse_any_flag}' 'send -M' 'if -Ft= \"#{pane_in_mode}\" \"send -M\" \"copy-mode -e\"'
+bind -n MouseDrag1Pane if -Ft= '#{mouse_any_flag}' 'send -M' 'copy-mode -eM'
 ",
     );
+    // Drag-select end is conditional on scroll position: back in history,
+    // copy-pipe keeps copy-mode so the view doesn't jump to the bottom
+    // (PR #223); at the bottom, copy-pipe-and-cancel exits copy-mode
+    // immediately (no jump possible there).
     config.push_str(&format!(
-        "bind-key -T copy-mode MouseDragEnd1Pane send-keys -X copy-pipe '{} #{{pane_tty}}'\n",
-        osc52_script
+        "bind-key -T copy-mode MouseDragEnd1Pane if -Ft= '#{{scroll_position}}' {{ send-keys -X copy-pipe '{} #{{pane_tty}}' }} {{ send-keys -X copy-pipe-and-cancel '{} #{{pane_tty}}' }}\n",
+        osc52_script, osc52_script
     ));
     config.push_str(&format!(
-        "bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe '{} #{{pane_tty}}'\n",
-        osc52_script
+        "bind-key -T copy-mode-vi MouseDragEnd1Pane if -Ft= '#{{scroll_position}}' {{ send-keys -X copy-pipe '{} #{{pane_tty}}' }} {{ send-keys -X copy-pipe-and-cancel '{} #{{pane_tty}}' }}\n",
+        osc52_script, osc52_script
     ));
     for var in &["CLAUDE_CODE_NO_FLICKER"] {
         if let Ok(val) = std::env::var(var) {
@@ -644,10 +649,38 @@ mod tests {
             content.contains("copy-pipe '/tmp/osc52copy.sh #{pane_tty}'"),
             "missing osc52 copy binding that keeps tmux copy-mode active"
         );
+        // Drag-select must enter copy-mode with scroll-exit (-e) plus -M
+        // (mouse drag init), otherwise scrolling down can never leave it.
         assert!(
-            !content.contains("copy-pipe-and-cancel"),
-            "mouse copy should not leave tmux copy-mode"
+            content.contains("bind -n MouseDrag1Pane if -Ft= '#{mouse_any_flag}' 'send -M' 'copy-mode -eM'"),
+            "missing MouseDrag1Pane override that enters copy-mode with -eM"
         );
+        // MouseDragEnd1Pane must be conditional on #{scroll_position}: back
+        // in history -> copy-pipe (stay, no jump to bottom); at the bottom ->
+        // copy-pipe-and-cancel (copy and leave copy-mode immediately).
+        for table in ["copy-mode", "copy-mode-vi"] {
+            let binding = content
+                .lines()
+                .find(|l| {
+                    l.starts_with(&format!("bind-key -T {} MouseDragEnd1Pane", table))
+                })
+                .unwrap_or_else(|| panic!("missing MouseDragEnd1Pane binding for {}", table));
+            assert!(
+                binding.contains("'#{scroll_position}'"),
+                "{} MouseDragEnd1Pane must branch on #{{scroll_position}}",
+                table
+            );
+            assert!(
+                binding.contains("copy-pipe '/tmp/osc52copy.sh #{pane_tty}'"),
+                "{} MouseDragEnd1Pane must keep a copy-pipe branch with the osc52 script",
+                table
+            );
+            assert!(
+                binding.contains("copy-pipe-and-cancel '/tmp/osc52copy.sh #{pane_tty}'"),
+                "{} MouseDragEnd1Pane must have a copy-pipe-and-cancel branch with the osc52 script",
+                table
+            );
+        }
         assert!(
             content.contains("WheelUpPane") && content.contains("copy-mode -e"),
             "missing scroll-to-copy-mode binding"
