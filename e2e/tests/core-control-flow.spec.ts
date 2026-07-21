@@ -28,21 +28,21 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   // The workspace is now the main view. Session A is controller: the
   // control-gated tab-bar action is enabled for it.
   await pageA.getByTestId("expanded-terminal").waitFor({ state: "visible" });
-  await expect(pageA.getByTestId("tab-bar-new-terminal")).toBeEnabled();
+  await expect(pageA.getByTestId("tab-bar-new-group")).toBeEnabled();
 
   // Session B arrives in view-only mode with the workspace already visible;
   // the same gated action is disabled for it.
   await openApp(pageB);
   await expectControlState(pageB, "viewing");
   await pageB.getByTestId("expanded-terminal").waitFor({ state: "visible" });
-  await expect(pageB.getByTestId("tab-bar-new-terminal")).toBeDisabled();
+  await expect(pageB.getByTestId("tab-bar-new-group")).toBeDisabled();
 
   // Handoff: B takes control, A flips to viewing and its gated action
   // disables; B's enables.
   await takeControlFromHeader(pageB);
-  await expect(pageB.getByTestId("tab-bar-new-terminal")).toBeEnabled();
+  await expect(pageB.getByTestId("tab-bar-new-group")).toBeEnabled();
   await expectControlState(pageA, "viewing");
-  await expect(pageA.getByTestId("tab-bar-new-terminal")).toBeDisabled();
+  await expect(pageA.getByTestId("tab-bar-new-group")).toBeDisabled();
 
   // B closes the terminal through the real ⌃B x prefix path (idle shell:
   // no foreground process, so no confirm dialog).
