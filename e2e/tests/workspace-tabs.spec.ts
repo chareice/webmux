@@ -189,6 +189,79 @@ test("workspace tabs can be reordered by dragging", async ({ page }) => {
     .toEqual([first.id, second.id]);
 });
 
+test("workspace tabs can be reordered by dragging the tab body", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const first = await createWorkspaceGroupViaApi(
+    page,
+    `Tab Drag A ${Date.now()}`,
+  );
+  const second = await createWorkspaceGroupViaApi(
+    page,
+    `Tab Drag B ${Date.now()}`,
+  );
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: first.id,
+  });
+
+  await expandTerminalById(page, terminalId);
+  await expect(page.getByTestId(`workspace-group-${first.id}`)).toBeVisible();
+  await expect(page.getByTestId(`workspace-group-${second.id}`)).toBeVisible();
+
+  // Drag starting on the tab label button (not the grip handle), past the
+  // threshold, releasing over the other tab.
+  await dragWorkspaceGroupTo(
+    page,
+    second.id,
+    first.id,
+    "before",
+    page.getByTestId(`workspace-group-${second.id}`),
+  );
+
+  await expect
+    .poll(async () =>
+      (await listWorkspaceGroupsViaApi(page))
+        .map((group) => group.id)
+        .filter((id) => id === first.id || id === second.id),
+    )
+    .toEqual([second.id, first.id]);
+
+  await expect
+    .poll(async () =>
+      (await visibleWorkspaceGroupIds(page)).filter(
+        (id) => id === first.id || id === second.id,
+      ),
+    )
+    .toEqual([second.id, first.id]);
+
+  // A plain press-and-release on a tab label (no movement) still selects it.
+  const secondTab = page.getByTestId(`workspace-group-${second.id}`);
+  const secondBox = await secondTab.boundingBox();
+  expect(secondBox).toBeTruthy();
+  await page.mouse.move(
+    secondBox!.x + secondBox!.width / 2,
+    secondBox!.y + secondBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.up();
+  // The second group is empty, so selecting it shows the empty-group state.
+  await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
+
+  // The click was a selection, not a drag — order is unchanged.
+  await expect
+    .poll(async () =>
+      (await listWorkspaceGroupsViaApi(page))
+        .map((group) => group.id)
+        .filter((id) => id === first.id || id === second.id),
+    )
+    .toEqual([second.id, first.id]);
+});
+
 test("deleting a workspace tab keeps terminals open and clears their group", async ({
   page,
 }) => {
@@ -550,12 +623,14 @@ async function dragWorkspaceGroupTo(
   sourceGroupId: string,
   targetGroupId: string,
   placement: "before" | "after",
+  source?: import("@playwright/test").Locator,
 ): Promise<void> {
-  const source = page.getByTestId(`workspace-group-drag-${sourceGroupId}`);
+  const sourceLocator =
+    source ?? page.getByTestId(`workspace-group-drag-${sourceGroupId}`);
   const target = page.getByTestId(`workspace-group-${targetGroupId}`);
-  await source.scrollIntoViewIfNeeded();
+  await sourceLocator.scrollIntoViewIfNeeded();
   await target.scrollIntoViewIfNeeded();
-  const sourceBox = await source.boundingBox();
+  const sourceBox = await sourceLocator.boundingBox();
   const targetBox = await target.boundingBox();
   expect(sourceBox).toBeTruthy();
   expect(targetBox).toBeTruthy();
