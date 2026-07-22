@@ -7,8 +7,9 @@
 //
 // The active tab is filled with the terminal background so it visually
 // merges into the terminal below, like a terminal-emulator tab. Tabs of
-// persistent groups can be reordered by dragging (same mouse-drag protocol
-// the old workspace toolbar strip used — no new DnD library).
+// persistent groups can be reordered by dragging anywhere on the tab (or by
+// the grip handle) — same mouse-drag protocol the old workspace toolbar
+// strip used, no new DnD library.
 
 import {
   memo,
@@ -32,6 +33,9 @@ import { collectPaneTerminalIds, type WorkspaceGroup } from "@/lib/terminalWorks
 import { HostSwitcher } from "./HostSwitcher.web";
 
 export type TabDropPlacement = "before" | "after";
+
+// Distance (px) a press on the tab body must travel before it becomes a drag.
+const TAB_DRAG_THRESHOLD_PX = 4;
 
 interface TabBarProps {
   groups: WorkspaceGroup[];
@@ -91,6 +95,12 @@ function TabBarComponent({
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const groupDragRef = useRef<{ sourceGroupId: string } | null>(null);
   const documentGroupDragCleanupRef = useRef<(() => void) | null>(null);
+  const groupDragPendingRef = useRef<{
+    sourceGroupId: string;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const suppressGroupClickRef = useRef(false);
 
   const removeDocumentGroupDragEnd = useCallback(() => {
     const cleanup = documentGroupDragCleanupRef.current;
@@ -110,6 +120,13 @@ function TabBarComponent({
       const drag = groupDragRef.current;
       resetGroupDrag();
       if (!drag) return;
+      // Swallow the click that fires after this mouseup so ending a drag
+      // never (re-)selects a group. The timeout clears the flag when the
+      // click lands outside any tab button.
+      suppressGroupClickRef.current = true;
+      setTimeout(() => {
+        suppressGroupClickRef.current = false;
+      }, 0);
       const target = document
         .elementFromPoint(clientX, clientY)
         ?.closest<HTMLElement>("[data-workspace-group-drop-id]");
@@ -123,11 +140,10 @@ function TabBarComponent({
     [onReorderGroups, resetGroupDrag],
   );
 
-  const startGroupMouseDrag = useCallback(
-    (sourceGroupId: string, event: ReactMouseEvent<HTMLElement>) => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      event.stopPropagation();
+  // Shared drag start: grip handle (immediate) and tab-body threshold
+  // promotion both end up here.
+  const beginGroupDrag = useCallback(
+    (sourceGroupId: string) => {
       removeDocumentGroupDragEnd();
       groupDragRef.current = { sourceGroupId };
       setDraggingGroupId(sourceGroupId);
@@ -144,6 +160,57 @@ function TabBarComponent({
       window.addEventListener("blur", handleWindowBlur, true);
     },
     [finishGroupDrag, removeDocumentGroupDragEnd, resetGroupDrag],
+  );
+
+  const startGroupMouseDrag = useCallback(
+    (sourceGroupId: string, event: ReactMouseEvent<HTMLElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      beginGroupDrag(sourceGroupId);
+    },
+    [beginGroupDrag],
+  );
+
+  // Pressing anywhere on a persistent tab arms a drag: moving past a small
+  // threshold promotes it to the same drag the grip handle starts, while
+  // releasing earlier behaves like a plain click. No preventDefault here so
+  // focus/click semantics of the label button stay intact.
+  const armGroupTabDrag = useCallback(
+    (sourceGroupId: string, event: ReactMouseEvent<HTMLElement>) => {
+      if (event.button !== 0) return;
+      if (groupDragRef.current) return;
+      removeDocumentGroupDragEnd();
+      groupDragPendingRef.current = {
+        sourceGroupId,
+        startX: event.clientX,
+        startY: event.clientY,
+      };
+      const cancelPending = () => {
+        groupDragPendingRef.current = null;
+        removeDocumentGroupDragEnd();
+      };
+      const handleMouseMove = (mouseEvent: MouseEvent) => {
+        const pending = groupDragPendingRef.current;
+        if (!pending) return;
+        const dx = mouseEvent.clientX - pending.startX;
+        const dy = mouseEvent.clientY - pending.startY;
+        if (Math.hypot(dx, dy) < TAB_DRAG_THRESHOLD_PX) return;
+        cancelPending();
+        beginGroupDrag(pending.sourceGroupId);
+      };
+      const handleMouseUp = () => cancelPending();
+      const handleWindowBlur = () => cancelPending();
+      documentGroupDragCleanupRef.current = () => {
+        document.removeEventListener("mousemove", handleMouseMove, true);
+        document.removeEventListener("mouseup", handleMouseUp, true);
+        window.removeEventListener("blur", handleWindowBlur, true);
+      };
+      document.addEventListener("mousemove", handleMouseMove, true);
+      document.addEventListener("mouseup", handleMouseUp, true);
+      window.addEventListener("blur", handleWindowBlur, true);
+    },
+    [beginGroupDrag, removeDocumentGroupDragEnd],
   );
 
   useEffect(
@@ -235,6 +302,11 @@ function TabBarComponent({
                   current === group.id ? null : current,
                 )
               }
+              onMouseDown={
+                group.persistent
+                  ? (event) => armGroupTabDrag(group.id, event)
+                  : undefined
+              }
               onContextMenu={(event) => {
                 event.preventDefault();
                 setTabMenu({ group, x: event.clientX, y: event.clientY });
@@ -280,7 +352,15 @@ function TabBarComponent({
               )}
               <button
                 type="button"
-                onClick={() => onSelectGroup(group.id)}
+                onClick={() => {
+                  // Click trailing a completed drag — already handled as a
+                  // drop, not a selection.
+                  if (suppressGroupClickRef.current) {
+                    suppressGroupClickRef.current = false;
+                    return;
+                  }
+                  onSelectGroup(group.id);
+                }}
                 data-testid={`workspace-group-${group.id}`}
                 title={group.label}
                 style={{
