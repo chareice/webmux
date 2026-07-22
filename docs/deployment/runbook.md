@@ -106,9 +106,9 @@ Hub and node versions don't need to match exactly. Unknown message types are sil
 - **Type:** SQLite
 - **Path (in container):** `/app/data/webmux.db`
 - **Volume:** `webmux-data` (Docker named volume, persists across container restarts)
-- **Access:**
+- **Access:** the server image has no `sqlite3` binary — query through a throwaway container mounting the volume:
 ```bash
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; docker exec webmux-server-1 sqlite3 /app/data/webmux.db '.tables'"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; docker run --rm -v webmux_webmux-data:/data keinos/sqlite3 sqlite3 /data/webmux.db '.tables'"
 ```
 
 ## Common Operations
