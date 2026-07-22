@@ -262,6 +262,58 @@ test("workspace tabs can be reordered by dragging the tab body", async ({
     .toEqual([second.id, first.id]);
 });
 
+test("dragging a cwd fallback tab promotes both tabs to persistent groups", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const rootTerminalId = await createTerminalViaApi(page, { cwd: "/root" });
+  const tmpTerminalId = await createTerminalViaApi(page, { cwd: "/tmp" });
+
+  await expandTerminalById(page, rootTerminalId);
+  await expect(page.getByTestId("workspace-group-cwd:/root")).toBeVisible();
+  await expect(page.getByTestId("workspace-group-cwd:/tmp")).toBeVisible();
+
+  // Fallback tabs have no grip handle — drag the tab body onto the other
+  // fallback tab. Both promote to persistent groups at drop time.
+  await dragWorkspaceGroupTo(
+    page,
+    "cwd:/tmp",
+    "cwd:/root",
+    "before",
+    page.getByTestId("workspace-group-cwd:/tmp"),
+  );
+
+  let promoted: Array<{ id: string; name: string }> = [];
+  await expect
+    .poll(async () => {
+      promoted = (await listWorkspaceGroupsViaApi(page)).filter((group) =>
+        ["root", "tmp"].includes(group.name),
+      );
+      return promoted.map((group) => group.name);
+    })
+    .toEqual(["tmp", "root"]);
+
+  const promotedIds = promoted.map((group) => group.id);
+  await expect
+    .poll(async () =>
+      (await visibleWorkspaceGroupIds(page)).filter((id) =>
+        promotedIds.includes(id),
+      ),
+    )
+    .toEqual(promotedIds);
+
+  // Each promoted tab still shows its terminal pane.
+  await page.getByTestId(`workspace-group-${promoted[0].id}`).click();
+  await expect(page.getByTestId(`workspace-pane-${tmpTerminalId}`))
+    .toBeVisible();
+  await page.getByTestId(`workspace-group-${promoted[1].id}`).click();
+  await expect(page.getByTestId(`workspace-pane-${rootTerminalId}`))
+    .toBeVisible();
+});
+
 test("deleting a workspace tab keeps terminals open and clears their group", async ({
   page,
 }) => {

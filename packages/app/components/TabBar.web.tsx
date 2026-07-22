@@ -6,10 +6,11 @@
 // appears while the user is not the controller.
 //
 // The active tab is filled with the terminal background so it visually
-// merges into the terminal below, like a terminal-emulator tab. Tabs of
-// persistent groups can be reordered by dragging anywhere on the tab (or by
-// the grip handle) — same mouse-drag protocol the old workspace toolbar
-// strip used, no new DnD library.
+// merges into the terminal below, like a terminal-emulator tab. Tabs can be
+// reordered by dragging anywhere on the tab (persistent tabs also have a
+// grip handle) — same mouse-drag protocol the old workspace toolbar strip
+// used, no new DnD library. Dropping a cwd fallback tab promotes it to a
+// persistent group at drop time; see TerminalWorkspace handleReorderGroups.
 
 import {
   memo,
@@ -91,7 +92,7 @@ function TabBarComponent({
   onEngageViewOnly,
   onDisengageViewOnly,
 }: TabBarProps) {
-  // ---- tab drag-to-reorder (persistent groups only) ----
+  // ---- tab drag-to-reorder ----
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const groupDragRef = useRef<{ sourceGroupId: string } | null>(null);
   const documentGroupDragCleanupRef = useRef<(() => void) | null>(null);
@@ -154,10 +155,15 @@ function TabBarComponent({
       const handleWindowBlur = () => resetGroupDrag();
       documentGroupDragCleanupRef.current = () => {
         document.removeEventListener("mouseup", handleMouseUp, true);
-        window.removeEventListener("blur", handleWindowBlur, true);
+        window.removeEventListener("blur", handleWindowBlur);
       };
       document.addEventListener("mouseup", handleMouseUp, true);
-      window.addEventListener("blur", handleWindowBlur, true);
+      // Non-capture on purpose: element blur events reach a capture-phase
+      // window listener, so the terminal textarea losing focus (e.g. the
+      // mousedown default action focusing the tab button) would cancel the
+      // drag. blur does not bubble, so without capture only a genuine
+      // window blur lands here.
+      window.addEventListener("blur", handleWindowBlur);
     },
     [finishGroupDrag, removeDocumentGroupDragEnd, resetGroupDrag],
   );
@@ -172,7 +178,7 @@ function TabBarComponent({
     [beginGroupDrag],
   );
 
-  // Pressing anywhere on a persistent tab arms a drag: moving past a small
+  // Pressing anywhere on a tab arms a drag: moving past a small
   // threshold promotes it to the same drag the grip handle starts, while
   // releasing earlier behaves like a plain click. No preventDefault here so
   // focus/click semantics of the label button stay intact.
@@ -204,11 +210,12 @@ function TabBarComponent({
       documentGroupDragCleanupRef.current = () => {
         document.removeEventListener("mousemove", handleMouseMove, true);
         document.removeEventListener("mouseup", handleMouseUp, true);
-        window.removeEventListener("blur", handleWindowBlur, true);
+        window.removeEventListener("blur", handleWindowBlur);
       };
       document.addEventListener("mousemove", handleMouseMove, true);
       document.addEventListener("mouseup", handleMouseUp, true);
-      window.addEventListener("blur", handleWindowBlur, true);
+      // Non-capture, same reason as beginGroupDrag's blur listener.
+      window.addEventListener("blur", handleWindowBlur);
     },
     [beginGroupDrag, removeDocumentGroupDragEnd],
   );
@@ -285,9 +292,7 @@ function TabBarComponent({
           return (
             <div
               key={group.id}
-              data-workspace-group-drop-id={
-                group.persistent ? group.id : undefined
-              }
+              data-workspace-group-drop-id={group.id}
               onMouseEnter={() => {
                 setHoveredGroupId(group.id);
                 if (
@@ -302,11 +307,7 @@ function TabBarComponent({
                   current === group.id ? null : current,
                 )
               }
-              onMouseDown={
-                group.persistent
-                  ? (event) => armGroupTabDrag(group.id, event)
-                  : undefined
-              }
+              onMouseDown={(event) => armGroupTabDrag(group.id, event)}
               onContextMenu={(event) => {
                 event.preventDefault();
                 setTabMenu({ group, x: event.clientX, y: event.clientY });

@@ -28,6 +28,7 @@ import {
   type WorkspaceSplitIntent,
   type TerminalWorkspace as TerminalWorkspaceState,
   appendWorkspacePaneToGroup,
+  buildReorderPersistentGroupIds,
   closeWorkspacePane,
   createTerminalWorkspace,
   findAdjacentWorkspacePane,
@@ -76,6 +77,13 @@ interface TerminalWorkspaceProps {
     terminal: TerminalInfo,
     workspaceGroupId: string | null,
   ) => Promise<void>;
+  // Promote a cwd fallback tab to a persistent group (create the
+  // workspace_groups row and move the tab's terminals into it).
+  onPromoteGroup: (
+    machineId: string,
+    name: string,
+    terminalIds: string[],
+  ) => Promise<WorkspaceGroupInfo | null>;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
   // Command channel for the desktop TabBar / command palette (Phase 2). The
@@ -149,6 +157,7 @@ function TerminalWorkspaceComponent({
   onReorderGroups,
   onSaveWorkspaceLayout,
   onAssignGroup,
+  onPromoteGroup,
   onRequestControl,
   onReleaseControl,
   commandsRef,
@@ -423,11 +432,54 @@ function TerminalWorkspaceComponent({
       placement: GroupDropPlacement,
     ) => {
       if (sourceGroupId === targetGroupId) return;
-      const nextIds = reorderedPersistentGroupIds(
+      // cwd fallback tabs have no workspace_groups row, so a drop involving
+      // one promotes it to a persistent group first. Promotion happens at
+      // drop, never at drag start — the tab's id changes during promotion
+      // and must stay stable while a drag is in flight.
+      const promotedIds: Record<string, string> = {};
+      for (const endGroupId of [targetGroupId, sourceGroupId]) {
+        // Look the group up fresh each step: the terminal assignments fire
+        // terminal_updated events whose reconcile rebuilds the groups
+        // (fallback tab out, persistent twin in) while we await.
+        const fallbackGroup = workspaceRef.current.groups.find(
+          (candidate) => candidate.id === endGroupId && !candidate.persistent,
+        );
+        if (!fallbackGroup) continue;
+        const terminalIds = collectIds(fallbackGroup.root);
+        const machineId =
+          terminalIds
+            .map((id) => terminalsById.get(id)?.machine_id)
+            .find((id): id is string => Boolean(id)) ?? commandMachineId;
+        const created = await onPromoteGroup(
+          machineId,
+          fallbackGroup.label,
+          terminalIds,
+        ).catch((error) => {
+          console.error("Failed to promote workspace group", error);
+          return null;
+        });
+        // Promotion failed — abort the reorder, leave everything as-is.
+        if (!created) return;
+        promotedIds[endGroupId] = created.id;
+        // Re-save the pane layout under the new group key only after the
+        // terminal assignments: the hub validates layout terminal ids
+        // against the group's members. A single-pane tab has a trivial
+        // layout; still saved for correctness.
+        try {
+          await onSaveWorkspaceLayout(machineId, created.id, fallbackGroup.root);
+        } catch (error) {
+          console.error("Failed to save workspace pane layout", error);
+        }
+        if (workspaceRef.current.activeGroupId === endGroupId) {
+          updateWorkspace((prev) => ({ ...prev, activeGroupId: created.id }));
+        }
+      }
+      const nextIds = buildReorderPersistentGroupIds(
         workspaceRef.current.groups,
         sourceGroupId,
         targetGroupId,
         placement,
+        promotedIds,
       );
       if (!nextIds) return;
       updateWorkspace((prev) => ({
@@ -453,8 +505,11 @@ function TerminalWorkspaceComponent({
     },
     [
       commandMachineId,
+      onPromoteGroup,
       onReorderGroups,
+      onSaveWorkspaceLayout,
       siblings,
+      terminalsById,
       updateWorkspace,
       workspaceLayouts,
     ],
@@ -1178,30 +1233,6 @@ function collectIds(root: WorkspacePaneNode | null): string[] {
   if (!root) return [];
   if (root.type === "leaf") return [root.terminalId];
   return [...collectIds(root.first), ...collectIds(root.second)];
-}
-
-function reorderedPersistentGroupIds(
-  groups: WorkspaceGroup[],
-  sourceGroupId: string,
-  targetGroupId: string,
-  placement: GroupDropPlacement,
-): string[] | null {
-  const persistentIds = groups
-    .filter((group) => group.persistent && group.workspaceGroupId)
-    .map((group) => group.workspaceGroupId as string);
-  if (
-    !persistentIds.includes(sourceGroupId) ||
-    !persistentIds.includes(targetGroupId)
-  ) {
-    return null;
-  }
-  return moveRelative(
-    persistentIds,
-    sourceGroupId,
-    targetGroupId,
-    placement,
-    (id) => id,
-  );
 }
 
 function reorderWorkspaceGroupsForDisplay(
