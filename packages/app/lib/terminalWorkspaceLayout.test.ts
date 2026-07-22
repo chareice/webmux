@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { TerminalInfo } from "@webmux/shared";
+import type { TerminalInfo, WorkspaceGroupInfo } from "@webmux/shared";
 import {
   appendWorkspacePaneToGroup,
+  buildReorderPersistentGroupIds,
   closeWorkspacePane,
   collectGroupPaneTerminalIds,
   collectPaneTerminalIds,
@@ -646,5 +647,104 @@ describe("strip order helpers", () => {
       "web-1",
       "web-2",
     ]);
+  });
+});
+
+describe("buildReorderPersistentGroupIds", () => {
+  function workspaceGroupInfo(
+    id: string,
+    name: string,
+    sortOrder: number,
+  ): WorkspaceGroupInfo {
+    return { id, machine_id: "m1", name, sort_order: sortOrder };
+  }
+
+  // Visible order: persistent groups (by sort_order), then cwd fallback
+  // groups (by label) — g1, g2, cwd:/work/a, cwd:/work/b.
+  function mixedWorkspace() {
+    return createTerminalWorkspace(
+      [
+        groupedTerminal("t1", "/work/one", "g1"),
+        groupedTerminal("t2", "/work/two", "g2"),
+        terminal("t3", "/work/a"),
+        terminal("t4", "/work/b"),
+      ],
+      "t1",
+      [workspaceGroupInfo("g1", "one", 0), workspaceGroupInfo("g2", "two", 1)],
+    );
+  }
+
+  it("keeps pure-persistent reorder behavior unchanged", () => {
+    const ws = mixedWorkspace();
+
+    expect(
+      buildReorderPersistentGroupIds(ws.groups, "g1", "g2", "after"),
+    ).toEqual(["g2", "g1"]);
+    expect(
+      buildReorderPersistentGroupIds(ws.groups, "g2", "g1", "before"),
+    ).toEqual(["g2", "g1"]);
+  });
+
+  it("substitutes the promoted id for a fallback drag source", () => {
+    const ws = mixedWorkspace();
+
+    expect(
+      buildReorderPersistentGroupIds(
+        ws.groups,
+        "cwd:/work/a",
+        "g1",
+        "before",
+        { "cwd:/work/a": "ga" },
+      ),
+    ).toEqual(["ga", "g1", "g2"]);
+  });
+
+  it("substitutes the promoted id for a fallback drop target", () => {
+    const ws = mixedWorkspace();
+
+    expect(
+      buildReorderPersistentGroupIds(
+        ws.groups,
+        "g1",
+        "cwd:/work/b",
+        "after",
+        { "cwd:/work/b": "gb" },
+      ),
+    ).toEqual(["g2", "gb", "g1"]);
+  });
+
+  it("reorders two promoted fallback tabs in dragged order", () => {
+    const ws = createTerminalWorkspace(
+      [terminal("t3", "/work/a"), terminal("t4", "/work/b")],
+      "t3",
+    );
+    const promoted = { "cwd:/work/a": "ga", "cwd:/work/b": "gb" };
+
+    expect(
+      buildReorderPersistentGroupIds(
+        ws.groups,
+        "cwd:/work/a",
+        "cwd:/work/b",
+        "before",
+        promoted,
+      ),
+    ).toEqual(["ga", "gb"]);
+    expect(
+      buildReorderPersistentGroupIds(
+        ws.groups,
+        "cwd:/work/b",
+        "cwd:/work/a",
+        "before",
+        promoted,
+      ),
+    ).toEqual(["gb", "ga"]);
+  });
+
+  it("returns null when a fallback drag end was not promoted", () => {
+    const ws = mixedWorkspace();
+
+    expect(
+      buildReorderPersistentGroupIds(ws.groups, "g1", "cwd:/work/a", "after"),
+    ).toBeNull();
   });
 });

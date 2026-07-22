@@ -376,6 +376,48 @@ export function collectGroupPaneTerminalIds(groups: WorkspaceGroup[]): string[] 
   return groups.flatMap((group) => groupPaneTerminalIds(group));
 }
 
+export type WorkspaceGroupDropPlacement = "before" | "after";
+
+// Build the persistent-group id order sent to the reorder endpoint after a
+// tab drag. cwd fallback tabs have no workspace_groups row until the drop
+// promotes them — `promotedIds` maps a fallback tab id (`cwd:<path>`) to the
+// freshly created group id. Promoted ids join the persistent block in their
+// visible fallback order (persistent groups always sort before remaining
+// fallback tabs, so a promoted tab jumps left past un-promoted fallback
+// tabs — only the relative order of the dragged tabs is guaranteed).
+// Returns null when either drag end cannot resolve to a persistent id.
+export function buildReorderPersistentGroupIds(
+  groups: WorkspaceGroup[],
+  sourceGroupId: string,
+  targetGroupId: string,
+  placement: WorkspaceGroupDropPlacement,
+  promotedIds: Readonly<Record<string, string>> = {},
+): string[] | null {
+  const persistentIds: string[] = [];
+  const promotedInFallbackOrder: string[] = [];
+  for (const group of groups) {
+    if (group.persistent && group.workspaceGroupId) {
+      persistentIds.push(group.workspaceGroupId);
+      continue;
+    }
+    const promotedId = promotedIds[group.id];
+    if (promotedId) promotedInFallbackOrder.push(promotedId);
+  }
+  const ids = [...persistentIds, ...promotedInFallbackOrder];
+  const sourceId = promotedIds[sourceGroupId] ?? sourceGroupId;
+  const targetId = promotedIds[targetGroupId] ?? targetGroupId;
+  if (!ids.includes(sourceId) || !ids.includes(targetId)) return null;
+
+  const next = ids.slice();
+  next.splice(next.indexOf(sourceId), 1);
+  next.splice(
+    placement === "after" ? next.indexOf(targetId) + 1 : next.indexOf(targetId),
+    0,
+    sourceId,
+  );
+  return next;
+}
+
 export function findAdjacentWorkspacePane(
   root: WorkspacePaneNode | null,
   direction: WorkspacePaneFocusDirection,

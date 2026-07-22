@@ -1012,6 +1012,34 @@ function TerminalCanvasInner() {
     [],
   );
 
+  // Promote a cwd fallback tab to a persistent group: create the
+  // workspace_groups row named after the fallback label, then move the tab's
+  // terminals into it (same state-upsert pattern as
+  // handleAssignWorkspaceGroup). The created group row itself arrives via
+  // workspace_group_created.
+  const handlePromoteWorkspaceGroup = useCallback(
+    async (
+      machineId: string,
+      name: string,
+      terminalIds: string[],
+    ): Promise<WorkspaceGroupInfo | null> => {
+      const created = await createWorkspaceGroup(machineId, name);
+      for (const terminalId of terminalIds) {
+        const updated = await assignTerminalWorkspaceGroup(
+          machineId,
+          terminalId,
+          created.id,
+        );
+        setBrowserState((prev) => ({
+          ...prev,
+          terminals: upsertTerminalInfo(prev.terminals, updated),
+        }));
+      }
+      return created;
+    },
+    [],
+  );
+
   const handleNewTerminalFromHeader = useCallback(async () => {
     if (!activeMachine || !deviceId) return;
     if (!isMachineController(activeMachine.id)) return;
@@ -1334,6 +1362,7 @@ function TerminalCanvasInner() {
                   onReorderGroups={handleReorderWorkspaceGroups}
                   onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
                   onAssignGroup={handleAssignWorkspaceGroup}
+                  onPromoteGroup={handlePromoteWorkspaceGroup}
                   onRequestControl={handleRequestControl}
                   onReleaseControl={handleReleaseControl}
                 />
@@ -1416,6 +1445,7 @@ function TerminalCanvasInner() {
                   onReorderGroups={handleReorderWorkspaceGroups}
                   onSaveWorkspaceLayout={handleSaveWorkspaceLayout}
                   onAssignGroup={handleAssignWorkspaceGroup}
+                  onPromoteGroup={handlePromoteWorkspaceGroup}
                   onRequestControl={handleRequestControl}
                   onReleaseControl={handleReleaseControl}
                   commandsRef={workspaceCommandsRef}
