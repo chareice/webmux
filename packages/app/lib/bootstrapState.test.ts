@@ -148,6 +148,33 @@ describe("workspace tab events", () => {
     ]);
   });
 
+  it("renames a workspace group on workspace_group_updated", () => {
+    const state = applyBrowserEventEnvelope(
+      {
+        ...EMPTY_BROWSER_SESSION_STATE,
+        lastSeq: 1,
+        workspaceGroups: [
+          { id: "tab-a", machine_id: "m1", name: "A", sort_order: 0 },
+          { id: "tab-b", machine_id: "m1", name: "B", sort_order: 1 },
+        ],
+      },
+      envelope(2, {
+        type: "workspace_group_updated",
+        group: {
+          id: "tab-b",
+          machine_id: "m1",
+          name: "Renamed",
+          sort_order: 1,
+        },
+      } as BrowserEvent),
+    );
+
+    expect(state.workspaceGroups.map((group) => group.name)).toEqual([
+      "A",
+      "Renamed",
+    ]);
+  });
+
   it("removes deleted workspace groups and clears local terminal assignments", () => {
     const state = applyBrowserEventEnvelope(
       {

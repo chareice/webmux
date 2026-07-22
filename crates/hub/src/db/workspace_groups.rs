@@ -83,6 +83,20 @@ pub fn update_workspace_group_sort_order(
     )
 }
 
+pub fn update_workspace_group_name(
+    conn: &Connection,
+    user_id: &str,
+    machine_id: &str,
+    group_id: &str,
+    name: &str,
+) -> rusqlite::Result<usize> {
+    conn.execute(
+        "UPDATE workspace_groups SET name = ?1
+         WHERE id = ?2 AND user_id = ?3 AND machine_id = ?4",
+        params![name, group_id, user_id, machine_id],
+    )
+}
+
 pub fn delete_workspace_group(
     conn: &Connection,
     user_id: &str,

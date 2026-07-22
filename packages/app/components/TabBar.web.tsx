@@ -55,6 +55,7 @@ interface TabBarProps {
   viewOnlyLocked: boolean;
   onSelectGroup: (groupId: string) => void;
   onNewGroup: () => void;
+  onRenameGroup: (group: WorkspaceGroup) => void;
   onDeleteGroup: (group: WorkspaceGroup) => void;
   onReorderGroups: (
     sourceGroupId: string,
@@ -84,6 +85,7 @@ function TabBarComponent({
   viewOnlyLocked,
   onSelectGroup,
   onNewGroup,
+  onRenameGroup,
   onDeleteGroup,
   onReorderGroups,
   onSelectMachine,
@@ -247,6 +249,13 @@ function TabBarComponent({
               disabled: !isController,
               onClick: onNewGroup,
             },
+            {
+              label: "Rename tab",
+              // Same gate as delete: cwd fallback groups have no persisted
+              // row to rename, and only the controller may mutate tabs.
+              disabled: !tabMenu.group.persistent || !isController,
+              onClick: () => onRenameGroup(tabMenu.group),
+            },
             { type: "separator" },
             {
               label: `Delete tab "${tabMenu.group.label}"`,
@@ -257,7 +266,7 @@ function TabBarComponent({
             },
           ]
         : [],
-    [tabMenu, isController, onNewGroup, onDeleteGroup],
+    [tabMenu, isController, onNewGroup, onRenameGroup, onDeleteGroup],
   );
 
   return (

@@ -752,3 +752,38 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
     page.locator("[data-testid^='workspace-tab-']"),
   ).toHaveCount(1);
 });
+
+test("tab context menu renames a workspace tab", async ({ page }) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+  await selectHomeWorkpath(page);
+
+  const group = await createWorkspaceGroupViaApi(page, `Rename ${Date.now()}`);
+  await expect(workspaceGroup(page, group.name)).toBeVisible();
+
+  // Right-click the tab → Rename tab opens the rename dialog.
+  await page
+    .locator(`[data-testid='workspace-tab-${group.id}']`)
+    .click({ button: "right" });
+  await page
+    .getByTestId("context-menu")
+    .getByRole("button", { name: "Rename tab" })
+    .click();
+
+  const renamed = `Renamed ${Date.now()}`;
+  const dialog = page.getByRole("dialog", { name: "Rename tab" });
+  await dialog.getByRole("textbox", { name: "Tab name" }).fill(renamed);
+  await dialog.getByRole("button", { name: "Rename", exact: true }).click();
+
+  // Tab label updates and the new name is persisted server-side.
+  await expect(workspaceGroup(page, renamed)).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        (await listWorkspaceGroupsViaApi(page)).find(
+          (g: { id: string }) => g.id === group.id,
+        )?.name,
+    )
+    .toBe(renamed);
+});
