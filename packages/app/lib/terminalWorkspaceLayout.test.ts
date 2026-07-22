@@ -328,6 +328,34 @@ describe("terminalWorkspaceLayout", () => {
     ).toEqual(["web-2"]);
   });
 
+  it("does not duplicate a pane that is already present in the group", () => {
+    const workspace = createTerminalWorkspace(
+      [groupedTerminal("web-1", "/repo", "tab-main")],
+      "web-1",
+      [
+        { id: "tab-main", machine_id: "m1", name: "Main", sort_order: 0 },
+        { id: "tab-empty", machine_id: "m1", name: "Scratch", sort_order: 1 },
+      ],
+    );
+    const selected = selectWorkspaceGroup(workspace, "tab-empty");
+    const appended = appendWorkspacePaneToGroup(selected, {
+      groupId: "tab-empty",
+      newTerminalId: "web-2",
+    });
+
+    const next = appendWorkspacePaneToGroup(appended, {
+      groupId: "tab-empty",
+      newTerminalId: "web-2",
+    });
+
+    expect(next).toBe(appended);
+    expect(
+      collectPaneTerminalIds(
+        next.groups.find((group) => group.id === "tab-empty")?.root ?? null,
+      ),
+    ).toEqual(["web-2"]);
+  });
+
   it("splits the active pane without moving terminals to another group", () => {
     const workspace = createTerminalWorkspace(terminals, "web-1");
     const next = splitWorkspacePane(workspace, {
