@@ -123,6 +123,10 @@ export function appendWorkspacePaneToGroup(
   const group = workspace.groups.find((candidate) => candidate.id === input.groupId);
   if (!group) return workspace;
 
+  // The terminal may already have been appended by the reconcile effect
+  // while the create request was in flight; never insert it twice.
+  if (groupContainsTerminal(group, input.newTerminalId)) return workspace;
+
   const groups = workspace.groups.map((candidate) => {
     if (candidate.id !== group.id) return candidate;
     const root = appendNode(candidate.root, {
