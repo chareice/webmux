@@ -183,6 +183,7 @@ function TerminalWorkspaceComponent({
     [commitWorkspace],
   );
   const activeCardRef = useRef<TerminalCardRef | null>(null);
+  const pendingGroupSelectionRef = useRef<string | null>(null);
   const fitRequestCounterRef = useRef(0);
   const [fitRequest, setFitRequest] = useState<WorkspaceFitRequest | null>(
     null,
@@ -206,13 +207,24 @@ function TerminalWorkspaceComponent({
     const externalTerminalChanged = previousTerminalIdRef.current !== terminal.id;
     previousTerminalIdRef.current = terminal.id;
     setWorkspace((prev) => {
-      const next = reconcileTerminalWorkspace(
+      let next = reconcileTerminalWorkspace(
         prev,
         siblings,
         externalTerminalChanged ? terminal.id : prev.activeTerminalId,
         workspaceGroups,
         workspaceLayouts,
       );
+      // Retry a pending selection: selectGroup may be issued from the
+      // create-group HTTP response before the workspace_group_created
+      // event lands here and reconciles the new group into local state.
+      const pendingGroupId = pendingGroupSelectionRef.current;
+      if (pendingGroupId) {
+        const selected = selectWorkspaceGroup(next, pendingGroupId);
+        if (selected !== next) {
+          next = selected;
+          pendingGroupSelectionRef.current = null;
+        }
+      }
       workspaceRef.current = next;
       return next;
     });
@@ -334,6 +346,14 @@ function TerminalWorkspaceComponent({
       const next = updateWorkspace((current) =>
         selectWorkspaceGroup(current, groupId),
       );
+      // If the group is not in local state yet (e.g. selectGroup issued from
+      // the create-group HTTP response before the workspace_group_created
+      // event arrives), remember it and retry from the reconcile effect.
+      if (next.activeGroupId !== groupId) {
+        pendingGroupSelectionRef.current = groupId;
+        return;
+      }
+      pendingGroupSelectionRef.current = null;
       if (next.activeTerminalId) onPick(next.activeTerminalId);
       if (!isMobile && isController) {
         requestPaneFit(collectIds(getActiveWorkspaceGroup(next)?.root ?? null), {

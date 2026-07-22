@@ -725,6 +725,13 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
     .toBe(1);
   const created = (await listWorkspaceGroupsViaApi(page))[0];
 
+  // New tab deterministically becomes the active (empty) group; switch back
+  // to the cwd tab so the pane is mounted again before opening its menu.
+  // (Not .first() — persistent tabs sort before cwd fallback tabs, so the
+  // first tab is the new empty group itself.)
+  await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
+  await page.getByTestId("workspace-group-cwd:/root").click();
+
   // Move the pane into the new tab, then delete the tab from its context
   // menu — the confirm dialog appears because it holds a pane.
   await openPaneContextMenu(page, terminalId);
