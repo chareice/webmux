@@ -41,6 +41,7 @@ import {
   requestControl,
   reorderWorkspaceGroups,
   releaseControl,
+  renameWorkspaceGroup,
   saveWorkspaceLayout,
 } from "@/lib/api";
 import {
@@ -97,6 +98,13 @@ const ConfirmDialog = lazy(() =>
   lazyWithReload(() =>
     import("./ConfirmDialog").then((module) => ({
       default: module.ConfirmDialog,
+    })),
+  ),
+);
+const RenameGroupDialog = lazy(() =>
+  lazyWithReload(() =>
+    import("./RenameGroupDialog").then((module) => ({
+      default: module.RenameGroupDialog,
     })),
   ),
 );
@@ -255,6 +263,8 @@ function TerminalCanvasInner() {
     | null
   >(null);
   const [groupDeleteConfirmation, setGroupDeleteConfirmation] =
+    useState<WorkspaceGroup | null>(null);
+  const [groupRenameTarget, setGroupRenameTarget] =
     useState<WorkspaceGroup | null>(null);
 
   const machines = browserState.machines;
@@ -1052,6 +1062,16 @@ function TerminalCanvasInner() {
     [activeMachineId],
   );
 
+  const performRenameGroup = useCallback(
+    async (group: WorkspaceGroup, name: string) => {
+      if (!activeMachineId || !group.workspaceGroupId) return;
+      await renameWorkspaceGroup(activeMachineId, group.workspaceGroupId, name);
+      // The renamed group arrives via workspace_group_updated; nothing to do
+      // here.
+    },
+    [activeMachineId],
+  );
+
   const handleNewGroupClick = useCallback(() => {
     void handleNewGroup();
   }, [handleNewGroup]);
@@ -1066,6 +1086,14 @@ function TerminalCanvasInner() {
       void performDeleteGroup(group);
     },
     [isActiveController, performDeleteGroup],
+  );
+
+  const handleRenameGroup = useCallback(
+    (group: WorkspaceGroup) => {
+      if (!isActiveController || !group.persistent) return;
+      setGroupRenameTarget(group);
+    },
+    [isActiveController],
   );
 
   // ---- prefix-key shortcut engine (⌃B) ----
@@ -1367,6 +1395,7 @@ function TerminalCanvasInner() {
                   workspaceCommandsRef.current.selectGroup?.(groupId)
                 }
                 onNewGroup={handleNewGroupClick}
+                onRenameGroup={handleRenameGroup}
                 onDeleteGroup={handleDeleteGroup}
                 onReorderGroups={(sourceGroupId, targetGroupId, placement) =>
                   workspaceCommandsRef.current.reorderGroups?.(
@@ -1494,6 +1523,21 @@ function TerminalCanvasInner() {
                 void performDeleteGroup(group);
               }}
               onCancel={() => setGroupDeleteConfirmation(null)}
+            />
+          </Suspense>
+        )}
+
+        {groupRenameTarget && (
+          <Suspense fallback={<LazyLoadingFallback />}>
+            <RenameGroupDialog
+              open
+              initialName={groupRenameTarget.label}
+              onSubmit={(name) => {
+                const group = groupRenameTarget;
+                setGroupRenameTarget(null);
+                void performRenameGroup(group, name);
+              }}
+              onCancel={() => setGroupRenameTarget(null)}
             />
           </Suspense>
         )}

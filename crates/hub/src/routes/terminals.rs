@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -38,6 +38,11 @@ struct CreateWorkspaceGroupRequest {
 #[derive(Deserialize)]
 struct ReorderWorkspaceGroupsRequest {
     group_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct RenameWorkspaceGroupRequest {
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -595,6 +600,64 @@ async fn reorder_workspace_groups(
     Ok(Json(groups))
 }
 
+async fn rename_workspace_group(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path((machine_id, group_id)): Path<(String, String)>,
+    Json(req): Json<RenameWorkspaceGroupRequest>,
+) -> Result<Json<WorkspaceGroupInfo>, (StatusCode, String)> {
+    ensure_machine_row(&state, &auth_user.user_id, &machine_id).await?;
+
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Name is required".to_string()));
+    }
+
+    let conn = state.db.get().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    let updated = crate::db::workspace_groups::update_workspace_group_name(
+        &conn,
+        &auth_user.user_id,
+        &machine_id,
+        &group_id,
+        name,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?;
+    if updated == 0 {
+        return Err((StatusCode::NOT_FOUND, "Workspace tab not found".to_string()));
+    }
+
+    let group = crate::db::workspace_groups::find_workspace_groups_by_machine(
+        &conn,
+        &auth_user.user_id,
+        &machine_id,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB error: {}", e),
+        )
+    })?
+    .into_iter()
+    .find(|row| row.id == group_id)
+    .map(workspace_group_info)
+    .ok_or_else(|| (StatusCode::NOT_FOUND, "Workspace tab not found".to_string()))?;
+
+    state
+        .manager
+        .publish_workspace_group_updated(&auth_user.user_id, group.clone());
+    Ok(Json(group))
+}
+
 async fn delete_workspace_group(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -851,7 +914,7 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/machines/{machine_id}/workspace-groups/{group_id}",
-            delete(delete_workspace_group),
+            patch(rename_workspace_group).delete(delete_workspace_group),
         )
         .route(
             "/api/machines/{machine_id}/terminals/{terminal_id}/workspace-group",
@@ -887,8 +950,9 @@ mod tests {
 
     use super::{
         control_action_allowed, create_terminal, create_workspace_group,
-        validate_workspace_layout_node, workspace_layout_terminal_ids_for_group_key,
-        CreateTerminalRequest, CreateWorkspaceGroupRequest,
+        rename_workspace_group, validate_workspace_layout_node,
+        workspace_layout_terminal_ids_for_group_key, CreateTerminalRequest,
+        CreateWorkspaceGroupRequest, RenameWorkspaceGroupRequest,
     };
     use crate::{
         attach_router::HubRouter,
@@ -1470,5 +1534,109 @@ mod tests {
         .unwrap();
 
         assert_eq!(group.sort_order, 3);
+    }
+
+    #[tokio::test]
+    async fn rename_workspace_group_trims_and_persists_name() {
+        let state = test_state();
+        {
+            let conn = state.db.get().unwrap();
+            crate::db::machines::ensure_machine_for_user(
+                &conn,
+                "machine-a",
+                "user-a",
+                "Machine A",
+                Some("linux"),
+                Some("/tmp"),
+            )
+            .unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn,
+                "group-a",
+                "user-a",
+                "machine-a",
+                "Old",
+                0,
+            )
+            .unwrap();
+        }
+
+        let Json(group) = rename_workspace_group(
+            State(state.clone()),
+            AuthUser {
+                user_id: "user-a".to_string(),
+            },
+            Path(("machine-a".to_string(), "group-a".to_string())),
+            Json(RenameWorkspaceGroupRequest {
+                name: "  Renamed  ".to_string(),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(group.name, "Renamed");
+        assert_eq!(group.sort_order, 0);
+        let conn = state.db.get().unwrap();
+        let stored = crate::db::workspace_groups::find_workspace_groups_by_machine(
+            &conn,
+            "user-a",
+            "machine-a",
+        )
+        .unwrap();
+        assert_eq!(stored[0].name, "Renamed");
+    }
+
+    #[tokio::test]
+    async fn rename_workspace_group_rejects_empty_name_and_unknown_group() {
+        let state = test_state();
+        {
+            let conn = state.db.get().unwrap();
+            crate::db::machines::ensure_machine_for_user(
+                &conn,
+                "machine-a",
+                "user-a",
+                "Machine A",
+                Some("linux"),
+                Some("/tmp"),
+            )
+            .unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn,
+                "group-a",
+                "user-a",
+                "machine-a",
+                "Old",
+                0,
+            )
+            .unwrap();
+        }
+
+        let (status, _) = rename_workspace_group(
+            State(state.clone()),
+            AuthUser {
+                user_id: "user-a".to_string(),
+            },
+            Path(("machine-a".to_string(), "group-a".to_string())),
+            Json(RenameWorkspaceGroupRequest {
+                name: "   ".to_string(),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (status, _) = rename_workspace_group(
+            State(state),
+            AuthUser {
+                user_id: "user-a".to_string(),
+            },
+            Path(("machine-a".to_string(), "group-missing".to_string())),
+            Json(RenameWorkspaceGroupRequest {
+                name: "Renamed".to_string(),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 }

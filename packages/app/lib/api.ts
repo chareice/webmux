@@ -147,6 +147,16 @@ export const deleteWorkspaceGroup = (machineId: string, groupId: string) =>
     "DELETE",
     `/api/machines/${machineId}/workspace-groups/${groupId}`,
   );
+export const renameWorkspaceGroup = (
+  machineId: string,
+  groupId: string,
+  name: string,
+) =>
+  request<WorkspaceGroupInfo>(
+    "PATCH",
+    `/api/machines/${machineId}/workspace-groups/${groupId}`,
+    { name },
+  );
 export const assignTerminalWorkspaceGroup = (
   machineId: string,
   terminalId: string,
