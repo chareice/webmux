@@ -48,7 +48,6 @@ interface TabBarProps {
   rttMs: number | null;
   isController: boolean;
   viewOnlyLocked: boolean;
-  canCreateTerminal: boolean;
   onSelectGroup: (groupId: string) => void;
   onNewGroup: () => void;
   onDeleteGroup: (group: WorkspaceGroup) => void;
@@ -57,7 +56,6 @@ interface TabBarProps {
     targetGroupId: string,
     placement: TabDropPlacement,
   ) => void;
-  onNewTerminal: () => void;
   onSelectMachine: (id: string) => void;
   onAddMachine: () => void;
   onRequestControl: () => void;
@@ -79,12 +77,10 @@ function TabBarComponent({
   rttMs,
   isController,
   viewOnlyLocked,
-  canCreateTerminal,
   onSelectGroup,
   onNewGroup,
   onDeleteGroup,
   onReorderGroups,
-  onNewTerminal,
   onSelectMachine,
   onAddMachine,
   onRequestControl,
@@ -204,7 +200,7 @@ function TabBarComponent({
         userSelect: "none",
       }}
     >
-      {/* Left: group tabs + new-terminal button */}
+      {/* Left: group tabs + new-group button */}
       <div
         style={{
           display: "flex",
@@ -311,11 +307,11 @@ function TabBarComponent({
         })}
         <button
           type="button"
-          data-testid="tab-bar-new-terminal"
-          onClick={onNewTerminal}
-          disabled={!canCreateTerminal}
-          title="New terminal"
-          aria-label="New terminal"
+          data-testid="tab-bar-new-group"
+          onClick={onNewGroup}
+          disabled={!isController}
+          title="New tab"
+          aria-label="New tab"
           style={{
             alignSelf: "center",
             width: 26,
@@ -329,8 +325,8 @@ function TabBarComponent({
             justifyContent: "center",
             padding: 0,
             flexShrink: 0,
-            cursor: canCreateTerminal ? "pointer" : "not-allowed",
-            opacity: canCreateTerminal ? 1 : 0.45,
+            cursor: isController ? "pointer" : "not-allowed",
+            opacity: isController ? 1 : 0.45,
           }}
         >
           <Plus size={14} />

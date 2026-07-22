@@ -1363,7 +1363,6 @@ function TerminalCanvasInner() {
                 rttMs={rttMs}
                 isController={isActiveController}
                 viewOnlyLocked={viewOnlyLocked}
-                canCreateTerminal={isActiveController}
                 onSelectGroup={(groupId) =>
                   workspaceCommandsRef.current.selectGroup?.(groupId)
                 }
@@ -1376,7 +1375,6 @@ function TerminalCanvasInner() {
                     placement,
                   )
                 }
-                onNewTerminal={() => void handleNewTerminalFromHeader()}
                 onSelectMachine={setActiveMachineId}
                 onAddMachine={() => setAddMachineOpen(true)}
                 onRequestControl={() => {

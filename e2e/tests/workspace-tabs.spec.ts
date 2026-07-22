@@ -589,7 +589,10 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
   await page.locator("[data-testid^='workspace-tab-']").first().click({
     button: "right",
   });
-  await page.getByRole("button", { name: "New tab" }).click();
+  await page
+    .getByTestId("context-menu")
+    .getByRole("button", { name: "New tab" })
+    .click();
   await expect
     .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
     .toBe(1);
