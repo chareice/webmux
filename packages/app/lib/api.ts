@@ -53,6 +53,27 @@ export const getMe = () => request<User>("GET", "/api/auth/me");
 export const devLogin = () =>
   request<{ token: string }>("GET", "/api/auth/dev");
 
+// API Tokens
+export interface ApiToken {
+  id: string;
+  name: string;
+  created_at: number;
+  last_used_at: number | null;
+  expires_at: number | null;
+}
+export interface CreatedApiToken {
+  id: string;
+  name: string;
+  token: string;
+  created_at: number;
+}
+export const listApiTokens = () =>
+  request<ApiToken[]>("GET", "/api/auth/api-tokens");
+export const createApiToken = (name: string) =>
+  request<CreatedApiToken>("POST", "/api/auth/api-tokens", { name });
+export const deleteApiToken = (id: string) =>
+  request<void>("DELETE", `/api/auth/api-tokens/${id}`);
+
 // Machines
 export const listMachines = () =>
   request<MachineInfo[]>("GET", "/api/machines");
