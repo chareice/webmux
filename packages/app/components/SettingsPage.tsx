@@ -1,8 +1,16 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { colors } from "@/lib/colors";
 import { isTauri } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
-import { getSettings, updateSettings } from "@/lib/api";
+import {
+  getSettings,
+  updateSettings,
+  listApiTokens,
+  createApiToken,
+  deleteApiToken,
+  type ApiToken,
+  type CreatedApiToken,
+} from "@/lib/api";
 import {
   DEFAULT_PREFIX_BINDINGS,
   PREFIX_ACTION_DEFINITIONS,
@@ -215,6 +223,28 @@ function SettingRow({
   );
 }
 
+// Copy fallback for environments without the async clipboard API
+// (e.g. Tauri WebViews, insecure contexts).
+function fallbackCopyText(text: string) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } catch {
+    /* ignore */
+  }
+  document.body.removeChild(ta);
+}
+
+function formatTokenDate(ms: number | null): string {
+  if (ms === null) return "—";
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 export function SettingsPage({ onClose }: SettingsPageProps) {
   // Terminal font settings
   const [terminalFont, setTerminalFont] = useState(
@@ -235,6 +265,21 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   // Quick commands
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
   const [quickCommandsLoaded, setQuickCommandsLoaded] = useState(false);
+
+  // API tokens
+  const [apiTokens, setApiTokens] = useState<ApiToken[]>([]);
+  const [apiTokensLoaded, setApiTokensLoaded] = useState(false);
+  const [apiTokensError, setApiTokensError] = useState<string | null>(null);
+  const [newTokenName, setNewTokenName] = useState("");
+  const [createdToken, setCreatedToken] = useState<CreatedApiToken | null>(
+    null,
+  );
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
+    null,
+  );
+  const deleteConfirmTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // Server URL (desktop only)
   const [serverUrl, setServerUrlState] = useState(() => getServerUrl());
@@ -260,6 +305,29 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
       })
       .catch(() => setQuickCommandsLoaded(true));
   }, []);
+
+  // Load API tokens
+  useEffect(() => {
+    listApiTokens()
+      .then((tokens) => {
+        setApiTokens(tokens);
+        setApiTokensLoaded(true);
+      })
+      .catch((err) => {
+        setApiTokensError(
+          `Failed to load tokens: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        setApiTokensLoaded(true);
+      });
+  }, []);
+
+  // Clear pending delete-confirm timer on unmount
+  useEffect(
+    () => () => {
+      if (deleteConfirmTimer.current) clearTimeout(deleteConfirmTimer.current);
+    },
+    [],
+  );
 
   // Apply UI font to document
   useEffect(() => {
@@ -350,6 +418,76 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const handleBlurSaveCommands = useCallback(() => {
     saveQuickCommands(quickCommands);
   }, [quickCommands, saveQuickCommands]);
+
+  // API tokens
+  const handleCreateToken = useCallback(() => {
+    const name = newTokenName.trim();
+    if (!name) return;
+    setApiTokensError(null);
+    createApiToken(name)
+      .then((created) => {
+        setCreatedToken(created);
+        setNewTokenName("");
+        setApiTokens((tokens) => [
+          {
+            id: created.id,
+            name: created.name,
+            created_at: created.created_at,
+            last_used_at: null,
+            expires_at: null,
+          },
+          ...tokens,
+        ]);
+      })
+      .catch((err) =>
+        setApiTokensError(
+          `Failed to create token: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+  }, [newTokenName]);
+
+  const handleDeleteToken = useCallback(
+    (id: string) => {
+      if (confirmingDeleteId !== id) {
+        setConfirmingDeleteId(id);
+        if (deleteConfirmTimer.current)
+          clearTimeout(deleteConfirmTimer.current);
+        deleteConfirmTimer.current = setTimeout(
+          () => setConfirmingDeleteId(null),
+          3000,
+        );
+        return;
+      }
+      if (deleteConfirmTimer.current) clearTimeout(deleteConfirmTimer.current);
+      setConfirmingDeleteId(null);
+      setApiTokensError(null);
+      deleteApiToken(id)
+        .then(() =>
+          setApiTokens((tokens) => tokens.filter((t) => t.id !== id)),
+        )
+        .catch((err) =>
+          setApiTokensError(
+            `Failed to delete token: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        );
+    },
+    [confirmingDeleteId],
+  );
+
+  const handleDeleteConfirmBlur = useCallback(() => {
+    if (deleteConfirmTimer.current) clearTimeout(deleteConfirmTimer.current);
+    setConfirmingDeleteId(null);
+  }, []);
+
+  const handleCopyCreatedToken = useCallback(() => {
+    if (!createdToken) return;
+    const text = createdToken.token;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
+    } else {
+      fallbackCopyText(text);
+    }
+  }, [createdToken]);
 
   // Server URL
   const handleServerUrlSave = useCallback(() => {
@@ -782,6 +920,191 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             </SettingRow>
           </section>
         )}
+
+        {/* API Tokens Section */}
+        <section style={{ marginBottom: 32 }}>
+          <SectionTitle>API Tokens</SectionTitle>
+          <div
+            style={{
+              fontSize: 11,
+              color: colors.foregroundMuted,
+              marginBottom: 12,
+            }}
+          >
+            Tokens (wmx_…) used to authenticate the webmux CLI
+          </div>
+
+          {/* Create */}
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              marginBottom: 16,
+            }}
+          >
+            <input
+              type="text"
+              value={newTokenName}
+              onChange={(e) => setNewTokenName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateToken();
+              }}
+              placeholder="Token name (e.g. cli)"
+              style={{ ...inputStyle, flex: 1, width: "auto" }}
+            />
+            <button
+              onClick={handleCreateToken}
+              disabled={!newTokenName.trim()}
+              style={{
+                background: colors.accent,
+                border: "none",
+                borderRadius: 6,
+                color: "#fff",
+                cursor: newTokenName.trim() ? "pointer" : "default",
+                opacity: newTokenName.trim() ? 1 : 0.5,
+                padding: "8px 16px",
+                fontSize: 13,
+                fontWeight: 500,
+              }}
+            >
+              Create
+            </button>
+          </div>
+
+          {/* Newly created token — shown once */}
+          {createdToken && (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: 12,
+                background: colors.surface,
+                border: `1px solid ${colors.border}`,
+                borderRadius: 6,
+              }}
+            >
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={createdToken.token}
+                  onFocus={(e) => e.target.select()}
+                  style={{
+                    ...inputStyle,
+                    flex: 1,
+                    width: "auto",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
+                />
+                <button
+                  onClick={handleCopyCreatedToken}
+                  style={{
+                    background: "none",
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 6,
+                    color: colors.foregroundSecondary,
+                    cursor: "pointer",
+                    padding: "8px 12px",
+                    fontSize: 12,
+                  }}
+                >
+                  Copy
+                </button>
+                <button
+                  onClick={() => setCreatedToken(null)}
+                  style={{
+                    background: "none",
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 6,
+                    color: colors.foregroundSecondary,
+                    cursor: "pointer",
+                    padding: "8px 12px",
+                    fontSize: 12,
+                  }}
+                >
+                  Done
+                </button>
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: colors.foregroundMuted,
+                  marginTop: 8,
+                }}
+              >
+                Copy it now — it won't be shown again.
+              </div>
+            </div>
+          )}
+
+          {/* Token list */}
+          {!apiTokensLoaded ? (
+            <div style={{ fontSize: 12, color: colors.foregroundMuted }}>
+              Loading…
+            </div>
+          ) : apiTokens.length === 0 ? (
+            <div style={{ fontSize: 12, color: colors.foregroundMuted }}>
+              No tokens yet.
+            </div>
+          ) : (
+            apiTokens.map((token) => {
+              const confirming = confirmingDeleteId === token.id;
+              return (
+                <div
+                  key={token.id}
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    marginBottom: 8,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: colors.foreground }}>
+                      {token.name}
+                    </div>
+                    <div
+                      style={{ fontSize: 11, color: colors.foregroundMuted }}
+                    >
+                      created {formatTokenDate(token.created_at)} · last used{" "}
+                      {formatTokenDate(token.last_used_at)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteToken(token.id)}
+                    onBlur={handleDeleteConfirmBlur}
+                    style={{
+                      background: "none",
+                      border: `1px solid ${confirming ? colors.danger : colors.border}`,
+                      borderRadius: 6,
+                      color: confirming
+                        ? colors.danger
+                        : colors.foregroundSecondary,
+                      cursor: "pointer",
+                      padding: "6px 10px",
+                      fontSize: 12,
+                    }}
+                  >
+                    {confirming ? "Confirm?" : "Delete"}
+                  </button>
+                </div>
+              );
+            })
+          )}
+
+          {apiTokensError && (
+            <div
+              style={{
+                marginTop: 10,
+                fontSize: 12,
+                color: colors.danger,
+              }}
+            >
+              {apiTokensError}
+            </div>
+          )}
+        </section>
 
         {/* Reload notice */}
         <div
