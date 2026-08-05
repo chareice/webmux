@@ -949,10 +949,9 @@ mod tests {
     use tower::ServiceExt;
 
     use super::{
-        control_action_allowed, create_terminal, create_workspace_group,
-        rename_workspace_group, validate_workspace_layout_node,
-        workspace_layout_terminal_ids_for_group_key, CreateTerminalRequest,
-        CreateWorkspaceGroupRequest, RenameWorkspaceGroupRequest,
+        control_action_allowed, create_terminal, create_workspace_group, rename_workspace_group,
+        validate_workspace_layout_node, workspace_layout_terminal_ids_for_group_key,
+        CreateTerminalRequest, CreateWorkspaceGroupRequest, RenameWorkspaceGroupRequest,
     };
     use crate::{
         attach_router::HubRouter,
@@ -1001,6 +1000,7 @@ mod tests {
             machine_id: "machine-a".to_string(),
             title: format!("Terminal {id}"),
             cwd: cwd.to_string(),
+            title_source: Default::default(),
             workspace_group_id: workspace_group_id.map(str::to_string),
             cols: 80,
             rows: 24,

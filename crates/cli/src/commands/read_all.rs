@@ -239,6 +239,7 @@ fn entry_json(entry: &BatchEntry, lines: Option<usize>) -> Value {
         "machine_id": terminal.machine_id,
         "title": title,
         "pane_title": title,
+        "title_source": terminal.title_source,
         "group": entry.group.as_deref().map(attach::sanitize_screen),
         "cwd": attach::sanitize_screen(&terminal.cwd),
     });
@@ -273,7 +274,7 @@ mod tests {
         entry_json, json_output, render_text, retain_machine, BatchEntry, Capture, Outcome,
     };
     use serde_json::json;
-    use tc_protocol::{MachineInfo, TerminalInfo};
+    use tc_protocol::{MachineInfo, TerminalInfo, TerminalTitleSource};
 
     fn terminal(id: &str, machine_id: &str, cwd: &str) -> TerminalInfo {
         TerminalInfo {
@@ -281,6 +282,7 @@ mod tests {
             machine_id: machine_id.to_string(),
             title: format!("title-{id}"),
             cwd: cwd.to_string(),
+            title_source: Default::default(),
             workspace_group_id: None,
             cols: 107,
             rows: 59,
@@ -367,6 +369,7 @@ mod tests {
                 "machine_id": "machine-1",
                 "title": "title-54eb98a5-rest-of-id",
                 "pane_title": "title-54eb98a5-rest-of-id",
+                "title_source": "none",
                 "group": "tab 3",
                 "cwd": "/home/user",
                 "cols": 107,
@@ -393,6 +396,27 @@ mod tests {
         );
         assert_eq!(failed["error"], json!("boom"));
         assert!(failed.get("screen").is_none());
+    }
+
+    #[test]
+    fn json_entries_carry_the_title_source_from_the_listing() {
+        let mut osc_terminal = terminal("54eb98a5-rest-of-id", "machine-1", "/home/user");
+        osc_terminal.title_source = TerminalTitleSource::Osc;
+        let entry = BatchEntry {
+            terminal: osc_terminal,
+            group: None,
+            outcome: Outcome::Unreachable,
+        };
+        assert_eq!(entry_json(&entry, None)["title_source"], json!("osc"));
+
+        let mut process_terminal = terminal("3c361a41-rest-of-id", "machine-1", "/home/user");
+        process_terminal.title_source = TerminalTitleSource::Process;
+        let entry = BatchEntry {
+            terminal: process_terminal,
+            group: None,
+            outcome: Outcome::Unreachable,
+        };
+        assert_eq!(entry_json(&entry, None)["title_source"], json!("process"));
     }
 
     #[test]

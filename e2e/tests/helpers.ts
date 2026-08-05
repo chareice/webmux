@@ -51,7 +51,7 @@ export async function getDeviceId(page: Page): Promise<string> {
   return deviceId!;
 }
 
-export async function listTerminals(page: Page): Promise<Array<{
+export interface ListedTerminal {
   id: string;
   machine_id: string;
   title: string;
@@ -59,12 +59,24 @@ export async function listTerminals(page: Page): Promise<Array<{
   workspace_group_id?: string | null;
   cols: number;
   rows: number;
-}>> {
+  reachable: boolean;
+}
+
+export async function listTerminals(page: Page): Promise<ListedTerminal[]> {
   const response = await page.request.get("/api/terminals", {
     headers: await getAuthHeaders(page),
   });
   expect(response.ok()).toBeTruthy();
   return response.json();
+}
+
+/// Stable fields for cross-time/cross-page terminal comparisons. `title` and
+/// `title_source` are intentionally dynamic (live OSC/process reporting), so
+/// deep-equality on full objects races with the machine's 5s title ticks;
+/// size-fidelity assertions compare these fields instead.
+export function stableTerminalFields(terminal: ListedTerminal) {
+  const { id, machine_id, cols, rows, cwd, reachable } = terminal;
+  return { id, machine_id, cols, rows, cwd, reachable };
 }
 
 export async function requestMachineControl(page: Page): Promise<void> {

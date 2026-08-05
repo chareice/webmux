@@ -137,6 +137,7 @@ impl HubConnection {
                     machine_id: self.machine_id.clone(),
                     title: s.title.clone(),
                     cwd: s.cwd.clone(),
+                    title_source: Default::default(),
                     workspace_group_id: None,
                     cols: s.cols,
                     rows: s.rows,
@@ -186,36 +187,57 @@ impl HubConnection {
         // is attached, so poll it directly and report those titles as OSC —
         // the hub's precedence (OSC beats process) does the rest. The
         // foreground process name remains the fallback for untitled panes.
+        // The same poll carries `pane_current_path`; cwds are reported only
+        // when they change, titles keep their every-tick behavior.
         let pty_for_titles = pty.clone();
         let send_tx_for_titles = send_tx.clone();
         let mut title_fallback_task = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(5));
             interval.tick().await;
+            let mut last_sent_cwd: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
             loop {
                 interval.tick().await;
-                let pane_titles = pty_for_titles.pane_titles();
+                let pane_infos = pty_for_titles.pane_infos();
                 for terminal_id in pty_for_titles.list_terminal_ids() {
-                    let (title, source) = match pane_titles.get(&terminal_id) {
-                        Some(title) => (title.clone(), TerminalTitleSource::Osc),
+                    let pane_info = pane_infos.get(&terminal_id);
+                    let title_update = match pane_info.and_then(|info| info.title.as_ref()) {
+                        Some(title) => Some((title.clone(), TerminalTitleSource::Osc)),
                         None => {
                             let (_, process_name) =
                                 pty_for_titles.check_foreground_process(&terminal_id);
-                            (
-                                process_name.unwrap_or_default(),
-                                TerminalTitleSource::Process,
-                            )
+                            fallback_title(process_name)
                         }
                     };
-                    if send_tx_for_titles
-                        .send(OutboundHubMessage::Json(MachineToHub::TerminalTitle {
-                            terminal_id,
-                            title,
-                            source,
-                        }))
-                        .await
-                        .is_err()
-                    {
-                        return;
+                    // Never report an empty title: it would only flip the
+                    // hub-side title_source and storm TerminalUpdated events.
+                    if let Some((title, source)) = title_update {
+                        if send_tx_for_titles
+                            .send(OutboundHubMessage::Json(MachineToHub::TerminalTitle {
+                                terminal_id: terminal_id.clone(),
+                                title,
+                                source,
+                            }))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    if let Some(cwd) = pane_info.and_then(|info| info.cwd.as_ref()) {
+                        if last_sent_cwd.get(&terminal_id) != Some(cwd) {
+                            if send_tx_for_titles
+                                .send(OutboundHubMessage::Json(MachineToHub::TerminalCwd {
+                                    terminal_id: terminal_id.clone(),
+                                    cwd: cwd.clone(),
+                                }))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            last_sent_cwd.insert(terminal_id, cwd.clone());
+                        }
                     }
                 }
             }
@@ -556,6 +578,15 @@ async fn handle_hub_message(
     }
 }
 
+/// Process-name fallback for the periodic title task. `None` (and empty)
+/// means "nothing worth reporting" — an empty title update would only flip
+/// the hub-side title_source and storm TerminalUpdated events.
+fn fallback_title(process_name: Option<String>) -> Option<(String, TerminalTitleSource)> {
+    process_name
+        .filter(|name| !name.is_empty())
+        .map(|name| (name, TerminalTitleSource::Process))
+}
+
 fn handle_image_paste(base64_data: &str, _mime: &str, filename: &str) -> Result<String, String> {
     use std::io::Write;
 
@@ -640,6 +671,16 @@ fn dirs_home() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fallback_title_skips_absent_and_empty_process_names() {
+        assert_eq!(fallback_title(None), None);
+        assert_eq!(fallback_title(Some(String::new())), None);
+        assert_eq!(
+            fallback_title(Some("vim".to_string())),
+            Some(("vim".to_string(), TerminalTitleSource::Process))
+        );
+    }
 
     #[test]
     fn image_paste_returns_bracketed_path_for_single_attach_write() {

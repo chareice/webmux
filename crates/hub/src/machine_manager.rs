@@ -111,6 +111,9 @@ impl MachineManager {
                         machine_id: row.machine_id,
                         title: row.title,
                         cwd: row.cwd,
+                        title_source: crate::db::terminal_sessions::title_source_from_name(
+                            &row.title_source,
+                        ),
                         workspace_group_id: row.workspace_group_id,
                         cols: u16::try_from(row.cols).unwrap_or(80),
                         rows: u16::try_from(row.rows).unwrap_or(24),
@@ -563,6 +566,7 @@ impl MachineManager {
                     machine_id: machine_id.to_string(),
                     title,
                     cwd,
+                    title_source: Default::default(),
                     workspace_group_id: None,
                     cols,
                     rows,
@@ -789,6 +793,7 @@ impl MachineManager {
                             machine_id: machine_id.to_string(),
                             title: title.clone(),
                             cwd: cwd.clone(),
+                            title_source: Default::default(),
                             workspace_group_id: None,
                             cols,
                             rows,
@@ -850,7 +855,6 @@ impl MachineManager {
                             terminal_id,
                         },
                     );
-                    return;
                 }
             }
             MachineToHub::TerminalTitle {
@@ -875,6 +879,7 @@ impl MachineManager {
                             let target_user_id = conn.user_id.clone();
                             if let Some(terminal) = conn.terminals.get_mut(&terminal_id) {
                                 terminal.title = title;
+                                terminal.title_source = source;
                                 let terminal = terminal.clone();
                                 drop(machines);
                                 self.send_event(
@@ -890,6 +895,50 @@ impl MachineManager {
                             terminal_id = %terminal_id,
                             "Failed to apply terminal title update: {error}"
                         );
+                    }
+                }
+            }
+            MachineToHub::TerminalCwd { terminal_id, cwd } => {
+                let updated = match self.db.get() {
+                    Ok(db_conn) => {
+                        match crate::db::terminal_sessions::apply_cwd_update(
+                            &db_conn,
+                            &terminal_id,
+                            &cwd,
+                        ) {
+                            Ok(updated) => updated,
+                            Err(error) => {
+                                tracing::warn!(
+                                    terminal_id = %terminal_id,
+                                    "Failed to apply terminal cwd update: {error}"
+                                );
+                                false
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            terminal_id = %terminal_id,
+                            "Failed to apply terminal cwd update: {error}"
+                        );
+                        false
+                    }
+                };
+                // No row changed → same cwd, or unknown/destroyed terminal:
+                // ignore silently, same as a rejected title update.
+                if updated {
+                    let mut machines = self.machines.lock().await;
+                    if let Some(conn) = machines.get_mut(machine_id) {
+                        let target_user_id = conn.user_id.clone();
+                        if let Some(terminal) = conn.terminals.get_mut(&terminal_id) {
+                            terminal.cwd = cwd;
+                            let terminal = terminal.clone();
+                            drop(machines);
+                            self.send_event(
+                                target_user_id,
+                                BrowserEvent::TerminalUpdated { terminal },
+                            );
+                        }
                     }
                 }
             }
@@ -941,6 +990,7 @@ impl MachineManager {
                             // Titles are hub-authoritative so an older machine
                             // sidecar cannot erase an OSC-derived title.
                             terminal.title = persisted_terminal.title.clone();
+                            terminal.title_source = persisted_terminal.title_source;
                         }
                         conn.terminals.insert(terminal.id.clone(), terminal.clone());
 
@@ -1048,7 +1098,6 @@ impl MachineManager {
                             stats,
                         },
                     );
-                    return;
                 }
             }
             MachineToHub::AttachDied { attach_id, reason } => {
@@ -1597,6 +1646,7 @@ mod tests {
             machine_id: machine_id.to_string(),
             title: format!("Terminal {id}"),
             cwd: "/tmp".to_string(),
+            title_source: Default::default(),
             workspace_group_id: None,
             cols: 80,
             rows: 24,
@@ -1879,6 +1929,78 @@ mod tests {
             BrowserEvent::TerminalResized { terminal }
                 if terminal.id == "term-a" && terminal.cols == 132 && terminal.rows == 40
         ));
+    }
+
+    #[tokio::test]
+    async fn terminal_cwd_update_propagates_and_broadcasts_only_on_change() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "machine-a");
+        let manager = MachineManager::new(pool.clone());
+
+        let (_conn_id, _cmd_rx) = manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        let mut subscription = manager.subscribe_events_after("user-a", snapshot.snapshot_seq);
+
+        // Changed cwd → snapshot + DB updated, TerminalUpdated broadcast.
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::TerminalCwd {
+                    terminal_id: "term-a".to_string(),
+                    cwd: "/home/user/project".to_string(),
+                },
+            )
+            .await;
+
+        let updated_snapshot = manager.snapshot_for_user("user-a").await;
+        assert_eq!(updated_snapshot.terminals[0].cwd, "/home/user/project");
+        {
+            let conn = pool.get().unwrap();
+            let active =
+                crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
+            assert_eq!(active[0].cwd, "/home/user/project");
+        }
+        let envelope = subscription.receiver.recv().await.unwrap();
+        assert!(matches!(
+            envelope.event,
+            BrowserEvent::TerminalUpdated { terminal }
+                if terminal.id == "term-a" && terminal.cwd == "/home/user/project"
+        ));
+
+        // Same cwd again → no event.
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::TerminalCwd {
+                    terminal_id: "term-a".to_string(),
+                    cwd: "/home/user/project".to_string(),
+                },
+            )
+            .await;
+        assert!(subscription.receiver.try_recv().is_err());
+
+        // Unknown terminal → ignored silently, no event.
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::TerminalCwd {
+                    terminal_id: "term-missing".to_string(),
+                    cwd: "/elsewhere".to_string(),
+                },
+            )
+            .await;
+        assert!(subscription.receiver.try_recv().is_err());
     }
 
     #[tokio::test]

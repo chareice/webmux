@@ -14,6 +14,7 @@ import {
   releaseMachineControl,
   resetMachineState,
   selectHomeWorkpath,
+  stableTerminalFields,
   takeControlFromHeader,
 } from "./helpers";
 
@@ -92,9 +93,11 @@ test("terminal size stays stable across overlay and cross-device handoff until f
   expect(initialTerminal?.cols).toBe(80);
   expect(initialTerminal?.rows).toBe(24);
 
+  // Compare stable fields only: title/title_source are live-reported and may
+  // legitimately change between listings; size fidelity is what matters here.
   await expect
-    .poll(async () => listTerminals(desktopPage))
-    .toEqual([initialTerminal]);
+    .poll(async () => (await listTerminals(desktopPage)).map(stableTerminalFields))
+    .toEqual([stableTerminalFields(initialTerminal!)]);
 
   // Mobile viewer: the shell opens straight into the shared terminal (there
   // is no card list anymore) — watching needs no control. The mobile
@@ -105,8 +108,8 @@ test("terminal size stays stable across overlay and cross-device handoff until f
 
   // Server pty size is unchanged because opening a view never resizes it.
   await expect
-    .poll(async () => listTerminals(mobilePage))
-    .toEqual([initialTerminal]);
+    .poll(async () => (await listTerminals(mobilePage)).map(stableTerminalFields))
+    .toEqual([stableTerminalFields(initialTerminal!)]);
   await expect
     .poll(async () =>
       Number(

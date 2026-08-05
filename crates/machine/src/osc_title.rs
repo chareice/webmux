@@ -80,12 +80,12 @@ impl OscTitleScanner {
                 } => {
                     sequence_bytes += 1;
                     if escape && byte == b'\\' {
-                        titles.push(sanitize_title(&bytes));
+                        push_title(&mut titles, &bytes);
                         State::Ground
                     } else if escape && byte == b']' {
                         State::Command
                     } else if byte == 0x07 {
-                        titles.push(sanitize_title(&bytes));
+                        push_title(&mut titles, &bytes);
                         State::Ground
                     } else if sequence_bytes >= MAX_SEQUENCE_BYTES {
                         if byte == 0x1b {
@@ -133,6 +133,16 @@ impl OscTitleScanner {
             };
         }
         titles
+    }
+}
+
+/// Emit a sanitized title, skipping empty ones: an empty OSC title (tmux
+/// emits `ESC]0;BEL` for untitled panes) carries no information and would
+/// only flip the hub-side title_source on every report.
+fn push_title(titles: &mut Vec<String>, bytes: &[u8]) {
+    let title = sanitize_title(bytes);
+    if !title.is_empty() {
+        titles.push(title);
     }
 }
 
@@ -230,6 +240,23 @@ mod tests {
         assert_eq!(
             scanner.push(b"\x1b]0;first\x07text\x1b]2;second\x07"),
             ["first", "second"]
+        );
+    }
+
+    #[test]
+    fn empty_osc_titles_are_not_reported() {
+        // tmux emits empty OSC sequences for untitled panes; they must not
+        // reach the hub as empty title updates.
+        let mut scanner = OscTitleScanner::new();
+        assert!(scanner.push(b"\x1b]0;\x07").is_empty());
+        assert!(scanner.push(b"\x1b]2;\x1b\\").is_empty());
+        // Scanner still works normally afterwards.
+        assert_eq!(scanner.push(b"\x1b]0;real\x07"), ["real"]);
+        // A real title between empty ones comes through alone.
+        let mut scanner = OscTitleScanner::new();
+        assert_eq!(
+            scanner.push(b"\x1b]0;\x07\x1b]2;kept\x07\x1b]0;\x07"),
+            ["kept"]
         );
     }
 }

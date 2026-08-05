@@ -23,6 +23,15 @@ pub struct TmuxAttach {
     pub master: Box<dyn MasterPty + Send>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PaneInfo {
+    /// Live pane title; `None` when tmux has no real title (empty or the
+    /// untouched hostname default).
+    pub title: Option<String>,
+    /// `pane_current_path`; `None` when tmux didn't report one.
+    pub cwd: Option<String>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct PersistedSession {
     title: String,
@@ -251,12 +260,13 @@ impl PtyManager {
         self.sessions.lock().unwrap().values().cloned().collect()
     }
 
-    /// Poll tmux for every pane's title, mapped back to terminal ids.
+    /// Poll tmux for every pane's title and current path, mapped back to
+    /// terminal ids.
     ///
     /// tmux holds the live pane title even when nobody is attached, so this
     /// sees rich OSC titles the per-attach scanner can't. One subprocess per
     /// call; a tmux failure (server down) yields an empty map, never a panic.
-    pub fn pane_titles(&self) -> HashMap<String, String> {
+    pub fn pane_infos(&self) -> HashMap<String, PaneInfo> {
         let output = tmux_cmd()
             .args([
                 "-L",
@@ -264,12 +274,12 @@ impl PtyManager {
                 "list-panes",
                 "-a",
                 "-F",
-                "#{session_name}\t#{pane_title}",
+                "#{session_name}\t#{pane_title}\t#{pane_current_path}",
             ])
             .output();
         match output {
             Ok(out) if out.status.success() => {
-                parse_pane_titles(&String::from_utf8_lossy(&out.stdout), &current_hostname())
+                parse_pane_info(&String::from_utf8_lossy(&out.stdout), &current_hostname())
             }
             _ => HashMap::new(),
         }
@@ -475,26 +485,38 @@ pub fn tmux_session_name(id: &str) -> String {
     format!("{}{}", TMUX_PREFIX, id)
 }
 
-/// Parse `tmux list-panes -a -F '#{session_name}\t#{pane_title}'` output into
-/// terminal_id -> title. tmux initializes an untouched pane title to the
-/// machine hostname, so empty or hostname-equal titles count as "no title"
-/// and are skipped (the caller falls back to the foreground process name).
-fn parse_pane_titles(output: &str, hostname: &str) -> HashMap<String, String> {
-    let mut titles = HashMap::new();
+/// Parse `tmux list-panes -a -F '#{session_name}\t#{pane_title}\t#{pane_current_path}'`
+/// output into terminal_id -> PaneInfo. tmux initializes an untouched pane
+/// title to the machine hostname, so empty or hostname-equal titles count as
+/// "no title" (the caller falls back to the foreground process name). The
+/// path column may be missing or empty on older tmux — then there is simply
+/// no cwd to report.
+fn parse_pane_info(output: &str, hostname: &str) -> HashMap<String, PaneInfo> {
+    let mut panes = HashMap::new();
     for line in output.lines() {
-        let Some((session_name, title)) = line.split_once('\t') else {
+        let mut parts = line.splitn(3, '\t');
+        let Some(session_name) = parts.next() else {
             continue;
         };
         let Some(terminal_id) = session_name.strip_prefix(TMUX_PREFIX) else {
             continue;
         };
-        let title = title.trim();
-        if title.is_empty() || title == hostname {
+        let title = parts
+            .next()
+            .map(str::trim)
+            .filter(|title| !title.is_empty() && *title != hostname)
+            .map(str::to_string);
+        let cwd = parts
+            .next()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(str::to_string);
+        if title.is_none() && cwd.is_none() {
             continue;
         }
-        titles.insert(terminal_id.to_string(), title.to_string());
+        panes.insert(terminal_id.to_string(), PaneInfo { title, cwd });
     }
-    titles
+    panes
 }
 
 /// The machine hostname: $HOSTNAME first, the OS resolver as fallback.
@@ -760,30 +782,96 @@ mod tests {
     }
 
     #[test]
-    fn parse_pane_titles_maps_sessions_back_to_terminal_ids() {
-        let titles = parse_pane_titles("wmx_aaa\tfix the bug\nwmx_bbb\t✳ 了解项目\n", "dev");
-        assert_eq!(titles.get("aaa").map(String::as_str), Some("fix the bug"));
-        assert_eq!(titles.get("bbb").map(String::as_str), Some("✳ 了解项目"));
+    fn parse_pane_info_maps_sessions_back_to_terminal_ids() {
+        let panes = parse_pane_info(
+            "wmx_aaa\tfix the bug\t/home/user\nwmx_bbb\t✳ 了解项目\t/src\n",
+            "dev",
+        );
+        assert_eq!(
+            panes.get("aaa"),
+            Some(&PaneInfo {
+                title: Some("fix the bug".to_string()),
+                cwd: Some("/home/user".to_string()),
+            })
+        );
+        assert_eq!(
+            panes.get("bbb"),
+            Some(&PaneInfo {
+                title: Some("✳ 了解项目".to_string()),
+                cwd: Some("/src".to_string()),
+            })
+        );
     }
 
     #[test]
-    fn parse_pane_titles_skips_empty_and_hostname_titles() {
-        let titles = parse_pane_titles("wmx_aaa\t\nwmx_bbb\tdev\nwmx_ccc\treal title\n", "dev");
-        assert!(!titles.contains_key("aaa"));
-        assert!(!titles.contains_key("bbb"));
-        assert_eq!(titles.get("ccc").map(String::as_str), Some("real title"));
+    fn parse_pane_info_skips_empty_and_hostname_titles() {
+        let panes = parse_pane_info(
+            "wmx_aaa\t\t/home/user\nwmx_bbb\tdev\t/dev\nwmx_ccc\treal title\t/tmp\n",
+            "dev",
+        );
+        assert_eq!(
+            panes.get("aaa"),
+            Some(&PaneInfo {
+                title: None,
+                cwd: Some("/home/user".to_string()),
+            })
+        );
+        assert_eq!(
+            panes.get("bbb"),
+            Some(&PaneInfo {
+                title: None,
+                cwd: Some("/dev".to_string()),
+            })
+        );
+        assert_eq!(
+            panes.get("ccc").and_then(|info| info.title.as_deref()),
+            Some("real title")
+        );
     }
 
     #[test]
-    fn parse_pane_titles_skips_malformed_lines_and_foreign_sessions() {
-        let titles = parse_pane_titles("no tab here\nother-session\ttitle\n\n", "dev");
-        assert!(titles.is_empty());
+    fn parse_pane_info_skips_malformed_lines_and_foreign_sessions() {
+        let panes = parse_pane_info("no tab here\nother-session\ttitle\t/tmp\n\n", "dev");
+        assert!(panes.is_empty());
     }
 
     #[test]
-    fn parse_pane_titles_tolerates_crlf() {
-        let titles = parse_pane_titles("wmx_aaa\tfix the bug\r\n", "dev");
-        assert_eq!(titles.get("aaa").map(String::as_str), Some("fix the bug"));
+    fn parse_pane_info_tolerates_crlf() {
+        let panes = parse_pane_info("wmx_aaa\tfix the bug\t/home/user\r\n", "dev");
+        assert_eq!(
+            panes.get("aaa"),
+            Some(&PaneInfo {
+                title: Some("fix the bug".to_string()),
+                cwd: Some("/home/user".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_pane_info_handles_a_missing_path_column() {
+        let panes = parse_pane_info("wmx_aaa\tfix the bug\n", "dev");
+        assert_eq!(
+            panes.get("aaa"),
+            Some(&PaneInfo {
+                title: Some("fix the bug".to_string()),
+                cwd: None,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_pane_info_skips_an_empty_path() {
+        let panes = parse_pane_info("wmx_aaa\tfix the bug\t\n", "dev");
+        assert_eq!(
+            panes.get("aaa"),
+            Some(&PaneInfo {
+                title: Some("fix the bug".to_string()),
+                cwd: None,
+            })
+        );
+        // No title and no path at all → no entry.
+        let panes = parse_pane_info("wmx_aaa\t\t\n", "dev");
+        assert!(panes.is_empty());
     }
 
     #[test]
