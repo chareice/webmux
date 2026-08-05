@@ -90,10 +90,16 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Capture the current screen of a terminal (read-only watcher)
+    /// Capture the current screen of a terminal, or of every terminal with --all (read-only watcher)
     Read {
         /// Terminal id or unique prefix
-        term: String,
+        term: Option<String>,
+        /// Capture every terminal in one batch (use --machine to filter)
+        #[arg(long, conflicts_with = "term")]
+        all: bool,
+        /// Batch only: only terminals on this machine (id or unique prefix)
+        #[arg(long, requires = "all")]
+        machine: Option<String>,
         /// Print only the last N lines (after trimming blank lines)
         #[arg(long)]
         lines: Option<usize>,
@@ -106,6 +112,9 @@ enum Commands {
         /// Total capture timeout in seconds, 0 = forever
         #[arg(long, default_value = "10s", value_parser = attach::parse_secs)]
         timeout: u64,
+        /// Batch only: max terminals captured concurrently
+        #[arg(long, default_value = "8", requires = "all")]
+        concurrency: usize,
     },
     /// Send text to a terminal (claims control, last-writer-wins)
     Send {
@@ -213,21 +222,23 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         }
         Commands::Read {
             term,
+            all,
+            machine,
             lines,
             json,
             quiet_ms,
             timeout,
+            concurrency,
         } => {
-            commands::read::run(
-                &hub_client,
-                &resolved,
-                &term,
+            let options = commands::read::ReadOptions {
                 lines,
                 json,
                 quiet_ms,
-                timeout,
-            )
-            .await
+                timeout_secs: timeout,
+                machine,
+                concurrency,
+            };
+            commands::read::run(&hub_client, &resolved, term.as_deref(), all, options).await
         }
         Commands::Send {
             term,

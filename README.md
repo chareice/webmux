@@ -37,6 +37,8 @@ webmux machines [--json]                       # list machines (online/offline)
 webmux ls [--machine <id>] [--json]            # list terminals: id, title, group, cwd, size, reachable
 webmux open <machine> --cwd <dir> [--cmd <shell command>] [--group <name>] [--json]
 webmux read <term> [--lines N] [--json]        # capture the current screen as text
+webmux read --all [--machine <id>] [--lines N] [--json] [--concurrency N]
+                                               # batch-capture every terminal's screen in one call
 webmux send <term> <text...> [--no-enter]      # type text (Enter appended by default)
 webmux key  <term> <KEY>...                    # Enter Esc Tab BTab Up Down Left Right C-c C-d F1-F12 ...
 webmux wait <term> [--pattern <regex>] [--silence <ms>] [--timeout <sec>]
@@ -62,8 +64,9 @@ webmux kill $T --yes
 2. **`read`/`wait` are pure watchers** — they never claim control and never disturb other clients (tmux runs `window-size manual`, so attaching doesn't resize anyone's view).
 3. **`read` sees the current screen only** (reconstructed from tmux's attach repaint). For long output, have the session's agent write files and read those.
 4. **Don't poll with repeated `read`** (~1 s attach per call) — hold a `wait` for the condition instead.
-5. `REACHABLE=no` terminals belong to offline machines and can't be attached.
-6. **A token is remote code execution on every registered machine.** Mint one token per agent (name them in Settings) so you can revoke individually and see who was active via "last used".
+5. **For an overview of every terminal, use `read --all`** — do not loop N CLI processes over `read` (slow: N×TLS+attach; and consumers that don't drain stdout concurrently can deadlock on the pipe buffer).
+6. `REACHABLE=no` terminals belong to offline machines and can't be attached. `read --all` skips them (one-line `skipped (unreachable)` row / `{"error":"unreachable"}` entry) and reports the count on stderr.
+7. **A token is remote code execution on every registered machine.** Mint one token per agent (name them in Settings) so you can revoke individually and see who was active via "last used".
 
 ## Development
 
