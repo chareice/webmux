@@ -99,6 +99,7 @@ mod tests {
             machine_id: "m-1".to_string(),
             title: "title".to_string(),
             cwd: "/home/user".to_string(),
+            title_source: Default::default(),
             workspace_group_id: group_id.map(str::to_string),
             cols: 80,
             rows: 24,

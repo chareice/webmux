@@ -137,6 +137,7 @@ impl HubConnection {
                     machine_id: self.machine_id.clone(),
                     title: s.title.clone(),
                     cwd: s.cwd.clone(),
+                    title_source: Default::default(),
                     workspace_group_id: None,
                     cols: s.cols,
                     rows: s.rows,
@@ -186,16 +187,21 @@ impl HubConnection {
         // is attached, so poll it directly and report those titles as OSC —
         // the hub's precedence (OSC beats process) does the rest. The
         // foreground process name remains the fallback for untitled panes.
+        // The same poll carries `pane_current_path`; cwds are reported only
+        // when they change, titles keep their every-tick behavior.
         let pty_for_titles = pty.clone();
         let send_tx_for_titles = send_tx.clone();
         let mut title_fallback_task = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(5));
             interval.tick().await;
+            let mut last_sent_cwd: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
             loop {
                 interval.tick().await;
-                let pane_titles = pty_for_titles.pane_titles();
+                let pane_infos = pty_for_titles.pane_infos();
                 for terminal_id in pty_for_titles.list_terminal_ids() {
-                    let (title, source) = match pane_titles.get(&terminal_id) {
+                    let pane_info = pane_infos.get(&terminal_id);
+                    let (title, source) = match pane_info.and_then(|info| info.title.as_ref()) {
                         Some(title) => (title.clone(), TerminalTitleSource::Osc),
                         None => {
                             let (_, process_name) =
@@ -208,7 +214,7 @@ impl HubConnection {
                     };
                     if send_tx_for_titles
                         .send(OutboundHubMessage::Json(MachineToHub::TerminalTitle {
-                            terminal_id,
+                            terminal_id: terminal_id.clone(),
                             title,
                             source,
                         }))
@@ -216,6 +222,21 @@ impl HubConnection {
                         .is_err()
                     {
                         return;
+                    }
+                    if let Some(cwd) = pane_info.and_then(|info| info.cwd.as_ref()) {
+                        if last_sent_cwd.get(&terminal_id) != Some(cwd) {
+                            if send_tx_for_titles
+                                .send(OutboundHubMessage::Json(MachineToHub::TerminalCwd {
+                                    terminal_id: terminal_id.clone(),
+                                    cwd: cwd.clone(),
+                                }))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            last_sent_cwd.insert(terminal_id, cwd.clone());
+                        }
                     }
                 }
             }

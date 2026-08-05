@@ -18,6 +18,8 @@ pub struct TerminalInfo {
     pub title: String,
     pub cwd: String,
     #[serde(default)]
+    pub title_source: TerminalTitleSource,
+    #[serde(default)]
     pub workspace_group_id: Option<String>,
     pub cols: u16,
     pub rows: u16,
@@ -29,11 +31,13 @@ fn default_reachable() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalTitleSource {
     Osc,
     Process,
+    #[default]
+    None,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -235,6 +239,8 @@ pub enum MachineToHub {
         title: String,
         source: TerminalTitleSource,
     },
+    #[serde(rename = "terminal_cwd")]
+    TerminalCwd { terminal_id: String, cwd: String },
     #[serde(rename = "pong")]
     Pong,
 }
@@ -404,8 +410,61 @@ mod tests {
     use super::{
         decode_attach_output_frame, decode_terminal_preview_output_frame,
         encode_attach_output_frame, encode_terminal_preview_output_frame,
-        BrowserEventsClientMessage, BrowserEventsPong,
+        BrowserEventsClientMessage, BrowserEventsPong, MachineToHub, TerminalInfo,
+        TerminalTitleSource,
     };
+
+    #[test]
+    fn terminal_info_title_source_defaults_to_none_when_missing() {
+        let json = r#"{
+            "id": "term-a",
+            "machine_id": "machine-a",
+            "title": "bash",
+            "cwd": "/tmp",
+            "cols": 80,
+            "rows": 24
+        }"#;
+        let info = serde_json::from_str::<TerminalInfo>(json).unwrap();
+        assert_eq!(info.title_source, TerminalTitleSource::None);
+
+        let serialized = serde_json::to_value(&info).unwrap();
+        assert_eq!(serialized["title_source"], serde_json::json!("none"));
+
+        let round_tripped =
+            serde_json::from_str::<TerminalInfo>(&serde_json::to_string(&info).unwrap()).unwrap();
+        assert_eq!(round_tripped, info);
+    }
+
+    #[test]
+    fn terminal_title_source_none_serializes_as_snake_case() {
+        assert_eq!(
+            serde_json::to_value(TerminalTitleSource::None).unwrap(),
+            serde_json::json!("none")
+        );
+        assert_eq!(
+            serde_json::from_str::<TerminalTitleSource>(r#""none""#).unwrap(),
+            TerminalTitleSource::None
+        );
+    }
+
+    #[test]
+    fn terminal_cwd_message_round_trips() {
+        let msg = MachineToHub::TerminalCwd {
+            terminal_id: "term-a".to_string(),
+            cwd: "/home/user/project".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"terminal_cwd","terminal_id":"term-a","cwd":"/home/user/project"}"#
+        );
+        let parsed = serde_json::from_str::<MachineToHub>(&json).unwrap();
+        assert!(matches!(
+            parsed,
+            MachineToHub::TerminalCwd { terminal_id, cwd }
+                if terminal_id == "term-a" && cwd == "/home/user/project"
+        ));
+    }
 
     #[test]
     fn attach_output_frame_round_trips_without_loss() {

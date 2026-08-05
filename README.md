@@ -50,7 +50,7 @@ webmux kill <term> [--yes]
 - `--lines N` means "the last N rendered lines of the current screen" (after trailing blank lines are trimmed) in both text and JSON mode; JSON also reports `lines_total` (pre-slice count) and `truncated`.
 - All printed/serialized output is sanitized (control bytes stripped, `\n`/`\t` and Unicode kept) — safe to pipe to `jq`/`file`.
 - `send` types the text, then sends Enter as a **separate delayed frame** (delay scales with line count, capped at 800 ms) so TUI apps that treat multi-line bursts as pastes still submit. `--no-enter` sends the text frame only (pure paste).
-- `read --all --json` lists **reachable terminals only** by default, with `skipped_unreachable_count` at the top level; `--include-unreachable` restores their `{"error":"unreachable"}` entries. Each captured entry carries `pane_title`, `foreground_process` (`{has_foreground_process, process_name}`, null on lookup failure), `activity` (`active`/`quiet`/`idle`) and `idle_ms` — activity is observed during the capture window only.
+- `read --all --json` lists **reachable terminals only** by default, with `skipped_unreachable_count` at the top level; `--include-unreachable` restores their `{"error":"unreachable"}` entries. Each captured entry carries `pane_title`, `title_source` (`osc`/`process`/`none`), `foreground_process` (`{has_foreground_process, process_name}`, null on lookup failure), `activity` (`active`/`quiet`/`idle`) and `idle_ms` — activity is observed during the capture window only. `cwd` is live (tmux `pane_current_path`, refreshed ~5s), not creation-time.
 
 ### Orchestrating an agent inside a terminal
 

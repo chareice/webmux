@@ -15,7 +15,30 @@ fn title_source_name(source: TerminalTitleSource) -> &'static str {
     match source {
         TerminalTitleSource::Osc => "osc",
         TerminalTitleSource::Process => "process",
+        TerminalTitleSource::None => "none",
     }
+}
+
+/// Inverse of `title_source_name` for hydrating `TerminalInfo` from DB rows.
+/// Unknown values fall back to `None` (the serde default) rather than failing.
+pub fn title_source_from_name(name: &str) -> TerminalTitleSource {
+    match name {
+        "osc" => TerminalTitleSource::Osc,
+        "process" => TerminalTitleSource::Process,
+        _ => TerminalTitleSource::None,
+    }
+}
+
+/// Live cwd reported by the machine (tmux `pane_current_path`). Skips no-op
+/// writes; returns true only when a row actually changed (false for unknown
+/// or destroyed terminals, mirroring the title flow's silent ignore).
+pub fn apply_cwd_update(conn: &Connection, id: &str, cwd: &str) -> rusqlite::Result<bool> {
+    let updated = conn.execute(
+        "UPDATE terminal_sessions SET cwd = ?1
+         WHERE id = ?2 AND destroyed_at IS NULL AND cwd != ?1",
+        params![cwd, id],
+    )?;
+    Ok(updated > 0)
 }
 
 pub fn insert(
@@ -186,7 +209,10 @@ mod tests {
     use rusqlite::{params, Connection};
     use tc_protocol::TerminalTitleSource;
 
-    use super::{apply_title_update, find_active_by_machine, find_all_active, TitleUpdateOutcome};
+    use super::{
+        apply_cwd_update, apply_title_update, find_active_by_machine, find_all_active,
+        TitleUpdateOutcome,
+    };
 
     fn insert_session(conn: &Connection, id: &str, created_at: i64) {
         conn.execute(
@@ -270,5 +296,40 @@ mod tests {
             .remove(0);
         assert_eq!(row.title, "editor");
         assert_eq!(row.title_source, "osc");
+    }
+
+    #[test]
+    fn cwd_update_applies_only_on_real_changes() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::init_db(&conn).unwrap();
+        crate::db::users::create_user(&conn, "user-a", "test", "user-a", "User A", None, "admin")
+            .unwrap();
+        crate::db::machines::ensure_machine_for_user(
+            &conn,
+            "machine-a",
+            "user-a",
+            "Machine A",
+            Some("linux"),
+            Some("/tmp"),
+        )
+        .unwrap();
+        insert_session(&conn, "term-a", 100);
+
+        // Changed cwd → applied.
+        assert!(apply_cwd_update(&conn, "term-a", "/home/user/project").unwrap());
+        let row = find_active_by_machine(&conn, "machine-a")
+            .unwrap()
+            .remove(0);
+        assert_eq!(row.cwd, "/home/user/project");
+
+        // Same cwd again → no-op.
+        assert!(!apply_cwd_update(&conn, "term-a", "/home/user/project").unwrap());
+
+        // Unknown terminal → silently ignored.
+        assert!(!apply_cwd_update(&conn, "term-missing", "/elsewhere").unwrap());
+
+        // Destroyed terminal → silently ignored.
+        super::mark_destroyed(&conn, "term-a").unwrap();
+        assert!(!apply_cwd_update(&conn, "term-a", "/elsewhere").unwrap());
     }
 }
