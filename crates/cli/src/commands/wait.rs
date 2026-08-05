@@ -45,8 +45,8 @@ pub async fn run(
     .await?;
 
     match outcome {
-        WaitOutcome::PatternMatched => println!("pattern matched"),
-        WaitOutcome::SilenceReached => println!("silence reached"),
+        WaitOutcome::PatternMatched => super::out_line("pattern matched"),
+        WaitOutcome::SilenceReached => super::out_line("silence reached"),
     }
     Ok(())
 }

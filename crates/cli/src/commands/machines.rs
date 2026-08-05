@@ -9,7 +9,7 @@ use crate::CliError;
 pub async fn run(client: &HubClient, json: bool) -> Result<(), CliError> {
     let machines = client.machines().await?;
     if json {
-        println!("{}", super::json_pretty(&machines)?);
+        super::out_line(&super::json_pretty(&machines)?);
         return Ok(());
     }
 
@@ -20,19 +20,22 @@ pub async fn run(client: &HubClient, json: bool) -> Result<(), CliError> {
     }
 
     if machines.is_empty() {
-        println!("(no machines online)");
+        super::out_line("(no machines online)");
         return Ok(());
     }
-    println!("{:<10} {:<24} {:>5} {:<8}", "ID", "NAME", "TERMS", "STATUS");
+    super::out_line(&format!(
+        "{:<10} {:<24} {:>5} {:<8}",
+        "ID", "NAME", "TERMS", "STATUS"
+    ));
     for machine in &machines {
         let count = counts.get(machine.id.as_str()).copied().unwrap_or(0);
-        println!(
+        super::out_line(&format!(
             "{:<10} {:<24} {:>5} {:<8}",
             short_id(&machine.id),
             machine.name,
             count,
             "online"
-        );
+        ));
     }
     Ok(())
 }

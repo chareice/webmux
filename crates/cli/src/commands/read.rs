@@ -65,13 +65,13 @@ async fn capture_one(
             "rows": rows,
             "screen": trimmed,
         });
-        println!("{}", super::json_pretty(&output)?);
+        super::out_line(&super::json_pretty(&output)?);
     } else {
         let output = match options.lines {
             Some(count) => attach::last_n_lines(&trimmed, count),
             None => trimmed,
         };
-        println!("{output}");
+        super::out_line(&output);
     }
     Ok(())
 }

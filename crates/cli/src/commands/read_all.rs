@@ -91,11 +91,11 @@ pub async fn run(
 
     if options.json {
         let output = json!({ "terminals": entries.iter().map(entry_json).collect::<Vec<_>>() });
-        println!("{}", super::json_pretty(&output)?);
+        super::out_line(&super::json_pretty(&output)?);
     } else {
         let text = render_text(&entries, options.lines);
         if !text.is_empty() {
-            println!("{text}");
+            super::out_line(&text);
         }
     }
     if skipped > 0 {

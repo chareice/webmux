@@ -11,7 +11,7 @@ pub async fn run(client: &HubClient, term_query: &str, yes: bool) -> Result<(), 
     let terminal = super::resolve_terminal(client, term_query).await?;
 
     if !yes && std::io::stdin().is_terminal() && !confirm(&terminal)? {
-        println!("aborted");
+        super::out_line("aborted");
         return Ok(());
     }
 
@@ -20,7 +20,7 @@ pub async fn run(client: &HubClient, term_query: &str, yes: bool) -> Result<(), 
     client
         .delete_terminal(&terminal.machine_id, &terminal.id)
         .await?;
-    println!("killed {}", terminal.id);
+    super::out_line(&format!("killed {}", terminal.id));
     Ok(())
 }
 
