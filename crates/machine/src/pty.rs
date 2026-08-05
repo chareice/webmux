@@ -251,6 +251,30 @@ impl PtyManager {
         self.sessions.lock().unwrap().values().cloned().collect()
     }
 
+    /// Poll tmux for every pane's title, mapped back to terminal ids.
+    ///
+    /// tmux holds the live pane title even when nobody is attached, so this
+    /// sees rich OSC titles the per-attach scanner can't. One subprocess per
+    /// call; a tmux failure (server down) yields an empty map, never a panic.
+    pub fn pane_titles(&self) -> HashMap<String, String> {
+        let output = tmux_cmd()
+            .args([
+                "-L",
+                TMUX_SOCKET,
+                "list-panes",
+                "-a",
+                "-F",
+                "#{session_name}\t#{pane_title}",
+            ])
+            .output();
+        match output {
+            Ok(out) if out.status.success() => {
+                parse_pane_titles(&String::from_utf8_lossy(&out.stdout), &current_hostname())
+            }
+            _ => HashMap::new(),
+        }
+    }
+
     /// Cheap "is this id still alive on the machine" check used by the
     /// session watcher's reconciliation loop.
     pub fn list_terminal_ids(&self) -> Vec<String> {
@@ -449,6 +473,42 @@ pub fn check_tmux_available() -> bool {
 
 pub fn tmux_session_name(id: &str) -> String {
     format!("{}{}", TMUX_PREFIX, id)
+}
+
+/// Parse `tmux list-panes -a -F '#{session_name}\t#{pane_title}'` output into
+/// terminal_id -> title. tmux initializes an untouched pane title to the
+/// machine hostname, so empty or hostname-equal titles count as "no title"
+/// and are skipped (the caller falls back to the foreground process name).
+fn parse_pane_titles(output: &str, hostname: &str) -> HashMap<String, String> {
+    let mut titles = HashMap::new();
+    for line in output.lines() {
+        let Some((session_name, title)) = line.split_once('\t') else {
+            continue;
+        };
+        let Some(terminal_id) = session_name.strip_prefix(TMUX_PREFIX) else {
+            continue;
+        };
+        let title = title.trim();
+        if title.is_empty() || title == hostname {
+            continue;
+        }
+        titles.insert(terminal_id.to_string(), title.to_string());
+    }
+    titles
+}
+
+/// The machine hostname: $HOSTNAME first, the OS resolver as fallback.
+/// Empty string when neither works, which disables the hostname filter.
+fn current_hostname() -> String {
+    std::env::var("HOSTNAME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            hostname::get()
+                .ok()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default()
 }
 
 fn clear_pane_title_args(tmux_name: &str) -> [&str; 7] {
@@ -652,7 +712,9 @@ mod tests {
         // Drag-select must enter copy-mode with scroll-exit (-e) plus -M
         // (mouse drag init), otherwise scrolling down can never leave it.
         assert!(
-            content.contains("bind -n MouseDrag1Pane if -Ft= '#{mouse_any_flag}' 'send -M' 'copy-mode -eM'"),
+            content.contains(
+                "bind -n MouseDrag1Pane if -Ft= '#{mouse_any_flag}' 'send -M' 'copy-mode -eM'"
+            ),
             "missing MouseDrag1Pane override that enters copy-mode with -eM"
         );
         // MouseDragEnd1Pane must be conditional on #{scroll_position}: back
@@ -661,9 +723,7 @@ mod tests {
         for table in ["copy-mode", "copy-mode-vi"] {
             let binding = content
                 .lines()
-                .find(|l| {
-                    l.starts_with(&format!("bind-key -T {} MouseDragEnd1Pane", table))
-                })
+                .find(|l| l.starts_with(&format!("bind-key -T {} MouseDragEnd1Pane", table)))
                 .unwrap_or_else(|| panic!("missing MouseDragEnd1Pane binding for {}", table));
             assert!(
                 binding.contains("'#{scroll_position}'"),
@@ -697,6 +757,33 @@ mod tests {
             content.contains("source-file -q \"/tmp/tmux.user.conf\""),
             "missing user config source"
         );
+    }
+
+    #[test]
+    fn parse_pane_titles_maps_sessions_back_to_terminal_ids() {
+        let titles = parse_pane_titles("wmx_aaa\tfix the bug\nwmx_bbb\t✳ 了解项目\n", "dev");
+        assert_eq!(titles.get("aaa").map(String::as_str), Some("fix the bug"));
+        assert_eq!(titles.get("bbb").map(String::as_str), Some("✳ 了解项目"));
+    }
+
+    #[test]
+    fn parse_pane_titles_skips_empty_and_hostname_titles() {
+        let titles = parse_pane_titles("wmx_aaa\t\nwmx_bbb\tdev\nwmx_ccc\treal title\n", "dev");
+        assert!(!titles.contains_key("aaa"));
+        assert!(!titles.contains_key("bbb"));
+        assert_eq!(titles.get("ccc").map(String::as_str), Some("real title"));
+    }
+
+    #[test]
+    fn parse_pane_titles_skips_malformed_lines_and_foreign_sessions() {
+        let titles = parse_pane_titles("no tab here\nother-session\ttitle\n\n", "dev");
+        assert!(titles.is_empty());
+    }
+
+    #[test]
+    fn parse_pane_titles_tolerates_crlf() {
+        let titles = parse_pane_titles("wmx_aaa\tfix the bug\r\n", "dev");
+        assert_eq!(titles.get("aaa").map(String::as_str), Some("fix the bug"));
     }
 
     #[test]

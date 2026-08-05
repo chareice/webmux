@@ -9,6 +9,7 @@ pub mod send;
 pub mod wait;
 
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
 
 use serde::Serialize;
 use tc_protocol::TerminalInfo;
@@ -16,6 +17,18 @@ use tc_protocol::TerminalInfo;
 use crate::client::HubClient;
 use crate::resolve::{resolve_prefix, short_id};
 use crate::CliError;
+
+/// Print one line to stdout. Rust ignores SIGPIPE, so a closed reader
+/// (`webmux ls | head -1`) would otherwise panic on EPIPE; exit 0 like a
+/// well-behaved Unix tool instead. All user-visible output goes through here.
+pub fn out_line(line: &str) {
+    let mut stdout = std::io::stdout().lock();
+    match writeln!(stdout, "{line}") {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(0),
+        Err(error) => panic!("failed printing to stdout: {error}"),
+    }
+}
 
 /// Fetch all terminals and resolve a user-supplied id/prefix against them.
 pub async fn resolve_terminal(client: &HubClient, query: &str) -> Result<TerminalInfo, CliError> {

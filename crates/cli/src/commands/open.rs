@@ -51,9 +51,9 @@ pub async fn run(
     }
 
     if options.json {
-        println!("{}", super::json_pretty(&terminal)?);
+        super::out_line(&super::json_pretty(&terminal)?);
     } else {
-        println!("{}", terminal.id);
+        super::out_line(&terminal.id);
     }
     Ok(())
 }
