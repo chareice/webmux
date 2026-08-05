@@ -18,6 +18,7 @@ import {
   openApp,
   resetMachineState,
   selectHomeWorkpath,
+  stableTerminalFields,
   takeControlFromHeader,
 } from "./helpers";
 
@@ -72,9 +73,11 @@ test("mobile viewing stays readable when desktop explicitly sizes the shared ter
   await expect
     .poll(async () => getTerminalViewScale(mobilePage))
     .toBe(1);
+  // Compare stable fields only: title/title_source are live-reported and may
+  // legitimately change between the two listings.
   await expect
-    .poll(async () => listTerminals(mobilePage))
-    .toEqual([desktopSizedTerminal]);
+    .poll(async () => (await listTerminals(mobilePage)).map(stableTerminalFields))
+    .toEqual([stableTerminalFields(desktopSizedTerminal!)]);
 
   await desktop.close();
   await mobile.close();
