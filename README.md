@@ -37,7 +37,7 @@ webmux machines [--json]                       # list machines (online/offline)
 webmux ls [--machine <id>] [--json]            # list terminals: id, title, group, cwd, size, reachable
 webmux open <machine> --cwd <dir> [--cmd <shell command>] [--group <name>] [--json]
 webmux read <term> [--lines N] [--json]        # capture the current screen as text
-webmux read --all [--machine <id>] [--lines N] [--json] [--concurrency N]
+webmux read --all [--machine <id>] [--lines N] [--json] [--concurrency N] [--include-unreachable]
                                                # batch-capture every terminal's screen in one call
 webmux send <term> <text...> [--no-enter]      # type text (Enter appended by default)
 webmux key  <term> <KEY>...                    # Enter Esc Tab BTab Up Down Left Right C-c C-d F1-F12 ...
@@ -47,6 +47,10 @@ webmux kill <term> [--yes]
 
 - Machines and terminals are addressed by **id prefix** (first column of `ls`); ambiguous prefixes list candidates.
 - Exit codes: `0` success / wait condition met · `1` wait timed out · `2` usage/config/network error. Everything is scriptable; `--json` for machine consumption.
+- `--lines N` means "the last N rendered lines of the current screen" (after trailing blank lines are trimmed) in both text and JSON mode; JSON also reports `lines_total` (pre-slice count) and `truncated`.
+- All printed/serialized output is sanitized (control bytes stripped, `\n`/`\t` and Unicode kept) — safe to pipe to `jq`/`file`.
+- `send` types the text, then sends Enter as a **separate delayed frame** (delay scales with line count, capped at 800 ms) so TUI apps that treat multi-line bursts as pastes still submit. `--no-enter` sends the text frame only (pure paste).
+- `read --all --json` lists **reachable terminals only** by default, with `skipped_unreachable_count` at the top level; `--include-unreachable` restores their `{"error":"unreachable"}` entries. Each captured entry carries `pane_title`, `foreground_process` (`{has_foreground_process, process_name}`, null on lookup failure), `activity` (`active`/`quiet`/`idle`) and `idle_ms` — activity is observed during the capture window only.
 
 ### Orchestrating an agent inside a terminal
 
@@ -65,7 +69,7 @@ webmux kill $T --yes
 3. **`read` sees the current screen only** (reconstructed from tmux's attach repaint). For long output, have the session's agent write files and read those.
 4. **Don't poll with repeated `read`** (~1 s attach per call) — hold a `wait` for the condition instead.
 5. **For an overview of every terminal, use `read --all`** — do not loop N CLI processes over `read` (slow: N×TLS+attach; and consumers that don't drain stdout concurrently can deadlock on the pipe buffer).
-6. `REACHABLE=no` terminals belong to offline machines and can't be attached. `read --all` skips them (one-line `skipped (unreachable)` row / `{"error":"unreachable"}` entry) and reports the count on stderr.
+6. `REACHABLE=no` terminals belong to offline machines and can't be attached. `read --all` skips them (one-line `skipped (unreachable)` row; omitted from JSON unless `--include-unreachable`) and reports the count on stderr and as `skipped_unreachable_count` in JSON.
 7. **A token is remote code execution on every registered machine.** Mint one token per agent (name them in Settings) so you can revoke individually and see who was active via "last used".
 
 ## Development

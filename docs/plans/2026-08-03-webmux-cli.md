@@ -2,6 +2,7 @@
 
 **Status:** implementation spec (2026-08-03)
 **Follow-up:** batch screen capture (`read --all`) added by [2026-08-04-cli-read-all.md](2026-08-04-cli-read-all.md).
+**Follow-up:** agent-consumable output (sanitize, `--lines` parity, `send` paste timing, `--all` activity fields) added by [2026-08-05-cli-agent-output.md](2026-08-05-cli-agent-output.md).
 **Goal:** a single static Rust binary `webmux` that lets external agents (Claude Code / Codex / Grok / Kimi headless) and humans list, open, read, write to, and wait on terminals on any machine registered to a webmux hub — "remote `tmux send-keys` + `capture-pane` through the hub".
 
 ## Why CLI (not MCP first)

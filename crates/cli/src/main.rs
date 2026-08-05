@@ -90,7 +90,8 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Capture the current screen of a terminal, or of every terminal with --all (read-only watcher)
+    /// Capture the current screen of a terminal, or of every terminal with --all (read-only watcher).
+    /// JSON activity fields are observed during the capture window only.
     Read {
         /// Terminal id or unique prefix
         term: Option<String>,
@@ -115,6 +116,9 @@ enum Commands {
         /// Batch only: max terminals captured concurrently
         #[arg(long, default_value = "8", requires = "all")]
         concurrency: usize,
+        /// Batch JSON only: also include unreachable terminals as error entries
+        #[arg(long, requires = "all")]
+        include_unreachable: bool,
     },
     /// Send text to a terminal (claims control, last-writer-wins)
     Send {
@@ -229,6 +233,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
             quiet_ms,
             timeout,
             concurrency,
+            include_unreachable,
         } => {
             let options = commands::read::ReadOptions {
                 lines,
@@ -237,6 +242,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
                 timeout_secs: timeout,
                 machine,
                 concurrency,
+                include_unreachable,
             };
             commands::read::run(&hub_client, &resolved, term.as_deref(), all, options).await
         }

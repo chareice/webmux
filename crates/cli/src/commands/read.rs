@@ -15,6 +15,8 @@ pub struct ReadOptions {
     pub machine: Option<String>,
     /// Batch only: max terminals captured concurrently.
     pub concurrency: usize,
+    /// Batch JSON only: also emit unreachable terminals as error entries.
+    pub include_unreachable: bool,
 }
 
 /// Capture one terminal's screen, or every terminal in batch mode (`--all`).
@@ -54,24 +56,27 @@ async fn capture_one(
         rows,
     };
     let timeout = (options.timeout_secs > 0).then(|| Duration::from_secs(options.timeout_secs));
+    let quiet = Duration::from_millis(options.quiet_ms);
 
-    let screen = attach::capture(&target, Duration::from_millis(options.quiet_ms), timeout).await?;
-    let trimmed = attach::trim_trailing_blank_lines(&screen.contents());
+    let report = attach::capture(&target, quiet, timeout).await?;
+    let sanitized = attach::sanitize_screen(&report.screen.contents());
+    let trimmed = attach::trim_trailing_blank_lines(&sanitized);
+    let (screen, lines_total, truncated) = attach::apply_lines(&trimmed, options.lines);
 
     if options.json {
         let output = serde_json::json!({
             "id": terminal.id,
             "cols": cols,
             "rows": rows,
-            "screen": trimmed,
+            "screen": screen,
+            "lines_total": lines_total,
+            "truncated": truncated,
+            "activity": attach::classify_activity(report.end_reason, report.last_byte_age_ms, quiet),
+            "idle_ms": report.last_byte_age_ms,
         });
         super::out_line(&super::json_pretty(&output)?);
     } else {
-        let output = match options.lines {
-            Some(count) => attach::last_n_lines(&trimmed, count),
-            None => trimmed,
-        };
-        super::out_line(&output);
+        super::out_line(&screen);
     }
     Ok(())
 }
@@ -91,6 +96,7 @@ mod tests {
             timeout_secs: 10,
             machine: None,
             concurrency: 8,
+            include_unreachable: false,
         }
     }
 

@@ -1,7 +1,7 @@
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::{Response, StatusCode};
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tc_protocol::{MachineInfo, TerminalInfo, WorkspaceGroupInfo};
 
@@ -22,6 +22,13 @@ pub struct CreateTerminalRequest<'a> {
     pub rows: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device_id: Option<&'a str>,
+}
+
+/// Response of `GET /api/machines/{m}/terminals/{t}/foreground-process`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ForegroundProcessInfo {
+    pub has_foreground_process: bool,
+    pub process_name: Option<String>,
 }
 
 /// Thin REST client for the hub API. Auth is `Authorization: Bearer <token>`.
@@ -106,6 +113,18 @@ impl HubClient {
     ) -> Result<Vec<WorkspaceGroupInfo>, CliError> {
         self.get(&format!("/machines/{machine_id}/workspace-groups"))
             .await
+    }
+
+    /// What process is running in the foreground of a terminal's pane.
+    pub async fn foreground_process(
+        &self,
+        machine_id: &str,
+        terminal_id: &str,
+    ) -> Result<ForegroundProcessInfo, CliError> {
+        self.get(&format!(
+            "/machines/{machine_id}/terminals/{terminal_id}/foreground-process"
+        ))
+        .await
     }
 
     pub async fn create_terminal(
