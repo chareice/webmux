@@ -141,9 +141,7 @@ WantedBy=default.target
             .output()
             .ok()?;
         let status = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if output.status.success() {
-            Some(status)
-        } else if !status.is_empty() {
+        if output.status.success() || !status.is_empty() {
             Some(status)
         } else {
             None

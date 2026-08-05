@@ -182,8 +182,10 @@ impl HubConnection {
             }
         });
 
-        // Foreground process names are the fallback while no OSC title has
-        // won. The hub owns precedence and ignores these reports after OSC.
+        // tmux holds the live pane title for every terminal even when nobody
+        // is attached, so poll it directly and report those titles as OSC —
+        // the hub's precedence (OSC beats process) does the rest. The
+        // foreground process name remains the fallback for untitled panes.
         let pty_for_titles = pty.clone();
         let send_tx_for_titles = send_tx.clone();
         let mut title_fallback_task = tokio::spawn(async move {
@@ -191,13 +193,24 @@ impl HubConnection {
             interval.tick().await;
             loop {
                 interval.tick().await;
+                let pane_titles = pty_for_titles.pane_titles();
                 for terminal_id in pty_for_titles.list_terminal_ids() {
-                    let (_, process_name) = pty_for_titles.check_foreground_process(&terminal_id);
+                    let (title, source) = match pane_titles.get(&terminal_id) {
+                        Some(title) => (title.clone(), TerminalTitleSource::Osc),
+                        None => {
+                            let (_, process_name) =
+                                pty_for_titles.check_foreground_process(&terminal_id);
+                            (
+                                process_name.unwrap_or_default(),
+                                TerminalTitleSource::Process,
+                            )
+                        }
+                    };
                     if send_tx_for_titles
                         .send(OutboundHubMessage::Json(MachineToHub::TerminalTitle {
                             terminal_id,
-                            title: process_name.unwrap_or_default(),
-                            source: TerminalTitleSource::Process,
+                            title,
+                            source,
                         }))
                         .await
                         .is_err()
@@ -590,32 +603,6 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     Ok(output)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn image_paste_returns_bracketed_path_for_single_attach_write() {
-        let filename = format!("webmux-image-paste-test-{}.png", std::process::id());
-        let path = std::env::temp_dir().join(&filename);
-        let _ = std::fs::remove_file(&path);
-
-        let paste = handle_image_paste("d2VibXV4", "image/png", &filename)
-            .expect("image paste should be prepared");
-
-        assert_eq!(
-            std::fs::read(&path).expect("image file should exist"),
-            b"webmux"
-        );
-        assert_eq!(
-            paste,
-            format!("\x1b[200~{}\x1b[201~", path.to_string_lossy())
-        );
-
-        let _ = std::fs::remove_file(path);
-    }
-}
-
 fn read_directory(path: &str) -> Result<Vec<DirEntry>, String> {
     let entries =
         std::fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))?;
@@ -648,4 +635,30 @@ fn expand_tilde(path: &str) -> String {
 
 fn dirs_home() -> String {
     std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_paste_returns_bracketed_path_for_single_attach_write() {
+        let filename = format!("webmux-image-paste-test-{}.png", std::process::id());
+        let path = std::env::temp_dir().join(&filename);
+        let _ = std::fs::remove_file(&path);
+
+        let paste = handle_image_paste("d2VibXV4", "image/png", &filename)
+            .expect("image paste should be prepared");
+
+        assert_eq!(
+            std::fs::read(&path).expect("image file should exist"),
+            b"webmux"
+        );
+        assert_eq!(
+            paste,
+            format!("\x1b[200~{}\x1b[201~", path.to_string_lossy())
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
 }
