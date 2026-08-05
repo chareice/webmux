@@ -879,6 +879,7 @@ impl MachineManager {
                             let target_user_id = conn.user_id.clone();
                             if let Some(terminal) = conn.terminals.get_mut(&terminal_id) {
                                 terminal.title = title;
+                                terminal.title_source = source;
                                 let terminal = terminal.clone();
                                 drop(machines);
                                 self.send_event(
