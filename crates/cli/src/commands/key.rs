@@ -18,9 +18,15 @@ pub async fn run(
     let terminal = super::resolve_terminal(client, term_query).await?;
 
     // All keyspecs map to ASCII, so the byte sequences are valid UTF-8.
-    let frames: Vec<String> = frames
+    // Keys go out back-to-back (zero delay between frames).
+    let frames: Vec<(String, std::time::Duration)> = frames
         .into_iter()
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .map(|bytes| {
+            (
+                String::from_utf8_lossy(&bytes).into_owned(),
+                std::time::Duration::ZERO,
+            )
+        })
         .collect();
     let device_id = format!("cli-send-{}", std::process::id());
     attach::send_inputs(

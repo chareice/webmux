@@ -3,7 +3,8 @@ use crate::client::HubClient;
 use crate::config::ResolvedConfig;
 use crate::CliError;
 
-/// Send text as one input frame; appends `\r` unless --no-enter.
+/// Send text as a paste plus a delayed standalone Enter (see
+/// `attach::plan_send_frames`); `--no-enter` sends the text frame only.
 /// Sending input claims control (last-writer-wins).
 pub async fn run(
     client: &HubClient,
@@ -14,10 +15,8 @@ pub async fn run(
 ) -> Result<(), CliError> {
     let terminal = super::resolve_terminal(client, term_query).await?;
 
-    let mut data = text.join(" ");
-    if !no_enter {
-        data.push('\r');
-    }
+    let data = text.join(" ");
+    let frames = attach::plan_send_frames(&data, !no_enter);
 
     let device_id = format!("cli-send-{}", std::process::id());
     attach::send_inputs(
@@ -25,7 +24,7 @@ pub async fn run(
         &terminal.machine_id,
         &terminal.id,
         &device_id,
-        &[data],
+        &frames,
     )
     .await
 }
