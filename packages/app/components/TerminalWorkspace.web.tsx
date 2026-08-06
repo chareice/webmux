@@ -34,6 +34,7 @@ import {
   findAdjacentWorkspacePane,
   getActiveWorkspaceGroup,
   reconcileTerminalWorkspace,
+  rotateWorkspaceLayout,
   selectWorkspaceGroup,
   splitWorkspacePane,
 } from "@/lib/terminalWorkspaceLayout";
@@ -110,6 +111,7 @@ export type GroupDropPlacement = "before" | "after";
 const WORKSPACE_PREFIX_ACTIONS: PrefixActionId[] = [
   "splitRight",
   "splitDown",
+  "rotateLayout",
   "paneLeft",
   "paneRight",
   "paneUp",
@@ -445,6 +447,22 @@ function TerminalWorkspaceComponent({
     activeCardRef.current?.fitToContainer();
   }, []);
 
+  // ⌃B r: flip every split direction in the active group's layout tree
+  // (stacked ↔ side-by-side) without touching pane order or ratios.
+  const handleRotateLayout = useCallback(() => {
+    if (!isController) return;
+    const group = getActiveWorkspaceGroup(workspaceRef.current);
+    if (!group || collectIds(group.root).length < 2) return;
+    const groupId = group.id;
+    const nextWorkspace = updateWorkspace((current) =>
+      rotateWorkspaceLayout(current),
+    );
+    requestPaneFit(collectIds(getActiveWorkspaceGroup(nextWorkspace)?.root ?? null), {
+      focusTerminalId: nextWorkspace.activeTerminalId,
+    });
+    void persistGroupLayout(nextWorkspace, groupId);
+  }, [isController, persistGroupLayout, requestPaneFit, updateWorkspace]);
+
   const handleReorderGroups = useCallback(
     async (
       sourceGroupId: string,
@@ -642,6 +660,7 @@ function TerminalWorkspaceComponent({
   workspacePrefixActionsRef.current = {
     splitRight: () => void handleSplit("right"),
     splitDown: () => void handleSplit("down"),
+    rotateLayout: handleRotateLayout,
     paneLeft: () => focusPaneByDirection("left"),
     paneRight: () => focusPaneByDirection("right"),
     paneUp: () => focusPaneByDirection("up"),
@@ -790,6 +809,12 @@ function TerminalWorkspaceComponent({
           shortcut: formatPrefixBinding("splitDown"),
           disabled: !isController,
           onClick: () => void handleSplit("down"),
+        },
+        {
+          label: "Rotate layout",
+          shortcut: formatPrefixBinding("rotateLayout"),
+          disabled: !isController || activeGroupPaneCount < 2,
+          onClick: handleRotateLayout,
         },
         {
           label: "Zoom",

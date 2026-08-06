@@ -225,6 +225,31 @@ export function swapWorkspacePanes(
   };
 }
 
+export function rotateWorkspaceLayout(
+  workspace: TerminalWorkspace,
+): TerminalWorkspace {
+  const group = workspace.groups.find(
+    (candidate) => candidate.id === workspace.activeGroupId,
+  );
+  if (!group || !group.root || group.root.type !== "split") return workspace;
+
+  const root = rotateSplitDirections(group.root);
+  const groups = workspace.groups.map((candidate) =>
+    candidate.id === group.id
+      ? {
+          ...candidate,
+          root,
+          paneCount: collectPaneTerminalIds(root).length,
+        }
+      : candidate,
+  );
+
+  return {
+    ...workspace,
+    groups,
+  };
+}
+
 export function reconcileTerminalWorkspace(
   workspace: TerminalWorkspace,
   terminals: TerminalInfo[],
@@ -782,6 +807,16 @@ function swapLeafTerminalIds(
     ...root,
     first: swapLeafTerminalIds(root.first, sourceTerminalId, targetTerminalId),
     second: swapLeafTerminalIds(root.second, sourceTerminalId, targetTerminalId),
+  };
+}
+
+function rotateSplitDirections(node: WorkspacePaneNode): WorkspacePaneNode {
+  if (node.type === "leaf") return node;
+  return {
+    ...node,
+    direction: node.direction === "horizontal" ? "vertical" : "horizontal",
+    first: rotateSplitDirections(node.first),
+    second: rotateSplitDirections(node.second),
   };
 }
 

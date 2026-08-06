@@ -94,6 +94,68 @@ test("desktop workspace splits the active terminal into tiled panes", async ({
   await context.close();
 });
 
+test("desktop workspace rotates a stacked pane layout via the palette", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const firstId = await createTerminalViaApi(page, { cwd: "/root" });
+  await expandTerminalById(page, firstId);
+
+  // ⌃B " — two panes stacked top/bottom.
+  await pressPrefixKey(page, "Shift+Quote");
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(2);
+  const secondId = (await listTerminals(page)).find(
+    (terminal) => terminal.id !== firstId,
+  )!.id;
+  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(2);
+
+  const stackedFirstBox = await paneBox(page, firstId);
+  const stackedSecondBox = await paneBox(page, secondId);
+  expect(Math.abs(stackedSecondBox.x - stackedFirstBox.x)).toBeLessThan(8);
+  expect(stackedSecondBox.y).toBeGreaterThan(
+    stackedFirstBox.y + stackedFirstBox.height * 0.5,
+  );
+
+  // Rotate via the command palette: stacked → side-by-side.
+  await pressPrefixKey(page, "k");
+  await expect(page.getByTestId("command-palette")).toBeVisible();
+  await page.getByTestId("command-palette-row-rotate-layout").click();
+  await expect(page.getByTestId("command-palette")).toHaveCount(0);
+
+  await expect
+    .poll(
+      async () => {
+        const firstBox = await paneBox(page, firstId);
+        const secondBox = await paneBox(page, secondId);
+        return (
+          Math.abs(secondBox.y - firstBox.y) < 8 &&
+          secondBox.x > firstBox.x + firstBox.width * 0.5
+        );
+      },
+      { timeout: 5_000 },
+    )
+    .toBe(true);
+
+  // ⌃B r — rotate back to stacked.
+  await pressPrefixKey(page, "r");
+  await expect
+    .poll(
+      async () => {
+        const firstBox = await paneBox(page, firstId);
+        const secondBox = await paneBox(page, secondId);
+        return (
+          Math.abs(secondBox.x - firstBox.x) < 8 &&
+          secondBox.y > firstBox.y + firstBox.height * 0.5
+        );
+      },
+      { timeout: 5_000 },
+    )
+    .toBe(true);
+});
+
 test("desktop workspace stays open when closing an inactive pane", async ({
   browser,
 }) => {

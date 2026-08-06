@@ -1261,6 +1261,15 @@ function TerminalCanvasInner() {
         action: () =>
           workspaceCommandsRef.current.runPrefixAction?.("splitDown"),
       },
+      {
+        id: "rotate-layout",
+        section: "actions",
+        label: "Rotate layout",
+        hint: formatPrefixBinding("rotateLayout", bindings),
+        disabled: !isActiveController,
+        action: () =>
+          workspaceCommandsRef.current.runPrefixAction?.("rotateLayout"),
+      },
       ...tabGroups.map((group, index): PaletteRow => {
         const tabAction = `selectTab${index + 1}` as PrefixActionId;
         return {
