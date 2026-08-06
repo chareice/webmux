@@ -11,6 +11,7 @@ import {
   findAdjacentWorkspacePane,
   getMobileWorkspaceTabs,
   reconcileTerminalWorkspace,
+  rotateWorkspaceLayout,
   selectWorkspaceGroup,
   splitWorkspacePane,
   swapWorkspacePanes,
@@ -436,6 +437,110 @@ describe("terminalWorkspaceLayout", () => {
     });
     expect(collectPaneTerminalIds(getActiveWorkspaceGroup(next)?.root ?? null))
       .toEqual(["bottom", "top", "left"]);
+  });
+
+  it("rotates a two-pane stacked layout to side-by-side", () => {
+    const workspace = splitWorkspacePane(
+      createTerminalWorkspace(
+        [terminal("a", "/repo"), terminal("b", "/repo")],
+        "a",
+      ),
+      {
+        activeTerminalId: "a",
+        newTerminalId: "b",
+        direction: "down",
+      },
+    );
+
+    const next = rotateWorkspaceLayout(workspace);
+
+    expect(getActiveWorkspaceGroup(next)?.root).toEqual({
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: { type: "leaf", terminalId: "a" },
+      second: { type: "leaf", terminalId: "b" },
+    });
+    expect(next.activeTerminalId).toBe("b");
+  });
+
+  it("flips every split direction in a nested tree, preserving order and ratios", () => {
+    const workspace = createTerminalWorkspace(
+      [terminal("a", "/repo"), terminal("b", "/repo"), terminal("c", "/repo")],
+      "c",
+      [],
+      [
+        {
+          machine_id: "m1",
+          group_key: "cwd:/repo",
+          updated_at: 10,
+          root: {
+            type: "split",
+            direction: "vertical",
+            ratio: 0.3,
+            first: {
+              type: "split",
+              direction: "horizontal",
+              ratio: 0.7,
+              first: { type: "leaf", terminalId: "a" },
+              second: { type: "leaf", terminalId: "c" },
+            },
+            second: { type: "leaf", terminalId: "b" },
+          },
+        },
+      ],
+    );
+
+    const next = rotateWorkspaceLayout(workspace);
+
+    expect(getActiveWorkspaceGroup(next)?.root).toEqual({
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.3,
+      first: {
+        type: "split",
+        direction: "vertical",
+        ratio: 0.7,
+        first: { type: "leaf", terminalId: "a" },
+        second: { type: "leaf", terminalId: "c" },
+      },
+      second: { type: "leaf", terminalId: "b" },
+    });
+    expect(collectPaneTerminalIds(getActiveWorkspaceGroup(next)?.root ?? null))
+      .toEqual(["a", "c", "b"]);
+    expect(next.activeTerminalId).toBe("c");
+  });
+
+  it("is a no-op for a group with a single pane", () => {
+    const workspace = createTerminalWorkspace([terminal("a", "/repo")], "a");
+
+    expect(rotateWorkspaceLayout(workspace)).toBe(workspace);
+  });
+
+  it("leaves inactive groups untouched when rotating the active group", () => {
+    const workspace = splitWorkspacePane(
+      createTerminalWorkspace(
+        [terminal("a", "/repo"), terminal("b", "/repo"), terminal("c", "/else")],
+        "a",
+      ),
+      {
+        activeTerminalId: "a",
+        newTerminalId: "b",
+        direction: "down",
+      },
+    );
+
+    const next = rotateWorkspaceLayout(workspace);
+
+    const inactiveBefore = workspace.groups.find(
+      (group) => group.id !== workspace.activeGroupId,
+    );
+    const inactiveAfter = next.groups.find(
+      (group) => group.id === inactiveBefore?.id,
+    );
+    expect(inactiveAfter).toBe(inactiveBefore);
+    expect(next.activeGroupId).toBe(workspace.activeGroupId);
+    expect(next.activeTerminalId).toBe(workspace.activeTerminalId);
   });
 
   it("collapses a split when a pane is closed", () => {
