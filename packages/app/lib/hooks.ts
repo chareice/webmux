@@ -1,36 +1,78 @@
 import { useState, useEffect } from "react";
 import { Dimensions, Platform } from "react-native";
 
-/**
- * Returns true when the viewport is narrower than the given breakpoint.
- * On web uses matchMedia for real-time responsiveness.
- * On native uses Dimensions API.
- */
-export function useIsMobile(breakpoint = 768): boolean {
-  const [isMobile, setIsMobile] = useState(() => {
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      return window.innerWidth <= breakpoint;
-    }
-    return Dimensions.get("window").width <= breakpoint;
+import {
+  classifyDisplayMode,
+  detectIsTouch,
+  COMPACT_WINDOW_WIDTH_PX,
+  type DisplayMode,
+} from "./displayMode";
+
+function readNativeDisplayMode(): DisplayMode {
+  return {
+    isTouch: true,
+    isCompact: Dimensions.get("window").width <= COMPACT_WINDOW_WIDTH_PX,
+  };
+}
+
+function readWebDisplayMode(): DisplayMode {
+  if (typeof window === "undefined") {
+    return { isCompact: false, isTouch: false };
+  }
+  return classifyDisplayMode({
+    isTouch: detectIsTouch(),
+    screenWidth: window.screen.width,
+    screenHeight: window.screen.height,
+    windowWidth: window.innerWidth,
   });
+}
+
+function readDisplayMode(): DisplayMode {
+  if (Platform.OS !== "web") return readNativeDisplayMode();
+  return readWebDisplayMode();
+}
+
+/**
+ * Subscribes to window resize and `(pointer: coarse)` changes so Fold
+ * fold/unfold (which fires resize and updates screen dims) reclassifies.
+ * Native keeps the legacy window-width compact check and always reports touch.
+ */
+export function useDisplayMode(): DisplayMode {
+  const [mode, setMode] = useState<DisplayMode>(readDisplayMode);
 
   useEffect(() => {
+    const commit = (next: DisplayMode) => {
+      setMode((prev) =>
+        prev.isCompact === next.isCompact && prev.isTouch === next.isTouch
+          ? prev
+          : next,
+      );
+    };
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      const mql = window.matchMedia(`(max-width: ${breakpoint}px)`);
-      const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-      mql.addEventListener("change", handler);
-      setIsMobile(mql.matches);
-      return () => mql.removeEventListener("change", handler);
+      const update = () => commit(readWebDisplayMode());
+      window.addEventListener("resize", update);
+      let mql: MediaQueryList | null = null;
+      if (typeof window.matchMedia === "function") {
+        mql = window.matchMedia("(pointer: coarse)");
+        mql.addEventListener("change", update);
+      }
+      update();
+      return () => {
+        window.removeEventListener("resize", update);
+        mql?.removeEventListener("change", update);
+      };
     }
 
-    // Native: listen to dimension changes
-    const sub = Dimensions.addEventListener("change", ({ window }) => {
-      setIsMobile(window.width <= breakpoint);
+    const sub = Dimensions.addEventListener("change", ({ window: win }) => {
+      commit({
+        isTouch: true,
+        isCompact: win.width <= COMPACT_WINDOW_WIDTH_PX,
+      });
     });
     return () => sub.remove();
-  }, [breakpoint]);
+  }, []);
 
-  return isMobile;
+  return mode;
 }
 
 /**

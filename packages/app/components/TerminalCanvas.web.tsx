@@ -56,7 +56,8 @@ import {
 } from "@/lib/bootstrapState";
 import { getPersistentDeviceId } from "@/lib/deviceId";
 import { colors } from "@/lib/colors";
-import { useIsMobile, useVisualViewportHeight } from "@/lib/hooks";
+import { useDisplayMode, useVisualViewportHeight } from "@/lib/hooks";
+import { KeyBarSlotProvider, WorkspaceKeyBarSlot } from "@/lib/keyBarSlot";
 import {
   formatPrefixBinding,
   isEditableShortcutTarget,
@@ -226,7 +227,7 @@ function TerminalCanvasInner() {
     undefined,
     createInitialMainLayout,
   );
-  const isMobile = useIsMobile();
+  const { isCompact, isTouch } = useDisplayMode();
   const viewportHeight = useVisualViewportHeight();
   const rootHeight: string =
     viewportHeight !== null ? `${viewportHeight}px` : "100dvh";
@@ -727,7 +728,7 @@ function TerminalCanvasInner() {
       // Code / Ink) paint their welcome banner narrow; a later manual fit
       // cannot repaint that static content.
       const viewportHeightPx = viewportHeight ?? window.innerHeight;
-      const { cols, rows } = isMobile
+      const { cols, rows } = isCompact
         ? estimateMobileInitialTerminalDimensions(
             window.innerWidth,
             viewportHeightPx,
@@ -767,7 +768,7 @@ function TerminalCanvasInner() {
       deviceId,
       isMachineController,
       bookmarks,
-      isMobile,
+      isCompact,
       layout.selectedWorkpathId,
       viewportHeight,
     ],
@@ -1168,7 +1169,7 @@ function TerminalCanvasInner() {
   }, []);
 
   useEffect(() => {
-    if (isMobile) return;
+    if (isCompact) return;
     const onKeydown = (event: KeyboardEvent) => {
       const insideTerminal =
         event.target instanceof Element &&
@@ -1181,14 +1182,13 @@ function TerminalCanvasInner() {
     };
     window.addEventListener("keydown", onKeydown);
     return () => window.removeEventListener("keydown", onKeydown);
-  }, [isMobile]);
+  }, [isCompact]);
 
   // Esc unzooms the expanded view, unless focus is inside xterm (which needs
   // Esc for its own bindings — the expanded overlay handles that case).
-  // Desktop only: on mobile the workspace is the shell itself, there is no
-  // overlay to dismiss.
+  // Compact chrome has no overlay to dismiss.
   useEffect(() => {
-    if (isMobile || !layout.zoomedTerminalId) return;
+    if (isCompact || !layout.zoomedTerminalId) return;
     const onKey = (e: KeyboardEvent) => {
       if (
         e.key === "Escape" &&
@@ -1202,7 +1202,7 @@ function TerminalCanvasInner() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isMobile, layout.zoomedTerminalId]);
+  }, [isCompact, layout.zoomedTerminalId]);
 
   // ---- render ----
 
@@ -1339,7 +1339,7 @@ function TerminalCanvasInner() {
         background: colors.bg0,
       }}
     >
-      <AppTitleBar isMobile={isMobile} />
+      <AppTitleBar isMobile={isCompact} />
 
       <TerminalPreviewMuxProvider deviceId={deviceId}>
         <div
@@ -1358,7 +1358,7 @@ function TerminalCanvasInner() {
             <Suspense fallback={<LazyLoadingFallback />}>
               <OnboardingView />
             </Suspense>
-          ) : isMobile ? (
+          ) : isCompact ? (
             <MobileWorkbench
               machines={machines}
               activeMachineId={activeMachineId}
@@ -1391,7 +1391,8 @@ function TerminalCanvasInner() {
                   canType={canTypeOnMachine(workspaceTerminal.machine_id)}
                   eventsReconnecting={eventsReconnecting}
                   deviceId={deviceId ?? ""}
-                  isMobile={true}
+                  isCompact
+                  isTouch={isTouch}
                   onPick={handleZoomTerminal}
                   onDestroy={handleDestroyTerminal}
                   onSplit={handleSplitWorkspacePane}
@@ -1406,15 +1407,16 @@ function TerminalCanvasInner() {
               ) : null}
             </MobileWorkbench>
           ) : (
-            <main
-              style={{
-                flex: 1,
-                display: "flex",
-                flexDirection: "column",
-                minWidth: 0,
-                background: colors.bg0,
-              }}
-            >
+            <KeyBarSlotProvider>
+              <main
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  minWidth: 0,
+                  background: colors.bg0,
+                }}
+              >
               <TabBar
                 groups={tabGroups}
                 activeGroupId={activeGroupId}
@@ -1428,6 +1430,7 @@ function TerminalCanvasInner() {
                 stats={activeStats}
                 rttMs={rttMs}
                 isController={isActiveController}
+                isTouch={isTouch}
                 viewOnlyLocked={viewOnlyLocked}
                 onSelectGroup={(groupId) =>
                   workspaceCommandsRef.current.selectGroup?.(groupId)
@@ -1475,7 +1478,8 @@ function TerminalCanvasInner() {
                   canType={canTypeOnMachine(workspaceTerminal!.machine_id)}
                   eventsReconnecting={eventsReconnecting}
                   deviceId={deviceId ?? ""}
-                  isMobile={isMobile}
+                  isCompact={isCompact}
+                  isTouch={isTouch}
                   onPick={handleZoomTerminal}
                   onDestroy={handleDestroyTerminal}
                   onSplit={handleSplitWorkspacePane}
@@ -1490,20 +1494,22 @@ function TerminalCanvasInner() {
                   onActiveGroupChange={setActiveGroupId}
                 />
               )}
-            </main>
+              <WorkspaceKeyBarSlot />
+              </main>
+            </KeyBarSlotProvider>
           )}
           {showHandoffBanner && (
             <HandoffBanner
-              isMobile={isMobile}
+              isMobile={isCompact}
               onDone={hideHandoffBanner}
             />
           )}
         </div>
 
-        {!isMobile && (
+        {!isCompact && (
           // Tauri updater toast — floating bottom-right mount, replaces the
           // deleted StatusBar's slot. Renders nothing outside Tauri.
-          <div style={{ position: "fixed", right: 12, bottom: 12, zIndex: 55 }}>
+          <div style={{ position: "fixed", right: 12, bottom: isTouch ? 96 : 12, zIndex: 55 }}>
             <UpdateNotification />
           </div>
         )}
@@ -1512,7 +1518,7 @@ function TerminalCanvasInner() {
           <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
         )}
 
-        {!isMobile && paletteState.open && (
+        {!isCompact && paletteState.open && (
           <CommandPalette
             rows={paletteRows}
             filter={paletteState.filter}
@@ -1522,13 +1528,13 @@ function TerminalCanvasInner() {
           />
         )}
 
-        {!isMobile && prefixKey.armed && (
+        {!isCompact && prefixKey.armed && (
           <div
             data-testid="prefix-armed-indicator"
             style={{
               position: "fixed",
               right: 16,
-              bottom: 16,
+              bottom: isTouch ? 96 : 16,
               zIndex: 60,
               padding: "4px 10px",
               borderRadius: 6,
