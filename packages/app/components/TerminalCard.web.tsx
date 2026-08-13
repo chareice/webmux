@@ -1,4 +1,5 @@
 import { lazy, memo, Suspense, useRef, useCallback, useEffect, useState, forwardRef, useImperativeHandle } from "react";
+import { createPortal } from "react-dom";
 import type { TerminalInfo } from "@webmux/shared";
 import { X } from "lucide-react";
 import type { TerminalViewRef, SelectionSnapshot } from "./TerminalView.types";
@@ -9,6 +10,7 @@ import { colors, terminalTheme } from "@/lib/colors";
 import { ctrlLatchTransform } from "@/lib/ctrlLatch";
 import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
 import { useVisualViewportHeight } from "@/lib/hooks";
+import { useKeyBarSlot } from "@/lib/keyBarSlot";
 import { getMobileViewportTerminalAction } from "@/lib/mobileViewportTerminal";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import { LazyLoadingFallback } from "./LazyLoadingFallback";
@@ -38,7 +40,8 @@ export interface TerminalCardRef {
 interface TerminalCardProps {
   terminal: TerminalInfo;
   displayMode: "card" | "tab";
-  isMobile: boolean;
+  isCompact: boolean;
+  isTouch: boolean;
   isActive: boolean;
   isController: boolean;
   canType: boolean;
@@ -55,7 +58,8 @@ interface TerminalCardProps {
 const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(function TerminalCardComponent({
   terminal,
   displayMode,
-  isMobile,
+  isCompact,
+  isTouch,
   isActive,
   isController,
   canType,
@@ -76,6 +80,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   const [terminalReconnecting, setTerminalReconnecting] = useState(false);
   const [selectSnapshot, setSelectSnapshot] = useState<SelectionSnapshot | null>(null);
   const isTab = displayMode === "tab";
+  const keyBarSlot = useKeyBarSlot();
 
   // ---- Ctrl latch (mobile key bar) ----
   // The latch state lives here because TerminalCard owns both ends of the
@@ -142,11 +147,11 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
       }
       clearFitRefRetryTimer();
       view.fitToContainer({ skipIfUnchanged });
-      if (!isMobile && focusAfterFit) {
+      if (!isTouch && focusAfterFit) {
         view.focus();
       }
     },
-    [clearFitRefRetryTimer, isController, isMobile, isTab],
+    [clearFitRefRetryTimer, isController, isTab, isTouch],
   );
 
   useEffect(() => clearFitRefRetryTimer, [clearFitRefRetryTimer]);
@@ -278,6 +283,22 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
     termViewRef.current?.scrollToBottom();
   }, []);
 
+  const keyBar = (
+    <ExtendedKeyBar
+      onKey={handleToolbarKey}
+      onToggleKeyboard={handleToggleKeyboard}
+      onAttachFile={handleAttachFile}
+      onEnterSelectMode={handleEnterSelectMode}
+      onExitSelectMode={handleExitSelectMode}
+      onCopySelection={handleCopySelection}
+      selectMode={selectMode}
+      keyboardVisible={keyboardVisible}
+      isController={canType}
+      ctrlArmed={ctrlArmed}
+      onToggleCtrl={handleToggleCtrl}
+    />
+  );
+
   return (
     <div
       data-testid={`terminal-card-${terminal.id}`}
@@ -311,7 +332,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
           e.currentTarget.style.borderColor = colors.border;
       }}
     >
-      {isMobile && isTab && (
+      {isTouch && isTab && (
         <MobileViewportTerminalSync
           isActive={isActive}
           isController={isController}
@@ -418,7 +439,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                 border: "none",
                 color: isController ? colors.danger : colors.foregroundMuted,
                 cursor: isController ? "pointer" : "not-allowed",
-                padding: isMobile ? "10px 12px" : "2px 4px",
+                padding: isCompact ? "10px 12px" : "2px 4px",
                 display: "flex",
                 alignItems: "center",
                 opacity: isController ? 0.6 : 0.3,
@@ -552,7 +573,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                 top as a <pre>, where browser long-press selection works
                 natively. The user drags handles, taps Copy, we read
                 window.getSelection(). */}
-            {isTab && isMobile && selectMode && selectSnapshot && (
+            {isTab && isTouch && selectMode && selectSnapshot && (
               <pre
                 ref={selectOverlayRef}
                 data-testid="terminal-select-overlay"
@@ -594,22 +615,15 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
           </div>
         </div>
 
-        {/* Mobile ExtendedKeyBar */}
-        {isTab && isMobile && (
-          <ExtendedKeyBar
-            onKey={handleToolbarKey}
-            onToggleKeyboard={handleToggleKeyboard}
-            onAttachFile={handleAttachFile}
-            onEnterSelectMode={handleEnterSelectMode}
-            onExitSelectMode={handleExitSelectMode}
-            onCopySelection={handleCopySelection}
-            selectMode={selectMode}
-            keyboardVisible={keyboardVisible}
-            isController={canType}
-            ctrlArmed={ctrlArmed}
-            onToggleCtrl={handleToggleCtrl}
-          />
-        )}
+        {/* Compact phone: inline key bar. Large+touch: portal into the
+            workspace bottom slot so one bar operates on the focused pane. */}
+        {isTab && isCompact && keyBar}
+        {isTab &&
+          isTouch &&
+          !isCompact &&
+          isActive &&
+          keyBarSlot &&
+          createPortal(keyBar, keyBarSlot)}
       </div>
 
       {/* Footer - only in card mode */}
@@ -688,7 +702,8 @@ function areTerminalCardPropsEqual(
   return (
     previous.terminal === next.terminal &&
     previous.displayMode === next.displayMode &&
-    previous.isMobile === next.isMobile &&
+    previous.isCompact === next.isCompact &&
+    previous.isTouch === next.isTouch &&
     previous.isActive === next.isActive &&
     previous.isController === next.isController &&
     previous.canType === next.canType &&
