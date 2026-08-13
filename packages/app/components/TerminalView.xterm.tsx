@@ -36,6 +36,7 @@ import {
 import { createSelectionAutoCopyController } from "@/lib/selectionAutoCopy";
 import { createTerminalClipboardProvider } from "@/lib/terminalClipboard";
 import { isTauri } from "@/lib/platform";
+import { createExternalUrlOpener } from "@/lib/terminalLinks";
 import { useDisplayMode } from "@/lib/hooks";
 import { usePrefixKey } from "@/lib/prefixKeyContext";
 import { filterBrowserGeneratedTerminalInput } from "@/lib/terminalInputFilter";
@@ -45,6 +46,15 @@ import { resolveTerminalFontFamily } from "@/lib/terminalFonts";
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
 const TERMINAL_SCROLL_SENSITIVITY = 6;
+
+const openExternalUrl = createExternalUrlOpener({
+  isTauri,
+  tauriOpen: (url) =>
+    import("@tauri-apps/plugin-shell").then(({ open }) => open(url)),
+  windowOpen: (url) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  },
+});
 
 interface XtermMouseService {
   getCoords: (
@@ -468,6 +478,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         // xterm dampens likely trackpad wheel deltas before emitting mouse
         // wheel reports. Keep small terminal scroll gestures responsive.
         scrollSensitivity: TERMINAL_SCROLL_SENSITIVITY,
+        // OSC 8 hyperlinks have no default click action in xterm.js;
+        // WebLinksAddon only covers plain-text URLs.
+        linkHandler: {
+          activate: (_event, url) => openExternalUrl(url),
+        },
       });
 
       const fit = new FitAddon();
@@ -483,11 +498,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       );
       term.loadAddon(
         new WebLinksAddon((_event, url) => {
-          if (isTauri()) {
-            import("@tauri-apps/plugin-shell").then(({ open }) => open(url));
-          } else {
-            window.open(url, "_blank");
-          }
+          openExternalUrl(url);
         }),
       );
       term.open(container);
