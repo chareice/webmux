@@ -408,6 +408,9 @@ unbind C-b
 set -g mouse on
 set -s set-clipboard on
 set -g allow-passthrough on
+# Re-emit OSC 8 hyperlinks to web attach clients (xterm.js). Without this,
+# tmux drops them because TERM xterm-256color is not assumed to support them.
+set -as terminal-features \"xterm*:hyperlinks\"
 set -g set-titles on
 set -g set-titles-string \"#T\"
 set -g focus-events on
@@ -778,6 +781,15 @@ mod tests {
         assert!(
             content.contains("source-file -q \"/tmp/tmux.user.conf\""),
             "missing user config source"
+        );
+    }
+
+    #[test]
+    fn tmux_config_enables_hyperlinks_terminal_feature() {
+        let content = build_tmux_config("/tmp/osc52copy.sh", "/tmp/tmux.user.conf");
+        assert!(
+            content.contains(r#"set -as terminal-features "xterm*:hyperlinks""#),
+            "tmux must advertise hyperlinks so OSC 8 is re-emitted to xterm.js attach clients"
         );
     }
 
