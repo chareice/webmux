@@ -8,7 +8,6 @@ import {
 } from "react";
 import type {
   CSSProperties,
-  MouseEvent as ReactMouseEvent,
   MutableRefObject,
 } from "react";
 import type {
@@ -40,6 +39,7 @@ import {
 } from "@/lib/terminalWorkspaceLayout";
 import { formatPrefixBinding, type PrefixActionId } from "@/lib/prefixKey";
 import { usePrefixKey } from "@/lib/prefixKeyContext";
+import { useLongPress } from "@/lib/longPress";
 
 interface TerminalWorkspaceProps {
   terminal: TerminalInfo;
@@ -50,7 +50,8 @@ interface TerminalWorkspaceProps {
   canType: boolean;
   eventsReconnecting: boolean;
   deviceId: string;
-  isMobile: boolean;
+  isCompact: boolean;
+  isTouch: boolean;
   onPick: (id: string) => void;
   onDestroy: (
     terminal: TerminalInfo,
@@ -107,6 +108,12 @@ export interface WorkspaceCommandChannel {
 
 export type GroupDropPlacement = "before" | "after";
 
+type PaneMenuEvent = {
+  clientX: number;
+  clientY: number;
+  preventDefault: () => void;
+};
+
 // Prefix actions owned by this component (TerminalCanvas owns the rest).
 const WORKSPACE_PREFIX_ACTIONS: PrefixActionId[] = [
   "splitRight",
@@ -151,7 +158,8 @@ function TerminalWorkspaceComponent({
   canType,
   eventsReconnecting,
   deviceId,
-  isMobile,
+  isCompact,
+  isTouch,
   onPick,
   onDestroy,
   onSplit,
@@ -329,13 +337,13 @@ function TerminalWorkspaceComponent({
         };
       });
       onPick(terminalId);
-      if (!isMobile && isController && changedTerminal) {
+      if (!isCompact && isController && changedTerminal) {
         requestPaneFit(terminalId, { focusTerminalId: terminalId });
       }
     },
     [
       isController,
-      isMobile,
+      isCompact,
       onPick,
       requestPaneFit,
       updateWorkspace,
@@ -357,13 +365,13 @@ function TerminalWorkspaceComponent({
       }
       pendingGroupSelectionRef.current = null;
       if (next.activeTerminalId) onPick(next.activeTerminalId);
-      if (!isMobile && isController) {
+      if (!isCompact && isController) {
         requestPaneFit(collectIds(getActiveWorkspaceGroup(next)?.root ?? null), {
           focusTerminalId: next.activeTerminalId,
         });
       }
     },
-    [isController, isMobile, onPick, requestPaneFit, updateWorkspace],
+    [isController, isCompact, onPick, requestPaneFit, updateWorkspace],
   );
 
   const handleSplit = useCallback(
@@ -727,18 +735,36 @@ function TerminalWorkspaceComponent({
 
   // Right-clicking a desktop pane also focuses it (the leaf's onMouseDown),
   // so by the time a menu item is clicked the split/zoom handlers below see
-  // that pane as the active one.
+  // that pane as the active one. Touch uses the same menu via long-press.
   const handlePaneContextMenu = useCallback(
-    (terminalId: string, event: ReactMouseEvent<HTMLElement>) => {
-      if (isMobile) return;
+    (terminalId: string, event: PaneMenuEvent) => {
+      if (isCompact) return;
       event.preventDefault();
       setPaneMenu({ terminalId, x: event.clientX, y: event.clientY });
     },
-    [isMobile],
+    [isCompact],
   );
 
-  if (isMobile) {
-    // Mobile P1 shell: the workspace renders chromeless inside
+  // Fold/unfold and inner-screen rotation fire window.resize. Compact chrome
+  // refits on mount via the leaf effect; the large workspace must request a
+  // fit here because ResizeObserver only remeasures, it does not emit resize
+  // frames. Desktop mouse is left alone so existing fit-stability contracts
+  // stay intact — only touch workspaces subscribe.
+  useEffect(() => {
+    if (!isTouch || isCompact || !isController) return;
+    const fitVisible = () => {
+      const group = getActiveWorkspaceGroup(workspaceRef.current);
+      requestPaneFit(collectIds(group?.root ?? null), {
+        focusTerminalId: workspaceRef.current.activeTerminalId,
+      });
+    };
+    fitVisible();
+    window.addEventListener("resize", fitVisible);
+    return () => window.removeEventListener("resize", fitVisible);
+  }, [isCompact, isController, isTouch, requestPaneFit]);
+
+  if (isCompact) {
+    // Compact P1 shell: the workspace renders chromeless inside
     // MobileWorkbench — the session title bar above and the key bar below (the
     // key bar lives inside TerminalCard) are the only permanent chrome.
     return (
@@ -762,7 +788,8 @@ function TerminalWorkspaceComponent({
               canType={canType}
               eventsReconnecting={eventsReconnecting}
               deviceId={deviceId}
-              isMobile
+              isCompact
+              isTouch={isTouch}
               focusRing={activeGroupPaneCount > 1}
               fitRequestNonce={
                 fitRequest?.terminalIds.includes(activeTerminal.id)
@@ -893,7 +920,8 @@ function TerminalWorkspaceComponent({
             canType={canType}
             eventsReconnecting={eventsReconnecting}
             deviceId={deviceId}
-            isMobile={false}
+            isCompact={false}
+            isTouch={isTouch}
             focusRing={activeGroupPaneCount > 1}
             fitRequestNonce={
               maximizedTerminalId &&
@@ -923,6 +951,7 @@ function TerminalWorkspaceComponent({
             canType={canType}
             eventsReconnecting={eventsReconnecting}
             deviceId={deviceId}
+            isTouch={isTouch}
             focusRing={activeGroupPaneCount > 1}
             fitRequest={fitRequest}
             onActiveRef={(ref) => {
@@ -965,6 +994,7 @@ function WorkspacePaneTree({
   canType,
   eventsReconnecting,
   deviceId,
+  isTouch,
   focusRing = true,
   fitRequest,
   onActiveRef,
@@ -982,6 +1012,7 @@ function WorkspacePaneTree({
   canType: boolean;
   eventsReconnecting: boolean;
   deviceId: string;
+  isTouch: boolean;
   focusRing?: boolean;
   fitRequest: WorkspaceFitRequest | null;
   onActiveRef: (ref: TerminalCardRef | null) => void;
@@ -990,7 +1021,7 @@ function WorkspacePaneTree({
   onDestroy: (terminal: TerminalInfo) => void;
   onPaneContextMenu: (
     terminalId: string,
-    event: ReactMouseEvent<HTMLElement>,
+    event: PaneMenuEvent,
   ) => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
@@ -1006,7 +1037,8 @@ function WorkspacePaneTree({
         canType={canType}
         eventsReconnecting={eventsReconnecting}
         deviceId={deviceId}
-        isMobile={false}
+        isCompact={false}
+        isTouch={isTouch}
         focusRing={focusRing}
         fitRequestNonce={
           fitRequest?.terminalIds.includes(terminal.id)
@@ -1025,6 +1057,24 @@ function WorkspacePaneTree({
     );
   }
   const row = node.direction === "horizontal";
+  const treeProps = {
+    terminalsById,
+    activeTerminalId,
+    isController,
+    canType,
+    eventsReconnecting,
+    deviceId,
+    isTouch,
+    focusRing,
+    fitRequest,
+    onActiveRef,
+    onFitRequestHandled,
+    onFocus,
+    onDestroy,
+    onPaneContextMenu,
+    onRequestControl,
+    onReleaseControl,
+  };
   return (
     <div
       style={{
@@ -1038,44 +1088,10 @@ function WorkspacePaneTree({
       }}
     >
       <div style={{ flex: node.ratio, minWidth: 0, minHeight: 0 }}>
-        <WorkspacePaneTree
-          node={node.first}
-          terminalsById={terminalsById}
-          activeTerminalId={activeTerminalId}
-          isController={isController}
-          canType={canType}
-          eventsReconnecting={eventsReconnecting}
-          deviceId={deviceId}
-          focusRing={focusRing}
-          fitRequest={fitRequest}
-          onActiveRef={onActiveRef}
-          onFitRequestHandled={onFitRequestHandled}
-          onFocus={onFocus}
-          onDestroy={onDestroy}
-          onPaneContextMenu={onPaneContextMenu}
-          onRequestControl={onRequestControl}
-          onReleaseControl={onReleaseControl}
-        />
+        <WorkspacePaneTree node={node.first} {...treeProps} />
       </div>
       <div style={{ flex: 1 - node.ratio, minWidth: 0, minHeight: 0 }}>
-        <WorkspacePaneTree
-          node={node.second}
-          terminalsById={terminalsById}
-          activeTerminalId={activeTerminalId}
-          isController={isController}
-          canType={canType}
-          eventsReconnecting={eventsReconnecting}
-          deviceId={deviceId}
-          focusRing={focusRing}
-          fitRequest={fitRequest}
-          onActiveRef={onActiveRef}
-          onFitRequestHandled={onFitRequestHandled}
-          onFocus={onFocus}
-          onDestroy={onDestroy}
-          onPaneContextMenu={onPaneContextMenu}
-          onRequestControl={onRequestControl}
-          onReleaseControl={onReleaseControl}
-        />
+        <WorkspacePaneTree node={node.second} {...treeProps} />
       </div>
     </div>
   );
@@ -1088,7 +1104,8 @@ export function WorkspacePaneLeaf({
   canType,
   eventsReconnecting,
   deviceId,
-  isMobile,
+  isCompact,
+  isTouch,
   focusRing = true,
   fitRequestNonce,
   fitRequestShouldFocus,
@@ -1106,7 +1123,8 @@ export function WorkspacePaneLeaf({
   canType: boolean;
   eventsReconnecting: boolean;
   deviceId: string;
-  isMobile: boolean;
+  isCompact: boolean;
+  isTouch: boolean;
   // False when the group has a single pane — a lone pane renders the plain
   // line border instead of the focused-pane accent ring.
   focusRing?: boolean;
@@ -1118,24 +1136,32 @@ export function WorkspacePaneLeaf({
   onDestroy: (terminal: TerminalInfo) => void;
   onPaneContextMenu?: (
     terminalId: string,
-    event: ReactMouseEvent<HTMLElement>,
+    event: PaneMenuEvent,
   ) => void;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
 }) {
   const cardRef = useRef<TerminalCardRef>(null);
+  const longPress = useLongPress((point) => {
+    onFocus(terminal.id);
+    onPaneContextMenu?.(terminal.id, {
+      clientX: point.x,
+      clientY: point.y,
+      preventDefault: () => {},
+    });
+  }, Boolean(isTouch && onPaneContextMenu));
 
   useEffect(() => {
     if (!isActive) return;
     const frame = requestAnimationFrame(() => {
-      if (isMobile && isController) {
+      if (isCompact && isController) {
         cardRef.current?.fitToContainer({ skipIfUnchanged: true });
-      } else if (canType) {
+      } else if (canType && !isTouch) {
         cardRef.current?.focus();
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [canType, isActive, isController, isMobile, terminal.id]);
+  }, [canType, isActive, isCompact, isController, isTouch, terminal.id]);
 
   useEffect(() => {
     if (!isController || fitRequestNonce === null) return;
@@ -1174,12 +1200,24 @@ export function WorkspacePaneLeaf({
       data-testid={`workspace-pane-${terminal.id}`}
       onMouseDown={() => onFocus(terminal.id)}
       onMouseMove={(event) => {
-        if (isMobile || isActive) return;
+        if (isTouch || isActive) return;
         const target = event.target;
         if (target instanceof Element && target.closest("button")) return;
         onFocus(terminal.id);
       }}
       onContextMenu={(event) => onPaneContextMenu?.(terminal.id, event)}
+      onPointerDown={(event) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest('[data-testid="terminal-select-overlay"]')
+        ) {
+          return;
+        }
+        longPress.onPointerDown(event);
+      }}
+      onPointerMove={longPress.onPointerMove}
+      onPointerUp={longPress.onPointerUp}
+      onPointerCancel={longPress.onPointerCancel}
       style={{
         width: "100%",
         height: "100%",
@@ -1204,7 +1242,8 @@ export function WorkspacePaneLeaf({
         ref={cardRef}
         terminal={terminal}
         displayMode="tab"
-        isMobile={isMobile}
+        isCompact={isCompact}
+        isTouch={isTouch}
         isActive={isActive}
         isController={isController}
         canType={canType}

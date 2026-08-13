@@ -37,7 +37,7 @@ import { createSelectionAutoCopyController } from "@/lib/selectionAutoCopy";
 import { createTerminalClipboardProvider } from "@/lib/terminalClipboard";
 import { isTauri } from "@/lib/platform";
 import { createExternalUrlOpener } from "@/lib/terminalLinks";
-import { useIsMobile } from "@/lib/hooks";
+import { useDisplayMode } from "@/lib/hooks";
 import { usePrefixKey } from "@/lib/prefixKeyContext";
 import { filterBrowserGeneratedTerminalInput } from "@/lib/terminalInputFilter";
 import { createWheelDirectionGate } from "@/lib/terminalWheelGate";
@@ -205,11 +205,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     // Prefix engine access for the xterm key handler below. The handler is
     // attached once at mount, so the latest values go through a ref.
     const prefixKey = usePrefixKey();
-    const isMobileViewport = useIsMobile();
-    const prefixKeyRef = useRef({ prefixKey, isMobile: isMobileViewport });
+    const { isCompact } = useDisplayMode();
+    const prefixKeyRef = useRef({ prefixKey, isCompact });
     useEffect(() => {
-      prefixKeyRef.current = { prefixKey, isMobile: isMobileViewport };
-    }, [prefixKey, isMobileViewport]);
+      prefixKeyRef.current = { prefixKey, isCompact };
+    }, [prefixKey, isCompact]);
 
     useEffect(() => {
       isControllerRef.current = isController ?? true;
@@ -597,10 +597,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         // Keep app-level prefix keys out of xterm: the Ctrl+B trigger, and
         // every key while the engine is armed. Returning false covers
         // keydown, keypress and keyup so no stray input reaches the pty;
-        // the window keydown listener does the actual dispatch. Desktop
-        // only — mobile has no prefix engine.
-        const { prefixKey: pk, isMobile: mobile } = prefixKeyRef.current;
-        if (!mobile && pk.isPrefixKeyEvent(event)) {
+        // the window keydown listener does the actual dispatch. Compact
+        // (phone) chrome has no prefix engine; the unfolded Fold screen
+        // keeps it for hardware keyboards.
+        const { prefixKey: pk, isCompact: compact } = prefixKeyRef.current;
+        if (!compact && pk.isPrefixKeyEvent(event)) {
           return false;
         }
 

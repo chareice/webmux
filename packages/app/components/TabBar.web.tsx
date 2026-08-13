@@ -32,6 +32,7 @@ import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
 import { collectPaneTerminalIds, type WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
 import { HostSwitcher } from "./HostSwitcher.web";
+import { useLongPress } from "@/lib/longPress";
 
 export type TabDropPlacement = "before" | "after";
 
@@ -52,6 +53,7 @@ interface TabBarProps {
   stats: ResourceStats | undefined;
   rttMs: number | null;
   isController: boolean;
+  isTouch?: boolean;
   viewOnlyLocked: boolean;
   onSelectGroup: (groupId: string) => void;
   onNewGroup: () => void;
@@ -82,6 +84,7 @@ function TabBarComponent({
   stats,
   rttMs,
   isController,
+  isTouch = false,
   viewOnlyLocked,
   onSelectGroup,
   onNewGroup,
@@ -269,11 +272,19 @@ function TabBarComponent({
     [tabMenu, isController, onNewGroup, onRenameGroup, onDeleteGroup],
   );
 
+  const pendingLongPressGroupRef = useRef<WorkspaceGroup | null>(null);
+  const tabLongPress = useLongPress((point) => {
+    const group = pendingLongPressGroupRef.current;
+    if (!group) return;
+    setTabMenu({ group, x: point.x, y: point.y });
+  }, isTouch);
+
   return (
     <div
       data-testid="tab-bar"
       style={{
-        height: 34,
+        // 40px minimum hit target on touch; desktop stays the compact 34px row.
+        height: isTouch ? 40 : 34,
         flexShrink: 0,
         display: "flex",
         alignItems: "stretch",
@@ -304,6 +315,7 @@ function TabBarComponent({
               data-workspace-group-drop-id={group.id}
               onMouseEnter={() => {
                 setHoveredGroupId(group.id);
+                if (isTouch) return;
                 if (
                   group.id !== activeGroupId &&
                   groupDragRef.current === null
@@ -321,6 +333,16 @@ function TabBarComponent({
                 event.preventDefault();
                 setTabMenu({ group, x: event.clientX, y: event.clientY });
               }}
+              onPointerDown={(event) => {
+                pendingLongPressGroupRef.current = group;
+                if (isTouch) {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                }
+                tabLongPress.onPointerDown(event);
+              }}
+              onPointerMove={tabLongPress.onPointerMove}
+              onPointerUp={tabLongPress.onPointerUp}
+              onPointerCancel={tabLongPress.onPointerCancel}
               data-testid={`workspace-tab-${group.id}`}
               style={{
                 display: "flex",
@@ -404,8 +426,8 @@ function TabBarComponent({
           aria-label="New tab"
           style={{
             alignSelf: "center",
-            width: 26,
-            height: 26,
+            width: isTouch ? 40 : 26,
+            height: isTouch ? 40 : 26,
             borderRadius: 6,
             border: "none",
             background: "transparent",

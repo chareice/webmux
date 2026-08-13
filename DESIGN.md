@@ -8,9 +8,12 @@ Tailwind (`tailwind.config.ts`) and `packages/app/lib/colors.web.ts`.
 ## Principles
 
 1. **The terminal is the interface.** Chrome exists to be ignored: one tab bar
-   on desktop, one strip + key bar on mobile. Anything that competes with the
-   terminal for attention is a bug. See
+   on large screens, one strip + key bar on compact (phone / Fold cover). The
+   Fold inner screen is large *and* touch — tab bar plus a portaled key bar,
+   not the phone shell. See
+   `docs/plans/2026-08-13-fold-touch-workspace.md` and
    `docs/superpowers/specs/2026-07-18-raw-terminal-ux-redesign-design.md`.
+   Anything that competes with the terminal for attention is a bug.
 2. **Dark-only, deliberately.** The canvas approaches the terminal background;
    surfaces elevate by small lightness steps at a constant cool hue (260°).
 3. **One warm accent.** Amber `--color-accent` marks focus, activity, and brand
@@ -51,10 +54,18 @@ text selection = accent at 20%.
 
 ## Chrome recipes
 
-- **Desktop tab bar (34px)**: active tab fills with `term-bg` so it merges
-  into the terminal; inactive tabs transparent, hover `bg-2`. Right meta:
-  online dot + host + RTT + cpu/mem micro-meters (30×4px bars, `bg-3` track,
-  `fg-2` fill).
+Display mode is two-axis, not a 768px window-width breakpoint. `isTouch`
+comes from `(pointer: coarse)`; touch `isCompact` is `min(screen.width,
+screen.height) < 600` (so Fold cover landscape stays compact and a soft
+keyboard cannot flip chrome); non-touch keeps `innerWidth ≤ 768`. Details:
+`docs/plans/2026-08-13-fold-touch-workspace.md`.
+
+- **Desktop / Fold-inner tab bar** (34px mouse, ≥40px touch): active tab fills
+  with `term-bg` so it merges into the terminal; inactive tabs transparent,
+  hover `bg-2`. Right meta: online dot + host + RTT + cpu/mem micro-meters
+  (30×4px bars, `bg-3` track, `fg-2` fill). Large+touch also pins one
+  ExtendedKeyBar at the bottom of the main column (portaled from the focused
+  pane).
 - **Mobile strip (~44px)** chips: `bg-2` fill, `line` border, active `bg-3` +
   `fg-0`; group divider = 1px × 16px `line`. Key bar keys: 30px, `bg-3`,
   mono 11px; `^C` accent; latched `Ctrl` info-blue.
