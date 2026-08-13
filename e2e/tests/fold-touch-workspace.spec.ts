@@ -120,6 +120,16 @@ test.describe("Fold inner screen (large + touch)", () => {
     const slot = page.getByTestId("workspace-keybar-slot");
     await expect(slot.getByTestId("extended-keybar-esc")).toBeVisible();
 
+    // Key-bar taps go through the lazy-loaded TerminalView's ref and are
+    // dropped while it is still mounting (same as the phone shell). Wait for
+    // the shell prompt to reach the xterm buffer — that proves the view is
+    // mounted and the attach socket is live — before asserting on taps.
+    await expect
+      .poll(async () => (await readTerminalBuffer(page, terminalId)).trim(), {
+        timeout: 15_000,
+      })
+      .not.toBe("");
+
     commandFrames.length = 0;
     await slot.getByTestId("extended-keybar-esc").click();
     await expect.poll(() => commandFrames).toContain("\x1b");
