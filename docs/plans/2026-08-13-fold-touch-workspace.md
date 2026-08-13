@@ -46,6 +46,7 @@ On large+touch the active card (`isTab && isTouch && !isCompact && isActive`) `c
 - **Long-press** (`packages/app/lib/longPress.ts`): Pointer Events, 500ms hold, 10px slop. Opens the same pane context menu as right-click (Split / Rotate / Close / …) and the same tab menu (Rename / Delete). Select-mode overlay is excluded so native text selection still works there. The tracker is gated on `isTouch`, not `pointerType`.
 - **Hover-to-focus** and TabBar hover-to-select are off when `isTouch`.
 - **Hit targets** when `isTouch`: tab row and `+` ≥ 40px. Split seams stay the original 1px `gap` — they are not draggable, so a 40px overlay would only swallow taps.
+- **Stacked splits**: touch workspaces render every split as a single column (full-width panes, new pane below). Side-by-side terminals on a ~760–840 px screen get ~40 cols each — too narrow. Render-time only: the persisted split direction is untouched, so desktop clients keep their saved arrangement.
 
 ## Fold / unfold continuity
 
