@@ -1056,7 +1056,12 @@ function WorkspacePaneTree({
       />
     );
   }
-  const row = node.direction === "horizontal";
+  // Touch workspaces (Fold inner screen, ~760-840 CSS px wide) render every
+  // split stacked as a single column: side-by-side terminals get ~40 cols
+  // each, too narrow to read. Only the rendering is overridden — the split
+  // direction persisted on the hub is untouched, so the same group keeps its
+  // saved side-by-side arrangement on desktop clients.
+  const row = !isTouch && node.direction === "horizontal";
   const treeProps = {
     terminalsById,
     activeTerminalId,

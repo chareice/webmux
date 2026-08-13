@@ -167,6 +167,19 @@ test.describe("Fold inner screen (large + touch)", () => {
       (terminal) => terminal.id !== firstId,
     )!.id;
 
+    // Touch workspaces render every split stacked as a single column, even
+    // though "Split right" persists a horizontal split for desktop clients:
+    // both panes keep the full viewport width and the new pane sits below.
+    const firstBox = (await page
+      .getByTestId(`workspace-pane-${firstId}`)
+      .boundingBox())!;
+    const secondBox = (await page
+      .getByTestId(`workspace-pane-${secondId}`)
+      .boundingBox())!;
+    expect(firstBox.width).toBeGreaterThan(UNFOLDED.viewport.width * 0.9);
+    expect(secondBox.width).toBeGreaterThan(UNFOLDED.viewport.width * 0.9);
+    expect(secondBox.y).toBeGreaterThan(firstBox.y + firstBox.height - 5);
+
     await longPress(page, page.getByTestId(`workspace-pane-${secondId}`));
     const paneMenu = page.getByTestId("context-menu");
     await expect(paneMenu).toBeVisible();
