@@ -169,7 +169,31 @@ impl MachineManager {
             latest_stats: None,
         };
 
-        self.machines.lock().await.insert(machine_id, conn);
+        {
+            let mut machines = self.machines.lock().await;
+            if let Some(old_conn) = machines.insert(machine_id.clone(), conn) {
+                // A reconnecting machine can register its new connection
+                // before the old connection's disconnect is detected; the
+                // later unregister_machine then no-ops on the conn_id
+                // mismatch and never stashes the old terminals. Stash them
+                // here so ExistingTerminals reconciliation can restore their
+                // workspace-group assignments and hub-authoritative titles.
+                if !old_conn.terminals.is_empty() {
+                    let unreachable: Vec<TerminalInfo> = old_conn
+                        .terminals
+                        .into_values()
+                        .map(|t| TerminalInfo {
+                            reachable: false,
+                            ..t
+                        })
+                        .collect();
+                    self.persisted_terminals
+                        .lock()
+                        .await
+                        .insert(machine_id, unreachable);
+                }
+            }
+        }
 
         self.send_event(user_id, BrowserEvent::MachineOnline { machine: info });
 
@@ -2388,6 +2412,80 @@ mod tests {
         assert_eq!(snapshot.terminals.len(), 1);
         assert_eq!(snapshot.terminals[0].id, "term-a");
         assert!(snapshot.terminals[0].reachable);
+    }
+
+    #[tokio::test]
+    async fn overlapping_reconnect_preserves_workspace_groups() {
+        let pool = test_db();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO users (id, provider, provider_id, display_name, role, created_at) VALUES ('user-a', 'test', 'test', 'Test', 'user', 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES ('machine-a', 'user-a', 'Machine A', 'hash', 'offline', 0)",
+                [],
+            ).unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn,
+                "tab-main",
+                "user-a",
+                "machine-a",
+                "Main",
+                0,
+            )
+            .unwrap();
+        }
+
+        let manager = MachineManager::new(pool.clone());
+
+        // First connection registers, reports the terminal, and the user
+        // assigns it to a tab.
+        let (old_conn_id, _rx_old) = manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+        manager
+            .set_terminal_workspace_group(
+                "user-a",
+                "machine-a",
+                "term-a",
+                Some("tab-main".to_string()),
+            )
+            .await
+            .unwrap();
+
+        // The machine reconnects: the new connection registers BEFORE the old
+        // one's disconnect is detected, so unregister_machine later no-ops on
+        // the conn_id mismatch and never stashes the old terminals.
+        manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+        manager.unregister_machine("machine-a", &old_conn_id).await;
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert_eq!(snapshot.terminals.len(), 1);
+        assert_eq!(
+            snapshot.terminals[0].workspace_group_id.as_deref(),
+            Some("tab-main"),
+            "workspace group must survive an overlapping machine reconnect",
+        );
     }
 
     #[tokio::test]
