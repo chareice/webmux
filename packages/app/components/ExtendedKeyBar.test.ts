@@ -83,6 +83,12 @@ describe("ExtendedKeyBar", () => {
     expect(html).not.toContain('data-testid="extended-keybar-attach"');
   });
 
+  it("renders Space at the front of the scrollable row for TUI toggles (Claude Code multi-select)", () => {
+    const html = renderToStaticMarkup(createElement(ExtendedKeyBar, baseProps));
+    expect(html).toContain('data-testid="extended-keybar-space"');
+    expect(html).toContain(">Space<");
+  });
+
   it("renders Enter in the pinned row so commands can be submitted without the soft keyboard", () => {
     const html = renderToStaticMarkup(createElement(ExtendedKeyBar, baseProps));
     expect(html).toContain('data-testid="extended-keybar-enter"');
