@@ -3,7 +3,7 @@ import { colors, colorAlpha } from "@/lib/colors";
 
 // Two-row mobile key bar (SPEC-PHASE3 §2, design doc §4).
 // Row 1 (pinned, no scroll): ABC keyboard toggle · attach · select-mode ·
-//   flex spacer · Esc · ⇧Tab · ↑ · ↓ · ^C (accent).
+//   flex spacer · Esc · ⇧Tab · ↑ · ↓ · ⏎ · ^C (accent).
 // Row 2 (scrollable): Ctrl (latch) · Tab · / · @ · ← · → · ~ · | · - · _.
 // Every key sends its bytes immediately through the same per-keystroke path
 // as the soft keyboard — no buffering anywhere.
@@ -364,6 +364,15 @@ export function ExtendedKeyBar({
           onPress={() => isController && onKey(DOWN_KEY.data)}
           isController={isController}
           repeat
+        />
+
+        {/* Pinned Enter — submit a command (or confirm a TUI prompt)
+            without raising the soft keyboard. */}
+        <KeyButton
+          label="⏎"
+          onPress={() => isController && onKey('\r')}
+          isController={isController}
+          testid="extended-keybar-enter"
         />
 
         {/* Pinned ^C — highest-frequency action, accent-colored. */}
