@@ -83,6 +83,12 @@ describe("ExtendedKeyBar", () => {
     expect(html).not.toContain('data-testid="extended-keybar-attach"');
   });
 
+  it("renders Enter in the pinned row so commands can be submitted without the soft keyboard", () => {
+    const html = renderToStaticMarkup(createElement(ExtendedKeyBar, baseProps));
+    expect(html).toContain('data-testid="extended-keybar-enter"');
+    expect(html).toContain("⏎");
+  });
+
   it("renders ⇧Tab in the pinned row", () => {
     const html = renderToStaticMarkup(createElement(ExtendedKeyBar, baseProps));
     expect(html).toContain('data-testid="extended-keybar-shift-tab"');
