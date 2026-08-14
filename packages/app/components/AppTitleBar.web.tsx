@@ -1,10 +1,12 @@
 import { memo } from "react";
 import { colors } from "@/lib/colors";
-import { isTauri, detectOS } from "@/lib/platform";
+import { isTauri, isTauriMobile, detectOS } from "@/lib/platform";
 import { WindowControls } from "./WindowControls";
 
 function AppTitleBarComponent({ isMobile }: { isMobile: boolean }) {
-  if (!isTauri()) return null;
+  // The bar only hosts desktop window chrome (drag region + min/max/close).
+  // The Android/iOS shells have no window to manage, so render nothing there.
+  if (!isTauri() || isTauriMobile()) return null;
   const isMac = detectOS() === "macos";
 
   return (
