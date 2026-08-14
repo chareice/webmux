@@ -4,7 +4,7 @@ import { colors, colorAlpha } from "@/lib/colors";
 // Two-row mobile key bar (SPEC-PHASE3 §2, design doc §4).
 // Row 1 (pinned, no scroll): ABC keyboard toggle · attach · select-mode ·
 //   flex spacer · Esc · ⇧Tab · ↑ · ↓ · ⏎ · ^C (accent).
-// Row 2 (scrollable): Ctrl (latch) · Tab · / · @ · ← · → · ~ · | · - · _.
+// Row 2 (scrollable): Ctrl (latch) · Space · Tab · / · @ · ← · → · ~ · | · - · _.
 // Every key sends its bytes immediately through the same per-keystroke path
 // as the soft keyboard — no buffering anywhere.
 
@@ -50,7 +50,11 @@ const UP_KEY: KeyDef = { label: "↑", data: "\x1b[A" };
 const DOWN_KEY: KeyDef = { label: "↓", data: "\x1b[B" };
 
 // Scrollable row, in spec order. Ctrl is rendered separately (latch).
+// Space leads the row: TUI tools (Claude Code multi-select prompts, fzf,
+// pagers) toggle with it, and typing a space otherwise needs the soft
+// keyboard. The pinned row has no room left on 384px cover screens.
 const SCROLLABLE_KEYS: KeyDef[] = [
+  { label: "Space", data: " ", testid: "extended-keybar-space" },
   { label: "Tab", data: "\t" },
   { label: "/", data: "/" },
   { label: "@", data: "@" },
@@ -454,6 +458,7 @@ export function ExtendedKeyBar({
               label={key.label}
               onPress={() => isController && onKey(key.data)}
               isController={isController}
+              testid={key.testid}
               repeat={REPEATABLE_LABELS.has(key.label)}
             />
           ))}
