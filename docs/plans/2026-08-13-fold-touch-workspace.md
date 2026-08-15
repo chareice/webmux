@@ -1,6 +1,16 @@
 # Fold touch-workspace (Galaxy Z Fold 8)
 
-**Status:** implemented (2026-08-13). Web frontend only — no Rust, Android shell, or MobileWorkbench UX changes.
+**Status:** retired (2026-08-15). After two days of real-device use the
+unfolded inner screen felt worse in the desktop chrome than in the mobile
+layout: stacked splits got cramped once the soft keyboard took half the
+~840px height, and keyboard-driven viewport panning fought the multi-pane
+grid. `classifyDisplayMode` now returns `isCompact: true` for every touch
+device, so both Fold screens use the single-column `MobileWorkbench`. The
+two-axis model, the touch affordances (long-press menus, key-bar portal,
+stacked-split rendering), and this document are kept for reference; the
+large-touch quadrant is simply no longer reachable.
+
+**Original status:** implemented (2026-08-13). Web frontend only — no Rust, Android shell, or MobileWorkbench UX changes.
 
 **User story:** unfolding a Fold (or rotating the cover to landscape) must not flip the chrome into a mouse-only desktop, and the inner screen must expose the split workspace with touch affordances (key bar, long-press menus, 40px tab hits).
 

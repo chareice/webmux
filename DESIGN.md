@@ -55,10 +55,10 @@ text selection = accent at 20%.
 ## Chrome recipes
 
 Display mode is two-axis, not a 768px window-width breakpoint. `isTouch`
-comes from `(pointer: coarse)`; touch `isCompact` is `min(screen.width,
-screen.height) < 600` (so Fold cover landscape stays compact and a soft
-keyboard cannot flip chrome); non-touch keeps `innerWidth ≤ 768`. Details:
-`docs/plans/2026-08-13-fold-touch-workspace.md`.
+comes from `(pointer: coarse)`; touch is always compact (every touch device
+gets the single-column mobile layout — folding, rotation, or a soft keyboard
+cannot flip chrome); non-touch keeps `innerWidth ≤ 768`. History and the
+retired large-touch workspace: `docs/plans/2026-08-13-fold-touch-workspace.md`.
 
 - **Desktop / Fold-inner tab bar** (34px mouse, ≥40px touch): active tab fills
   with `term-bg` so it merges into the terminal; inactive tabs transparent,
