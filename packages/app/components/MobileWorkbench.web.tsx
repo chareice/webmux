@@ -99,6 +99,18 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
   const [chipSheet, setChipSheet] = useState<MobileSessionPane | null>(null);
 
+  // Center the active terminal's row when the switcher opens: with a dozen
+  // terminals across several tabs the highlighted row is usually off-screen
+  // and the user had to scroll hunting for it.
+  useEffect(() => {
+    if (!sessionSwitcherOpen) return;
+    document
+      .querySelector(
+        '[data-testid="mobile-session-switcher"] [aria-current="true"]',
+      )
+      ?.scrollIntoView({ block: "center" });
+  }, [sessionSwitcherOpen]);
+
   const activeMachine =
     machines.find((m) => m.id === activeMachineId) ?? machines[0] ?? null;
   const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;

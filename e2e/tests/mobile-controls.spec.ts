@@ -306,6 +306,38 @@ test("mobile title bar swipes between sessions and long-presses the current sess
   ).toBeVisible();
 });
 
+test("session switcher opens with the active terminal row scrolled into view", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+
+  // Enough rows that the last one starts beyond the sheet's scroll fold.
+  const suffix = Date.now();
+  let lastTerminalId = "";
+  for (let index = 0; index < 3; index++) {
+    const group = await createWorkspaceGroupViaApi(
+      page,
+      `Scroll ${suffix} ${index}`,
+    );
+    for (let pane = 0; pane < 4; pane++) {
+      lastTerminalId = await createTerminalViaApi(page, {
+        cwd: "/root",
+        workspaceGroupId: group.id,
+      });
+    }
+  }
+
+  await expandTerminalById(page, lastTerminalId);
+  await page.getByTestId("mobile-title-bar").click();
+  await expect(page.getByTestId("mobile-session-switcher")).toBeVisible();
+  const activeRow = page.getByTestId(`mobile-session-row-${lastTerminalId}`);
+  await expect(activeRow).toHaveAttribute("aria-current", "true");
+  await expect(activeRow).toBeInViewport();
+});
+
 test("mobile title bar and grouped switcher expose titles, host stats, and create-current-group", async ({
   page,
 }) => {
