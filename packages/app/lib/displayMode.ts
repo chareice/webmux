@@ -3,17 +3,16 @@ export interface DisplayMode {
   isTouch: boolean;
 }
 
-export const COMPACT_TOUCH_MIN_EDGE_PX = 600;
 export const COMPACT_WINDOW_WIDTH_PX = 768;
 
 /**
  * Pure display-mode classifier.
  *
- * Touch devices use the screen's short edge (not window width) so a Fold
- * cover-screen landscape (~832–940 CSS px wide) stays compact, and a soft
- * keyboard shrinking `innerWidth`/`visualViewport` cannot flip the chrome.
- * Folding/unfolding changes `screen.width`/`height` on Android and is
- * therefore picked up on the next classify.
+ * Touch devices are always compact: the touch-workspace experiment routed
+ * large touch screens (Fold inner, ~757×840) to the desktop chrome, but
+ * real-device use showed the single-column mobile layout works better there
+ * too. Ignoring screen/window size on touch also means neither rotation nor
+ * a soft keyboard shrinking `innerWidth` can flip the chrome mid-session.
  *
  * Non-touch keeps the legacy `window.innerWidth <= 768` desktop breakpoint.
  */
@@ -24,12 +23,7 @@ export function classifyDisplayMode(input: {
   windowWidth: number;
 }): DisplayMode {
   if (input.isTouch) {
-    return {
-      isTouch: true,
-      isCompact:
-        Math.min(input.screenWidth, input.screenHeight) <
-        COMPACT_TOUCH_MIN_EDGE_PX,
-    };
+    return { isTouch: true, isCompact: true };
   }
   return {
     isTouch: false,

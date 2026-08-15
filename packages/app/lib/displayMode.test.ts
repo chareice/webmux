@@ -37,8 +37,10 @@ describe("classifyDisplayMode", () => {
     ).toEqual({ isCompact: true, isTouch: true });
   });
 
-  it("treats the Fold 8 inner screen as a large touch workspace in any orientation", () => {
-    // Inner ~757×840: short edge 757 ≥ 600 → not compact, still touch.
+  it("keeps the Fold 8 inner screen compact in any orientation", () => {
+    // Inner ~757×840. The touch workspace experiment routed this to the
+    // desktop chrome; real-device use showed the single-column mobile layout
+    // works better unfolded, so every touch device is compact now.
     expect(
       classifyDisplayMode({
         isTouch: true,
@@ -46,7 +48,7 @@ describe("classifyDisplayMode", () => {
         screenHeight: 840,
         windowWidth: 757,
       }),
-    ).toEqual({ isCompact: false, isTouch: true });
+    ).toEqual({ isCompact: true, isTouch: true });
     expect(
       classifyDisplayMode({
         isTouch: true,
@@ -54,7 +56,18 @@ describe("classifyDisplayMode", () => {
         screenHeight: 757,
         windowWidth: 840,
       }),
-    ).toEqual({ isCompact: false, isTouch: true });
+    ).toEqual({ isCompact: true, isTouch: true });
+  });
+
+  it("keeps large tablets compact too — touch always gets the mobile layout", () => {
+    expect(
+      classifyDisplayMode({
+        isTouch: true,
+        screenWidth: 1280,
+        screenHeight: 800,
+        windowWidth: 1280,
+      }),
+    ).toEqual({ isCompact: true, isTouch: true });
   });
 
   it("keeps the legacy desktop window-width breakpoint for non-touch", () => {
@@ -96,22 +109,4 @@ describe("classifyDisplayMode", () => {
     ).toEqual({ isCompact: true, isTouch: true });
   });
 
-  it("classifies a touch short-edge of 599 as compact and 600 as large", () => {
-    expect(
-      classifyDisplayMode({
-        isTouch: true,
-        screenWidth: 599,
-        screenHeight: 900,
-        windowWidth: 599,
-      }),
-    ).toEqual({ isCompact: true, isTouch: true });
-    expect(
-      classifyDisplayMode({
-        isTouch: true,
-        screenWidth: 600,
-        screenHeight: 900,
-        windowWidth: 600,
-      }),
-    ).toEqual({ isCompact: false, isTouch: true });
-  });
 });
