@@ -49,7 +49,9 @@ const TERMINAL_SCROLL_SENSITIVITY = 6;
 
 const openExternalUrl = createExternalUrlOpener({
   isTauri,
-  tauriOpen: (url) =>
+  tauriOpenUrl: (url) =>
+    import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)),
+  tauriShellOpen: (url) =>
     import("@tauri-apps/plugin-shell").then(({ open }) => open(url)),
   windowOpen: (url) => {
     window.open(url, "_blank", "noopener,noreferrer");

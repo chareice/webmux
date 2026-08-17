@@ -34,47 +34,114 @@ describe("isSafeExternalUrl", () => {
 });
 
 describe("createExternalUrlOpener", () => {
-  it("opens safe URLs with tauriOpen when running in Tauri", () => {
-    const tauriOpen = vi.fn();
-    const windowOpen = vi.fn();
-    const open = createExternalUrlOpener({
-      isTauri: () => true,
-      tauriOpen,
-      windowOpen,
-    });
-
-    open("https://example.com");
-
-    expect(tauriOpen).toHaveBeenCalledWith("https://example.com");
-    expect(windowOpen).not.toHaveBeenCalled();
-  });
-
   it("opens safe URLs with windowOpen when not running in Tauri", () => {
-    const tauriOpen = vi.fn();
+    const tauriOpenUrl = vi.fn();
+    const tauriShellOpen = vi.fn();
     const windowOpen = vi.fn();
     const open = createExternalUrlOpener({
       isTauri: () => false,
-      tauriOpen,
+      tauriOpenUrl,
+      tauriShellOpen,
       windowOpen,
     });
 
     open("http://example.com");
 
     expect(windowOpen).toHaveBeenCalledWith("http://example.com");
-    expect(tauriOpen).not.toHaveBeenCalled();
+    expect(tauriOpenUrl).not.toHaveBeenCalled();
+    expect(tauriShellOpen).not.toHaveBeenCalled();
   });
 
-  it("never reaches either sink for an unsafe URL", () => {
-    const tauriOpen = vi.fn();
+  it("opens safe URLs with tauriOpenUrl when running in Tauri", () => {
+    const tauriOpenUrl = vi.fn().mockResolvedValue(undefined);
+    const tauriShellOpen = vi.fn();
+    const windowOpen = vi.fn();
+    const open = createExternalUrlOpener({
+      isTauri: () => true,
+      tauriOpenUrl,
+      tauriShellOpen,
+      windowOpen,
+    });
+
+    open("https://example.com");
+
+    expect(tauriOpenUrl).toHaveBeenCalledWith("https://example.com");
+    expect(tauriShellOpen).not.toHaveBeenCalled();
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it("falls back to tauriShellOpen when tauriOpenUrl rejects", async () => {
+    const tauriOpenUrl = vi.fn().mockRejectedValue(new Error("opener failed"));
+    const tauriShellOpen = vi.fn().mockResolvedValue(undefined);
+    const windowOpen = vi.fn();
+    const open = createExternalUrlOpener({
+      isTauri: () => true,
+      tauriOpenUrl,
+      tauriShellOpen,
+      windowOpen,
+    });
+
+    open("https://example.com");
+
+    await vi.waitFor(() => {
+      expect(tauriShellOpen).toHaveBeenCalledWith("https://example.com");
+    });
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it("falls back to tauriShellOpen when tauriOpenUrl throws synchronously", async () => {
+    const tauriOpenUrl = vi.fn((): Promise<unknown> => {
+      throw new Error("plugin missing");
+    });
+    const tauriShellOpen = vi.fn().mockResolvedValue(undefined);
+    const windowOpen = vi.fn();
+    const open = createExternalUrlOpener({
+      isTauri: () => true,
+      tauriOpenUrl,
+      tauriShellOpen,
+      windowOpen,
+    });
+
+    open("https://example.com");
+
+    await vi.waitFor(() => {
+      expect(tauriShellOpen).toHaveBeenCalledWith("https://example.com");
+    });
+    expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it("falls back to windowOpen when tauriOpenUrl and tauriShellOpen both reject", async () => {
+    const tauriOpenUrl = vi.fn().mockRejectedValue(new Error("opener failed"));
+    const tauriShellOpen = vi.fn().mockRejectedValue(new Error("shell failed"));
+    const windowOpen = vi.fn();
+    const open = createExternalUrlOpener({
+      isTauri: () => true,
+      tauriOpenUrl,
+      tauriShellOpen,
+      windowOpen,
+    });
+
+    open("https://example.com");
+
+    await vi.waitFor(() => {
+      expect(windowOpen).toHaveBeenCalledWith("https://example.com");
+    });
+  });
+
+  it("never reaches any sink for an unsafe URL", () => {
+    const tauriOpenUrl = vi.fn();
+    const tauriShellOpen = vi.fn();
     const windowOpen = vi.fn();
     const tauriOpener = createExternalUrlOpener({
       isTauri: () => true,
-      tauriOpen,
+      tauriOpenUrl,
+      tauriShellOpen,
       windowOpen,
     });
     const webOpener = createExternalUrlOpener({
       isTauri: () => false,
-      tauriOpen,
+      tauriOpenUrl,
+      tauriShellOpen,
       windowOpen,
     });
 
@@ -83,7 +150,28 @@ describe("createExternalUrlOpener", () => {
     tauriOpener("data:text/html,hi");
     webOpener("not a url");
 
-    expect(tauriOpen).not.toHaveBeenCalled();
+    expect(tauriOpenUrl).not.toHaveBeenCalled();
+    expect(tauriShellOpen).not.toHaveBeenCalled();
     expect(windowOpen).not.toHaveBeenCalled();
+  });
+
+  it("never throws or leaves an unhandled rejection when opener and shell fail", async () => {
+    const tauriOpenUrl = vi.fn().mockRejectedValue(new Error("opener failed"));
+    const tauriShellOpen = vi.fn().mockRejectedValue(new Error("shell failed"));
+    const windowOpen = vi.fn();
+    const open = createExternalUrlOpener({
+      isTauri: () => true,
+      tauriOpenUrl,
+      tauriShellOpen,
+      windowOpen,
+    });
+
+    expect(() => {
+      open("https://example.com");
+    }).not.toThrow();
+
+    await vi.waitFor(() => {
+      expect(windowOpen).toHaveBeenCalledWith("https://example.com");
+    });
   });
 });

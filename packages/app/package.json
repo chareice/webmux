@@ -8,6 +8,7 @@
     "build": "expo export --platform web"
   },
   "dependencies": {
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "@webmux/shared": "workspace:*",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
