@@ -9,15 +9,29 @@ export function isSafeExternalUrl(url: string): boolean {
 
 export function createExternalUrlOpener(deps: {
   isTauri: () => boolean;
-  tauriOpen: (url: string) => Promise<unknown> | unknown;
+  tauriOpenUrl: (url: string) => Promise<unknown>;
+  tauriShellOpen: (url: string) => Promise<unknown>;
   windowOpen: (url: string) => void;
 }): (url: string) => void {
   return (url) => {
     if (!isSafeExternalUrl(url)) return;
-    if (deps.isTauri()) {
-      void deps.tauriOpen(url);
+    if (!deps.isTauri()) {
+      deps.windowOpen(url);
       return;
     }
-    deps.windowOpen(url);
+    // The UI is served remotely by the hub, so new JS can run inside old
+    // installed Tauri shells that do not have the opener plugin registered
+    // (the dynamic import / invoke can throw).
+    void (async () => {
+      try {
+        await deps.tauriOpenUrl(url);
+      } catch {
+        try {
+          await deps.tauriShellOpen(url);
+        } catch {
+          deps.windowOpen(url);
+        }
+      }
+    })();
   };
 }

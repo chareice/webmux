@@ -15,6 +15,7 @@
     "notification:default",
     "updater:default",
     "shell:allow-open",
+    "opener:default",
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "process:default"
