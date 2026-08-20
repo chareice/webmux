@@ -8,8 +8,11 @@ COPY packages/app/package.json packages/app/package.json
 RUN pnpm install --frozen-lockfile
 COPY packages/shared packages/shared
 COPY packages/app packages/app
+COPY scripts/stamp-build.mjs scripts/stamp-build.mjs
 RUN pnpm build
-RUN BUILD_ID="${BUILD_ID:-$(date +%s)}" node -e "const fs=require('fs');const p='packages/app/dist/index.html';const html=fs.readFileSync(p,'utf8');const stamped=html.replace(/(<script\\b[^>]*\\bsrc=[\"'])(\\/_expo\\/static\\/[^\"'?]+)(?:\\?[^\"']*)?([\"'])/g,(_match,prefix,url,quote)=>prefix+url+'?v='+encodeURIComponent(process.env.BUILD_ID)+quote);if(stamped===html)throw new Error('No /_expo/static script src attributes found');fs.writeFileSync(p,stamped);"
+# Same stamping as the production Dockerfile: version index.html and every
+# nested chunk reference so cached chunks can never pin clients to old code.
+RUN node scripts/stamp-build.mjs packages/app/dist "${BUILD_ID:-$(date +%s)}"
 
 FROM rust:bookworm AS builder
 WORKDIR /app

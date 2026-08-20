@@ -6,9 +6,13 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared packages/shared
 COPY packages/app packages/app
+COPY scripts/stamp-build.mjs scripts/stamp-build.mjs
 RUN pnpm install --frozen-lockfile
 RUN pnpm build
-RUN BUILD_ID="${BUILD_ID:-$(date +%s)}" node -e "const fs=require('fs');const p='packages/app/dist/index.html';const html=fs.readFileSync(p,'utf8');const stamped=html.replace(/(<script\\b[^>]*\\bsrc=[\"'])(\\/_expo\\/static\\/[^\"'?]+)(?:\\?[^\"']*)?([\"'])/g,(_match,prefix,url,quote)=>prefix+url+'?v='+encodeURIComponent(process.env.BUILD_ID)+quote);if(stamped===html)throw new Error('No /_expo/static script src attributes found');fs.writeFileSync(p,stamped);"
+# Stamp ?v=BUILD_ID through index.html AND every nested chunk reference —
+# chunk filenames are not reliably content-addressed across builds while
+# being served immutable, so unstamped nested refs pin clients to old code.
+RUN node scripts/stamp-build.mjs packages/app/dist "${BUILD_ID:-$(date +%s)}"
 
 # Stage 2: Build Rust server
 # Keep builder and runtime on the same Debian suite so the linked glibc

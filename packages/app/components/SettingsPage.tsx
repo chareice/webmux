@@ -24,6 +24,30 @@ import {
 } from "@/lib/prefixKey";
 import { ArrowLeft } from "lucide-react";
 
+// Frontend build id stamped into index.html by the Docker build
+// (window.__WEBMUX_BUILD__). "dev" when running unstamped (local dev).
+function getFrontendBuildId(): string {
+  if (typeof window === "undefined") return "dev";
+  const id = (window as unknown as { __WEBMUX_BUILD__?: string })
+    .__WEBMUX_BUILD__;
+  return id || "dev";
+}
+
+// Native shell version (Tauri only), via the core app plugin. Direct
+// __TAURI_INTERNALS__ invoke — Metro's dynamic import of @tauri-apps/api has
+// been observed to resolve without reaching the native side.
+async function getShellVersion(): Promise<string> {
+  const internals = (
+    window as unknown as {
+      __TAURI_INTERNALS__?: {
+        invoke: <T>(cmd: string) => Promise<T>;
+      };
+    }
+  ).__TAURI_INTERNALS__;
+  if (!internals?.invoke) throw new Error("no Tauri internals");
+  return internals.invoke<string>("plugin:app|version");
+}
+
 // Common UI (proportional) fonts
 const UI_FONTS = [
   "System Default",
@@ -265,6 +289,23 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   // Quick commands
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([]);
   const [quickCommandsLoaded, setQuickCommandsLoaded] = useState(false);
+
+  // About: native shell version (Tauri only; null = not applicable)
+  const [shellVersion, setShellVersion] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    getShellVersion()
+      .then((v) => {
+        if (!cancelled) setShellVersion(v);
+      })
+      .catch((err) => {
+        if (!cancelled) setShellVersion(`unavailable (${String(err)})`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // API tokens
   const [apiTokens, setApiTokens] = useState<ApiToken[]>([]);
@@ -1104,6 +1145,25 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               {apiTokensError}
             </div>
           )}
+        </section>
+
+        {/* About Section */}
+        <section style={{ marginBottom: 32 }}>
+          <SectionTitle>About</SectionTitle>
+          <div
+            style={{
+              fontSize: 12,
+              color: colors.foregroundSecondary,
+              fontFamily: "monospace",
+              lineHeight: 1.8,
+              userSelect: "text",
+            }}
+          >
+            <div>Frontend build: {getFrontendBuildId()}</div>
+            {isTauri() && (
+              <div>Shell version: {shellVersion ?? "loading…"}</div>
+            )}
+          </div>
         </section>
 
         {/* Reload notice */}

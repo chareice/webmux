@@ -4,6 +4,7 @@ import {
   createExternalUrlOpener,
   isSafeExternalUrl,
 } from "./terminalLinks";
+import type { ExternalUrlOpenOutcome } from "./terminalLinks";
 
 describe("isSafeExternalUrl", () => {
   it("allows https URLs", () => {
@@ -173,5 +174,129 @@ describe("createExternalUrlOpener", () => {
     await vi.waitFor(() => {
       expect(windowOpen).toHaveBeenCalledWith("https://example.com");
     });
+  });
+
+  it("reports the channel that opened the URL", async () => {
+    const outcomes: ExternalUrlOpenOutcome[] = [];
+    const open = createExternalUrlOpener({
+      isTauri: () => true,
+      tauriOpenUrl: vi.fn().mockResolvedValue(undefined),
+      tauriShellOpen: vi.fn(),
+      windowOpen: vi.fn(),
+      onOutcome: (outcome) => outcomes.push(outcome),
+    });
+
+    open("https://example.com");
+
+    await vi.waitFor(() => {
+      expect(outcomes).toEqual([
+        { url: "https://example.com", channel: "opener", errors: [] },
+      ]);
+    });
+  });
+
+  it("reports a failure when nothing could open the URL", async () => {
+    const outcomes: ExternalUrlOpenOutcome[] = [];
+    const open = createExternalUrlOpener({
+      isTauri: () => true,
+      tauriOpenUrl: vi.fn().mockRejectedValue(new Error("opener missing")),
+      tauriShellOpen: vi.fn().mockRejectedValue(new Error("no such process")),
+      windowOpen: vi.fn(),
+      onOutcome: (outcome) => outcomes.push(outcome),
+    });
+
+    open("https://example.com");
+
+    await vi.waitFor(() => {
+      expect(outcomes).toHaveLength(1);
+    });
+    expect(outcomes[0].channel).toBeNull();
+    expect(outcomes[0].url).toBe("https://example.com");
+    expect(outcomes[0].errors).toEqual([
+      "opener: opener missing",
+      "shell: no such process",
+      "window.open: no native opener available",
+    ]);
+  });
+
+  it("gives up on a Tauri call that never settles and falls through", async () => {
+    const outcomes: ExternalUrlOpenOutcome[] = [];
+    const windowOpen = vi.fn();
+    const open = createExternalUrlOpener({
+      isTauri: () => true,
+      // A hung IPC bridge: the promise never settles.
+      tauriOpenUrl: vi.fn(() => new Promise<unknown>(() => {})),
+      tauriShellOpen: vi.fn(() => new Promise<unknown>(() => {})),
+      windowOpen,
+      onOutcome: (outcome) => outcomes.push(outcome),
+      timeoutMs: 10,
+    });
+
+    open("https://example.com");
+
+    await vi.waitFor(() => {
+      expect(windowOpen).toHaveBeenCalledWith("https://example.com");
+    });
+    expect(outcomes[0].errors).toEqual([
+      "opener: no response in 10ms",
+      "shell: no response in 10ms",
+      "window.open: no native opener available",
+    ]);
+    expect(outcomes[0].channel).toBeNull();
+  });
+
+  it("treats a thrown window.open as a failure rather than success", async () => {
+    const outcomes: ExternalUrlOpenOutcome[] = [];
+    const open = createExternalUrlOpener({
+      isTauri: () => false,
+      tauriOpenUrl: vi.fn(),
+      tauriShellOpen: vi.fn(),
+      windowOpen: vi.fn(() => {
+        throw new Error("denied");
+      }),
+      onOutcome: (outcome) => outcomes.push(outcome),
+    });
+
+    open("https://example.com");
+
+    expect(outcomes[0].channel).toBeNull();
+    expect(outcomes[0].errors).toEqual(["window.open: denied"]);
+  });
+
+  it("keeps opening links when the outcome reporter throws", () => {
+    const windowOpen = vi.fn();
+    const open = createExternalUrlOpener({
+      isTauri: () => false,
+      tauriOpenUrl: vi.fn(),
+      tauriShellOpen: vi.fn(),
+      windowOpen,
+      onOutcome: () => {
+        throw new Error("reporter blew up");
+      },
+    });
+
+    expect(() => open("https://example.com")).not.toThrow();
+    expect(windowOpen).toHaveBeenCalledWith("https://example.com");
+  });
+
+  it("reports failure when window.open is known to be inert (Android WebView)", () => {
+    const outcomes: ExternalUrlOpenOutcome[] = [];
+    const windowOpen = vi.fn();
+    const open = createExternalUrlOpener({
+      isTauri: () => false,
+      tauriOpenUrl: vi.fn(),
+      tauriShellOpen: vi.fn(),
+      windowOpen,
+      canTrustWindowOpen: () => false,
+      onOutcome: (outcome) => outcomes.push(outcome),
+    });
+
+    open("https://example.com");
+
+    expect(windowOpen).toHaveBeenCalledWith("https://example.com");
+    expect(outcomes[0].channel).toBeNull();
+    expect(outcomes[0].errors).toEqual([
+      "window.open: no native opener available",
+    ]);
   });
 });
