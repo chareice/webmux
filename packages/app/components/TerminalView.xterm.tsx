@@ -47,16 +47,67 @@ const TERM_COLS = 120;
 const TERM_ROWS = 36;
 const TERMINAL_SCROLL_SENSITIVITY = 6;
 
-const openExternalUrl = createExternalUrlOpener({
+// Invoke a Tauri command through the internals global rather than
+// dynamic-importing the plugin's JS package. Metro turns
+// `import("@tauri-apps/...")` into a chunk-loaded async require, which has
+// been observed to resolve without reaching the native side (see the
+// clipboard-manager note in clipboardWrite below) — a link tap then looks
+// like it succeeded while nothing opens.
+function invokeTauri(
+  cmd: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const internals = (window as unknown as {
+    __TAURI_INTERNALS__?: {
+      invoke: <T = unknown>(
+        cmd: string,
+        args?: Record<string, unknown>,
+      ) => Promise<T>;
+    };
+  }).__TAURI_INTERNALS__;
+  if (!internals?.invoke) {
+    return Promise.reject(new Error("__TAURI_INTERNALS__ not available"));
+  }
+  return internals.invoke(cmd, args);
+}
+
+const openExternalUrlInner = createExternalUrlOpener({
   isTauri,
-  tauriOpenUrl: (url) =>
-    import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)),
-  tauriShellOpen: (url) =>
-    import("@tauri-apps/plugin-shell").then(({ open }) => open(url)),
+  // tauri-plugin-opener: Intent.ACTION_VIEW on Android, system default
+  // browser on desktop.
+  tauriOpenUrl: (url) => invokeTauri("plugin:opener|open_url", { url }),
+  // Older installed shells predate the opener plugin; plugin-shell's open
+  // still works there (desktop only — it spawns a system opener process).
+  tauriShellOpen: (url) => invokeTauri("plugin:shell|open", { path: url }),
   windowOpen: (url) => {
     window.open(url, "_blank", "noopener,noreferrer");
   },
+  // Android WebViews advertise a `wv` UA token and ignore `window.open`
+  // unless the host app implements onCreateWindow — which this shell does
+  // not. Anywhere else (real browsers) it is the normal, working path.
+  canTrustWindowOpen: () =>
+    typeof navigator === "undefined" || !/\bwv\b/.test(navigator.userAgent),
+  onOutcome: (outcome) => {
+    if (outcome.channel) return;
+    // Nothing opened the link. Mobile users have no console, so surface it —
+    // tapping the toast copies the URL so the tap is not simply lost.
+    showLinkDiagnostic(outcome.url, outcome.errors);
+  },
 });
+
+let lastLinkOpen: { url: string; at: number } | null = null;
+function openExternalUrl(url: string): void {
+  // A single tap can reach here twice: through the touchend tap-activation
+  // path below AND through the Linkifier when the browser also synthesizes
+  // compat mouse events (desktop emulation does, Android WebView does not).
+  // Collapse duplicates instead of opening the URL twice.
+  const now = Date.now();
+  if (lastLinkOpen && lastLinkOpen.url === url && now - lastLinkOpen.at < 600) {
+    return;
+  }
+  lastLinkOpen = { url, at: now };
+  openExternalUrlInner(url);
+}
 
 interface XtermMouseService {
   getCoords: (
@@ -148,6 +199,31 @@ function formatErr(err: unknown): string {
   } catch {
     return String(err);
   }
+}
+
+// Surface a failed link open the same way: mobile shells have no devtools,
+// and a tap that silently does nothing is indistinguishable from a tap that
+// was never registered. Tapping the toast copies the URL.
+function showLinkDiagnostic(url: string, errors: string[]): void {
+  if (typeof document === "undefined") return;
+  const id = "webmux-link-diagnostic";
+  document.getElementById(id)?.remove();
+  const div = document.createElement("div");
+  div.id = id;
+  div.style.cssText =
+    "position:fixed;top:8px;left:8px;right:8px;background:rgba(220,40,40,0.95);" +
+    "color:#fff;padding:8px 12px;z-index:99999;font:12px/1.4 monospace;" +
+    "border-radius:6px;word-break:break-all;" +
+    "box-shadow:0 2px 8px rgba(0,0,0,0.4);pointer-events:auto;cursor:pointer;";
+  const reason = errors.length > 0 ? errors.join(" | ") : "no handler";
+  div.textContent = `couldn't open link (${reason}) — tap to copy\n${url}`;
+  div.style.whiteSpace = "pre-wrap";
+  div.addEventListener("click", () => {
+    void navigator.clipboard?.writeText(url).catch(() => {});
+    div.remove();
+  });
+  document.body.appendChild(div);
+  window.setTimeout(() => div.remove(), 10000);
 }
 
 // Surface a clipboard failure as a floating toast for users who can't open
@@ -464,6 +540,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const fontFamily = resolveTerminalFontFamily(userFont);
       const fontSize = userFontSize ? Math.max(10, Math.min(24, parseInt(userFontSize, 10) || 14)) : 14;
 
+      // The link currently under the pointer, kept by the hover/leave
+      // callbacks below. Android WebViews do not synthesize the compat
+      // mousedown/mouseup a tap needs for xterm's Linkifier to activate a
+      // link (verified on-device: pointerdown/up and touchstart/end fire,
+      // mouse events never do). The synthetic mousemove dispatched in
+      // onTouchStart makes the Linkifier register the link under the finger
+      // and call hover; onTouchEnd then activates it directly on a tap.
+      let hoveredLink: string | null = null;
+
       const term = new Terminal({
         cols,
         rows,
@@ -484,6 +569,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         // WebLinksAddon only covers plain-text URLs.
         linkHandler: {
           activate: (_event, url) => openExternalUrl(url),
+          hover: (_event, url) => {
+            hoveredLink = url;
+          },
+          leave: () => {
+            hoveredLink = null;
+          },
         },
       });
 
@@ -499,9 +590,19 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         ),
       );
       term.loadAddon(
-        new WebLinksAddon((_event, url) => {
-          openExternalUrl(url);
-        }),
+        new WebLinksAddon(
+          (_event, url) => {
+            openExternalUrl(url);
+          },
+          {
+            hover: (_event, url) => {
+              hoveredLink = url;
+            },
+            leave: () => {
+              hoveredLink = null;
+            },
+          },
+        ),
       );
       term.open(container);
       const restoreMouseCoordinates = patchScaledMouseCoordinates(term);
@@ -745,12 +846,47 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
       let lastTouchY = 0;
       let accumulatedDelta = 0;
+      let tapStart: { x: number; y: number; at: number } | null = null;
 
       const onTouchStart = (e: TouchEvent) => {
         e.stopPropagation();
-        if (e.touches[0]) {
-          lastTouchY = e.touches[0].clientY;
+        const touch = e.touches[0];
+        if (touch) {
+          lastTouchY = touch.clientY;
           accumulatedDelta = 0;
+          tapStart =
+            e.touches.length === 1
+              ? { x: touch.clientX, y: touch.clientY, at: Date.now() }
+              : null;
+          // Android WebViews do not synthesize compat mouse events for taps
+          // at all (verified on-device: no mousemove/mousedown/mouseup ever
+          // fire), so xterm's Linkifier can never see the link under the
+          // finger by itself. Prime it with a synthetic hover at the touch
+          // point — the hover/leave callbacks record the link so onTouchEnd
+          // can activate it directly. Harmless where the browser does send
+          // its own mouse events (openExternalUrl dedupes).
+          e.target?.dispatchEvent(
+            new MouseEvent("mousemove", {
+              clientX: touch.clientX,
+              clientY: touch.clientY,
+              bubbles: true,
+            }),
+          );
+        }
+      };
+      const onTouchEnd = (e: TouchEvent) => {
+        const start = tapStart;
+        tapStart = null;
+        const touch = e.changedTouches[0];
+        if (!start || !touch) return;
+        const moved = Math.hypot(
+          touch.clientX - start.x,
+          touch.clientY - start.y,
+        );
+        // A tap, not a scroll or a long-press: activate the link the
+        // synthetic hover registered under the finger.
+        if (moved <= 14 && Date.now() - start.at <= 500 && hoveredLink) {
+          openExternalUrl(hoveredLink);
         }
       };
       const onTouchMove = (e: TouchEvent) => {
@@ -785,6 +921,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
       container.addEventListener("touchstart", onTouchStart, { passive: true });
       container.addEventListener("touchmove", onTouchMove, { passive: false });
+      container.addEventListener("touchend", onTouchEnd, { passive: true });
 
       const viewport = viewportRef.current;
       const resizeObserver = new ResizeObserver(() => {
@@ -810,6 +947,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         selectionChangeDisposable.dispose();
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
+        container.removeEventListener("touchend", onTouchEnd);
         if (typeof window !== "undefined") {
           const winAny = window as unknown as {
             __webmuxTerminals?: Map<string, Terminal>;
