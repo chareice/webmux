@@ -1,3 +1,4 @@
+import { MAX_PANES_PER_TAB } from "@webmux/shared";
 import type {
   TerminalInfo,
   WorkspaceGroupInfo,
@@ -393,6 +394,53 @@ export function collectPaneTerminalIds(root: WorkspacePaneNode | null): string[]
 
 export function groupPaneTerminalIds(group: WorkspaceGroup): string[] {
   return workspacePaneOrder(group.root);
+}
+
+export { MAX_PANES_PER_TAB };
+
+export function workspaceGroupPaneCount(
+  group: WorkspaceGroup | null | undefined,
+): number {
+  return group ? workspacePaneOrder(group.root).length : 0;
+}
+
+// A tab at the cap takes no more panes: splitting is refused there, and
+// terminal creation aimed at it overflows into a fresh tab.
+export function isWorkspaceGroupFull(
+  group: WorkspaceGroup | null | undefined,
+): boolean {
+  return workspaceGroupPaneCount(group) >= MAX_PANES_PER_TAB;
+}
+
+export interface NewTerminalPlacement {
+  // The caller must create a tab first, then create the terminal in it.
+  needsNewTab: boolean;
+  // Group to create the terminal in; null means ungrouped (the terminal
+  // joins the cwd fallback tab).
+  workspaceGroupId: string | null;
+}
+
+// Where a newly created terminal should land. `tabId` is the WorkspaceGroup.id
+// the caller aimed at; null means no tab in mind — the terminal is born
+// ungrouped and joins the cwd fallback tab for `cwd`. A full target overflows
+// into a new tab instead of failing: mobile has no split view and creating a
+// terminal there must never dead-end.
+export function planNewTerminalPlacement(
+  groups: WorkspaceGroup[],
+  input: { tabId: string | null; cwd: string },
+): NewTerminalPlacement {
+  const target =
+    (input.tabId
+      ? groups.find((group) => group.id === input.tabId)
+      : groups.find((group) => !group.persistent && group.cwd === input.cwd)) ??
+    null;
+  if (isWorkspaceGroupFull(target)) {
+    return { needsNewTab: true, workspaceGroupId: null };
+  }
+  return {
+    needsNewTab: false,
+    workspaceGroupId: target?.workspaceGroupId ?? null,
+  };
 }
 
 // Flat order across groups (persistent by sort_order, then cwd fallback) —

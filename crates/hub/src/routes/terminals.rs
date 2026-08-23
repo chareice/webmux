@@ -65,6 +65,42 @@ fn default_rows() -> u16 {
     24
 }
 
+/// A tab renders every one of its terminals as a split pane in the desktop
+/// grid; past this many the panes are unusable slivers. Mirrors
+/// MAX_PANES_PER_TAB in packages/shared/src/contracts.ts. Only workspace
+/// groups are capped here — the cwd fallback tabs the clients derive from
+/// ungrouped terminals are not a hub concept, and capping them would break
+/// `webmux open` on a busy directory.
+const MAX_PANES_PER_TAB: usize = 4;
+
+/// Terminals already assigned to `group_id`, ignoring `exclude_terminal_id`
+/// (the terminal being moved, so a no-op move never trips the cap).
+async fn workspace_group_pane_count(
+    state: &AppState,
+    user_id: &str,
+    machine_id: &str,
+    group_id: &str,
+    exclude_terminal_id: Option<&str>,
+) -> usize {
+    state
+        .manager
+        .list_terminals_for_user(user_id, Some(machine_id))
+        .await
+        .iter()
+        .filter(|terminal| {
+            terminal.workspace_group_id.as_deref() == Some(group_id)
+                && Some(terminal.id.as_str()) != exclude_terminal_id
+        })
+        .count()
+}
+
+fn tab_full_error() -> (StatusCode, String) {
+    (
+        StatusCode::CONFLICT,
+        format!("Tab already holds {MAX_PANES_PER_TAB} panes"),
+    )
+}
+
 fn workspace_group_info(row: crate::db::types::WorkspaceGroupRow) -> WorkspaceGroupInfo {
     WorkspaceGroupInfo {
         id: row.id,
@@ -219,6 +255,12 @@ async fn create_terminal(
                 StatusCode::BAD_REQUEST,
                 "Workspace tab not found".to_string(),
             ));
+        }
+        drop(conn);
+        if workspace_group_pane_count(&state, &auth_user.user_id, &machine_id, group_id, None).await
+            >= MAX_PANES_PER_TAB
+        {
+            return Err(tab_full_error());
         }
     }
 
@@ -769,6 +811,19 @@ async fn assign_terminal_workspace_group(
                 "Workspace tab not found".to_string(),
             ));
         }
+        drop(conn);
+        if workspace_group_pane_count(
+            &state,
+            &auth_user.user_id,
+            &machine_id,
+            group_id,
+            Some(&terminal_id),
+        )
+        .await
+            >= MAX_PANES_PER_TAB
+        {
+            return Err(tab_full_error());
+        }
     }
 
     state
@@ -949,9 +1004,11 @@ mod tests {
     use tower::ServiceExt;
 
     use super::{
-        control_action_allowed, create_terminal, create_workspace_group, rename_workspace_group,
-        validate_workspace_layout_node, workspace_layout_terminal_ids_for_group_key,
+        assign_terminal_workspace_group, control_action_allowed, create_terminal,
+        create_workspace_group, rename_workspace_group, validate_workspace_layout_node,
+        workspace_layout_terminal_ids_for_group_key, AssignWorkspaceGroupRequest,
         CreateTerminalRequest, CreateWorkspaceGroupRequest, RenameWorkspaceGroupRequest,
+        MAX_PANES_PER_TAB,
     };
     use crate::{
         attach_router::HubRouter,
@@ -1534,6 +1591,97 @@ mod tests {
         .unwrap();
 
         assert_eq!(group.sort_order, 3);
+    }
+
+    /// "group-a" holding MAX_PANES_PER_TAB terminals, plus one ungrouped
+    /// terminal that a move could try to add to it.
+    async fn state_with_a_full_tab() -> AppState {
+        let mut terminals: Vec<TerminalInfo> = (0..MAX_PANES_PER_TAB)
+            .map(|i| terminal(&format!("terminal-{i}"), "/tmp", Some("group-a")))
+            .collect();
+        terminals.push(terminal("terminal-loose", "/tmp", None));
+        let state = state_with_terminals(terminals).await;
+        {
+            let conn = state.db.get().unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn,
+                "group-a",
+                "user-a",
+                "machine-a",
+                "Tab",
+                0,
+            )
+            .unwrap();
+        }
+        state
+    }
+
+    #[tokio::test]
+    async fn create_terminal_rejects_a_tab_at_the_pane_cap() {
+        let state = state_with_a_full_tab().await;
+        state
+            .manager
+            .request_control("user-a", "machine-a", "device-a");
+
+        let error = create_terminal(
+            State(state.clone()),
+            AuthUser {
+                user_id: "user-a".to_string(),
+            },
+            Path("machine-a".to_string()),
+            Json(CreateTerminalRequest {
+                cwd: "/tmp".to_string(),
+                workspace_group_id: Some("group-a".to_string()),
+                device_id: Some("device-a".to_string()),
+                cols: 80,
+                rows: 24,
+                startup_command: None,
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.0, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn assign_workspace_group_rejects_a_tab_at_the_pane_cap() {
+        let state = state_with_a_full_tab().await;
+
+        let error = assign_terminal_workspace_group(
+            State(state.clone()),
+            AuthUser {
+                user_id: "user-a".to_string(),
+            },
+            Path(("machine-a".to_string(), "terminal-loose".to_string())),
+            Json(AssignWorkspaceGroupRequest {
+                workspace_group_id: Some("group-a".to_string()),
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.0, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn assign_workspace_group_allows_a_no_op_move_inside_a_full_tab() {
+        let state = state_with_a_full_tab().await;
+
+        let Json(updated) = assign_terminal_workspace_group(
+            State(state.clone()),
+            AuthUser {
+                user_id: "user-a".to_string(),
+            },
+            Path(("machine-a".to_string(), "terminal-0".to_string())),
+            Json(AssignWorkspaceGroupRequest {
+                workspace_group_id: Some("group-a".to_string()),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(updated.workspace_group_id.as_deref(), Some("group-a"));
     }
 
     #[tokio::test]

@@ -350,3 +350,12 @@ export interface RegisterMachineResponse {
   machineId: string
   machineSecret: string
 }
+
+// ── Workspace limits ──
+
+// A tab (a persistent workspace group, or the cwd fallback tab) renders every
+// one of its terminals as a split pane on desktop. Past this many the grid is
+// squeezed into unusable slivers, so tabs are capped: splits refuse to go over
+// it, and terminal creation overflows into a fresh tab instead. Mirrored by
+// MAX_PANES_PER_TAB in crates/hub/src/routes/terminals.rs.
+export const MAX_PANES_PER_TAB = 4

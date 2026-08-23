@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TerminalInfo, WorkspaceGroupInfo } from "@webmux/shared";
 import {
+  MAX_PANES_PER_TAB,
   appendWorkspacePaneToGroup,
   buildReorderPersistentGroupIds,
   closeWorkspacePane,
@@ -10,6 +11,8 @@ import {
   getActiveWorkspaceGroup,
   findAdjacentWorkspacePane,
   getMobileWorkspaceTabs,
+  isWorkspaceGroupFull,
+  planNewTerminalPlacement,
   reconcileTerminalWorkspace,
   rotateWorkspaceLayout,
   selectWorkspaceGroup,
@@ -851,5 +854,73 @@ describe("buildReorderPersistentGroupIds", () => {
     expect(
       buildReorderPersistentGroupIds(ws.groups, "g1", "cwd:/work/a", "after"),
     ).toBeNull();
+  });
+});
+
+describe("pane cap", () => {
+  function groupInfo(id: string, name: string): WorkspaceGroupInfo {
+    return { id, machine_id: "m1", name, sort_order: 0 };
+  }
+
+  function tabWith(paneCount: number, workspaceGroupId: string | null) {
+    const terminals = Array.from({ length: paneCount }, (_, i) =>
+      workspaceGroupId
+        ? groupedTerminal(`t${i}`, "/work/a", workspaceGroupId)
+        : terminal(`t${i}`, "/work/a"),
+    );
+    return createTerminalWorkspace(
+      terminals,
+      "t0",
+      workspaceGroupId ? [groupInfo(workspaceGroupId, "tab 1")] : [],
+    ).groups;
+  }
+
+  it("counts a tab as full only at the cap", () => {
+    expect(isWorkspaceGroupFull(tabWith(MAX_PANES_PER_TAB - 1, "g1")[0])).toBe(
+      false,
+    );
+    expect(isWorkspaceGroupFull(tabWith(MAX_PANES_PER_TAB, "g1")[0])).toBe(true);
+    expect(isWorkspaceGroupFull(null)).toBe(false);
+  });
+
+  it("creates into the target tab while it has room", () => {
+    const groups = tabWith(MAX_PANES_PER_TAB - 1, "g1");
+
+    expect(
+      planNewTerminalPlacement(groups, { tabId: "g1", cwd: "/work/a" }),
+    ).toEqual({ needsNewTab: false, workspaceGroupId: "g1" });
+  });
+
+  it("overflows a full tab into a new tab", () => {
+    const groups = tabWith(MAX_PANES_PER_TAB, "g1");
+
+    expect(
+      planNewTerminalPlacement(groups, { tabId: "g1", cwd: "/work/a" }),
+    ).toEqual({ needsNewTab: true, workspaceGroupId: null });
+  });
+
+  it("resolves an aimless creation to the cwd fallback tab, and overflows it too", () => {
+    expect(
+      planNewTerminalPlacement(tabWith(MAX_PANES_PER_TAB - 1, null), {
+        tabId: null,
+        cwd: "/work/a",
+      }),
+    ).toEqual({ needsNewTab: false, workspaceGroupId: null });
+
+    expect(
+      planNewTerminalPlacement(tabWith(MAX_PANES_PER_TAB, null), {
+        tabId: null,
+        cwd: "/work/a",
+      }),
+    ).toEqual({ needsNewTab: true, workspaceGroupId: null });
+  });
+
+  it("creates in a brand-new cwd tab without overflowing", () => {
+    expect(
+      planNewTerminalPlacement(tabWith(MAX_PANES_PER_TAB, null), {
+        tabId: null,
+        cwd: "/work/elsewhere",
+      }),
+    ).toEqual({ needsNewTab: false, workspaceGroupId: null });
   });
 });

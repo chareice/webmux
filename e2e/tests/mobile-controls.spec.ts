@@ -7,6 +7,7 @@ import {
   expandTerminalById,
   getImmersiveTerminal,
   listTerminals,
+  listWorkspaceGroupsViaApi,
   longPressTitleBar,
   mobileOpenHostSheet,
   mobileTakeControl,
@@ -423,6 +424,54 @@ test("mobile title bar and grouped switcher expose titles, host stats, and creat
   await expect
     .poll(() => getMountedXtermIds(page))
     .toEqual([created!.id]);
+});
+
+test("mobile + overflows a full tab into a new tab instead of a fifth pane", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+
+  // Mobile shows one terminal at a time, but the same tab is a four-pane
+  // split grid on desktop — so a full tab must not take a fifth terminal.
+  const group = await createWorkspaceGroupViaApi(page, `Cap ${Date.now()}`);
+  const seeded: string[] = [];
+  for (let i = 0; i < 4; i += 1) {
+    seeded.push(
+      await createTerminalViaApi(page, {
+        cwd: "/root",
+        workspaceGroupId: group.id,
+      }),
+    );
+  }
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(4);
+
+  // Make the full tab the active session, so "＋" aims at it.
+  await page.getByTestId("mobile-title-bar").click();
+  await expect(page.getByTestId("mobile-session-switcher")).toBeVisible();
+  await page.getByTestId(`mobile-session-row-${seeded[0]}`).click();
+  await expect(page.getByTestId("mobile-title-bar-label")).toContainText(
+    group.name,
+  );
+
+  const beforeIds = (await listTerminals(page)).map((terminal) => terminal.id);
+  await page.getByTestId("mobile-bar-new-terminal").click();
+
+  // Creating still succeeds — the terminal just lands in a fresh tab.
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(5);
+  const terminals = await listTerminals(page);
+  const created = terminals.find((terminal) => !beforeIds.includes(terminal.id));
+  expect(created).toBeDefined();
+  expect(created?.workspace_group_id).not.toBe(group.id);
+  expect(
+    terminals.filter(
+      (terminal) => terminal.workspace_group_id === group.id,
+    ),
+  ).toHaveLength(4);
+  const groups = await listWorkspaceGroupsViaApi(page);
+  expect(groups).toHaveLength(2);
 });
 
 test("mobile title bar receives a real OSC title through the terminal pipeline", async ({

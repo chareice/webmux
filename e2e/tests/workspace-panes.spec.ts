@@ -6,6 +6,7 @@ import {
   getAuthHeaders,
   getExpandedOverlay,
   listTerminals,
+  listWorkspaceGroupsViaApi,
   openApp,
   openPaneContextMenu,
   pressPrefixKey,
@@ -90,6 +91,57 @@ test("desktop workspace splits the active terminal into tiled panes", async ({
   expect(thirdBox.y).toBeGreaterThan(
     previousActiveBox.y + previousActiveBox.height * 0.5,
   );
+
+  await context.close();
+});
+
+test("a tab caps at four panes and new terminals overflow into a new tab", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 960 },
+  });
+  const page = await context.newPage();
+
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+  await selectHomeWorkpath(page);
+
+  await page.getByTestId("empty-new-terminal").click();
+  await expect(page.getByTestId("expanded-terminal")).toBeVisible();
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
+
+  // ⌃B % three times fills the tab to the cap.
+  for (let i = 0; i < 3; i += 1) {
+    await pressPrefixKey(page, "Shift+Digit5");
+    await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(
+      i + 2,
+    );
+  }
+
+  // The fifth split is refused — and says so, since the shortcut gives no
+  // other feedback.
+  await pressPrefixKey(page, "Shift+Digit5");
+  await expect(page.getByTestId("workspace-toast")).toBeVisible();
+  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(4);
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(4);
+
+  // The context menu greys the split entries out on a full tab.
+  const activeId = page.url().split("#/t/")[1];
+  await openPaneContextMenu(page, activeId);
+  await expect(page.getByRole("button", { name: "Split right" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Split down" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("context-menu")).toHaveCount(0);
+
+  // ⌃B c still creates: the terminal lands in a fresh tab instead of becoming
+  // a fifth pane in the full one.
+  await pressPrefixKey(page, "c");
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(5);
+  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(1);
+  const groups = await listWorkspaceGroupsViaApi(page);
+  expect(groups).toHaveLength(1);
 
   await context.close();
 });
