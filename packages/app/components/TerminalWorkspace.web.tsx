@@ -26,12 +26,14 @@ import {
   type WorkspacePaneNode,
   type WorkspaceSplitIntent,
   type TerminalWorkspace as TerminalWorkspaceState,
+  MAX_PANES_PER_TAB,
   appendWorkspacePaneToGroup,
   buildReorderPersistentGroupIds,
   closeWorkspacePane,
   createTerminalWorkspace,
   findAdjacentWorkspacePane,
   getActiveWorkspaceGroup,
+  isWorkspaceGroupFull,
   reconcileTerminalWorkspace,
   rotateWorkspaceLayout,
   selectWorkspaceGroup,
@@ -40,6 +42,7 @@ import {
 import { formatPrefixBinding, type PrefixActionId } from "@/lib/prefixKey";
 import { usePrefixKey } from "@/lib/prefixKeyContext";
 import { useLongPress } from "@/lib/longPress";
+import { showWorkspaceToast } from "@/lib/workspaceToast";
 
 interface TerminalWorkspaceProps {
   terminal: TerminalInfo;
@@ -250,6 +253,10 @@ function TerminalWorkspaceComponent({
   const activeGroupPaneCount = activeGroup
     ? collectIds(activeGroup.root).length
     : 0;
+  // Past MAX_PANES_PER_TAB the split grid is unusable, so a full tab refuses
+  // further splits. Creating a terminal is not blocked the same way — that
+  // path (TerminalCanvas) overflows into a new tab instead.
+  const activeGroupFull = isWorkspaceGroupFull(activeGroup);
   const layoutSaveQueuesRef = useRef(new Map<string, Promise<void>>());
 
   const persistGroupLayout = useCallback(
@@ -377,6 +384,14 @@ function TerminalWorkspaceComponent({
   const handleSplit = useCallback(
     async (direction: WorkspaceSplitIntent) => {
       if (!isController) return;
+      if (isWorkspaceGroupFull(activeGroup)) {
+        // Reached from the shortcut too, where the menu's disabled state
+        // isn't visible — say why nothing happened.
+        showWorkspaceToast(
+          `This tab is full (${MAX_PANES_PER_TAB} panes max). Open a new tab for more.`,
+        );
+        return;
+      }
       if (!activeTerminal) {
         if (!activeGroup) return;
         const created = await onCreatePane({
@@ -828,13 +843,13 @@ function TerminalWorkspaceComponent({
         {
           label: "Split right",
           shortcut: formatPrefixBinding("splitRight"),
-          disabled: !isController,
+          disabled: !isController || activeGroupFull,
           onClick: () => void handleSplit("right"),
         },
         {
           label: "Split down",
           shortcut: formatPrefixBinding("splitDown"),
-          disabled: !isController,
+          disabled: !isController || activeGroupFull,
           onClick: () => void handleSplit("down"),
         },
         {
@@ -862,20 +877,43 @@ function TerminalWorkspaceComponent({
           disabled: !isController,
           onClick: () => {},
           children: [
-            {
-              label: "cwd",
-              onClick: () => void onAssignGroup(paneMenuTerminal, null),
-            },
+            (() => {
+              // Ungrouping drops the pane into the cwd fallback tab, which
+              // is capped the same way.
+              const cwdTab =
+                workspace.groups.find(
+                  (group) =>
+                    !group.persistent && group.cwd === paneMenuTerminal.cwd,
+                ) ?? null;
+              const full =
+                isWorkspaceGroupFull(cwdTab) &&
+                !containsTerminal(cwdTab?.root ?? null, paneMenuTerminal.id);
+              return {
+                label: full ? "cwd (full)" : "cwd",
+                disabled: full,
+                onClick: () => void onAssignGroup(paneMenuTerminal, null),
+              };
+            })(),
             ...workspace.groups
               .filter((group) => group.persistent && group.workspaceGroupId)
-              .map((group) => ({
-                label: group.label,
-                onClick: () =>
-                  void onAssignGroup(
-                    paneMenuTerminal,
-                    group.workspaceGroupId ?? null,
-                  ),
-              })),
+              .map((group) => {
+                // A tab already at the cap cannot take the pane — the hub
+                // rejects the assignment too.
+                const full =
+                  isWorkspaceGroupFull(group) &&
+                  !containsTerminal(group.root, paneMenuTerminal.id);
+                return {
+                  label: full
+                    ? `${group.label} (full)`
+                    : group.label,
+                  disabled: full,
+                  onClick: () =>
+                    void onAssignGroup(
+                      paneMenuTerminal,
+                      group.workspaceGroupId ?? null,
+                    ),
+                };
+              }),
           ],
         },
         { type: "separator" },

@@ -68,7 +68,14 @@ import { PrefixKeyProvider, usePrefixKey } from "@/lib/prefixKeyContext";
 import { CheatSheetOverlay } from "./CheatSheetOverlay.web";
 import { UpdateNotification } from "./UpdateNotification";
 import { useAuth } from "@/lib/auth";
-import { collectGroupPaneTerminalIds, createTerminalWorkspace, type WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
+import { showWorkspaceToast } from "@/lib/workspaceToast";
+import {
+  MAX_PANES_PER_TAB,
+  collectGroupPaneTerminalIds,
+  createTerminalWorkspace,
+  planNewTerminalPlacement,
+  type WorkspaceGroup,
+} from "@/lib/terminalWorkspaceLayout";
 import {
   createInitialMainLayout,
   mainLayoutReducer,
@@ -886,6 +893,36 @@ function TerminalCanvasInner() {
     window.history.pushState(null, "", `#/t/${id}`);
   }, []);
 
+  // Create a tab named after the first free "tab N" slot and select it. The
+  // group also arrives via workspace_group_created; selecting by the response
+  // id is safe either way (selection is id-based).
+  const createTab = useCallback(
+    async (machineId: string) => {
+      const taken = new Set(tabGroups.map((group) => group.label));
+      let n = tabGroups.length + 1;
+      while (taken.has(`tab ${n}`)) n += 1;
+      const created = await createWorkspaceGroup(machineId, `tab ${n}`);
+      workspaceCommandsRef.current.selectGroup?.(created.id);
+      return created;
+    },
+    [tabGroups],
+  );
+
+  // Which tab a new terminal is created in. A tab renders every one of its
+  // terminals as a split pane on desktop, so a full target overflows into a
+  // fresh tab instead of growing past MAX_PANES_PER_TAB. Creating a terminal
+  // therefore never fails on a full tab (mobile has no split view and no
+  // other way out); splits refuse instead — see TerminalWorkspace.handleSplit.
+  const resolveNewTerminalGroupId = useCallback(
+    async (machineId: string, cwd: string, tabId: string | null) => {
+      const placement = planNewTerminalPlacement(tabGroups, { tabId, cwd });
+      if (!placement.needsNewTab) return placement.workspaceGroupId;
+      const created = await createTab(machineId);
+      return created.id;
+    },
+    [createTab, tabGroups],
+  );
+
   const handleSplitWorkspacePane = useCallback(
     async (terminal: TerminalInfo) => {
       return handleCreateTerminal(terminal.machine_id, terminal.cwd, undefined, {
@@ -916,13 +953,24 @@ function TerminalCanvasInner() {
   const handleMobileNewTerminal = useCallback(
     (group: WorkspaceGroup | null) => {
       if (!activeMachine) return;
-      void handleCreateWorkspacePane({
-        machineId: activeMachine.id,
-        cwd: group?.cwd || activeMachine.home_dir || "~",
-        workspaceGroupId: group?.workspaceGroupId ?? null,
+      const machineId = activeMachine.id;
+      const cwd = group?.cwd || activeMachine.home_dir || "~";
+      void (async () => {
+        // Mobile shows one terminal at a time, so it never splits — but its
+        // terminals are panes of the same tab on desktop. A full tab overflows
+        // into a new one, which keeps the desktop grid at four panes without
+        // ever refusing a mobile "＋".
+        const workspaceGroupId = await resolveNewTerminalGroupId(
+          machineId,
+          cwd,
+          group?.id ?? null,
+        );
+        await handleCreateWorkspacePane({ machineId, cwd, workspaceGroupId });
+      })().catch((error) => {
+        console.error("Failed to create terminal", error);
       });
     },
-    [activeMachine, handleCreateWorkspacePane],
+    [activeMachine, handleCreateWorkspacePane, resolveNewTerminalGroupId],
   );
 
   const handleMobileCloseTerminal = useCallback(
@@ -1010,15 +1058,28 @@ function TerminalCanvasInner() {
 
   const handleAssignWorkspaceGroup = useCallback(
     async (terminal: TerminalInfo, workspaceGroupId: string | null) => {
-      const updated = await assignTerminalWorkspaceGroup(
-        terminal.machine_id,
-        terminal.id,
-        workspaceGroupId,
-      );
-      setBrowserState((prev) => ({
-        ...prev,
-        terminals: upsertTerminalInfo(prev.terminals, updated),
-      }));
+      try {
+        const updated = await assignTerminalWorkspaceGroup(
+          terminal.machine_id,
+          terminal.id,
+          workspaceGroupId,
+        );
+        setBrowserState((prev) => ({
+          ...prev,
+          terminals: upsertTerminalInfo(prev.terminals, updated),
+        }));
+      } catch (error) {
+        // The hub refuses a move into a tab already at the pane cap. The menu
+        // greys those tabs out, so this is the stale-view case (another device
+        // filled the tab first) — it must not fail silently.
+        console.error("Failed to move pane to tab", error);
+        const message = String(error);
+        showWorkspaceToast(
+          message.includes("409")
+            ? `That tab is full (${MAX_PANES_PER_TAB} panes max).`
+            : "Couldn't move the pane to that tab.",
+        );
+      }
     },
     [],
   );
@@ -1054,33 +1115,34 @@ function TerminalCanvasInner() {
   const handleNewTerminalFromHeader = useCallback(async () => {
     if (!activeMachine || !deviceId) return;
     if (!isMachineController(activeMachine.id)) return;
-    if (layout.selectedWorkpathId === "all" || !scopeBookmark) {
-      await handleCreateTerminal(
-        activeMachine.id,
-        activeMachine.home_dir || "~",
-      );
-      return;
-    }
-    await handleCreateTerminal(activeMachine.id, scopeBookmark.path);
+    const cwd =
+      layout.selectedWorkpathId === "all" || !scopeBookmark
+        ? activeMachine.home_dir || "~"
+        : scopeBookmark.path;
+    // Ungrouped terminals join the cwd fallback tab; when that tab is full
+    // the terminal lands in a new tab rather than a fifth pane.
+    const workspaceGroupId = await resolveNewTerminalGroupId(
+      activeMachine.id,
+      cwd,
+      null,
+    );
+    await handleCreateTerminal(activeMachine.id, cwd, undefined, {
+      workspaceGroupId,
+    });
   }, [
     activeMachine,
     deviceId,
     isMachineController,
     handleCreateTerminal,
     layout.selectedWorkpathId,
+    resolveNewTerminalGroupId,
     scopeBookmark,
   ]);
 
   const handleNewGroup = useCallback(async () => {
     if (!activeMachineId || !isActiveController) return;
-    const taken = new Set(tabGroups.map((group) => group.label));
-    let n = tabGroups.length + 1;
-    while (taken.has(`tab ${n}`)) n += 1;
-    const created = await createWorkspaceGroup(activeMachineId, `tab ${n}`);
-    // The group also arrives via workspace_group_created; selecting by the
-    // response id is safe either way (selection is id-based).
-    workspaceCommandsRef.current.selectGroup?.(created.id);
-  }, [activeMachineId, isActiveController, tabGroups]);
+    await createTab(activeMachineId);
+  }, [activeMachineId, createTab, isActiveController]);
 
   const performDeleteGroup = useCallback(
     async (group: WorkspaceGroup) => {
