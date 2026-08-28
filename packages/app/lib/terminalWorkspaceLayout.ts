@@ -670,6 +670,11 @@ function restorePaneLayout(
   let root = savedRoot
     ? sanitizePaneNode(savedRoot, available, consumed, 0)
     : null;
+  if (!root) {
+    // No usable saved layout: tile evenly. Appending each pane with a
+    // nested 50/50 split would shrink every new pane to a sliver.
+    return tileTerminals(ids);
+  }
   for (const id of ids) {
     if (!consumed.has(id)) {
       root = appendNode(root, { type: "leaf", terminalId: id });
@@ -716,6 +721,8 @@ function normalizeSplitRatio(ratio: number): number {
   return Math.min(0.95, Math.max(0.05, ratio));
 }
 
+// Horizontal chain where every pane gets width 1/n: the outermost split
+// takes 1/n of the width, the next 1/(n-1) of what remains, … innermost 1/2.
 function tileTerminals(ids: string[]): WorkspacePaneNode | null {
   if (ids.length === 0) return null;
   if (ids.length === 1) return { type: "leaf", terminalId: ids[0] };
@@ -723,7 +730,7 @@ function tileTerminals(ids: string[]): WorkspacePaneNode | null {
   return {
     type: "split",
     direction: "horizontal",
-    ratio: 0.5,
+    ratio: normalizeSplitRatio(1 / ids.length),
     first: { type: "leaf", terminalId: first },
     second: tileTerminals(rest) ?? { type: "leaf", terminalId: first },
   };

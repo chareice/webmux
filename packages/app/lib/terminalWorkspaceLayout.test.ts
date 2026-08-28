@@ -45,6 +45,27 @@ function groupedTerminal(
   } as TerminalInfo;
 }
 
+// Horizontal width fraction of each leaf when the tree fills width 1.
+function leafWidths(root: WorkspacePaneNode | null): Record<string, number> {
+  const widths: Record<string, number> = {};
+  const walk = (node: WorkspacePaneNode | null, width: number) => {
+    if (!node) return;
+    if (node.type === "leaf") {
+      widths[node.terminalId] = width;
+      return;
+    }
+    if (node.direction === "horizontal") {
+      walk(node.first, width * node.ratio);
+      walk(node.second, width * (1 - node.ratio));
+      return;
+    }
+    walk(node.first, width);
+    walk(node.second, width);
+  };
+  walk(root, 1);
+  return widths;
+}
+
 describe("terminalWorkspaceLayout", () => {
   const terminals = [
     terminal("web-1", "/home/chareice/projects/webmux"),
@@ -183,6 +204,120 @@ describe("terminalWorkspaceLayout", () => {
         second: { type: "leaf", terminalId: "a" },
       },
     });
+  });
+
+  it("tiles panes evenly when the saved layout only references destroyed terminals", () => {
+    const workspace = createTerminalWorkspace(
+      [
+        terminal("t1", "/repo"),
+        terminal("t2", "/repo"),
+        terminal("t3", "/repo"),
+        terminal("t4", "/repo"),
+      ],
+      "t1",
+      [],
+      [
+        {
+          machine_id: "m1",
+          group_key: "cwd:/repo",
+          updated_at: 10,
+          root: {
+            type: "split",
+            direction: "horizontal",
+            ratio: 0.5,
+            first: { type: "leaf", terminalId: "dead-1" },
+            second: {
+              type: "split",
+              direction: "horizontal",
+              ratio: 0.5,
+              first: { type: "leaf", terminalId: "dead-2" },
+              second: { type: "leaf", terminalId: "dead-3" },
+            },
+          },
+        },
+      ],
+    );
+
+    const root = getActiveWorkspaceGroup(workspace)?.root ?? null;
+    expect(root).toEqual({
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.25,
+      first: { type: "leaf", terminalId: "t1" },
+      second: {
+        type: "split",
+        direction: "horizontal",
+        ratio: 1 / 3,
+        first: { type: "leaf", terminalId: "t2" },
+        second: {
+          type: "split",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: { type: "leaf", terminalId: "t3" },
+          second: { type: "leaf", terminalId: "t4" },
+        },
+      },
+    });
+    const widths = leafWidths(root);
+    for (const id of ["t1", "t2", "t3", "t4"]) {
+      expect(widths[id]).toBeCloseTo(0.25);
+    }
+  });
+
+  it("keeps surviving saved geometry and appends leftovers with a 50/50 split", () => {
+    const workspace = createTerminalWorkspace(
+      [terminal("a", "/repo"), terminal("b", "/repo"), terminal("c", "/repo")],
+      "a",
+      [],
+      [
+        {
+          machine_id: "m1",
+          group_key: "cwd:/repo",
+          updated_at: 10,
+          root: {
+            type: "split",
+            direction: "horizontal",
+            ratio: 0.3,
+            first: {
+              type: "split",
+              direction: "vertical",
+              ratio: 0.7,
+              first: { type: "leaf", terminalId: "a" },
+              second: { type: "leaf", terminalId: "dead-1" },
+            },
+            second: { type: "leaf", terminalId: "b" },
+          },
+        },
+      ],
+    );
+
+    const root = getActiveWorkspaceGroup(workspace)?.root ?? null;
+    expect(root).toEqual({
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: {
+        type: "split",
+        direction: "horizontal",
+        ratio: 0.3,
+        first: { type: "leaf", terminalId: "a" },
+        second: { type: "leaf", terminalId: "b" },
+      },
+      second: { type: "leaf", terminalId: "c" },
+    });
+  });
+
+  it("tiles a cwd fallback group with no saved layout evenly", () => {
+    const workspace = createTerminalWorkspace(
+      [terminal("a", "/repo"), terminal("b", "/repo"), terminal("c", "/repo")],
+      "a",
+    );
+
+    const root = getActiveWorkspaceGroup(workspace)?.root ?? null;
+    const widths = leafWidths(root);
+    for (const id of ["a", "b", "c"]) {
+      expect(widths[id]).toBeCloseTo(1 / 3);
+    }
   });
 
   it("groups panes by persisted workspace tab before falling back to cwd", () => {

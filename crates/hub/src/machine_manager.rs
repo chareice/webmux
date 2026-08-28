@@ -2536,6 +2536,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reconcile_with_empty_report_destroys_all_persisted_terminals() {
+        let pool = test_db();
+        {
+            let conn = pool.get().unwrap();
+            conn.execute(
+                "INSERT INTO users (id, provider, provider_id, display_name, role, created_at) VALUES ('user-a', 'test', 'test', 'Test', 'user', 0)",
+                [],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES ('machine-a', 'user-a', 'Machine A', 'hash', 'offline', 0)",
+                [],
+            ).unwrap();
+        }
+
+        // Normal operation: two terminals are live and persisted.
+        {
+            let manager = MachineManager::new(pool.clone());
+            manager
+                .register_machine(machine("machine-a"), Some("user-a".to_string()))
+                .await;
+            manager
+                .handle_machine_message(
+                    "machine-a",
+                    MachineToHub::ExistingTerminals {
+                        terminals: vec![
+                            terminal("machine-a", "term-a"),
+                            terminal("machine-a", "term-b"),
+                        ],
+                    },
+                )
+                .await;
+        }
+        // MachineManager dropped — simulates an abrupt reboot: the terminals
+        // stay persisted but are now unreachable.
+
+        let manager = MachineManager::new(pool.clone());
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert_eq!(snapshot.terminals.len(), 2);
+        assert!(snapshot.terminals.iter().all(|t| !t.reachable));
+
+        // The machine comes back with every tmux session gone and reports an
+        // empty list: all persisted terminals must be destroyed.
+        manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals { terminals: vec![] },
+            )
+            .await;
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert!(snapshot.terminals.is_empty());
+
+        let conn = pool.get().unwrap();
+        let active =
+            crate::db::terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
+        assert!(active.is_empty());
+    }
+
+    #[tokio::test]
     async fn full_persistence_cycle_hub_restart_and_reconnect() {
         let pool = test_db();
 
