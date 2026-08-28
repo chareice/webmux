@@ -128,29 +128,30 @@ impl HubConnection {
         // hub builds its terminal records from this list; per-attach byte
         // streams are established on-demand when browsers connect, so there
         // is no scrollback or background subscription to set up here.
+        // The report must go out even when empty: it is the hub's only
+        // signal to destroy persisted terminals that no longer exist (e.g.
+        // after a reboot killed every tmux session).
         let existing = pty.list_terminals();
-        if !existing.is_empty() {
-            let terminals: Vec<tc_protocol::TerminalInfo> = existing
-                .iter()
-                .map(|s| tc_protocol::TerminalInfo {
-                    id: s.id.clone(),
-                    machine_id: self.machine_id.clone(),
-                    title: s.title.clone(),
-                    cwd: s.cwd.clone(),
-                    title_source: Default::default(),
-                    workspace_group_id: None,
-                    cols: s.cols,
-                    rows: s.rows,
-                    reachable: true,
-                })
-                .collect();
-            tracing::info!("Reporting {} existing terminals to hub", terminals.len());
-            let _ = send_tx
-                .send(OutboundHubMessage::Json(MachineToHub::ExistingTerminals {
-                    terminals,
-                }))
-                .await;
-        }
+        let terminals: Vec<tc_protocol::TerminalInfo> = existing
+            .iter()
+            .map(|s| tc_protocol::TerminalInfo {
+                id: s.id.clone(),
+                machine_id: self.machine_id.clone(),
+                title: s.title.clone(),
+                cwd: s.cwd.clone(),
+                title_source: Default::default(),
+                workspace_group_id: None,
+                cols: s.cols,
+                rows: s.rows,
+                reachable: true,
+            })
+            .collect();
+        tracing::info!("Reporting {} existing terminals to hub", terminals.len());
+        let _ = send_tx
+            .send(OutboundHubMessage::Json(MachineToHub::ExistingTerminals {
+                terminals,
+            }))
+            .await;
 
         // Task: periodically send resource stats
         let send_tx_stats = send_tx.clone();
