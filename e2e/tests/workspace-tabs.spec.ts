@@ -189,6 +189,21 @@ test("workspace tabs can be reordered by dragging", async ({ page }) => {
     .toEqual([first.id, second.id]);
 });
 
+test("tab bar meters report host cpu, memory, and disk", async ({ page }) => {
+  await openApp(page);
+
+  await expect(page.getByTestId("tab-bar-meters")).toBeVisible();
+  // Label and value sit in sibling spans with no separator, so "cpu12%".
+  // Wait for a real reading rather than the "—" placeholder, so the assertion
+  // fails if stats stop reaching the meters.
+  for (const label of ["cpu", "mem", "disk"]) {
+    await expect(page.getByTestId(`tab-bar-meter-${label}`)).toHaveText(
+      new RegExp(`^${label}\\s*\\d+%$`),
+      { timeout: 15_000 },
+    );
+  }
+});
+
 test("workspace tabs can be reordered by dragging the tab body", async ({
   page,
 }) => {

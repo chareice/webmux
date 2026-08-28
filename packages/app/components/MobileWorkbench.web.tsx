@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { colors } from "@/lib/colors";
 import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
+import { diskPercent, diskTooltip } from "@/lib/resourceStats";
 import {
   buildMobileSessionGroups,
   type MobileSessionPane,
@@ -809,6 +810,7 @@ function SessionSwitcherHeader({
     stats && stats.memory_total > 0
       ? Math.round((stats.memory_used / stats.memory_total) * 100)
       : null;
+  const disk = diskPercent(stats);
   return (
     <div
       data-testid="mobile-session-header"
@@ -874,6 +876,12 @@ function SessionSwitcherHeader({
         percent={mem}
         testid="mobile-session-header-mem"
       />
+      <HeaderMetric
+        label="disk"
+        percent={disk}
+        title={diskTooltip(stats)}
+        testid="mobile-session-header-disk"
+      />
     </div>
   );
 }
@@ -882,14 +890,17 @@ function HeaderMetric({
   label,
   percent,
   testid,
+  title,
 }: {
   label: string;
   percent: number | null;
   testid: string;
+  title?: string;
 }) {
   return (
     <span
       data-testid={testid}
+      title={title}
       style={{
         display: "inline-flex",
         alignItems: "center",

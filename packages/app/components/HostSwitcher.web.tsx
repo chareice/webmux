@@ -6,6 +6,7 @@ import type {
 } from "@webmux/shared";
 import { ChevronRight, Plus } from "lucide-react";
 import { colors } from "@/lib/colors";
+import { diskPercent } from "@/lib/resourceStats";
 
 interface HostSwitcherProps {
   machines: MachineInfo[];
@@ -363,7 +364,9 @@ function HostDot({
 
 function machineRowStatus(stats: ResourceStats | undefined): string {
   if (!stats) return "online";
-  return `${Math.round(stats.cpu_percent)}% cpu`;
+  const disk = diskPercent(stats);
+  const cpu = `${Math.round(stats.cpu_percent)}% cpu`;
+  return disk === null ? cpu : `${cpu} · ${disk}% disk`;
 }
 
 function Logomark({ size = 18 }: { size?: number }) {
