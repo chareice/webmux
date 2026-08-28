@@ -2,7 +2,7 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub const TMUX_SOCKET: &str = "webmux";
 const TMUX_PREFIX: &str = "wmx_";
@@ -78,8 +78,11 @@ impl PtyManager {
         let resolved_cwd = resolve_cwd(cwd);
         let shell = detect_login_shell();
 
-        let status = tmux_cmd()
-            .args([
+        let cols_s = cols.to_string();
+        let rows_s = rows.to_string();
+        let mut tmux_args = tmux_base_args();
+        tmux_args.extend(
+            [
                 "-L",
                 TMUX_SOCKET,
                 "new-session",
@@ -87,13 +90,17 @@ impl PtyManager {
                 "-s",
                 &tmux_name,
                 "-x",
-                &cols.to_string(),
+                &cols_s,
                 "-y",
-                &rows.to_string(),
+                &rows_s,
                 "-c",
                 &resolved_cwd,
                 &shell,
-            ])
+            ]
+            .into_iter()
+            .map(String::from),
+        );
+        let status = new_session_cmd(&tmux_args)
             .status()
             .map_err(|e| format!("Failed to run tmux: {}", e))?;
 
@@ -366,17 +373,84 @@ impl PtyManager {
 
 // ── Free helpers ────────────────────────────────────────────────────
 
+/// Leading tmux arguments shared by every tmux invocation (the config
+/// file flag). Built once so `new-session` can either run them directly
+/// or hand them to the `systemd-run` wrapper.
+fn tmux_base_args() -> Vec<String> {
+    let mut args = Vec::new();
+    let config = tmux_config_path();
+    if config.exists() {
+        args.push("-f".to_string());
+        args.push(config.to_string_lossy().into_owned());
+    }
+    args
+}
+
 /// Create a tmux Command with TERM set and our config file.
 fn tmux_cmd() -> std::process::Command {
     let mut cmd = std::process::Command::new("tmux");
+    set_term_env(&mut cmd);
+    cmd.args(tmux_base_args());
+    cmd
+}
+
+fn set_term_env(cmd: &mut std::process::Command) {
     if std::env::var("TERM").is_err() {
         cmd.env("TERM", "xterm-256color");
     }
-    let config = tmux_config_path();
-    if config.exists() {
-        cmd.arg("-f").arg(&config);
-    }
+}
+
+/// Build the command that runs `tmux new-session`. On systemd machines
+/// the tmux server is auto-spawned by this call, so it would land inside
+/// webmux-node.service's cgroup; distro tmux builds then stamp every
+/// pane's transient scope with `PartOf=webmux-node.service`, and a node
+/// stop/restart cascades SIGTERM to every pane — killing all sessions.
+/// Wrapping the spawn in `systemd-run --user --scope` births the server
+/// in its own scope, so the `PartOf` chain points there instead and node
+/// restarts leave sessions alone. `--collect` garbage-collects the
+/// throwaway scopes of later new-session clients; no `--unit`, so
+/// concurrent creates get collision-free random names.
+fn new_session_cmd(tmux_args: &[String]) -> std::process::Command {
+    build_new_session_cmd(tmux_args, systemd_scope_available())
+}
+
+fn build_new_session_cmd(tmux_args: &[String], use_systemd_scope: bool) -> std::process::Command {
+    let mut cmd = if use_systemd_scope {
+        let mut cmd = std::process::Command::new("systemd-run");
+        cmd.args(["--user", "--scope", "--collect", "--quiet", "--", "tmux"]);
+        cmd
+    } else {
+        std::process::Command::new("tmux")
+    };
+    // --scope passes systemd-run's environment through to the child, so
+    // setting TERM on this Command works for both variants.
+    set_term_env(&mut cmd);
+    cmd.args(tmux_args);
     cmd
+}
+
+/// Probe once whether `systemd-run --user --scope` works here (Linux
+/// with a user systemd manager). Anything else — macOS, non-systemd
+/// Linux, missing binary, non-zero exit — keeps the direct spawn.
+fn systemd_scope_available() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        let available = cfg!(target_os = "linux")
+            && std::process::Command::new("systemd-run")
+                .args(["--user", "--scope", "--collect", "--quiet", "true"])
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false);
+        tracing::info!(
+            "tmux new-session spawn mode: {}",
+            if available {
+                "systemd-run scope"
+            } else {
+                "direct"
+            }
+        );
+        available
+    })
 }
 
 fn webmux_dir() -> PathBuf {
@@ -898,6 +972,55 @@ mod tests {
         assert!(!is_shell_name("python"));
         assert!(!is_shell_name("cargo"));
         assert!(!is_shell_name("node"));
+    }
+
+    #[test]
+    fn new_session_cmd_wraps_in_systemd_scope_when_available() {
+        let tmux_args: Vec<String> = [
+            "-L",
+            TMUX_SOCKET,
+            "new-session",
+            "-d",
+            "-s",
+            "wmx_terminal-a",
+            "-x",
+            "80",
+            "-y",
+            "24",
+            "-c",
+            "/tmp",
+            "/bin/bash",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let cmd = build_new_session_cmd(&tmux_args, true);
+        assert_eq!(cmd.get_program(), "systemd-run");
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let mut expected: Vec<String> = ["--user", "--scope", "--collect", "--quiet", "--", "tmux"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        expected.extend(tmux_args.iter().cloned());
+        assert_eq!(args, expected);
+    }
+
+    #[test]
+    fn new_session_cmd_falls_back_to_direct_tmux_spawn() {
+        let tmux_args: Vec<String> = ["-L", TMUX_SOCKET, "new-session", "-d", "-s", "wmx_terminal-a"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let cmd = build_new_session_cmd(&tmux_args, false);
+        assert_eq!(cmd.get_program(), "tmux");
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, tmux_args);
     }
 
     #[test]
