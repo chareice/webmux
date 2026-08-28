@@ -38,10 +38,20 @@ main() {
 
     echo ""
     echo "Installed ${BINARY} to ${INSTALL_DIR}/${BINARY}"
-    if systemctl --user is-active webmux-node >/dev/null 2>&1; then
-        echo ""
-        echo "NOTE: webmux-node systemd service is running. Restart to pick up the new binary:"
-        echo "  systemctl --user restart webmux-node"
+    if [ "$OS" = "linux" ]; then
+        if systemctl --user is-active webmux-node >/dev/null 2>&1; then
+            echo ""
+            echo "NOTE: webmux-node systemd service is running. Restart to pick up the new binary:"
+            echo "  webmux-node service restart"
+            echo "(raw equivalent: systemctl --user restart webmux-node)"
+        fi
+    elif [ "$OS" = "darwin" ]; then
+        if launchctl list com.webmux.node >/dev/null 2>&1; then
+            echo ""
+            echo "NOTE: webmux-node launchd service is running. Restart to pick up the new binary:"
+            echo "  webmux-node service restart"
+            echo "(raw equivalent: launchctl kickstart -k gui/$(id -u)/com.webmux.node)"
+        fi
     fi
 
     if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then

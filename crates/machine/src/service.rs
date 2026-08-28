@@ -129,6 +129,21 @@ WantedBy=default.target
         Ok(())
     }
 
+    pub fn restart() -> Result<(), String> {
+        let home_dir =
+            dirs::home_dir().ok_or_else(|| "cannot determine home directory".to_string())?;
+        let home_str = home_dir.to_string_lossy().to_string();
+        let unit_path = service_file_path(&home_str);
+
+        if !PathBuf::from(&unit_path).exists() {
+            return Err(
+                "service is not installed. Run \"webmux-node service install\" first.".to_string(),
+            );
+        }
+
+        run_systemctl(&["--user", "restart", SERVICE_NAME])
+    }
+
     pub fn status() {
         let _ = Command::new("systemctl")
             .args(["--user", "status", SERVICE_NAME])
@@ -261,6 +276,44 @@ mod platform {
         Ok(())
     }
 
+    fn current_uid() -> Result<String, String> {
+        let output = Command::new("id")
+            .arg("-u")
+            .output()
+            .map_err(|e| format!("failed to execute id: {e}"))?;
+
+        if !output.status.success() {
+            return Err(format!("id exited with status {}", output.status));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
+    pub fn restart() -> Result<(), String> {
+        let home_dir =
+            dirs::home_dir().ok_or_else(|| "cannot determine home directory".to_string())?;
+        let home_str = home_dir.to_string_lossy().to_string();
+        let plist_file = plist_path(&home_str);
+
+        if !plist_file.exists() {
+            return Err(
+                "service is not installed. Run \"webmux-node service install\" first.".to_string(),
+            );
+        }
+
+        let uid = current_uid()?;
+        let target = format!("gui/{uid}/{LABEL}");
+
+        // kickstart requires macOS 10.10+; fall back to unload/load on older systems
+        if run_command("launchctl", &["kickstart", "-k", &target]).is_err() {
+            let plist = plist_file.to_string_lossy().to_string();
+            run_command("launchctl", &["unload", &plist])?;
+            run_command("launchctl", &["load", "-w", &plist])?;
+        }
+
+        Ok(())
+    }
+
     pub fn status() {
         let _ = Command::new("launchctl").args(["list", LABEL]).status();
     }
@@ -286,6 +339,10 @@ pub fn install(name: &str, no_auto_upgrade: bool) -> Result<(), String> {
 
 pub fn uninstall() -> Result<(), String> {
     platform::uninstall()
+}
+
+pub fn restart() -> Result<(), String> {
+    platform::restart()
 }
 
 pub fn status() {

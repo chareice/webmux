@@ -20,6 +20,8 @@ function runInstaller({
   os,
   arch,
   downloadBehavior = "success",
+  systemctlActive = false,
+  launchctlLoaded = false,
 }) {
   const tempDir = makeTempDir();
   const binDir = join(tempDir, "bin");
@@ -44,8 +46,8 @@ fi
   writeExecutable(
     join(binDir, "curl"),
     `#!/bin/sh
-if [ "$1" = "-sSL" ] && [ "$2" = "-o" ] && [ "$3" = "/dev/null" ] && [ "$4" = "-w" ]; then
-  printf 'https://github.com/chareice/webmux/releases/tag/v9.9.9'
+if [ "$1" = "-sSL" ] && [ "$2" = "https://api.github.com/repos/chareice/webmux/releases" ]; then
+  printf '%s' '[{"tag_name":"v9.9.9"}]'
   exit 0
 fi
 
@@ -63,6 +65,30 @@ echo "unexpected curl args: $*" >&2
 exit 1
 `,
   );
+
+  if (systemctlActive) {
+    writeExecutable(
+      join(binDir, "systemctl"),
+      `#!/bin/sh
+if [ "$1" = "--user" ] && [ "$2" = "is-active" ] && [ "$3" = "webmux-node" ]; then
+  exit 0
+fi
+exit 1
+`,
+    );
+  }
+
+  if (launchctlLoaded) {
+    writeExecutable(
+      join(binDir, "launchctl"),
+      `#!/bin/sh
+if [ "$1" = "list" ] && [ "$2" = "com.webmux.node" ]; then
+  exit 0
+fi
+exit 1
+`,
+    );
+  }
 
   const result = spawnSync("/bin/sh", ["scripts/install.sh"], {
     cwd: repoRoot,
@@ -112,6 +138,58 @@ test("install script explains when the latest release is missing the current pla
       result.stderr,
       /latest release .* does not include a binary for darwin\/arm64/i,
     );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("install script prints a restart note on darwin when the launchd service is loaded", () => {
+  const { result, tempDir } = runInstaller({
+    os: "Darwin",
+    arch: "arm64",
+    launchctlLoaded: true,
+  });
+
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      /NOTE: webmux-node launchd service is running\. Restart to pick up the new binary:/,
+    );
+    assert.match(result.stdout, /webmux-node service restart/);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("install script prints no restart note on darwin when the launchd service is not loaded", () => {
+  const { result, tempDir } = runInstaller({
+    os: "Darwin",
+    arch: "arm64",
+  });
+
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /NOTE: webmux-node .* service is running/);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("install script prints a restart note on linux when the systemd service is active", () => {
+  const { result, tempDir } = runInstaller({
+    os: "Linux",
+    arch: "x86_64",
+    systemctlActive: true,
+  });
+
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      /NOTE: webmux-node systemd service is running\. Restart to pick up the new binary:/,
+    );
+    assert.match(result.stdout, /webmux-node service restart/);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
