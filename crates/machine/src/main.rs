@@ -70,6 +70,8 @@ enum ServiceCommands {
     },
     /// Stop and remove the service
     Uninstall,
+    /// Restart the running service to pick up a new binary
+    Restart,
     /// Show service status
     Status,
 }
@@ -98,6 +100,9 @@ async fn main() {
             }
             ServiceCommands::Uninstall => {
                 cmd_service_uninstall();
+            }
+            ServiceCommands::Restart => {
+                cmd_service_restart();
             }
             ServiceCommands::Status => {
                 service::status();
@@ -386,6 +391,18 @@ fn cmd_service_uninstall() {
         }
         Err(e) => {
             eprintln!("Failed to uninstall service: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_service_restart() {
+    match service::restart() {
+        Ok(()) => {
+            println!("Service restarted.");
+        }
+        Err(e) => {
+            eprintln!("Failed to restart service: {}", e);
             std::process::exit(1);
         }
     }
