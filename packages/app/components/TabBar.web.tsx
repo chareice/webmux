@@ -30,6 +30,7 @@ import { Lock, Plus } from "lucide-react";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
+import { diskPercent, diskTooltip } from "@/lib/resourceStats";
 import { collectPaneTerminalIds, type WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
 import { HostSwitcher } from "./HostSwitcher.web";
 import { useLongPress } from "@/lib/longPress";
@@ -587,7 +588,7 @@ function groupAnnotation(
   return titles.length > 2 ? `${shown} +${titles.length - 2}` : shown;
 }
 
-/* ---------- cpu/mem micro-meters ---------- */
+/* ---------- cpu/mem/disk micro-meters ---------- */
 
 function MicroMeters({ stats }: { stats: ResourceStats | undefined }) {
   const cpu = stats ? Math.round(stats.cpu_percent) : null;
@@ -595,6 +596,7 @@ function MicroMeters({ stats }: { stats: ResourceStats | undefined }) {
     stats && stats.memory_total > 0
       ? Math.round((stats.memory_used / stats.memory_total) * 100)
       : null;
+  const disk = diskPercent(stats);
   return (
     <div
       data-testid="tab-bar-meters"
@@ -609,14 +611,24 @@ function MicroMeters({ stats }: { stats: ResourceStats | undefined }) {
     >
       <Meter label="cpu" percent={cpu} />
       <Meter label="mem" percent={mem} />
+      <Meter label="disk" percent={disk} title={diskTooltip(stats)} />
     </div>
   );
 }
 
-function Meter({ label, percent }: { label: string; percent: number | null }) {
+function Meter({
+  label,
+  percent,
+  title,
+}: {
+  label: string;
+  percent: number | null;
+  title?: string;
+}) {
   return (
     <span
       data-testid={`tab-bar-meter-${label}`}
+      title={title}
       style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
     >
       <span>{label}</span>

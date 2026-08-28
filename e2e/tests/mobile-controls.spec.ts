@@ -404,6 +404,9 @@ test("mobile title bar and grouped switcher expose titles, host stats, and creat
   await expect(page.getByTestId("mobile-session-header-mem")).toHaveText(
     /^mem (—|\d+%)$/,
   );
+  await expect(page.getByTestId("mobile-session-header-disk")).toHaveText(
+    /^disk (—|\d+%)$/,
+  );
 
   for (const terminalId of [firstTerminalId, secondTerminalId]) {
     const row = page.getByTestId(`mobile-session-row-${terminalId}`);
