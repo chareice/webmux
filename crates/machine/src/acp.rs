@@ -18,8 +18,10 @@ use tokio::process::{Child, ChildStdin};
 use tokio::sync::mpsc;
 
 /// initialize/session-new/session-load must answer within this window or the
-/// session fails with an Error event.
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+/// session fails with an Error event. The npx-wrapped adapters are slow cold:
+/// claude-code-acp's session/new boots a full Claude Code process (~57s
+/// measured), and a first-ever npx run also downloads the package.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(150);
 /// tool_call_update content is serialized into the event; cap it so a chatty
 /// tool can't flood the hub's event log.
 const TOOL_CALL_CONTENT_CAP: usize = 8 * 1024;
@@ -62,17 +64,51 @@ fn agent_kind_key(kind: AgentKind) -> &'static str {
 }
 
 /// Resolve the argv for an agent kind: machine.json override first, built-in
-/// default otherwise.
+/// default otherwise. A bare argv[0] that is missing from the service PATH is
+/// swapped for its well-known install location when one exists — the node
+/// usually runs as a systemd/launchd service whose PATH lacks the per-user
+/// bin dirs these CLIs install into.
 pub fn resolve_agent_command(
     overrides: &HashMap<String, Vec<String>>,
     kind: AgentKind,
 ) -> Vec<String> {
     let defaults = default_agent_commands();
-    overrides
+    let mut argv = overrides
         .get(agent_kind_key(kind))
         .or_else(|| defaults.get(agent_kind_key(kind)))
         .cloned()
-        .expect("every agent kind has a default command")
+        .expect("every agent kind has a default command");
+    if !argv[0].contains('/') && !on_path(&argv[0]) {
+        if let Some(found) = well_known_binary(&argv[0]) {
+            argv[0] = found;
+        }
+    }
+    argv
+}
+
+fn on_path(name: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| dir.join(name).is_file())
+}
+
+/// Per-user install locations the agent CLIs use, tried in order.
+fn well_known_binary(name: &str) -> Option<String> {
+    let home = std::env::var_os("HOME")?;
+    let home = std::path::PathBuf::from(home);
+    let candidates: &[&str] = match name {
+        "kimi" => &[".kimi-code/bin/kimi"],
+        "grok" => &[".grok/bin/grok"],
+        "claude" => &[".local/bin/claude"],
+        "npx" => &[".local/node/bin/npx", ".local/bin/npx"],
+        _ => &[],
+    };
+    candidates
+        .iter()
+        .map(|suffix| home.join(suffix))
+        .find(|path| path.is_file())
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 enum SessionCommand {
@@ -136,6 +172,11 @@ impl AcpManager {
         let spawn = tokio::process::Command::new(&argv[0])
             .args(&argv[1..])
             .current_dir(&cwd)
+            // A node started from inside a Claude Code terminal would leak
+            // these into the adapter, whose nested-session guard then refuses
+            // to launch claude. The agents we host are not nested sessions.
+            .env_remove("CLAUDECODE")
+            .env_remove("CLAUDE_CODE_ENTRYPOINT")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -969,6 +1010,39 @@ fn map_session_update(update: &Value) -> Option<AgentEvent> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn override_with_absolute_path_is_untouched() {
+        let overrides = HashMap::from([(
+            "kimi".to_string(),
+            vec!["/opt/custom/kimi".to_string(), "acp".to_string()],
+        )]);
+        assert_eq!(
+            resolve_agent_command(&overrides, AgentKind::Kimi),
+            vec!["/opt/custom/kimi".to_string(), "acp".to_string()],
+        );
+    }
+
+    #[test]
+    fn missing_bare_binary_falls_back_to_well_known_location() {
+        // A name that is neither on PATH nor in a well-known location keeps
+        // its bare argv (spawn then fails visibly)...
+        let overrides = HashMap::from([(
+            "grok".to_string(),
+            vec!["definitely-not-a-real-binary-xyz".to_string()],
+        )]);
+        assert_eq!(
+            resolve_agent_command(&overrides, AgentKind::Grok)[0],
+            "definitely-not-a-real-binary-xyz",
+        );
+        // ...while the well-known table only ever swaps in a file that
+        // actually exists under HOME (asserted indirectly: whatever comes
+        // back either is the bare name or an existing absolute path).
+        let resolved = resolve_agent_command(&HashMap::new(), AgentKind::Kimi);
+        if resolved[0].contains('/') {
+            assert!(std::path::Path::new(&resolved[0]).is_file());
+        }
+    }
 
     /// argv for the fake ACP agent, or None when python3/the script is
     /// unavailable (tests then skip).
