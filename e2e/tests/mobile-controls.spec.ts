@@ -339,6 +339,38 @@ test("session switcher opens with the active terminal row scrolled into view", a
   await expect(activeRow).toBeInViewport();
 });
 
+test("session switcher row closes its terminal", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+
+  const suffix = Date.now();
+  const group = await createWorkspaceGroupViaApi(page, `Close ${suffix}`);
+  const keptTerminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: group.id,
+  });
+  const closedTerminalId = await createTerminalViaApi(page, {
+    cwd: "/tmp",
+    workspaceGroupId: group.id,
+  });
+
+  await expandTerminalById(page, keptTerminalId);
+  await page.getByTestId("mobile-title-bar").click();
+  await expect(page.getByTestId("mobile-session-switcher")).toBeVisible();
+
+  // The ✕ on a non-active row closes that session without leaving the sheet.
+  await page.getByTestId(`mobile-session-close-${closedTerminalId}`).click();
+  await expect(
+    page.getByTestId(`mobile-session-row-${closedTerminalId}`),
+  ).toHaveCount(0);
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
+  await expect(
+    page.getByTestId(`mobile-session-row-${keptTerminalId}`),
+  ).toBeVisible();
+});
+
 test("mobile title bar and grouped switcher expose titles, host stats, and create-current-group", async ({
   page,
 }) => {

@@ -572,55 +572,89 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
               {panes.map(({ terminal }) => {
                 const active = terminal.id === activeTerminalId;
                 return (
-                  <button
+                  // Row = pick button + its own close button. Long-pressing the
+                  // title bar closes only the *active* session and nobody finds
+                  // it, so every session gets a visible ✕ here.
+                  <div
                     key={terminal.id}
-                    type="button"
-                    data-testid={`mobile-session-row-${terminal.id}`}
-                    aria-current={active ? "true" : undefined}
-                    onClick={() => {
-                      onPickTerminal(terminal.id);
-                      setSessionSwitcherOpen(false);
-                    }}
                     style={{
-                      display: "block",
-                      width: "100%",
-                      padding: "11px 18px",
-                      color: colors.fg1,
-                      textAlign: "left",
+                      display: "flex",
+                      alignItems: "stretch",
                       background: active ? colors.bg2 : "transparent",
-                      border: "none",
                       borderLeft: active
                         ? `3px solid ${colors.accent}`
                         : "3px solid transparent",
-                      cursor: "pointer",
                     }}
                   >
-                    <span
+                    <button
+                      type="button"
+                      data-testid={`mobile-session-row-${terminal.id}`}
+                      aria-current={active ? "true" : undefined}
+                      onClick={() => {
+                        onPickTerminal(terminal.id);
+                        setSessionSwitcherOpen(false);
+                      }}
                       style={{
                         display: "block",
-                        color: colors.fg0,
-                        fontSize: 14,
-                        fontWeight: active ? 700 : 500,
-                        whiteSpace: "normal",
-                        overflowWrap: "anywhere",
+                        flex: 1,
+                        minWidth: 0,
+                        padding: "11px 8px 11px 18px",
+                        color: colors.fg1,
+                        textAlign: "left",
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
                       }}
                     >
-                      {displayTerminalTitle(terminal)}
-                    </span>
-                    <span
+                      <span
+                        style={{
+                          display: "block",
+                          color: colors.fg0,
+                          fontSize: 14,
+                          fontWeight: active ? 700 : 500,
+                          whiteSpace: "normal",
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {displayTerminalTitle(terminal)}
+                      </span>
+                      <span
+                        style={{
+                          display: "block",
+                          marginTop: 3,
+                          color: colors.fg3,
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          whiteSpace: "normal",
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {terminal.cwd}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid={`mobile-session-close-${terminal.id}`}
+                      disabled={!canCreateTerminal}
+                      title="Close terminal"
+                      aria-label={`Close ${displayTerminalTitle(terminal)}`}
+                      onClick={() => onCloseTerminal(terminal)}
                       style={{
-                        display: "block",
-                        marginTop: 3,
+                        flexShrink: 0,
+                        width: 48,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "transparent",
+                        border: "none",
                         color: colors.fg3,
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 11,
-                        whiteSpace: "normal",
-                        overflowWrap: "anywhere",
+                        cursor: canCreateTerminal ? "pointer" : "not-allowed",
+                        opacity: canCreateTerminal ? 1 : 0.4,
                       }}
                     >
-                      {terminal.cwd}
-                    </span>
-                  </button>
+                      <X size={16} />
+                    </button>
+                  </div>
                 );
               })}
             </section>
