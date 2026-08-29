@@ -47,7 +47,9 @@ test("new-session dialog creates a kimi session and the chat view streams a repl
   );
 
   // The tool-call row appears and completes.
-  const toolRow = page.locator("[data-testid^='agent-tool-call-fake-call-']");
+  // Exact id: the row's children carry derived testids (-status/-content),
+  // so a prefix locator would also match them.
+  const toolRow = page.getByTestId("agent-tool-call-fake-call-1");
   await expect(toolRow).toHaveCount(1);
   await expect(toolRow).toContainText("fake tool");
   await expect(toolRow).toContainText("completed");
