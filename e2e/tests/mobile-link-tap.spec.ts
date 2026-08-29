@@ -46,27 +46,46 @@ test("tapping a terminal hyperlink on touch opens it", async ({ page }) => {
     })
     .toContain(LINK);
 
-  // Locate the URL on screen: xterm renders rows as absolutely positioned
-  // divs, so the row rect plus a cell-width estimate gives a tap point
-  // inside the link text.
+  // Locate the URL on screen through the terminal buffer + cell metrics.
+  // The WebGL renderer paints text onto canvases, so there are no DOM text
+  // rows to search — the buffer is the renderer-agnostic source of truth.
   const target = await page.evaluate((link) => {
     const screen = document.querySelector(".xterm-screen") as HTMLElement;
     const screenRect = screen.getBoundingClientRect();
     const terminals = (
-      window as unknown as { __webmuxTerminals?: Map<string, { cols: number }> }
+      window as unknown as {
+        __webmuxTerminals?: Map<
+          string,
+          {
+            cols: number;
+            rows: number;
+            buffer: {
+              active: {
+                viewportY: number;
+                getLine(
+                  y: number,
+                ): { translateToString(trim: boolean): string } | undefined;
+              };
+            };
+          }
+        >;
+      }
     ).__webmuxTerminals;
-    const cols = terminals?.values().next().value?.cols ?? 80;
-    const cellWidth = screenRect.width / cols;
-    for (const row of Array.from(
-      document.querySelectorAll(".xterm-rows > div"),
-    ) as HTMLElement[]) {
-      const index = (row.textContent ?? "").indexOf(link);
+    const term = terminals?.values().next().value;
+    if (!term) return null;
+    const cellWidth = screenRect.width / term.cols;
+    const cellHeight = screenRect.height / term.rows;
+    const buffer = term.buffer.active;
+    for (let rowIndex = 0; rowIndex < term.rows; rowIndex++) {
+      const text =
+        buffer.getLine(buffer.viewportY + rowIndex)?.translateToString(true) ??
+        "";
+      const index = text.indexOf(link);
       if (index < 0) continue;
-      const rowRect = row.getBoundingClientRect();
       return {
         // Aim at the middle of the link text, not its first character.
         x: Math.round(screenRect.left + cellWidth * (index + link.length / 2)),
-        y: Math.round(rowRect.top + rowRect.height / 2),
+        y: Math.round(screenRect.top + cellHeight * (rowIndex + 0.5)),
       };
     }
     return null;

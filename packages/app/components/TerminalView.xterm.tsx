@@ -41,6 +41,7 @@ import { useDisplayMode } from "@/lib/hooks";
 import { usePrefixKey } from "@/lib/prefixKeyContext";
 import { filterBrowserGeneratedTerminalInput } from "@/lib/terminalInputFilter";
 import { createWheelDirectionGate } from "@/lib/terminalWheelGate";
+import { activateGpuRenderer } from "@/lib/terminalGpuRenderer";
 import { resolveTerminalFontFamily } from "@/lib/terminalFonts";
 
 const TERM_COLS = 120;
@@ -605,6 +606,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         ),
       );
       term.open(container);
+      // GPU rendering with guarded activation: context loss or any failure
+      // falls back to the DOM renderer, and the texture atlas is cleared
+      // periodically to stay clear of the upstream atlas-corruption bug
+      // that got WebGL removed in PR #230. See lib/terminalGpuRenderer.ts.
+      const gpuRenderer = activateGpuRenderer(term);
       const restoreMouseCoordinates = patchScaledMouseCoordinates(term);
       scheduleMeasure();
 
@@ -957,6 +963,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           winAny.__webmuxTerminals?.delete(terminalId);
         }
         restoreMouseCoordinates();
+        gpuRenderer.dispose();
         term.dispose();
         if (termRef.current === term) {
           termRef.current = null;
