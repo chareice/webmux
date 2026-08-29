@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rusqlite::{params, Connection};
-use tc_protocol::{AgentKind, AgentSessionInfo, AgentSessionStatus};
+use tc_protocol::{AgentKind, AgentModelInfo, AgentSessionInfo, AgentSessionStatus};
 
 use super::now_ms;
 use super::types::AgentSessionRow;
@@ -62,6 +62,10 @@ pub fn row_to_info(row: &AgentSessionRow) -> AgentSessionInfo {
         auto_run: row.auto_run,
         acp_session_id: row.acp_session_id.clone(),
         workspace_group_id: row.workspace_group_id.clone(),
+        // Stored by the hub itself from validated machine updates; a
+        // malformed row degrades to "no models" rather than failing reads.
+        available_models: serde_json::from_str(&row.available_models).unwrap_or_default(),
+        current_model_id: row.current_model_id.clone(),
         last_event_seq: row.last_event_seq.max(0) as u64,
         created_at_ms: row.created_at,
     }
@@ -79,14 +83,18 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<AgentSessionRow> {
         auto_run: row.get::<_, i64>(7)? != 0,
         acp_session_id: row.get(8)?,
         workspace_group_id: row.get(9)?,
-        last_event_seq: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        available_models: row.get(10)?,
+        current_model_id: row.get(11)?,
+        requested_model_id: row.get(12)?,
+        last_event_seq: row.get(13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
     })
 }
 
 const COLUMNS: &str = "id, user_id, machine_id, agent_kind, cwd, title, status, auto_run, \
-     acp_session_id, workspace_group_id, last_event_seq, created_at, updated_at";
+     acp_session_id, workspace_group_id, available_models, current_model_id, \
+     requested_model_id, last_event_seq, created_at, updated_at";
 
 #[allow(clippy::too_many_arguments)]
 pub fn insert_session(
@@ -100,13 +108,14 @@ pub fn insert_session(
     status: AgentSessionStatus,
     auto_run: bool,
     workspace_group_id: Option<&str>,
+    requested_model_id: Option<&str>,
 ) -> rusqlite::Result<()> {
     let now = now_ms();
     conn.execute(
         "INSERT INTO agent_sessions
             (id, user_id, machine_id, agent_kind, cwd, title, status, auto_run,
-             workspace_group_id, last_event_seq, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10, ?10)",
+             workspace_group_id, requested_model_id, last_event_seq, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?11)",
         params![
             id,
             user_id,
@@ -117,6 +126,7 @@ pub fn insert_session(
             status_name(status),
             auto_run as i64,
             workspace_group_id,
+            requested_model_id,
             now
         ],
     )?;
@@ -144,12 +154,15 @@ pub fn find_sessions_by_user(
 }
 
 /// Apply a machine-reported update; fields left `None` are unchanged.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_update(
     conn: &Connection,
     id: &str,
     status: Option<AgentSessionStatus>,
     title: Option<&str>,
     acp_session_id: Option<&str>,
+    available_models: Option<&[AgentModelInfo]>,
+    current_model_id: Option<&str>,
 ) -> rusqlite::Result<()> {
     let now = now_ms();
     if let Some(status) = status {
@@ -170,6 +183,20 @@ pub fn apply_update(
             params![acp_session_id, now, id],
         )?;
     }
+    if let Some(models) = available_models {
+        let json = serde_json::to_string(models)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        conn.execute(
+            "UPDATE agent_sessions SET available_models = ?1, updated_at = ?2 WHERE id = ?3",
+            params![json, now, id],
+        )?;
+    }
+    if let Some(model_id) = current_model_id {
+        conn.execute(
+            "UPDATE agent_sessions SET current_model_id = ?1, updated_at = ?2 WHERE id = ?3",
+            params![model_id, now, id],
+        )?;
+    }
     Ok(())
 }
 
@@ -178,7 +205,7 @@ pub fn set_status(
     id: &str,
     status: AgentSessionStatus,
 ) -> rusqlite::Result<()> {
-    apply_update(conn, id, Some(status), None, None)
+    apply_update(conn, id, Some(status), None, None, None, None)
 }
 
 /// A machine-assigned event seq is only ever interesting if it advances the
@@ -360,6 +387,7 @@ mod tests {
             AgentSessionStatus::Starting,
             true,
             None,
+            None,
         )
         .unwrap();
     }
@@ -395,12 +423,70 @@ mod tests {
             Some(AgentSessionStatus::Working),
             None,
             Some("acp-9"),
+            None,
+            None,
         )
         .unwrap();
         let row = find_session(&conn, "s-1").unwrap().unwrap();
         assert_eq!(row.status, "working");
         assert_eq!(row.acp_session_id.as_deref(), Some("acp-9"));
         assert_eq!(row.title, "repo", "untouched fields stay");
+    }
+
+    #[test]
+    fn model_state_round_trips_and_updates_partially() {
+        let conn = test_db();
+        insert_session(
+            &conn,
+            "s-1",
+            "user-a",
+            "machine-a",
+            AgentKind::Kimi,
+            "/work/repo",
+            "repo",
+            AgentSessionStatus::Starting,
+            true,
+            None,
+            Some("kimi-code/k3"),
+        )
+        .unwrap();
+        let row = find_session(&conn, "s-1").unwrap().unwrap();
+        assert_eq!(row.requested_model_id.as_deref(), Some("kimi-code/k3"));
+        assert_eq!(row.available_models, "[]");
+        assert_eq!(row.current_model_id, None);
+
+        let models = vec![
+            AgentModelInfo {
+                model_id: "kimi-code/k3".to_string(),
+                name: "K3".to_string(),
+                description: None,
+            },
+            AgentModelInfo {
+                model_id: "kimi-code/k3-256k".to_string(),
+                name: "K3-256k".to_string(),
+                description: Some("long context".to_string()),
+            },
+        ];
+        apply_update(&conn, "s-1", None, None, None, Some(&models), Some("kimi-code/k3"))
+            .unwrap();
+        let info = row_to_info(&find_session(&conn, "s-1").unwrap().unwrap());
+        assert_eq!(info.available_models, models);
+        assert_eq!(info.current_model_id.as_deref(), Some("kimi-code/k3"));
+
+        // A status-only update leaves the model state alone.
+        apply_update(
+            &conn,
+            "s-1",
+            Some(AgentSessionStatus::Idle),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let info = row_to_info(&find_session(&conn, "s-1").unwrap().unwrap());
+        assert_eq!(info.available_models.len(), 2);
+        assert_eq!(info.status, AgentSessionStatus::Idle);
     }
 
     #[test]
