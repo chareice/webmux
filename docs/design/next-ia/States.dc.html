@@ -1,0 +1,326 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+  <style>
+    body { margin: 0; background: #0b0c0f; }
+    * { box-sizing: border-box; }
+    a { color: #fb9d59; text-decoration: none; }
+    a:hover { color: #f7f8fb; }
+    .sans { font-family: 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-feature-settings: 'ss01','cv11'; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+  </style>
+</helmet>
+
+<div class="sans" style="width: 1140px; height: 1140px; background: #0b0c0f; color: #ccced1; font-size: 13px; padding: 34px 36px; display: flex; flex-direction: column; gap: 24px; overflow: hidden;">
+
+  <div style="display: flex; align-items: flex-end; gap: 14px; padding-bottom: 16px; border-bottom: 1px solid #27292d;">
+    <div>
+      <div style="font-size: 19px; font-weight: 600; color: #f7f8fb;">Status system</div>
+      <div style="font-size: 12.5px; color: #909297; margin-top: 5px;">工具默认自动放行,agent 只在<span style="color: #f7f8fb;">被堵住</span>时才叫你。琥珀只留给这一种情况;干完一轮只留一个未读记号。</div>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div class="mono" style="font-size: 10px; color: #5b5e62; border: 1px solid #27292d; border-radius: 999px; padding: 4px 10px; flex-shrink: 0;">webmux · sidebar spec</div>
+  </div>
+
+  <div style="display: flex; gap: 36px; flex-grow: 1; min-height: 0;">
+
+    <!-- ============ LEFT ============ -->
+    <div style="width: 520px; flex-shrink: 0; display: flex; flex-direction: column; gap: 22px;">
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #5b5e62;">SESSION ROW · 5 STATES</div>
+
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 250px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px 0 6px; border-radius: 6px; background: rgba(251,157,89,0.07); border-left: 2px solid #fb9d59;">
+            <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(251,157,89,0.4); background: rgba(251,157,89,0.12); color: #fb9d59; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</div>
+            <div style="flex-grow: 1; font-size: 13px; font-weight: 500; color: #f7f8fb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">重构侧栏 IA</div>
+            <div class="mono" style="font-size: 10px; color: #a8764e; flex-shrink: 0;">1m</div>
+            <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="5.5" fill="#fb9d59" opacity="0.2"></circle><path d="M6 2 10 6 6 10 2 6z" fill="#fb9d59"></path></svg>
+          </div>
+          <div style="min-width: 0;">
+            <div style="font-size: 12.5px; font-weight: 600; color: #fb9d59;">waiting on you</div>
+            <div style="font-size: 11.5px; color: #909297; margin-top: 2px; line-height: 1.5;">agent 抛了问题,<span style="color: #ccced1;">被堵住了</span>。菱形 + 左侧 2px 琥珀条 + 行底色。唯一用品牌色的状态。</div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 250px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px;">
+            <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(99,209,143,0.35); background: rgba(99,209,143,0.1); color: #63d18f; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</div>
+            <div style="flex-grow: 1; font-size: 13px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">修 tmux scope 级联杀</div>
+            <div class="mono" style="font-size: 10px; color: #5b5e62; flex-shrink: 0;">2m</div>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#69c1fc" stroke-width="3" stroke-linecap="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="9" opacity="0.25"></circle><path d="M12 3a9 9 0 0 1 9 9"></path></svg>
+          </div>
+          <div style="min-width: 0;">
+            <div style="font-size: 12.5px; font-weight: 600; color: #69c1fc;">working</div>
+            <div style="font-size: 11.5px; color: #909297; margin-top: 2px; line-height: 1.5;">info 蓝旋转弧,1.6s 一圈。冷色 = 在跑,别管它。</div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 250px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px;">
+            <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid #3a3d42; background: #1f2226; color: #909297; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">GR</div>
+            <div style="flex-grow: 1; font-size: 13px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">查线上 502</div>
+            <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="4" fill="none" stroke="#5b5e62" stroke-width="1.6"></circle></svg>
+          </div>
+          <div style="min-width: 0;">
+            <div style="font-size: 12.5px; font-weight: 600; color: #909297;">idle</div>
+            <div style="font-size: 11.5px; color: #909297; margin-top: 2px; line-height: 1.5;">没在跑也没堵住。agent 干完一轮后落到这里,通常还带一个未读记号。</div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 250px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px;">
+            <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(187,154,244,0.35); background: rgba(187,154,244,0.1); color: #bb9af4; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">KI</div>
+            <div style="flex-grow: 1; font-size: 13px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">结算页埋点补齐</div>
+            <div class="mono" style="font-size: 10px; color: #fa6863; flex-shrink: 0;">exit 1</div>
+            <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="3.6" fill="#fa6863"></circle></svg>
+          </div>
+          <div style="min-width: 0;">
+            <div style="font-size: 12.5px; font-weight: 600; color: #fa6863;">error</div>
+            <div style="font-size: 11.5px; color: #909297; margin-top: 2px; line-height: 1.5;">实心红点 + 退出码。agent 崩了、ACP 握手失败,或终端进程非零退出。</div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 250px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; opacity: 0.5;">
+            <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(251,157,89,0.4); background: rgba(251,157,89,0.12); color: #fb9d59; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</div>
+            <div style="flex-grow: 1; font-size: 13px; color: #909297; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">客户回复 SOP 更新</div>
+            <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="4" fill="none" stroke="#5b5e62" stroke-width="1.6" stroke-dasharray="2.2 1.8"></circle></svg>
+          </div>
+          <div style="min-width: 0;">
+            <div style="font-size: 12.5px; font-weight: 600; color: #909297;">disconnected</div>
+            <div style="font-size: 11.5px; color: #909297; margin-top: 2px; line-height: 1.5;">虚线环 + 整行 50% 透明。机器掉线,会话还在 tmux 里活着。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- unread marker -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #5b5e62;">UNREAD MARKER · 叠在状态之上,不是状态</div>
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 250px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px;">
+            <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(251,157,89,0.4); background: rgba(251,157,89,0.12); color: #fb9d59; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</div>
+            <div style="flex-grow: 1; font-size: 13px; font-weight: 600; color: #f7f8fb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">桌面端 updater 签名核对</div>
+            <div class="mono" style="font-size: 10px; color: #5b5e62; flex-shrink: 0;">12m</div>
+            <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="3.2" fill="#f7f8fb"></circle></svg>
+          </div>
+          <div style="min-width: 0;">
+            <div style="font-size: 12.5px; font-weight: 600; color: #f7f8fb;">unread</div>
+            <div style="font-size: 11.5px; color: #909297; margin-top: 2px; line-height: 1.5;">标题加粗 + 小实心点,聊天软件的未读语义。agent 干完一轮就是这个,<span style="color: #ccced1;">不进琥珀、不进收件箱</span>。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ladder -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #5b5e62;">ATTENTION LADDER</div>
+        <div style="display: flex; align-items: stretch; gap: 6px;">
+          <div style="flex-grow: 1; padding: 10px 11px; border-radius: 8px; border: 1px solid rgba(251,157,89,0.4); background: rgba(251,157,89,0.08);">
+            <div class="mono" style="font-size: 9.5px; color: #a8764e; letter-spacing: 0.6px;">01 BLOCKED</div>
+            <div style="font-size: 12px; font-weight: 600; color: #fb9d59; margin-top: 4px;">waiting on you</div>
+          </div>
+          <div style="flex-grow: 1; padding: 10px 11px; border-radius: 8px; border: 1px solid rgba(250,104,99,0.3); background: rgba(250,104,99,0.06);">
+            <div class="mono" style="font-size: 9.5px; color: #5b5e62; letter-spacing: 0.6px;">02 BROKEN</div>
+            <div style="font-size: 12px; font-weight: 600; color: #fa6863; margin-top: 4px;">error</div>
+          </div>
+          <div style="flex-grow: 1; padding: 10px 11px; border-radius: 8px; border: 1px solid #3a3d42; background: #171a1d;">
+            <div class="mono" style="font-size: 9.5px; color: #5b5e62; letter-spacing: 0.6px;">03 NEW TO YOU</div>
+            <div style="font-size: 12px; font-weight: 600; color: #f7f8fb; margin-top: 4px;">unread</div>
+          </div>
+          <div style="flex-grow: 1; padding: 10px 11px; border-radius: 8px; border: 1px solid #1b1d20; background: #111316;">
+            <div class="mono" style="font-size: 9.5px; color: #5b5e62; letter-spacing: 0.6px;">04 IGNORE</div>
+            <div style="font-size: 12px; font-weight: 600; color: #69c1fc; margin-top: 4px;">working</div>
+          </div>
+        </div>
+        <div style="font-size: 11.5px; color: #909297; line-height: 1.6;">树的顺序<span style="color: #f7f8fb;">不</span>按状态重排——空间记忆比排序更值钱。优先级只驱动收件箱的顺序和 <span class="mono" style="font-size: 11px; color: #fb9d59;">⇧⌘J</span> 的跳转目标。</div>
+      </div>
+
+      <!-- auto-run & production -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #5b5e62;">AUTO-RUN · 红线只按机器划</div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div class="mono" style="display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px; border: 1px solid #27292d; background: #171a1d; color: #909297; font-size: 10px; flex-shrink: 0;">auto-run</div>
+          <div style="font-size: 11.5px; color: #909297;">默认。工具调用一律放行。</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div class="mono" style="display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px; border-radius: 4px; border: 1px solid rgba(234,191,58,0.4); background: rgba(234,191,58,0.1); color: #eabf3a; font-size: 10px; flex-shrink: 0;">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg>auto-run off
+          </div>
+          <div style="font-size: 11.5px; color: #909297;">机器打了 <span class="mono" style="font-size: 10px; color: #eabf3a;">PROD</span> 标时的默认,可单次覆盖。</div>
+        </div>
+        <div style="font-size: 11.5px; color: #909297; line-height: 1.6;">红线是<span style="color: #f7f8fb;">机器</span>这个维度,不做命令 pattern 拦截——「哪台机器碰不得」你说得清,「哪条命令危险」说不清。</div>
+      </div>
+
+      <!-- session types -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #5b5e62;">SESSION TYPE · 22×15 MONOGRAM</div>
+        <div style="display: flex; align-items: center; gap: 18px;">
+          <div style="display: flex; align-items: center; gap: 7px;">
+            <div class="mono" style="width: 22px; height: 15px; border-radius: 4px; border: 1px solid rgba(251,157,89,0.4); background: rgba(251,157,89,0.12); color: #fb9d59; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</div>
+            <div style="font-size: 11.5px; color: #909297;">claude</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 7px;">
+            <div class="mono" style="width: 22px; height: 15px; border-radius: 4px; border: 1px solid rgba(99,209,143,0.35); background: rgba(99,209,143,0.1); color: #63d18f; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</div>
+            <div style="font-size: 11.5px; color: #909297;">codex</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 7px;">
+            <div class="mono" style="width: 22px; height: 15px; border-radius: 4px; border: 1px solid #3a3d42; background: #1f2226; color: #909297; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">GR</div>
+            <div style="font-size: 11.5px; color: #909297;">grok</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 7px;">
+            <div class="mono" style="width: 22px; height: 15px; border-radius: 4px; border: 1px solid rgba(187,154,244,0.35); background: rgba(187,154,244,0.1); color: #bb9af4; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">KI</div>
+            <div style="font-size: 11.5px; color: #909297;">kimi</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 7px;">
+            <div class="mono" style="width: 22px; height: 15px; border-radius: 4px; border: 1px solid #27292d; background: #171a1d; color: #909297; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">&gt;_</div>
+            <div style="font-size: 11.5px; color: #909297;">terminal</div>
+          </div>
+        </div>
+        <div style="padding: 10px 12px; border-radius: 8px; border: 1px solid #27292d; background: #111316;">
+          <div style="font-size: 12px; font-weight: 600; color: #f7f8fb;">琥珀色只出现在 agent 会话上</div>
+          <div style="font-size: 11.5px; color: #909297; margin-top: 4px; line-height: 1.6;"><span class="mono" style="font-size: 11px; color: #ccced1;">&gt;_</span> 终端会话只有 working / idle / error / disconnected——<span style="color: #ccced1;">没有 chat 视图,也没有旁白</span>。webmux 无法可靠判断一个 shell 是不是在等你输入,所以「轮到你了」只从 ACP 事件流来。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ RIGHT ============ -->
+    <div style="width: 496px; flex-shrink: 0; display: flex; flex-direction: column; gap: 22px;">
+
+      <!-- reply inbox: asked only -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #5b5e62;">REPLY INBOX · ASKED ONLY</div>
+
+        <div style="border-radius: 10px; border: 1px solid #27292d; background: #171a1d; box-shadow: 0 14px 40px rgb(0 0 0 / 0.5); overflow: hidden;">
+          <div style="display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 12px; background: rgba(251,157,89,0.09); border-bottom: 1px solid rgba(251,157,89,0.22);">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fb9d59" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M21 15.5a2 2 0 0 1-2 2H8l-4 3.5v-15a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"></path></svg>
+            <div style="flex-grow: 1; font-size: 12.5px; font-weight: 600; color: #fb9d59;">2 waiting on you</div>
+            <div class="mono" style="font-size: 10px; color: #a8764e; border: 1px solid rgba(251,157,89,0.28); border-radius: 4px; padding: 2px 5px;">⇧⌘J</div>
+          </div>
+
+          <div style="padding: 11px 12px; border-bottom: 1px solid #1b1d20;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(251,157,89,0.4); background: rgba(251,157,89,0.12); color: #fb9d59; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</div>
+              <div style="font-size: 12.5px; font-weight: 500; color: #f7f8fb; flex-shrink: 0;">重构侧栏 IA</div>
+              <div class="mono" style="font-size: 10px; color: #5b5e62; flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">nas · webmux</div>
+              <div class="mono" style="font-size: 10px; color: #a8764e; flex-shrink: 0;">1m</div>
+            </div>
+            <div style="font-size: 12px; color: #ccced1; margin: 8px 0 9px 0; line-height: 1.55;">同一个仓库 checkout 在两台机器上,侧栏该怎么显示?</div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <div style="display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 6px; background: #1f2226; border: 1px solid #3a3d42; color: #ccced1;">
+                <span class="mono" style="font-size: 9px; font-weight: 700; color: #909297;">A</span>
+                <span style="font-size: 11.5px;">分成两组</span>
+              </div>
+              <div style="display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 6px; background: #1f2226; border: 1px solid #3a3d42; color: #ccced1;">
+                <span class="mono" style="font-size: 9px; font-weight: 700; color: #909297;">B</span>
+                <span style="font-size: 11.5px;">合并成一组</span>
+              </div>
+              <div style="flex-grow: 1;"></div>
+              <div style="display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 6px; color: #909297; font-size: 11.5px;">
+                Open
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"></polyline></svg>
+              </div>
+            </div>
+          </div>
+
+          <div style="padding: 11px 12px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(187,154,244,0.35); background: rgba(187,154,244,0.1); color: #bb9af4; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">KI</div>
+              <div style="font-size: 12.5px; font-weight: 500; color: #f7f8fb; flex-shrink: 0;">商品详情页 SSR 迁移</div>
+              <div class="mono" style="font-size: 10px; color: #5b5e62; flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">nas · zalify</div>
+              <div class="mono" style="font-size: 10px; color: #a8764e; flex-shrink: 0;">4m</div>
+            </div>
+            <div style="font-size: 12px; color: #ccced1; margin: 8px 0 9px 0; line-height: 1.55;">老的 <span class="mono" style="font-size: 11px; color: #ccced1;">getServerSideProps</span> 里有一段直接读 redis,迁到 RSC 之后要不要保留这层缓存?</div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <div style="flex-grow: 1; height: 26px; display: flex; align-items: center; padding: 0 10px; border-radius: 6px; background: #0b0c0f; border: 1px solid #27292d; font-size: 11.5px; color: #5b5e62;">直接回复…</div>
+              <div style="display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 6px; color: #909297; font-size: 11.5px; flex-shrink: 0;">
+                Open
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"></polyline></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size: 11.5px; color: #909297; line-height: 1.6;">收件箱<span style="color: #f7f8fb;">只装被堵住的会话</span>。带选项的能就地答完,开放式的给输入框。干完一轮的会话不进这里——它只是个未读。</div>
+      </div>
+
+      <!-- extinguish rules -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #5b5e62;">什么时候熄灭</div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="display: flex; align-items: flex-start; gap: 10px; padding: 9px 11px; border-radius: 8px; border: 1px solid rgba(251,157,89,0.3); background: rgba(251,157,89,0.05);">
+            <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0; margin-top: 3px;"><path d="M6 2 10 6 6 10 2 6z" fill="#fb9d59"></path></svg>
+            <div style="min-width: 0;">
+              <div style="font-size: 12px; font-weight: 600; color: #fb9d59;">琥珀:看不熄,答了才熄</div>
+              <div style="font-size: 11.5px; color: #909297; margin-top: 3px; line-height: 1.55;">点选项、打字回复、或者切到终端里直接答——都算。光是打开看一眼不算。</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 10px; padding: 9px 11px; border-radius: 8px; border: 1px solid #3a3d42; background: #171a1d;">
+            <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0; margin-top: 3px;"><circle cx="6" cy="6" r="3.2" fill="#f7f8fb"></circle></svg>
+            <div style="min-width: 0;">
+              <div style="font-size: 12px; font-weight: 600; color: #f7f8fb;">未读:看过即熄</div>
+              <div style="font-size: 11.5px; color: #909297; margin-top: 3px; line-height: 1.55;">打开会话就消。<span style="color: #ccced1;">没有「知道了」按钮</span>——多一个按钮就多一份待办债。</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 10px; padding: 9px 11px; border-radius: 8px; border: 1px solid #27292d; background: #111316;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#69c1fc" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;"><path d="M4 11a8 8 0 0 1 13.7-5.7L21 8"></path><polyline points="21 3 21 8 16 8"></polyline><path d="M20 13a8 8 0 0 1-13.7 5.7L3 16"></path><polyline points="3 21 3 16 8 16"></polyline></svg>
+            <div style="min-width: 0;">
+              <div style="font-size: 12px; font-weight: 600; color: #ccced1;">已读跟账号走,不跟设备</div>
+              <div style="font-size: 11.5px; color: #909297; margin-top: 3px; line-height: 1.55;">手机上看过,桌面那条也熄。否则通勤路上刷一遍,回到工位又是一片未读。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- control lease -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #5b5e62;">CONTROL LEASE · 3 STATES</div>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div class="mono" style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(251,157,89,0.15); border: 1px solid #fb9d59; color: #fb9d59; font-size: 11px; font-weight: 600;">
+            <span style="width: 6px; height: 6px; border-radius: 999px; background: #fb9d59;"></span>Control
+          </div>
+          <div class="mono" style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(144,146,151,0.15); border: 1px solid #27292d; color: #909297; font-size: 11px; font-weight: 600;">
+            <span style="width: 6px; height: 6px; border-radius: 999px; background: #909297;"></span>viewing
+          </div>
+          <div class="mono" style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(144,146,151,0.15); border: 1px solid #27292d; color: #909297; font-size: 11px; font-weight: 600;">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2"></rect><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path></svg>view only
+          </div>
+        </div>
+
+        <div style="border: 1px solid #27292d; border-radius: 10px; background: #111316; overflow: hidden;">
+          <div style="padding: 10px 12px 8px 12px; font-size: 12.5px; color: #3d4045;">Reply to claude…</div>
+          <div style="display: flex; align-items: center; gap: 8px; padding: 0 10px 10px 12px;">
+            <div class="mono" style="font-size: 10.5px; color: #5b5e62; flex-grow: 1;">mbp-m3 持有控制权 · 你在旁观</div>
+            <div style="display: inline-flex; align-items: center; height: 26px; padding: 0 12px; border-radius: 6px; border: 1px solid #fb9d59; color: #fb9d59; font-size: 11.5px; font-weight: 600; flex-shrink: 0;">Take control</div>
+          </div>
+        </div>
+        <div style="font-size: 11.5px; color: #909297; line-height: 1.6;">非 controller 的设备读得到整条消息流,但输入框是死的。接管按钮就长在输入框里。</div>
+      </div>
+
+      <!-- reach -->
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="mono" style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #5b5e62;">REACH · WHEN THE TAB ISN'T FOCUSED</div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 8px 11px; border-radius: 8px; border: 1px solid #27292d; background: #111316;">
+            <div class="mono" style="display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 9px; border-radius: 6px; background: #1f2226; border: 1px solid #27292d; font-size: 11px; color: #ccced1; flex-shrink: 0;">
+              <span style="width: 6px; height: 6px; border-radius: 999px; background: #fb9d59;"></span>(2) webmux
+            </div>
+            <div style="font-size: 11.5px; color: #909297;">标题只数琥珀,未读不进计数。</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; padding: 8px 11px; border-radius: 8px; border: 1px solid #27292d; background: #111316;">
+            <div class="mono" style="display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; background: #1f2226; border: 1px solid #27292d; font-size: 11px; color: #909297; flex-shrink: 0;">push</div>
+            <div style="font-size: 11.5px; color: #909297;">手机通知只发 waiting 和 error。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
