@@ -98,6 +98,12 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&args.listen).await.unwrap();
 
     tracing::info!("Hub running on http://{}", args.listen);
+    // Nagle's algorithm batches small TCP segments while ACKs are outstanding,
+    // which turns per-keystroke WS frames into visible latency spikes. axum
+    // does not set TCP_NODELAY on accepted connections by default.
+    let listener = axum::serve::ListenerExt::tap_io(listener, |io| {
+        let _ = io.set_nodelay(true);
+    });
     axum::serve(listener, app).await.unwrap();
 }
 

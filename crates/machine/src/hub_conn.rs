@@ -95,6 +95,21 @@ impl HubConnection {
             .await
             .map_err(|e| format!("WebSocket connect failed: {}", e))?;
 
+        // Terminal output is a stream of small, latency-sensitive frames.
+        // Without TCP_NODELAY, Nagle holds them back while ACKs are in
+        // flight and keystroke echo stutters.
+        {
+            use tokio_tungstenite::MaybeTlsStream;
+            let tcp = match ws_stream.get_ref() {
+                MaybeTlsStream::Plain(tcp) => Some(tcp),
+                MaybeTlsStream::Rustls(tls) => Some(tls.get_ref().0),
+                _ => None,
+            };
+            if let Some(tcp) = tcp {
+                let _ = tcp.set_nodelay(true);
+            }
+        }
+
         let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
         // Send registration with real machine_secret
