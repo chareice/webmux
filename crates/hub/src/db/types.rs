@@ -18,6 +18,23 @@ pub struct MachineRow {
     pub home_dir: Option<String>,
     pub last_seen_at: Option<i64>,
     pub created_at: i64,
+    pub production: bool,
+}
+
+pub struct AgentSessionRow {
+    pub id: String,
+    pub user_id: String,
+    pub machine_id: String,
+    pub agent_kind: String,
+    pub cwd: String,
+    pub title: String,
+    pub status: String,
+    pub auto_run: bool,
+    pub acp_session_id: Option<String>,
+    pub workspace_group_id: Option<String>,
+    pub last_event_seq: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 pub struct BookmarkRow {
