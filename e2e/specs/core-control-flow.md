@@ -12,7 +12,7 @@
 1. **action:** In browser session A, open http://localhost:4317
    **eval:** The desktop workbench loads with the left sidebar (a hosts rail on top with online dots and cpu/mem/disk micro-meters per host, the session tree in the middle, and a "viewing" pill in the bottom control area — the pill only appears while the session is not the controller). The main area shows the empty state "No terminals yet" (no "Start terminal" button is shown because session A is not yet the controller).
 
-2. **action:** In browser session A, click the "viewing" pill in the sidebar's bottom control area to take control, then click "Start terminal" in the empty state (or the sidebar's ＋ button / press `⌃B c`).
+2. **action:** In browser session A, click the "viewing" pill in the sidebar's bottom control area to take control, then click "Start terminal" in the empty state (or the sidebar's ＋ button (new-session dialog → terminal) / press `⌃B c`).
    **eval:** The "viewing" pill is replaced by the view-only lock button (controlling is the normal state). A terminal pane appears in the workspace, showing live terminal content.
 
 3. **action:** In browser session B, open http://localhost:4317
