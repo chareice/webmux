@@ -35,7 +35,23 @@ test("live terminal keeps xterm glyphs for progress blocks", async ({
   await expect
     .poll(async () => readVisibleXtermScrollbarCount(page), { timeout: 5_000 })
     .toBe(0);
+
+  // The live terminal must actually be on the WebGL renderer in the
+  // standardized runner browser (SwiftShader provides WebGL there). A
+  // silent fallback to the DOM renderer would pass every other assertion
+  // while giving up an order of magnitude of output throughput. The
+  // WebGL addon renders into <canvas> layers inside .xterm; the DOM
+  // renderer creates none.
+  await expect
+    .poll(async () => readXtermCanvasCount(page), { timeout: 5_000 })
+    .toBeGreaterThan(0);
 });
+
+async function readXtermCanvasCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () => document.querySelectorAll(".xterm canvas").length,
+  );
+}
 
 async function readCustomGlyphsOption(
   page: Page,

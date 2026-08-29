@@ -2,14 +2,23 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error Vitest runs this source check in Node, but the app tsconfig intentionally omits Node types.
 import { readFileSync } from "node:fs";
 import terminalCardSource from "./TerminalCard.web.tsx?raw";
+import gpuRendererSource from "../lib/terminalGpuRenderer.ts?raw";
 import source from "./TerminalView.xterm.tsx?raw";
 
 const globalCss = readFileSync(new URL("../global.css", import.meta.url), "utf8");
 
 describe("TerminalView renderer", () => {
-  it("does not enable the WebGL renderer for live terminals by default", () => {
+  // WebGL is allowed back (PR #230 removed it over the upstream texture
+  // atlas corruption), but ONLY through the guarded helper: best-effort
+  // activation, context-loss fallback to the DOM renderer, and a periodic
+  // clearTextureAtlas that keeps the atlas below the corruption threshold.
+  it("enables WebGL only through the guarded activation helper", () => {
     expect(source).not.toContain("@xterm/addon-webgl");
     expect(source).not.toContain("new WebglAddon");
+    expect(source).toContain("activateGpuRenderer(term)");
+    expect(gpuRendererSource).toContain("onContextLoss");
+    expect(gpuRendererSource).toContain("clearTextureAtlas");
+    expect(gpuRendererSource).toContain("ATLAS_CLEAR_INTERVAL_MS");
   });
 
   it("does not scale live xterm surfaces with CSS transforms", () => {
