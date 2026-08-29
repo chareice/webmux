@@ -23,3 +23,36 @@ test("ordered binary output queue preserves receive order across async blobs", a
 
   assert.deepEqual(seen, ["first", "second"]);
 });
+
+test("array buffers with nothing queued are delivered synchronously", () => {
+  const seen = [];
+  const queue = createOrderedBinaryOutputQueue((chunk) => {
+    seen.push(Buffer.from(chunk).toString("utf8"));
+  });
+
+  queue.push(new TextEncoder().encode("a").buffer);
+  queue.push(new TextEncoder().encode("b").buffer);
+
+  // No await: the fast path must not defer to a microtask.
+  assert.deepEqual(seen, ["a", "b"]);
+});
+
+test("fast path resumes after the async chain drains", async () => {
+  const seen = [];
+  const queue = createOrderedBinaryOutputQueue((chunk) => {
+    seen.push(Buffer.from(chunk).toString("utf8"));
+  });
+
+  queue.push({
+    async arrayBuffer() {
+      return new TextEncoder().encode("blob").buffer;
+    },
+  });
+  queue.push(new TextEncoder().encode("queued").buffer);
+  await queue.flush();
+  // Let the trailing .finally() microtasks run so pending returns to zero.
+  await Promise.resolve();
+
+  queue.push(new TextEncoder().encode("sync").buffer);
+  assert.deepEqual(seen, ["blob", "queued", "sync"]);
+});

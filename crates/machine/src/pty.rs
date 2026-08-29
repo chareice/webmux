@@ -476,6 +476,11 @@ fn build_tmux_config(osc52_script: &str, user_config: &str) -> String {
     let mut config = String::from(
         "\
 set -g default-terminal \"xterm-256color\"
+# tmux defaults escape-time to 500ms: a lone ESC keypress sits in tmux for
+# half a second before reaching the app (vim, Claude Code interrupts). Web
+# clients always deliver complete escape sequences in one write, so a tiny
+# window is enough to disambiguate.
+set -s escape-time 10
 set -g status off
 set -g prefix None
 unbind C-b
@@ -803,6 +808,10 @@ mod tests {
         assert!(
             content.contains("set -g history-limit 10000"),
             "missing history-limit"
+        );
+        assert!(
+            content.contains("set -s escape-time 10"),
+            "missing escape-time override (tmux's 500ms default delays a lone ESC)"
         );
         assert!(
             content.contains("copy-pipe '/tmp/osc52copy.sh #{pane_tty}'"),
