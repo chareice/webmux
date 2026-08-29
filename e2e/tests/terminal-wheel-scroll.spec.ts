@@ -50,7 +50,12 @@ test("small wheel deltas send terminal scroll input immediately", async ({
 
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   inputFrames.length = 0;
-  await page.mouse.wheel(0, 10);
+  // With scrollSensitivity 3 a single 10px delta no longer emits a report on
+  // its own — xterm accumulates sub-line wheel deltas until they cross one
+  // cell height. A few lines of travel does.
+  for (let i = 0; i < 5; i++) {
+    await page.mouse.wheel(0, 10);
+  }
 
   await expect.poll(() => inputFrames.some(isWheelMouseFrame)).toBe(true);
   await context.close();

@@ -28,9 +28,8 @@ test("live terminal keeps xterm glyphs for progress blocks", async ({
     .poll(async () => readTerminalLine(page, terminalId, 0))
     .toContain("78%");
 
-  await expect
-    .poll(async () => readCustomGlyphsOption(page, terminalId))
-    .toBe(true);
+  // xterm 6.1 moved `customGlyphs` off ITerminalOptions onto the WebGL
+  // addon (default true). The canvas count below is the renderer canary.
 
   await expect
     .poll(async () => readVisibleXtermScrollbarCount(page), { timeout: 5_000 })
@@ -51,23 +50,6 @@ async function readXtermCanvasCount(page: Page): Promise<number> {
   return page.evaluate(
     () => document.querySelectorAll(".xterm canvas").length,
   );
-}
-
-async function readCustomGlyphsOption(
-  page: Page,
-  terminalId: string,
-): Promise<boolean | undefined> {
-  return page.evaluate((tid) => {
-    const map = (
-      window as unknown as {
-        __webmuxTerminals?: Map<
-          string,
-          { options: { customGlyphs?: boolean } }
-        >;
-      }
-    ).__webmuxTerminals;
-    return map?.get(tid)?.options.customGlyphs;
-  }, terminalId);
 }
 
 async function readTerminalLine(
@@ -110,7 +92,7 @@ async function readVisibleXtermScrollbarCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     return Array.from(
       document.querySelectorAll(
-        "[data-terminal-display-mode='immersive'] .xterm .xterm-scrollable-element > .scrollbar",
+        "[data-terminal-display-mode='immersive'] .xterm .xterm-scrollable-element > .scrollbar, [data-terminal-display-mode='immersive'] .xterm .xterm-scrollable-element > .xterm-scrollbar",
       ),
     ).filter((element) => {
       const style = window.getComputedStyle(element);
