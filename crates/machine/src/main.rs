@@ -1,3 +1,4 @@
+mod acp;
 mod attach;
 mod config;
 mod hub_conn;
@@ -195,6 +196,7 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
         machine_id: register_resp.machine_id.clone(),
         machine_secret: register_resp.machine_secret,
         hub_url: ws_url,
+        acp_agents: Default::default(),
     };
 
     if let Err(e) = config::save_config(&cfg) {
@@ -304,6 +306,10 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
         machine_secret,
         hub_url: ws_url,
         pty_manager,
+        acp_agents: loaded_config
+            .as_ref()
+            .map(|cfg| cfg.acp_agents.clone())
+            .unwrap_or_default(),
     };
 
     conn.run().await;

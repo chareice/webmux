@@ -6,6 +6,7 @@ use rusqlite::{params, Connection};
 use serde::Deserialize;
 use tc_protocol::{WorkspaceLayoutNode, WorkspaceSplitDirection};
 
+pub mod agent_sessions;
 pub mod bookmarks;
 pub mod hub_state;
 pub mod machines;
@@ -154,6 +155,43 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS agent_sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+            agent_kind TEXT NOT NULL,
+            cwd TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'starting',
+            auto_run INTEGER NOT NULL DEFAULT 1,
+            acp_session_id TEXT,
+            workspace_group_id TEXT REFERENCES workspace_groups(id) ON DELETE SET NULL,
+            last_event_seq INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_agent_sessions_user
+            ON agent_sessions(user_id);
+
+        CREATE INDEX IF NOT EXISTS idx_agent_sessions_machine
+            ON agent_sessions(machine_id);
+
+        CREATE TABLE IF NOT EXISTS agent_session_events (
+            session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+            seq INTEGER NOT NULL,
+            event_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (session_id, seq)
+        );
+
+        CREATE TABLE IF NOT EXISTS agent_session_seen (
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+            last_seen_seq INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, session_id)
+        );
     ",
     )?;
 
@@ -174,6 +212,13 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
     if !column_exists(conn, "workspace_groups", "auto_created")? {
         conn.execute(
             "ALTER TABLE workspace_groups ADD COLUMN auto_created INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+
+    if !column_exists(conn, "machines", "production")? {
+        conn.execute(
+            "ALTER TABLE machines ADD COLUMN production INTEGER NOT NULL DEFAULT 0",
             [],
         )?;
     }
