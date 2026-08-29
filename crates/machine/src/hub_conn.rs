@@ -8,6 +8,7 @@ use tc_protocol::{
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+use crate::acp::AcpManager;
 use crate::attach::{AttachEvent, AttachManager};
 use crate::osc_title::OscTitleScanner;
 use crate::pty::{tmux_resize_window, PtyManager};
@@ -71,6 +72,8 @@ pub struct HubConnection {
     pub machine_secret: String,
     pub hub_url: String,
     pub pty_manager: Arc<PtyManager>,
+    /// Spawn-command overrides for agent sessions (machine.json `acp_agents`).
+    pub acp_agents: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl HubConnection {
@@ -150,6 +153,24 @@ impl HubConnection {
 
         let pty = self.pty_manager.clone();
         let attach_mgr = Arc::new(AttachManager::new());
+
+        // Agent sessions: per-connection ACP manager. Agent processes are not
+        // tmux-backed — when the hub connection drops they are killed (the hub
+        // marks the sessions Disconnected; resume covers recovery).
+        let (acp_tx, mut acp_rx) = mpsc::channel::<MachineToHub>(256);
+        let acp_manager = Arc::new(AcpManager::new(self.acp_agents.clone(), acp_tx));
+        let send_tx_for_acp = send_tx.clone();
+        let mut acp_forward_task = tokio::spawn(async move {
+            while let Some(msg) = acp_rx.recv().await {
+                if send_tx_for_acp
+                    .send(OutboundHubMessage::Json(msg))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
 
         // Start the session watcher so terminals that die while no browser
         // is attached still get reported back to the hub.
@@ -349,6 +370,7 @@ impl HubConnection {
         let pty_recv = pty.clone();
         let send_tx_recv = send_tx.clone();
         let attach_mgr_recv = attach_mgr.clone();
+        let acp_manager_recv = acp_manager.clone();
         let mut recv_task = tokio::spawn(async move {
             loop {
                 match tokio::time::timeout(Duration::from_secs(90), ws_rx.next()).await {
@@ -360,6 +382,7 @@ impl HubConnection {
                                     &pty_recv,
                                     &send_tx_recv,
                                     &attach_mgr_recv,
+                                    &acp_manager_recv,
                                 )
                                 .await;
                             }
@@ -385,6 +408,7 @@ impl HubConnection {
             _ = &mut recv_task => {},
             _ = &mut stats_task => {},
             _ = &mut title_fallback_task => {},
+            _ = &mut acp_forward_task => {},
         }
 
         // Abort all tasks to ensure full cleanup
@@ -392,10 +416,14 @@ impl HubConnection {
         recv_task.abort();
         stats_task.abort();
         title_fallback_task.abort();
+        acp_forward_task.abort();
 
         // Kill every per-attach tmux client we spawned for this hub
         // connection — when hub comes back, browsers will reattach freshly.
         attach_mgr.close_all().await;
+        // Agent processes are not tmux; a dropped hub connection orphans
+        // them, and the hub has already marked their sessions Disconnected.
+        acp_manager.kill_all().await;
         // _watcher is dropped here, aborting the polling task.
         drop(_watcher);
 
@@ -408,6 +436,7 @@ async fn handle_hub_message(
     pty: &Arc<PtyManager>,
     send_tx: &mpsc::Sender<OutboundHubMessage>,
     attach_mgr: &Arc<AttachManager>,
+    acp_manager: &Arc<AcpManager>,
 ) {
     match msg {
         HubToMachine::CreateTerminal {
@@ -647,12 +676,35 @@ async fn handle_hub_message(
                 }
             }
         }
-        HubToMachine::AgentSessionStart { .. }
-        | HubToMachine::AgentSessionPrompt { .. }
-        | HubToMachine::AgentSessionAnswer { .. }
-        | HubToMachine::AgentSessionCancel { .. }
-        | HubToMachine::AgentSessionKill { .. } => {
-            tracing::warn!("agent session commands are not supported by this node build");
+        HubToMachine::AgentSessionStart {
+            session_id,
+            agent_kind,
+            cwd,
+            auto_run,
+            resume_acp_session_id,
+        } => {
+            acp_manager
+                .start_session(session_id, agent_kind, cwd, auto_run, resume_acp_session_id)
+                .await;
+        }
+        HubToMachine::AgentSessionPrompt { session_id, text } => {
+            acp_manager.prompt(&session_id, text).await;
+        }
+        HubToMachine::AgentSessionAnswer {
+            session_id,
+            request_id,
+            option_id,
+            text,
+        } => {
+            acp_manager
+                .answer(&session_id, request_id, option_id, text)
+                .await;
+        }
+        HubToMachine::AgentSessionCancel { session_id } => {
+            acp_manager.cancel(&session_id).await;
+        }
+        HubToMachine::AgentSessionKill { session_id } => {
+            acp_manager.kill(&session_id).await;
         }
     }
 }
