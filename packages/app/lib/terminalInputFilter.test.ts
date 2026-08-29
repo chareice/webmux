@@ -36,4 +36,30 @@ describe("filterBrowserGeneratedTerminalInput", () => {
   it("preserves standalone escape key input", () => {
     expect(filterBrowserGeneratedTerminalInput("\x1b")).toBe("\x1b");
   });
+
+  it("drops xterm 6.1 color-scheme DSR responses", () => {
+    expect(filterBrowserGeneratedTerminalInput("\x1b[?997;1n")).toBe("");
+    expect(filterBrowserGeneratedTerminalInput("\x1b[?997;2n")).toBe("");
+  });
+
+  it("drops XTVERSION DCS responses", () => {
+    expect(
+      filterBrowserGeneratedTerminalInput("\x1bP>|xterm.js(6.1.0-beta.303)\x1b\\"),
+    ).toBe("");
+  });
+
+  it("drops window-ops pixel and cell reports", () => {
+    expect(filterBrowserGeneratedTerminalInput("\x1b[4;720;1280t")).toBe("");
+    expect(filterBrowserGeneratedTerminalInput("\x1b[6;17;8t")).toBe("");
+    expect(filterBrowserGeneratedTerminalInput("\x1b[8;24;80t")).toBe("");
+  });
+
+  it("drops focus in/out reports", () => {
+    expect(filterBrowserGeneratedTerminalInput("\x1b[I")).toBe("");
+    expect(filterBrowserGeneratedTerminalInput("\x1b[O")).toBe("");
+  });
+
+  it("preserves cursor-key input that is not a focus report", () => {
+    expect(filterBrowserGeneratedTerminalInput("\x1b[A")).toBe("\x1b[A");
+  });
 });

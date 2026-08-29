@@ -8,6 +8,11 @@ interface UseTerminalLiveSocketOptions {
   termRef: RefObject<Terminal | null>;
   wsRef: RefObject<WebSocket | null>;
   wsUrl?: string;
+  terminalId?: string;
+  // Echo-latency probe: TerminalView stamps this with the send time of each
+  // input batch when localStorage webmux:echo-probe=1. Stays null otherwise,
+  // which keeps the probe a single null check per output chunk.
+  echoProbeSentAtRef?: RefObject<number | null>;
   scheduleMeasure: () => void;
   sessionGeneration: number;
   setSessionGeneration: (next: (value: number) => number) => void;
@@ -15,11 +20,23 @@ interface UseTerminalLiveSocketOptions {
 }
 
 const MAX_PENDING_OUTPUT_BYTES = 128 * 1024;
+// Output arriving later than this after an input send is stream output, not
+// the echo of that input.
+const ECHO_PROBE_WINDOW_MS = 2000;
+const ECHO_PROBE_EMA_ALPHA = 0.2;
+
+interface EchoProbeStats {
+  last: number;
+  ema: number;
+  n: number;
+}
 
 export function useTerminalLiveSocket({
   termRef,
   wsRef,
   wsUrl,
+  terminalId,
+  echoProbeSentAtRef,
   scheduleMeasure,
   sessionGeneration,
   setSessionGeneration,
@@ -65,7 +82,47 @@ export function useTerminalLiveSocket({
       rafId = 0;
     };
 
+    // Passive echo-latency probe: the first output chunk after an input
+    // send approximates the keystroke echo round trip. Samples land on
+    // window.__webmuxEcho[terminalId]; a summary is logged every 20.
+    const recordEchoProbeSample = () => {
+      const ref = echoProbeSentAtRef;
+      const sentAt = ref?.current;
+      if (sentAt == null || !ref || !terminalId) return;
+      ref.current = null;
+      const sample = performance.now() - sentAt;
+      if (sample > ECHO_PROBE_WINDOW_MS) return;
+      const winAny = window as unknown as {
+        __webmuxEcho?: Record<string, EchoProbeStats>;
+      };
+      const store = (winAny.__webmuxEcho ??= {});
+      const prev = store[terminalId];
+      const next: EchoProbeStats = prev
+        ? {
+            last: sample,
+            ema: prev.ema + ECHO_PROBE_EMA_ALPHA * (sample - prev.ema),
+            n: prev.n + 1,
+          }
+        : { last: sample, ema: sample, n: 1 };
+      store[terminalId] = next;
+      if (next.n % 20 === 0) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[webmux] echo probe ${terminalId}: last=${next.last.toFixed(1)}ms ema=${next.ema.toFixed(1)}ms n=${next.n}`,
+        );
+      }
+    };
+
     const enqueueOutput = (chunk: Uint8Array) => {
+      recordEchoProbeSample();
+      if (!rafId && pendingBytes === 0) {
+        // Interactive path: nothing queued this frame — write immediately so
+        // a keystroke echo doesn't wait for the next animation frame. The rAF
+        // is a burst marker: chunks arriving before it fires get batched.
+        term.write(chunk);
+        rafId = requestAnimationFrame(flushPending);
+        return;
+      }
       pendingChunks.push(chunk);
       pendingBytes += chunk.length;
 
@@ -151,6 +208,8 @@ export function useTerminalLiveSocket({
     sessionGeneration,
     setSessionGeneration,
     termRef,
+    terminalId,
+    echoProbeSentAtRef,
     onReconnectingChange,
     wsRef,
     wsUrl,

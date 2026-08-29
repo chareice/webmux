@@ -34,6 +34,13 @@ describe("TerminalView renderer", () => {
   it("hides both native and xterm-managed terminal scrollbars", () => {
     expect(globalCss).toContain(".xterm .xterm-viewport");
     expect(globalCss).toContain(".xterm .xterm-scrollable-element > .scrollbar");
+    expect(globalCss).toContain(
+      ".xterm .xterm-scrollable-element > .xterm-scrollbar",
+    );
+  });
+
+  it("disables the xterm 6.1 scrollbar option on live terminals", () => {
+    expect(source).toContain("showScrollbar: false");
   });
 
   it("keeps terminal previews on the plain text renderer", () => {

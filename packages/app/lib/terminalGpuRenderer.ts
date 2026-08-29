@@ -115,8 +115,12 @@ export function activateGpuRenderer(
     });
     (term as TerminalLike).loadAddon(addon);
     active = true;
-  } catch {
+  } catch (error) {
     contextLossSubscription?.dispose();
+    // Silent fallback is the contract, but a construct/load miss has to
+    // be visible in e2e/browser consoles or the canvas canary is the
+    // only signal that we dropped to the DOM renderer.
+    console.warn("[webmux] WebGL renderer unavailable, using DOM", error);
     return INERT_HANDLE;
   }
 

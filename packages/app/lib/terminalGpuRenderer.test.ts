@@ -71,12 +71,15 @@ describe("activateGpuRenderer", () => {
 
   it("stays on the DOM renderer when addon construction throws", () => {
     const term = makeFakeTerminal();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const handle = activateGpuRenderer(term, {
       createAddon: () => {
         throw new Error("no webgl context");
       },
       storage: null,
     });
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
     expect(handle.isActive()).toBe(false);
     expect(term.loadedAddons).toEqual([]);
     // Never schedules the atlas timer.

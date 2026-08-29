@@ -114,7 +114,8 @@ export function estimateMobileInitialTerminalDimensions(
 
 // Compute the next cols/rows that fit inside `viewport` given the live cell
 // metrics. Cell width and height MUST come from the terminal renderer
-// (xterm: `core._renderService.dimensions.css.cell.{width,height}`).
+// (xterm 6.1: `term.dimensions.css.cell.{width,height}`, with the private
+// `_core._renderService` path as fallback).
 // Reverse-engineering cell size from a
 // cached surface measurement (contentWidth / cols) creates a race where
 // `term.cols` updates synchronously but the surface cache lags one RAF

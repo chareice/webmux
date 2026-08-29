@@ -2,11 +2,10 @@
 //
 // Scrollback lives in tmux: wheel events become SGR mouse reports, wheel-up
 // enters tmux copy-mode (`copy-mode -e`) and scrolling back to the bottom
-// exits it. xterm is configured with a high scrollSensitivity so small
-// trackpad deltas still emit reports — which also means the few-pixel
-// backward wobble at the end of a trackpad gesture emits a wheel-up report
-// that instantly re-enters copy-mode. To the user the terminal looks stuck
-// in scroll state ("[0/N]" badge that never clears).
+// exits it. xterm accumulates sub-line wheel deltas into reports, so the
+// few-pixel backward wobble at the end of a trackpad gesture emits a
+// wheel-up report that instantly re-enters copy-mode. To the user the
+// terminal looks stuck in scroll state ("[0/N]" badge that never clears).
 //
 // The gate swallows direction reversals that are both immediate (within
 // QUIET_GAP_MS of the previous event) and small (cumulative opposite travel
