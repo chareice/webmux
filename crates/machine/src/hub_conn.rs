@@ -15,10 +15,54 @@ use crate::session_watcher::SessionWatcher;
 use crate::stats::should_emit_stats;
 
 const HUB_OUTBOUND_CAPACITY: usize = 256;
+/// Max messages drained per send batch. 64 × 16KiB PTY reads caps a merged
+/// frame at 1MiB — far under tungstenite's frame limits.
+const SEND_BATCH_LIMIT: usize = 64;
 
 enum OutboundHubMessage {
     Json(MachineToHub),
     AttachOutput { attach_id: String, data: Bytes },
+}
+
+/// One WebSocket message ready to feed to the sink.
+#[derive(Debug, PartialEq)]
+enum WireMessage {
+    Json(String),
+    AttachFrame { attach_id: String, payload: Vec<u8> },
+}
+
+/// Flatten a drained send batch into wire messages, merging *adjacent*
+/// AttachOutput chunks for the same attach into one frame payload. Channel
+/// order is preserved exactly: chunks for different attaches never reorder,
+/// and JSON messages act as merge barriers.
+fn coalesce_outbound_batch(
+    batch: impl IntoIterator<Item = OutboundHubMessage>,
+) -> Vec<WireMessage> {
+    let mut wire: Vec<WireMessage> = Vec::new();
+    for message in batch {
+        match message {
+            OutboundHubMessage::Json(msg) => {
+                wire.push(WireMessage::Json(serde_json::to_string(&msg).unwrap()));
+            }
+            OutboundHubMessage::AttachOutput { attach_id, data } => {
+                if let Some(WireMessage::AttachFrame {
+                    attach_id: last_id,
+                    payload,
+                }) = wire.last_mut()
+                {
+                    if *last_id == attach_id {
+                        payload.extend_from_slice(&data);
+                        continue;
+                    }
+                }
+                wire.push(WireMessage::AttachFrame {
+                    attach_id,
+                    payload: data.to_vec(),
+                });
+            }
+        }
+    }
+    wire
 }
 
 pub struct HubConnection {
@@ -258,27 +302,37 @@ impl HubConnection {
             }
         });
 
-        // Task: forward send_tx messages to WebSocket, with periodic WS ping
+        // Task: forward send_tx messages to WebSocket, with periodic WS ping.
+        // Messages are drained in batches: consecutive AttachOutput chunks
+        // for the same attach merge into one frame, everything in a batch is
+        // fed to the sink and flushed once. Under burst output (a build, an
+        // agent streaming) this collapses dozens of tiny PTY reads into one
+        // WS write instead of one syscall + frame header + masking pass per
+        // read. Order across the channel is preserved — only *adjacent*
+        // same-attach chunks merge, and JSON messages act as barriers.
         let mut send_task = tokio::spawn(async move {
             let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
             ping_interval.tick().await; // skip immediate first tick
-            loop {
+            let mut batch: Vec<OutboundHubMessage> = Vec::with_capacity(SEND_BATCH_LIMIT);
+            'outer: loop {
                 tokio::select! {
-                    msg = send_rx.recv() => {
-                        match msg {
-                            Some(OutboundHubMessage::Json(msg)) => {
-                                let text = serde_json::to_string(&msg).unwrap();
-                                if ws_tx.send(Message::Text(text.into())).await.is_err() {
-                                    break;
-                                }
+                    received = send_rx.recv_many(&mut batch, SEND_BATCH_LIMIT) => {
+                        if received == 0 {
+                            break; // channel closed
+                        }
+                        for wire in coalesce_outbound_batch(batch.drain(..)) {
+                            let message = match wire {
+                                WireMessage::Json(text) => Message::Text(text.into()),
+                                WireMessage::AttachFrame { attach_id, payload } => Message::Binary(
+                                    encode_attach_output_frame(&attach_id, &payload).into(),
+                                ),
+                            };
+                            if ws_tx.feed(message).await.is_err() {
+                                break 'outer;
                             }
-                            Some(OutboundHubMessage::AttachOutput { attach_id, data }) => {
-                                let frame = encode_attach_output_frame(&attach_id, &data);
-                                if ws_tx.send(Message::Binary(frame.into())).await.is_err() {
-                                    break;
-                                }
-                            }
-                            None => break,
+                        }
+                        if ws_tx.flush().await.is_err() {
+                            break;
                         }
                     }
                     _ = ping_interval.tick() => {
@@ -535,6 +589,9 @@ async fn handle_hub_message(
         HubToMachine::CloseAttach { attach_id } => {
             attach_mgr.close(&attach_id).await;
         }
+        HubToMachine::RefreshAttach { attach_id } => {
+            attach_mgr.refresh(&attach_id).await;
+        }
         HubToMachine::AttachInput { attach_id, data } => {
             attach_mgr
                 .write_input(&attach_id, Bytes::from(data.into_bytes()))
@@ -716,5 +773,76 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn coalesce_merges_only_adjacent_chunks_of_the_same_attach() {
+        let batch = vec![
+            OutboundHubMessage::AttachOutput {
+                attach_id: "a".into(),
+                data: Bytes::from_static(b"one"),
+            },
+            OutboundHubMessage::AttachOutput {
+                attach_id: "a".into(),
+                data: Bytes::from_static(b"two"),
+            },
+            OutboundHubMessage::AttachOutput {
+                attach_id: "b".into(),
+                data: Bytes::from_static(b"three"),
+            },
+            OutboundHubMessage::AttachOutput {
+                attach_id: "a".into(),
+                data: Bytes::from_static(b"four"),
+            },
+        ];
+        assert_eq!(
+            coalesce_outbound_batch(batch),
+            vec![
+                WireMessage::AttachFrame {
+                    attach_id: "a".into(),
+                    payload: b"onetwo".to_vec(),
+                },
+                WireMessage::AttachFrame {
+                    attach_id: "b".into(),
+                    payload: b"three".to_vec(),
+                },
+                WireMessage::AttachFrame {
+                    attach_id: "a".into(),
+                    payload: b"four".to_vec(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn coalesce_treats_json_messages_as_merge_barriers() {
+        let batch = vec![
+            OutboundHubMessage::AttachOutput {
+                attach_id: "a".into(),
+                data: Bytes::from_static(b"before"),
+            },
+            OutboundHubMessage::Json(MachineToHub::Pong),
+            OutboundHubMessage::AttachOutput {
+                attach_id: "a".into(),
+                data: Bytes::from_static(b"after"),
+            },
+        ];
+        let wire = coalesce_outbound_batch(batch);
+        assert_eq!(wire.len(), 3);
+        assert_eq!(
+            wire[0],
+            WireMessage::AttachFrame {
+                attach_id: "a".into(),
+                payload: b"before".to_vec(),
+            }
+        );
+        assert!(matches!(&wire[1], WireMessage::Json(text) if text.contains("pong")));
+        assert_eq!(
+            wire[2],
+            WireMessage::AttachFrame {
+                attach_id: "a".into(),
+                payload: b"after".to_vec(),
+            }
+        );
     }
 }
