@@ -233,6 +233,7 @@ impl AcpManager {
             suppress_updates: false,
             failed: false,
             pending_question: None,
+            queued_commands: std::collections::VecDeque::new(),
             pending: HashMap::new(),
             next_rpc_id: 1,
             stdin,
@@ -331,6 +332,11 @@ enum PendingRpc {
     Prompt,
 }
 
+/// Commands (prompt/answer/cancel) arriving while the handshake is still in
+/// flight are queued and flushed in order once the ACP session exists. Real
+/// agents take seconds to initialize; rejecting early commands races the UI.
+const MAX_QUEUED_COMMANDS: usize = 16;
+
 struct SessionActor {
     session_id: String,
     /// Working directory the agent was spawned with; ACP wants it back in
@@ -348,6 +354,8 @@ struct SessionActor {
     failed: bool,
     /// Parked session/request_permission: (request_id string, JSON-RPC id).
     pending_question: Option<(String, Value)>,
+    /// Commands received before the ACP session was ready, in arrival order.
+    queued_commands: std::collections::VecDeque<SessionCommand>,
     pending: HashMap<u64, PendingRpc>,
     next_rpc_id: u64,
     stdin: ChildStdin,
@@ -435,6 +443,33 @@ impl SessionActor {
     }
 
     async fn handle_command(&mut self, cmd: SessionCommand) {
+        // Kill always applies immediately — even mid-handshake.
+        if matches!(cmd, SessionCommand::Kill) {
+            self.queued_commands.clear();
+            self.kill_child().await;
+            return;
+        }
+        if self.acp_session_id.is_some() {
+            self.execute_command(cmd).await;
+        } else if self.failed {
+            self.emit_event(AgentEvent::Error {
+                message: "agent session failed to start".to_string(),
+            })
+            .await;
+        } else if self.queued_commands.len() >= MAX_QUEUED_COMMANDS {
+            self.emit_event(AgentEvent::Error {
+                message: format!(
+                    "agent session is still starting and its command queue is full ({MAX_QUEUED_COMMANDS})"
+                ),
+            })
+            .await;
+        } else {
+            // Still handshaking: queue without an error, flush on ready.
+            self.queued_commands.push_back(cmd);
+        }
+    }
+
+    async fn execute_command(&mut self, cmd: SessionCommand) {
         match cmd {
             SessionCommand::Prompt { text } => self.handle_prompt(text).await,
             SessionCommand::Answer {
@@ -448,30 +483,38 @@ impl SessionActor {
                         .await;
                 }
             }
-            SessionCommand::Kill => {
-                // Unblock a parked permission request so the agent's own
-                // teardown path can run before we kill it.
-                if let Some((_, rpc_id)) = self.pending_question.take() {
-                    self.write_message(&json!({
-                        "jsonrpc": "2.0",
-                        "id": rpc_id,
-                        "result": {"outcome": {"outcome": "cancelled"}},
-                    }))
-                    .await;
-                }
-                let _ = self.child.kill().await;
-            }
+            SessionCommand::Kill => self.kill_child().await,
         }
     }
 
-    async fn handle_prompt(&mut self, text: String) {
-        let Some(acp_session_id) = self.acp_session_id.clone() else {
-            self.emit_event(AgentEvent::Error {
-                message: "agent session is not ready yet".to_string(),
-            })
+    /// Run the commands that arrived while the handshake was in flight, in
+    /// order. Called once the ACP session exists (session/new or session/load
+    /// completed).
+    async fn flush_queued_commands(&mut self) {
+        while let Some(cmd) = self.queued_commands.pop_front() {
+            self.execute_command(cmd).await;
+        }
+    }
+
+    async fn kill_child(&mut self) {
+        // Unblock a parked permission request so the agent's own teardown
+        // path can run before we kill it.
+        if let Some((_, rpc_id)) = self.pending_question.take() {
+            self.write_message(&json!({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": {"outcome": {"outcome": "cancelled"}},
+            }))
             .await;
-            return;
-        };
+        }
+        let _ = self.child.kill().await;
+    }
+
+    async fn handle_prompt(&mut self, text: String) {
+        let acp_session_id = self
+            .acp_session_id
+            .clone()
+            .expect("execute_command only runs once the ACP session exists");
         // Echo of the prompt: the event log is the full transcript.
         self.emit_event(AgentEvent::UserMessage { text: text.clone() })
             .await;
@@ -692,10 +735,15 @@ impl SessionActor {
                         acp_session_id: self.acp_session_id.clone(),
                     })
                     .await;
+                self.flush_queued_commands().await;
             }
             PendingRpc::SessionLoad => {
                 self.suppress_updates = false;
+                // The load succeeded, so the resumed id is the live ACP
+                // session id again.
+                self.acp_session_id = self.resume_acp_session_id.clone();
                 self.send_status(AgentSessionStatus::Idle).await;
+                self.flush_queued_commands().await;
             }
             PendingRpc::Prompt => {
                 let stop_reason = result
@@ -778,6 +826,9 @@ impl SessionActor {
             return;
         }
         self.failed = true;
+        // The queued commands die with the session; this Error event is the
+        // one notice the queue gets.
+        self.queued_commands.clear();
         tracing::error!(session_id = %self.session_id, "{message}");
         self.emit_event(AgentEvent::Error { message }).await;
         self.send_status(AgentSessionStatus::Error).await;
@@ -788,6 +839,7 @@ impl SessionActor {
         if self.ended.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.queued_commands.clear();
         let status = self
             .child
             .try_wait()
@@ -1129,6 +1181,39 @@ mod tests {
         assert!(events_of(&msgs).iter().any(
             |(_, event)| matches!(event, AgentEvent::TurnEnded { stop_reason } if stop_reason == "end_turn")
         ));
+        manager.kill_all().await;
+    }
+
+    #[tokio::test]
+    async fn prompt_during_handshake_is_queued_and_runs_on_ready() {
+        let Some((manager, mut rx)) = harness(false) else {
+            eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
+            return;
+        };
+        // No start_and_wait_ready: prompt immediately, racing the handshake.
+        manager
+            .start_session(
+                "s-queued".to_string(),
+                AgentKind::Kimi,
+                "/tmp".to_string(),
+                true,
+                None,
+            )
+            .await;
+        manager.prompt("s-queued", "hello early".to_string()).await;
+        let msgs = collect_until(&mut rx, is_turn_ended).await;
+
+        let events = events_of(&msgs);
+        assert!(
+            !events
+                .iter()
+                .any(|(_, event)| matches!(event, AgentEvent::Error { .. })),
+            "a queued prompt must not produce an error: {events:?}"
+        );
+        assert!(events.iter().any(|(_, event)| matches!(
+            event,
+            AgentEvent::AgentMessageChunk { text } if text.contains("hello early")
+        )));
         manager.kill_all().await;
     }
 

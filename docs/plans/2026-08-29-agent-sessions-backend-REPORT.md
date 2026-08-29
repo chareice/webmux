@@ -134,3 +134,16 @@ SMOKE OK
   `MachineInfo` is updated immediately).
 - **Machine tests skip gracefully** if `python3` or the fake agent is missing
   (CI environments without python3); on this machine all 6 run for real.
+
+## Follow-up: commands queued during handshake (post real-agent testing)
+
+Real-agent smoke testing (actual `kimi acp` through dev hub + node) showed a
+prompt sent while the session was still `starting` was rejected with an Error
+event — real agents take seconds to initialize, so this races the UI. Fix:
+`SessionActor` now queues prompt/answer/cancel commands that arrive before the
+ACP session exists (bounded at 16; overflow → one Error event) and flushes
+them in order after `session/new` / `session/load` completes. Kill still
+applies immediately; a failed or dead handshake drains the queue (the fail's
+own Error event is the notice). Covered by
+`acp::tests::prompt_during_handshake_is_queued_and_runs_on_ready` and verified
+against the real `kimi acp` with an immediate-prompt (race) smoke run.
