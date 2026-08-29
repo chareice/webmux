@@ -1034,27 +1034,19 @@ describe("pane cap", () => {
     ).toEqual({ needsNewTab: true, workspaceGroupId: null });
   });
 
-  it("resolves an aimless creation to the cwd fallback tab, and overflows it too", () => {
+  it("leaves an aimless creation to the hub, which opens a tab for it", () => {
     expect(
-      planNewTerminalPlacement(tabWith(MAX_PANES_PER_TAB - 1, null), {
+      planNewTerminalPlacement(tabWith(MAX_PANES_PER_TAB - 1, "g1"), {
         tabId: null,
         cwd: "/work/a",
       }),
     ).toEqual({ needsNewTab: false, workspaceGroupId: null });
 
+    // Never joins an existing tab by cwd, so a full one cannot overflow it.
     expect(
-      planNewTerminalPlacement(tabWith(MAX_PANES_PER_TAB, null), {
+      planNewTerminalPlacement(tabWith(MAX_PANES_PER_TAB, "g1"), {
         tabId: null,
         cwd: "/work/a",
-      }),
-    ).toEqual({ needsNewTab: true, workspaceGroupId: null });
-  });
-
-  it("creates in a brand-new cwd tab without overflowing", () => {
-    expect(
-      planNewTerminalPlacement(tabWith(MAX_PANES_PER_TAB, null), {
-        tabId: null,
-        cwd: "/work/elsewhere",
       }),
     ).toEqual({ needsNewTab: false, workspaceGroupId: null });
   });

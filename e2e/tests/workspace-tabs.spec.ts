@@ -108,11 +108,16 @@ test("creating a workspace tab opens an empty group without moving the active te
 
   await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
 
+  // The terminal stays in the tab the hub opened for it — the new tab is empty.
   const terminals = await listTerminals(page);
-  expect(
-    terminals.find((terminal) => terminal.id === homeTerminalId)
-      ?.workspace_group_id,
-  ).toBeFalsy();
+  const homeGroupId = terminals.find(
+    (terminal) => terminal.id === homeTerminalId,
+  )?.workspace_group_id;
+  expect(homeGroupId).toBeTruthy();
+  const created = (await listWorkspaceGroupsViaApi(page)).find(
+    (group) => group.name === label,
+  );
+  expect(created?.id).not.toBe(homeGroupId);
 });
 
 test("workspace tabs can be reordered by dragging", async ({ page }) => {
@@ -189,6 +194,21 @@ test("workspace tabs can be reordered by dragging", async ({ page }) => {
     .toEqual([first.id, second.id]);
 });
 
+test("tab bar meters report host cpu, memory, and disk", async ({ page }) => {
+  await openApp(page);
+
+  await expect(page.getByTestId("tab-bar-meters")).toBeVisible();
+  // Label and value sit in sibling spans with no separator, so "cpu12%".
+  // Wait for a real reading rather than the "—" placeholder, so the assertion
+  // fails if stats stop reaching the meters.
+  for (const label of ["cpu", "mem", "disk"]) {
+    await expect(page.getByTestId(`tab-bar-meter-${label}`)).toHaveText(
+      new RegExp(`^${label}\\s*\\d+%$`),
+      { timeout: 15_000 },
+    );
+  }
+});
+
 test("workspace tabs can be reordered by dragging the tab body", async ({
   page,
 }) => {
@@ -262,9 +282,33 @@ test("workspace tabs can be reordered by dragging the tab body", async ({
     .toEqual([second.id, first.id]);
 });
 
-test("dragging a cwd fallback tab promotes both tabs to persistent groups", async ({
+test("a new tab lands at the end of the strip, after the hub-created ones", async ({
   page,
 }) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  // Terminals created without a tab get one each, named after their cwd.
+  const rootTerminalId = await createTerminalViaApi(page, { cwd: "/root" });
+  await createTerminalViaApi(page, { cwd: "/tmp" });
+  await expandTerminalById(page, rootTerminalId);
+  await expect(workspaceGroup(page, "root")).toBeVisible();
+  await expect(workspaceGroup(page, "tmp")).toBeVisible();
+
+  await page.getByTestId("tab-bar-new-group").click();
+
+  await expect.poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
+    .toBe(3);
+  const created = (await listWorkspaceGroupsViaApi(page)).find((group) =>
+    !["root", "tmp"].includes(group.name),
+  )!;
+  await expect
+    .poll(async () => (await visibleWorkspaceGroupIds(page)).at(-1))
+    .toBe(created.id);
+});
+
+test("hub-created tabs can be reordered by dragging", async ({ page }) => {
   await openApp(page);
   await resetMachineState(page);
   await takeControlFromHeader(page);
@@ -273,43 +317,28 @@ test("dragging a cwd fallback tab promotes both tabs to persistent groups", asyn
   const tmpTerminalId = await createTerminalViaApi(page, { cwd: "/tmp" });
 
   await expandTerminalById(page, rootTerminalId);
-  await expect(page.getByTestId("workspace-group-cwd:/root")).toBeVisible();
-  await expect(page.getByTestId("workspace-group-cwd:/tmp")).toBeVisible();
+  const tabs = await listWorkspaceGroupsViaApi(page);
+  const rootTab = tabs.find((group) => group.name === "root")!;
+  const tmpTab = tabs.find((group) => group.name === "tmp")!;
+  await expect(page.getByTestId(`workspace-group-${rootTab.id}`)).toBeVisible();
+  await expect(page.getByTestId(`workspace-group-${tmpTab.id}`)).toBeVisible();
 
-  // Fallback tabs have no grip handle — drag the tab body onto the other
-  // fallback tab. Both promote to persistent groups at drop time.
-  await dragWorkspaceGroupTo(
-    page,
-    "cwd:/tmp",
-    "cwd:/root",
-    "before",
-    page.getByTestId("workspace-group-cwd:/tmp"),
-  );
+  await dragWorkspaceGroupBefore(page, tmpTab.id, rootTab.id);
 
-  let promoted: Array<{ id: string; name: string }> = [];
-  await expect
-    .poll(async () => {
-      promoted = (await listWorkspaceGroupsViaApi(page)).filter((group) =>
-        ["root", "tmp"].includes(group.name),
-      );
-      return promoted.map((group) => group.name);
-    })
-    .toEqual(["tmp", "root"]);
-
-  const promotedIds = promoted.map((group) => group.id);
   await expect
     .poll(async () =>
-      (await visibleWorkspaceGroupIds(page)).filter((id) =>
-        promotedIds.includes(id),
-      ),
+      (await listWorkspaceGroupsViaApi(page)).map((group) => group.name),
     )
-    .toEqual(promotedIds);
+    .toEqual(["tmp", "root"]);
+  await expect
+    .poll(async () => await visibleWorkspaceGroupIds(page))
+    .toEqual([tmpTab.id, rootTab.id]);
 
-  // Each promoted tab still shows its terminal pane.
-  await page.getByTestId(`workspace-group-${promoted[0].id}`).click();
+  // Each tab still shows its own pane.
+  await page.getByTestId(`workspace-group-${tmpTab.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${tmpTerminalId}`))
     .toBeVisible();
-  await page.getByTestId(`workspace-group-${promoted[1].id}`).click();
+  await page.getByTestId(`workspace-group-${rootTab.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${rootTerminalId}`))
     .toBeVisible();
 });
@@ -712,7 +741,10 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
   const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
   await expandTerminalById(page, terminalId);
 
-  // Right-click the cwd tab → New tab creates a persistent group.
+  // The terminal already sits in the tab the hub opened for it.
+  const cwdTab = (await listWorkspaceGroupsViaApi(page))[0];
+
+  // Right-click that tab → New tab creates a second one.
   await page.locator("[data-testid^='workspace-tab-']").first().click({
     button: "right",
   });
@@ -722,15 +754,15 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
     .click();
   await expect
     .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
-    .toBe(1);
-  const created = (await listWorkspaceGroupsViaApi(page))[0];
+    .toBe(2);
+  const created = (await listWorkspaceGroupsViaApi(page)).find(
+    (group) => group.id !== cwdTab.id,
+  )!;
 
   // New tab deterministically becomes the active (empty) group; switch back
-  // to the cwd tab so the pane is mounted again before opening its menu.
-  // (Not .first() — persistent tabs sort before cwd fallback tabs, so the
-  // first tab is the new empty group itself.)
+  // to the terminal's tab so the pane is mounted again before opening its menu.
   await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
-  await page.getByTestId("workspace-group-cwd:/root").click();
+  await page.getByTestId(`workspace-group-${cwdTab.id}`).click();
 
   // Move the pane into the new tab, then delete the tab from its context
   // menu — the confirm dialog appears because it holds a pane.
@@ -740,6 +772,10 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
     .getByTestId("context-menu")
     .getByRole("button", { name: created.name })
     .click();
+  // Emptied, the hub-created tab goes with its last pane.
+  await expect
+    .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
+    .toBe(1);
   await page
     .locator(`[data-testid='workspace-tab-${created.id}']`)
     .click({ button: "right" });

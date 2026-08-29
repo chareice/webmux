@@ -385,6 +385,7 @@ impl MachineManager {
         workspace_group_id: Option<String>,
     ) -> Result<TerminalInfo, String> {
         let mut updated: Option<TerminalInfo> = None;
+        let mut previous_group_id: Option<String> = None;
         {
             let mut machines = self.machines.lock().await;
             if let Some(conn) = machines.get_mut(machine_id) {
@@ -392,6 +393,7 @@ impl MachineManager {
                     return Err("Terminal not found".to_string());
                 }
                 if let Some(terminal) = conn.terminals.get_mut(terminal_id) {
+                    previous_group_id = terminal.workspace_group_id.clone();
                     terminal.workspace_group_id = workspace_group_id.clone();
                     updated = Some(terminal.clone());
                 }
@@ -405,6 +407,7 @@ impl MachineManager {
                     .iter_mut()
                     .find(|terminal| terminal.id == terminal_id)
                 {
+                    previous_group_id = terminal.workspace_group_id.clone();
                     terminal.workspace_group_id = workspace_group_id.clone();
                     updated = Some(terminal.clone());
                 }
@@ -435,6 +438,14 @@ impl MachineManager {
             .map_err(|e| format!("DB error: {e}"))?;
         }
 
+        // Moving the last pane out of a hub-created tab empties it, and an
+        // empty one of those is gone as surely as if its pane had closed.
+        if let Some(previous_group_id) = previous_group_id
+            .filter(|previous| Some(previous) != workspace_group_id.as_ref())
+        {
+            self.prune_auto_tab_if_empty(Some(user_id), machine_id, &previous_group_id);
+        }
+
         self.send_event(
             Some(user_id.to_string()),
             BrowserEvent::TerminalUpdated {
@@ -442,6 +453,35 @@ impl MachineManager {
             },
         );
         Ok(terminal)
+    }
+
+    /// A tab the hub opened for a terminal is only as long-lived as its panes:
+    /// when the last one closes (or moves to another tab) the tab goes with it,
+    /// the way the client-derived cwd tabs it replaced used to vanish. Tabs the
+    /// user created or renamed stay, empty or not.
+    fn prune_auto_tab_if_empty(&self, user_id: Option<&str>, machine_id: &str, group_id: &str) {
+        let Some(user_id) = user_id else {
+            return;
+        };
+        let Ok(conn) = self.db.get() else {
+            return;
+        };
+        match crate::db::terminal_sessions::count_active_in_workspace_group(&conn, group_id) {
+            Ok(0) => {}
+            _ => return,
+        }
+        let deleted = crate::db::workspace_groups::delete_workspace_group_if_auto(
+            &conn, user_id, machine_id, group_id,
+        );
+        if matches!(deleted, Ok(count) if count > 0) {
+            if let Err(e) = crate::db::workspace_layouts::delete_workspace_layout(
+                &conn, user_id, machine_id, group_id,
+            ) {
+                tracing::warn!("Failed to drop the pane layout of a closed tab: {}", e);
+            }
+            drop(conn);
+            self.publish_workspace_group_deleted(user_id, machine_id, group_id);
+        }
     }
 
     pub fn publish_workspace_group_created(&self, user_id: &str, group: WorkspaceGroupInfo) {
@@ -861,16 +901,31 @@ impl MachineManager {
                 }
             }
             MachineToHub::TerminalDestroyed { terminal_id } => {
-                let mut machines = self.machines.lock().await;
-                if let Some(conn) = machines.get_mut(machine_id) {
-                    let target_user_id = conn.user_id.clone();
-                    conn.terminals.remove(&terminal_id);
+                let closed = {
+                    let mut machines = self.machines.lock().await;
+                    machines.get_mut(machine_id).map(|conn| {
+                        let target_user_id = conn.user_id.clone();
+                        let group_id = conn
+                            .terminals
+                            .remove(&terminal_id)
+                            .and_then(|terminal| terminal.workspace_group_id);
+                        (target_user_id, group_id)
+                    })
+                };
+                if let Some((target_user_id, group_id)) = closed {
                     if let Ok(db_conn) = self.db.get() {
                         if let Err(e) =
                             crate::db::terminal_sessions::mark_destroyed(&db_conn, &terminal_id)
                         {
                             tracing::warn!("Failed to mark terminal session as destroyed: {}", e);
                         }
+                    }
+                    if let Some(group_id) = group_id {
+                        self.prune_auto_tab_if_empty(
+                            target_user_id.as_deref(),
+                            machine_id,
+                            &group_id,
+                        );
                     }
                     self.send_event(
                         target_user_id,
@@ -1086,6 +1141,13 @@ impl MachineManager {
                                     );
                                 }
                             }
+                            if let Some(group_id) = &old_terminal.workspace_group_id {
+                                self.prune_auto_tab_if_empty(
+                                    target_user_id.as_deref(),
+                                    machine_id,
+                                    group_id,
+                                );
+                            }
                             self.send_event(
                                 target_user_id.clone(),
                                 BrowserEvent::TerminalDestroyed {
@@ -1174,10 +1236,13 @@ impl MachineManager {
     async fn handle_terminal_destroyed_internal(&self, machine_id: &str, terminal_id: &str) {
         // Mirrors the bookkeeping done for `MachineToHub::TerminalDestroyed`
         // — drop our local terminal record + persistence + browser event.
-        let target_user_id = {
+        let (target_user_id, group_id) = {
             let mut machines = self.machines.lock().await;
             if let Some(conn) = machines.get_mut(machine_id) {
-                conn.terminals.remove(terminal_id);
+                let group_id = conn
+                    .terminals
+                    .remove(terminal_id)
+                    .and_then(|terminal| terminal.workspace_group_id);
                 if let Ok(db_conn) = self.db.get() {
                     if let Err(e) =
                         crate::db::terminal_sessions::mark_destroyed(&db_conn, terminal_id)
@@ -1185,11 +1250,14 @@ impl MachineManager {
                         tracing::warn!("Failed to mark terminal session as destroyed: {}", e);
                     }
                 }
-                conn.user_id.clone()
+                (conn.user_id.clone(), group_id)
             } else {
-                None
+                (None, None)
             }
         };
+        if let Some(group_id) = group_id {
+            self.prune_auto_tab_if_empty(target_user_id.as_deref(), machine_id, &group_id);
+        }
         self.send_event(
             target_user_id,
             BrowserEvent::TerminalDestroyed {
@@ -2226,6 +2294,156 @@ mod tests {
             "INSERT OR IGNORE INTO machines (id, user_id, name, machine_secret_hash, status, created_at) VALUES (?1, ?2, ?1, 'hash', 'offline', 0)",
             rusqlite::params![machine_id, user_id],
         ).unwrap();
+    }
+
+    /// Seed a machine holding one terminal that sits in `group_id`.
+    async fn manager_with_terminal_in_tab(
+        pool: &crate::db::DbPool,
+        group_id: &str,
+    ) -> MachineManager {
+        let manager = MachineManager::new(pool.clone());
+        manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::ExistingTerminals {
+                    terminals: vec![terminal("machine-a", "term-a")],
+                },
+            )
+            .await;
+        manager
+            .set_terminal_workspace_group(
+                "user-a",
+                "machine-a",
+                "term-a",
+                Some(group_id.to_string()),
+            )
+            .await
+            .unwrap();
+        manager
+    }
+
+    fn tab_names(pool: &crate::db::DbPool) -> Vec<String> {
+        let conn = pool.get().unwrap();
+        crate::db::workspace_groups::find_workspace_groups_by_machine(&conn, "user-a", "machine-a")
+            .unwrap()
+            .into_iter()
+            .map(|group| group.name)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn closing_the_last_pane_of_a_hub_created_tab_closes_the_tab() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "machine-a");
+        {
+            let conn = pool.get().unwrap();
+            crate::db::workspace_groups::create_auto_workspace_group(
+                &conn, "tab-tmp", "user-a", "machine-a", "tmp", 0,
+            )
+            .unwrap();
+        }
+        let manager = manager_with_terminal_in_tab(&pool, "tab-tmp").await;
+
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::TerminalDestroyed {
+                    terminal_id: "term-a".to_string(),
+                },
+            )
+            .await;
+
+        assert!(tab_names(&pool).is_empty());
+    }
+
+    #[tokio::test]
+    async fn closing_the_last_pane_of_a_user_tab_keeps_the_tab() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "machine-a");
+        {
+            let conn = pool.get().unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn, "tab-main", "user-a", "machine-a", "Main", 0,
+            )
+            .unwrap();
+        }
+        let manager = manager_with_terminal_in_tab(&pool, "tab-main").await;
+
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::TerminalDestroyed {
+                    terminal_id: "term-a".to_string(),
+                },
+            )
+            .await;
+
+        assert_eq!(tab_names(&pool), vec!["Main".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn moving_the_last_pane_out_of_a_hub_created_tab_closes_it() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "machine-a");
+        {
+            let conn = pool.get().unwrap();
+            crate::db::workspace_groups::create_auto_workspace_group(
+                &conn, "tab-tmp", "user-a", "machine-a", "tmp", 0,
+            )
+            .unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn, "tab-main", "user-a", "machine-a", "Main", 1,
+            )
+            .unwrap();
+        }
+        let manager = manager_with_terminal_in_tab(&pool, "tab-tmp").await;
+
+        manager
+            .set_terminal_workspace_group(
+                "user-a",
+                "machine-a",
+                "term-a",
+                Some("tab-main".to_string()),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(tab_names(&pool), vec!["Main".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn renaming_a_hub_created_tab_makes_it_outlive_its_panes() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "machine-a");
+        {
+            let conn = pool.get().unwrap();
+            crate::db::workspace_groups::create_auto_workspace_group(
+                &conn, "tab-tmp", "user-a", "machine-a", "tmp", 0,
+            )
+            .unwrap();
+        }
+        let manager = manager_with_terminal_in_tab(&pool, "tab-tmp").await;
+        {
+            let conn = pool.get().unwrap();
+            crate::db::workspace_groups::update_workspace_group_name(
+                &conn, "user-a", "machine-a", "tab-tmp", "Scratch",
+            )
+            .unwrap();
+        }
+
+        manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::TerminalDestroyed {
+                    terminal_id: "term-a".to_string(),
+                },
+            )
+            .await;
+
+        assert_eq!(tab_names(&pool), vec!["Scratch".to_string()]);
     }
 
     #[tokio::test]

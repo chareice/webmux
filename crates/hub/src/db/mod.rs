@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use serde::Deserialize;
 use tc_protocol::{WorkspaceLayoutNode, WorkspaceSplitDirection};
 
@@ -77,7 +79,8 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             machine_id TEXT NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
             name TEXT NOT NULL,
             sort_order INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            auto_created INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS workspace_layouts (
@@ -168,11 +171,95 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
+    if !column_exists(conn, "workspace_groups", "auto_created")? {
+        conn.execute(
+            "ALTER TABLE workspace_groups ADD COLUMN auto_created INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+
     migrate_scrollable_workspace_layouts(conn)?;
+    migrate_ungrouped_terminals_into_tabs(conn)?;
+    delete_empty_auto_tabs(conn)?;
 
     // Startup recovery: mark all machines offline
     conn.execute("UPDATE machines SET status = 'offline'", [])?;
 
+    Ok(())
+}
+
+/// Terminals created before the hub gave every terminal a tab carry no
+/// workspace_group_id, and clients rendered them in a derived "cwd:<path>"
+/// tab. Those derived tabs have no sort_order and always sort after the real
+/// ones, so a newly created tab shows up to their left. Give each pre-existing
+/// cwd bucket a real workspace_groups row — carrying its saved pane layout
+/// over — so the strip is one ordered list. Idempotent: once every active
+/// terminal has a tab the query returns nothing.
+fn migrate_ungrouped_terminals_into_tabs(conn: &Connection) -> rusqlite::Result<()> {
+    let ungrouped: Vec<(String, String, String, String)> = {
+        let mut statement = conn.prepare(
+            "SELECT t.id, t.cwd, t.machine_id, m.user_id
+             FROM terminal_sessions t
+             JOIN machines m ON m.id = t.machine_id
+             WHERE t.destroyed_at IS NULL AND t.workspace_group_id IS NULL
+             ORDER BY t.created_at ASC, t.rowid ASC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+
+    // One tab per (owner, machine, cwd) bucket — exactly the tabs the clients
+    // used to derive, so the strip looks unchanged apart from being ordered.
+    let mut group_ids: HashMap<(String, String, String), String> = HashMap::new();
+    for (terminal_id, cwd, machine_id, user_id) in ungrouped {
+        let bucket = (user_id.clone(), machine_id.clone(), cwd.clone());
+        let group_id = match group_ids.get(&bucket) {
+            Some(group_id) => group_id.clone(),
+            None => {
+                let sort_order = workspace_groups::next_sort_order(conn, &user_id, &machine_id)?;
+                let group_id = uuid::Uuid::new_v4().to_string();
+                workspace_groups::create_auto_workspace_group(
+                    conn,
+                    &group_id,
+                    &user_id,
+                    &machine_id,
+                    &workspace_groups::workspace_group_name_from_cwd(&cwd),
+                    sort_order,
+                )?;
+                conn.execute(
+                    "UPDATE workspace_layouts SET group_key = ?1
+                     WHERE user_id = ?2 AND machine_id = ?3 AND group_key = ?4",
+                    params![group_id, user_id, machine_id, format!("cwd:{cwd}")],
+                )?;
+                group_ids.insert(bucket, group_id.clone());
+                group_id
+            }
+        };
+        conn.execute(
+            "UPDATE terminal_sessions SET workspace_group_id = ?1 WHERE id = ?2",
+            params![group_id, terminal_id],
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Tabs the hub opened for a terminal disappear with their last pane. A hub
+/// that went down between the two loses that chance, so the leftovers go at
+/// startup — a tab the user created or renamed is never touched.
+fn delete_empty_auto_tabs(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM workspace_groups
+         WHERE auto_created = 1
+           AND NOT EXISTS (
+               SELECT 1 FROM terminal_sessions
+               WHERE workspace_group_id = workspace_groups.id
+                 AND destroyed_at IS NULL
+           )",
+        [],
+    )?;
     Ok(())
 }
 
@@ -267,4 +354,111 @@ pub fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn migrated_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        users::create_user(&conn, "user-a", "test", "user-a", "User A", None, "admin").unwrap();
+        machines::ensure_machine_for_user(
+            &conn,
+            "machine-a",
+            "user-a",
+            "Machine A",
+            Some("linux"),
+            Some("/tmp"),
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn migration_gives_every_live_terminal_a_tab_of_its_cwd() {
+        let conn = migrated_db();
+        terminal_sessions::insert(&conn, "t1", "machine-a", "T1", "/work/repo", 80, 24).unwrap();
+        terminal_sessions::insert(&conn, "t2", "machine-a", "T2", "/work/repo", 80, 24).unwrap();
+        terminal_sessions::insert(&conn, "t3", "machine-a", "T3", "/work/other", 80, 24).unwrap();
+        terminal_sessions::insert(&conn, "t4", "machine-a", "T4", "/work/gone", 80, 24).unwrap();
+        terminal_sessions::mark_destroyed(&conn, "t4").unwrap();
+        conn.execute(
+            "INSERT INTO workspace_layouts (user_id, machine_id, group_key, root_json, updated_at)
+             VALUES ('user-a', 'machine-a', 'cwd:/work/repo', '{}', 1)",
+            [],
+        )
+        .unwrap();
+
+        migrate_ungrouped_terminals_into_tabs(&conn).unwrap();
+
+        let groups =
+            workspace_groups::find_workspace_groups_by_machine(&conn, "user-a", "machine-a")
+                .unwrap();
+        assert_eq!(
+            groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+            vec!["repo", "other"],
+            "one tab per cwd bucket, destroyed terminals ignored"
+        );
+        let repo_group = &groups[0];
+
+        let sessions = terminal_sessions::find_active_by_machine(&conn, "machine-a").unwrap();
+        let tab_of = |id: &str| {
+            sessions
+                .iter()
+                .find(|row| row.id == id)
+                .unwrap()
+                .workspace_group_id
+                .clone()
+        };
+        assert_eq!(tab_of("t1"), Some(repo_group.id.clone()));
+        assert_eq!(tab_of("t2"), Some(repo_group.id.clone()));
+        assert_eq!(tab_of("t3"), Some(groups[1].id.clone()));
+
+        let layout_key: String = conn
+            .query_row(
+                "SELECT group_key FROM workspace_layouts WHERE machine_id = 'machine-a'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            layout_key, repo_group.id,
+            "the derived tab's saved pane layout follows it into the real tab"
+        );
+
+        migrate_ungrouped_terminals_into_tabs(&conn).unwrap();
+        assert_eq!(
+            workspace_groups::find_workspace_groups_by_machine(&conn, "user-a", "machine-a")
+                .unwrap()
+                .len(),
+            2,
+            "rerunning the migration creates nothing"
+        );
+    }
+
+    #[test]
+    fn migrated_tabs_append_after_existing_ones() {
+        let conn = migrated_db();
+        workspace_groups::create_workspace_group(
+            &conn,
+            "group-a",
+            "user-a",
+            "machine-a",
+            "tab 1",
+            3,
+        )
+        .unwrap();
+        terminal_sessions::insert(&conn, "t1", "machine-a", "T1", "/work/repo", 80, 24).unwrap();
+
+        migrate_ungrouped_terminals_into_tabs(&conn).unwrap();
+
+        let groups =
+            workspace_groups::find_workspace_groups_by_machine(&conn, "user-a", "machine-a")
+                .unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[1].name, "repo");
+        assert_eq!(groups[1].sort_order, 4);
+    }
 }

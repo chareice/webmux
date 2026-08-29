@@ -37,6 +37,7 @@ import {
   eventsWsUrl,
   getBootstrap,
   listBookmarks,
+  listWorkspaceGroups,
   putFocus,
   requestControl,
   reorderWorkspaceGroups,
@@ -754,6 +755,26 @@ function TerminalCanvasInner() {
         ...prev,
         terminals: upsertTerminalInfo(prev.terminals, newTerminal),
       }));
+      // A terminal created without a tab comes back in one the hub just made.
+      // Its row also arrives as workspace_group_created, but that event can
+      // trail this response — until it lands the strip would render the
+      // terminal in a derived cwd tab, which then jumps as the real tab
+      // appears. Pulling the tabs closes that window.
+      if (!options.workspaceGroupId && newTerminal.workspace_group_id) {
+        try {
+          const groups = await listWorkspaceGroups(machineId);
+          setBrowserState((prev) => ({
+            ...prev,
+            workspaceGroups: replaceMachineWorkspaceGroups(
+              prev.workspaceGroups,
+              machineId,
+              groups,
+            ),
+          }));
+        } catch {
+          /* the workspace_group_created event still fills the tab in */
+        }
+      }
       if (options.selectWorkpath === false) {
         dispatchLayout({
           type: "ZOOM_TERMINAL",
@@ -908,7 +929,8 @@ function TerminalCanvasInner() {
     [tabGroups],
   );
 
-  // Which tab a new terminal is created in. A tab renders every one of its
+  // Which tab a new terminal is created in; null hands the choice to the hub,
+  // which opens a fresh tab named after the cwd. A tab renders every one of its
   // terminals as a split pane on desktop, so a full target overflows into a
   // fresh tab instead of growing past MAX_PANES_PER_TAB. Creating a terminal
   // therefore never fails on a full tab (mobile has no split view and no
@@ -1119,8 +1141,8 @@ function TerminalCanvasInner() {
       layout.selectedWorkpathId === "all" || !scopeBookmark
         ? activeMachine.home_dir || "~"
         : scopeBookmark.path;
-    // Ungrouped terminals join the cwd fallback tab; when that tab is full
-    // the terminal lands in a new tab rather than a fifth pane.
+    // No tab in mind: the hub gives the terminal a fresh tab named after its
+    // cwd, appended to the end of the strip.
     const workspaceGroupId = await resolveNewTerminalGroupId(
       activeMachine.id,
       cwd,

@@ -272,21 +272,76 @@ async fn create_terminal(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    if let Some(group_id) = req.workspace_group_id {
-        return state
-            .manager
-            .set_terminal_workspace_group(
-                &auth_user.user_id,
-                &machine_id,
-                &terminal.id,
-                Some(group_id),
-            )
-            .await
-            .map(Json)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e));
-    }
+    // Every terminal lands in a real tab: one the caller named, or a fresh one
+    // named after its cwd. Clients used to derive a throwaway "cwd:<path>" tab
+    // for terminals created without a tab; those had no sort_order and always
+    // sorted after the real tabs, so a newly created tab appeared to their
+    // left. A real row keeps the strip a single ordered list.
+    let group_id = match req.workspace_group_id {
+        Some(group_id) => group_id,
+        None => auto_create_workspace_group(&state, &auth_user.user_id, &machine_id, &terminal.cwd)
+            .await?,
+    };
 
-    Ok(Json(terminal))
+    state
+        .manager
+        .set_terminal_workspace_group(
+            &auth_user.user_id,
+            &machine_id,
+            &terminal.id,
+            Some(group_id),
+        )
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+/// Create the tab a terminal born without one goes into, named after its cwd
+/// and appended to the end of the machine's strip.
+async fn auto_create_workspace_group(
+    state: &AppState,
+    user_id: &str,
+    machine_id: &str,
+    cwd: &str,
+) -> Result<String, (StatusCode, String)> {
+    let group = {
+        let conn = state.db.get().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
+        let sort_order =
+            crate::db::workspace_groups::next_sort_order(&conn, user_id, machine_id).map_err(
+                |e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("DB error: {}", e),
+                    )
+                },
+            )?;
+        let row = crate::db::workspace_groups::create_auto_workspace_group(
+            &conn,
+            &uuid::Uuid::new_v4().to_string(),
+            user_id,
+            machine_id,
+            &crate::db::workspace_groups::workspace_group_name_from_cwd(cwd),
+            sort_order,
+        )
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
+        workspace_group_info(row)
+    };
+
+    let group_id = group.id.clone();
+    state
+        .manager
+        .publish_workspace_group_created(user_id, group);
+    Ok(group_id)
 }
 
 async fn list_workspace_groups(
@@ -524,7 +579,7 @@ async fn create_workspace_group(
             format!("DB error: {}", e),
         )
     })?;
-    let sort_order = crate::db::workspace_groups::find_workspace_groups_by_machine(
+    let sort_order = crate::db::workspace_groups::next_sort_order(
         &conn,
         &auth_user.user_id,
         &machine_id,
@@ -534,11 +589,7 @@ async fn create_workspace_group(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("DB error: {}", e),
         )
-    })?
-    .iter()
-    .map(|group| group.sort_order)
-    .max()
-    .map_or(0, |sort_order| sort_order + 1);
+    })?;
     let id = uuid::Uuid::new_v4().to_string();
     let row = crate::db::workspace_groups::create_workspace_group(
         &conn,
@@ -1195,6 +1246,73 @@ mod tests {
         let _ = request.await.unwrap().unwrap();
 
         startup_command
+    }
+
+    #[tokio::test]
+    async fn create_terminal_without_a_tab_opens_one_at_the_end_of_the_strip() {
+        let state = test_state();
+        {
+            let conn = state.db.get().unwrap();
+            crate::db::machines::ensure_machine_for_user(
+                &conn,
+                "machine-a",
+                "user-a",
+                "Machine A",
+                Some("linux"),
+                Some("/tmp"),
+            )
+            .unwrap();
+            crate::db::workspace_groups::create_workspace_group(
+                &conn, "group-a", "user-a", "machine-a", "tab 1", 0,
+            )
+            .unwrap();
+        }
+        let (_conn_id, mut cmd_rx) = state
+            .manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        state
+            .manager
+            .request_control("user-a", "machine-a", "device-a");
+
+        let state_for_request = state.clone();
+        let request = tokio::spawn(async move {
+            create_terminal(
+                State(state_for_request),
+                AuthUser {
+                    user_id: "user-a".to_string(),
+                },
+                Path("machine-a".to_string()),
+                Json(CreateTerminalRequest {
+                    cwd: "/tmp".to_string(),
+                    workspace_group_id: None,
+                    device_id: Some("device-a".to_string()),
+                    cols: 80,
+                    rows: 24,
+                    startup_command: None,
+                }),
+            )
+            .await
+        });
+        receive_create_terminal_command(&state, &mut cmd_rx).await;
+        let terminal = request.await.unwrap().unwrap().0;
+
+        let conn = state.db.get().unwrap();
+        let groups = crate::db::workspace_groups::find_workspace_groups_by_machine(
+            &conn, "user-a", "machine-a",
+        )
+        .unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(
+            terminal.workspace_group_id.as_deref(),
+            Some(groups[1].id.as_str()),
+            "the terminal lands in the tab the hub opened for it"
+        );
+        assert_eq!(groups[1].name, "tmp", "named after the terminal's cwd");
+        assert!(
+            groups[1].sort_order > groups[0].sort_order,
+            "appended after the tabs that already exist"
+        );
     }
 
     #[test]

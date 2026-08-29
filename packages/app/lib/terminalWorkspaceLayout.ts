@@ -415,25 +415,22 @@ export function isWorkspaceGroupFull(
 export interface NewTerminalPlacement {
   // The caller must create a tab first, then create the terminal in it.
   needsNewTab: boolean;
-  // Group to create the terminal in; null means ungrouped (the terminal
-  // joins the cwd fallback tab).
+  // Group to create the terminal in; null means "no tab in mind" — the hub
+  // gives the terminal a fresh tab named after its cwd.
   workspaceGroupId: string | null;
 }
 
 // Where a newly created terminal should land. `tabId` is the WorkspaceGroup.id
-// the caller aimed at; null means no tab in mind — the terminal is born
-// ungrouped and joins the cwd fallback tab for `cwd`. A full target overflows
-// into a new tab instead of failing: mobile has no split view and creating a
-// terminal there must never dead-end.
+// the caller aimed at; null means no tab in mind, which the hub answers with a
+// brand-new tab at the end of the strip. A full target overflows into a new tab
+// instead of failing: mobile has no split view and creating a terminal there
+// must never dead-end.
 export function planNewTerminalPlacement(
   groups: WorkspaceGroup[],
   input: { tabId: string | null; cwd: string },
 ): NewTerminalPlacement {
-  const target =
-    (input.tabId
-      ? groups.find((group) => group.id === input.tabId)
-      : groups.find((group) => !group.persistent && group.cwd === input.cwd)) ??
-    null;
+  if (!input.tabId) return { needsNewTab: false, workspaceGroupId: null };
+  const target = groups.find((group) => group.id === input.tabId) ?? null;
   if (isWorkspaceGroupFull(target)) {
     return { needsNewTab: true, workspaceGroupId: null };
   }
@@ -545,6 +542,11 @@ function groupContainsTerminal(group: WorkspaceGroup, terminalId: string): boole
   return collectPaneTerminalIds(group.root).includes(terminalId);
 }
 
+// Tabs, in strip order. Every terminal the hub creates belongs to a workspace
+// group, so a tab is normally a real row with a sort_order. A terminal can
+// still end up without one — its tab was deleted, or its pane was moved out of
+// every tab — and those fall back to a tab derived from their cwd, which has no
+// sort_order and therefore sorts after the real ones.
 function createGroups(
   terminals: TerminalInfo[],
   workspaceGroups: WorkspaceGroupInfo[] = [],
@@ -591,6 +593,7 @@ function createGroups(
       continue;
     }
 
+    // Ungrouped leftover: derived tab keyed by cwd, no workspace_groups row.
     const key = `cwd:${terminal.cwd}`;
     const fallbackGroup =
       byGroup.get(key) ??
