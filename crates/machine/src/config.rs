@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6,6 +7,11 @@ pub struct MachineConfig {
     pub machine_id: String,
     pub machine_secret: String,
     pub hub_url: String,
+    /// Optional spawn-command overrides for agent sessions, keyed by agent
+    /// kind ("claude" | "codex" | "grok" | "kimi"); values are argv vectors.
+    /// Missing entries fall back to the built-in defaults.
+    #[serde(default)]
+    pub acp_agents: HashMap<String, Vec<String>>,
 }
 
 /// Get the config file path: ~/.config/webmux/machine.json

@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // ── Shared data types ──
 
@@ -9,6 +10,10 @@ pub struct MachineInfo {
     pub name: String,
     pub os: String,
     pub home_dir: String,
+    /// Production machines gate agent sessions: they default to auto_run=false
+    /// so the agent asks before acting. Set via `PATCH /api/machines/:id`.
+    #[serde(default)]
+    pub production: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -115,6 +120,97 @@ pub struct WorkspaceLayoutInfo {
     pub updated_at: i64,
 }
 
+// ── Agent sessions (ACP) ──
+
+/// The coding agent driving a session. Each kind maps to a spawn command on
+/// the machine (see `acp_agents` in machine.json for overrides).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentKind {
+    Claude,
+    Codex,
+    Grok,
+    Kimi,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentSessionStatus {
+    Starting,
+    Working,
+    /// The agent asked a question and is parked waiting for an answer.
+    Asked,
+    Idle,
+    Error,
+    Disconnected,
+    // "done/unread" is deliberately NOT a status: the browser derives it from
+    // last_seen_seq < last_event_seq while the session is Idle.
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentSessionInfo {
+    pub id: String,
+    pub machine_id: String,
+    pub agent_kind: AgentKind,
+    pub cwd: String,
+    /// Agent/user visible title; defaults to the last path segment of `cwd`.
+    pub title: String,
+    pub status: AgentSessionStatus,
+    pub auto_run: bool,
+    /// The ACP session id inside the agent process, set once session/new
+    /// returns; needed to resume after a disconnect.
+    #[serde(default)]
+    pub acp_session_id: Option<String>,
+    #[serde(default)]
+    pub workspace_group_id: Option<String>,
+    pub last_event_seq: u64,
+    pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentQuestionOption {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub detail: Option<String>,
+}
+
+/// Normalized ACP session updates. The machine translates the agent-specific
+/// wire format into these; the hub persists them verbatim as the session's
+/// event log (the full transcript, including user prompts).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AgentEvent {
+    /// Echo of user prompts, so the event log is the full transcript.
+    UserMessage { text: String },
+    AgentMessageChunk { text: String },
+    ThoughtChunk { text: String },
+    ToolCall {
+        tool_call_id: String,
+        title: String,
+        #[serde(default)]
+        kind: Option<String>,
+        status: String,
+    },
+    ToolCallUpdate {
+        tool_call_id: String,
+        #[serde(default)]
+        status: Option<String>,
+        #[serde(default)]
+        content: Option<String>,
+    },
+    /// Raw JSON of ACP plan entries; the browser renders them later.
+    Plan { entries_json: String },
+    Question {
+        request_id: String,
+        prompt: String,
+        options: Vec<AgentQuestionOption>,
+    },
+    QuestionResolved { request_id: String },
+    TurnEnded { stop_reason: String },
+    Error { message: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BrowserStateSnapshot {
     pub snapshot_seq: u64,
@@ -125,6 +221,11 @@ pub struct BrowserStateSnapshot {
     pub workspace_layouts: Vec<WorkspaceLayoutInfo>,
     pub machine_stats: Vec<MachineStatsSnapshot>,
     pub control_leases: Vec<ControlLeaseSnapshot>,
+    #[serde(default)]
+    pub agent_sessions: Vec<AgentSessionInfo>,
+    /// session_id → last_seen_seq for the requesting user (cross-device read sync).
+    #[serde(default)]
+    pub agent_session_seen: HashMap<String, u64>,
 }
 
 // ── Hub → Machine messages ──
@@ -185,6 +286,35 @@ pub enum HubToMachine {
     },
     #[serde(rename = "ping")]
     Ping,
+    /// Start an agent session on the machine. With `resume_acp_session_id`
+    /// set, the machine tries ACP session/load first and falls back to a
+    /// fresh session when the agent no longer has that history.
+    #[serde(rename = "agent_session_start")]
+    AgentSessionStart {
+        session_id: String,
+        agent_kind: AgentKind,
+        cwd: String,
+        auto_run: bool,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        resume_acp_session_id: Option<String>,
+    },
+    #[serde(rename = "agent_session_prompt")]
+    AgentSessionPrompt { session_id: String, text: String },
+    #[serde(rename = "agent_session_answer")]
+    AgentSessionAnswer {
+        session_id: String,
+        request_id: String,
+        #[serde(default)]
+        option_id: Option<String>,
+        #[serde(default)]
+        text: Option<String>,
+    },
+    /// Cancel the current turn (ACP session/cancel).
+    #[serde(rename = "agent_session_cancel")]
+    AgentSessionCancel { session_id: String },
+    /// Terminate the agent process.
+    #[serde(rename = "agent_session_kill")]
+    AgentSessionKill { session_id: String },
 }
 
 // ── Machine → Hub messages ──
@@ -250,6 +380,29 @@ pub enum MachineToHub {
     TerminalCwd { terminal_id: String, cwd: String },
     #[serde(rename = "pong")]
     Pong,
+    /// Agent session state changes. Fields left `None` are unchanged.
+    #[serde(rename = "agent_session_update")]
+    AgentSessionUpdate {
+        session_id: String,
+        #[serde(default)]
+        status: Option<AgentSessionStatus>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        acp_session_id: Option<String>,
+    },
+    /// One normalized agent event. `seq` is per-session monotonic and
+    /// machine-assigned, starting at 1 (restarted on resume; the hub ignores
+    /// seq ≤ its stored last_event_seq).
+    #[serde(rename = "agent_session_event")]
+    AgentSessionEvent {
+        session_id: String,
+        seq: u64,
+        event: AgentEvent,
+    },
+    /// The agent process exited or its stdio closed.
+    #[serde(rename = "agent_session_exited")]
+    AgentSessionExited { session_id: String, reason: String },
 }
 
 // ── Browser-facing events (Hub → Browser via events WebSocket) ──
@@ -299,6 +452,22 @@ pub enum BrowserEvent {
         machine_id: String,
         controller_device_id: Option<String>,
     },
+    #[serde(rename = "agent_session_created")]
+    AgentSessionCreated { session: AgentSessionInfo },
+    #[serde(rename = "agent_session_updated")]
+    AgentSessionUpdated { session: AgentSessionInfo },
+    #[serde(rename = "agent_session_destroyed")]
+    AgentSessionDestroyed { session_id: String },
+    #[serde(rename = "agent_session_event")]
+    AgentSessionEvent {
+        session_id: String,
+        seq: u64,
+        event: AgentEvent,
+    },
+    /// Cross-device read sync: another device of the same user advanced its
+    /// read cursor for this session.
+    #[serde(rename = "agent_session_seen")]
+    AgentSessionSeen { session_id: String, last_seen_seq: u64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -527,5 +696,114 @@ mod tests {
 
         let pong = serde_json::to_string(&BrowserEventsPong { t: 123456 }).unwrap();
         assert_eq!(pong, r#"{"type":"pong","t":123456}"#);
+    }
+
+    #[test]
+    fn agent_kind_and_status_serialize_as_snake_case() {
+        use super::{AgentKind, AgentSessionStatus};
+        assert_eq!(
+            serde_json::to_value(AgentKind::Claude).unwrap(),
+            serde_json::json!("claude")
+        );
+        assert_eq!(
+            serde_json::from_str::<AgentKind>(r#""kimi""#).unwrap(),
+            AgentKind::Kimi
+        );
+        assert_eq!(
+            serde_json::to_value(AgentSessionStatus::Disconnected).unwrap(),
+            serde_json::json!("disconnected")
+        );
+        assert_eq!(
+            serde_json::from_str::<AgentSessionStatus>(r#""asked""#).unwrap(),
+            AgentSessionStatus::Asked
+        );
+    }
+
+    #[test]
+    fn agent_event_uses_snake_case_type_tags() {
+        use super::{AgentEvent, AgentQuestionOption};
+        let event = AgentEvent::Question {
+            request_id: "7".to_string(),
+            prompt: "Allow?".to_string(),
+            options: vec![AgentQuestionOption {
+                id: "allow-once".to_string(),
+                label: "Allow once".to_string(),
+                detail: None,
+            }],
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"question","request_id":"7","prompt":"Allow?","options":[{"id":"allow-once","label":"Allow once","detail":null}]}"#
+        );
+        let parsed = serde_json::from_str::<AgentEvent>(&json).unwrap();
+        assert_eq!(parsed, event);
+
+        let tool_call = AgentEvent::ToolCall {
+            tool_call_id: "call-1".to_string(),
+            title: "Edit file".to_string(),
+            kind: Some("edit".to_string()),
+            status: "in_progress".to_string(),
+        };
+        let parsed = serde_json::from_str::<AgentEvent>(
+            &serde_json::to_string(&tool_call).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(parsed, tool_call);
+    }
+
+    #[test]
+    fn agent_session_messages_round_trip() {
+        use super::{AgentEvent, AgentKind, HubToMachine, MachineToHub};
+        let start = HubToMachine::AgentSessionStart {
+            session_id: "s-1".to_string(),
+            agent_kind: AgentKind::Kimi,
+            cwd: "/work/repo".to_string(),
+            auto_run: true,
+            resume_acp_session_id: Some("acp-9".to_string()),
+        };
+        let json = serde_json::to_string(&start).unwrap();
+        assert!(json.contains(r#""type":"agent_session_start""#));
+        let parsed = serde_json::from_str::<HubToMachine>(&json).unwrap();
+        assert!(matches!(
+            parsed,
+            HubToMachine::AgentSessionStart {
+                resume_acp_session_id: Some(id),
+                ..
+            } if id == "acp-9"
+        ));
+
+        let event = MachineToHub::AgentSessionEvent {
+            session_id: "s-1".to_string(),
+            seq: 3,
+            event: AgentEvent::TurnEnded {
+                stop_reason: "end_turn".to_string(),
+            },
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains(r#""type":"agent_session_event""#));
+        assert!(json.contains(r#""type":"turn_ended""#));
+    }
+
+    #[test]
+    fn machine_info_production_defaults_to_false() {
+        use super::MachineInfo;
+        let info = serde_json::from_str::<MachineInfo>(
+            r#"{"id":"m","name":"m","os":"linux","home_dir":"/tmp"}"#,
+        )
+        .unwrap();
+        assert!(!info.production);
+    }
+
+    #[test]
+    fn browser_snapshot_agent_fields_default_to_empty() {
+        use super::BrowserStateSnapshot;
+        let snapshot = serde_json::from_str::<BrowserStateSnapshot>(
+            r#"{"snapshot_seq":1,"last_focused_terminal_id":null,"machines":[],"terminals":[],
+               "workspace_groups":[],"workspace_layouts":[],"machine_stats":[],"control_leases":[]}"#,
+        )
+        .unwrap();
+        assert!(snapshot.agent_sessions.is_empty());
+        assert!(snapshot.agent_session_seen.is_empty());
     }
 }

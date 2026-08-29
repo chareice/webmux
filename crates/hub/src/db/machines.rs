@@ -8,7 +8,7 @@ pub fn find_machine_by_id(
     machine_id: &str,
 ) -> rusqlite::Result<Option<MachineRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, user_id, name, machine_secret_hash, status, os, home_dir, last_seen_at, created_at
+        "SELECT id, user_id, name, machine_secret_hash, status, os, home_dir, last_seen_at, created_at, production
          FROM machines WHERE id = ?1",
     )?;
     let mut rows = stmt.query_map(params![machine_id], |row| {
@@ -22,6 +22,7 @@ pub fn find_machine_by_id(
             home_dir: row.get(6)?,
             last_seen_at: row.get(7)?,
             created_at: row.get(8)?,
+            production: row.get::<_, i64>(9)? != 0,
         })
     })?;
     match rows.next() {
@@ -35,7 +36,7 @@ pub fn find_machines_by_user(
     user_id: &str,
 ) -> rusqlite::Result<Vec<MachineRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, user_id, name, machine_secret_hash, status, os, home_dir, last_seen_at, created_at
+        "SELECT id, user_id, name, machine_secret_hash, status, os, home_dir, last_seen_at, created_at, production
          FROM machines WHERE user_id = ?1",
     )?;
     let rows = stmt.query_map(params![user_id], |row| {
@@ -49,6 +50,7 @@ pub fn find_machines_by_user(
             home_dir: row.get(6)?,
             last_seen_at: row.get(7)?,
             created_at: row.get(8)?,
+            production: row.get::<_, i64>(9)? != 0,
         })
     })?;
     rows.collect()
@@ -77,6 +79,7 @@ pub fn create_machine(
         home_dir: None,
         last_seen_at: None,
         created_at,
+        production: false,
     })
 }
 
@@ -132,5 +135,17 @@ pub fn update_machine_info(
 
 pub fn delete_machine(conn: &Connection, machine_id: &str) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM machines WHERE id = ?1", params![machine_id])?;
+    Ok(())
+}
+
+pub fn set_machine_production(
+    conn: &Connection,
+    machine_id: &str,
+    production: bool,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE machines SET production = ?1 WHERE id = ?2",
+        params![production as i64, machine_id],
+    )?;
     Ok(())
 }

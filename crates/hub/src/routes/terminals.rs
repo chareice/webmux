@@ -167,6 +167,7 @@ async fn ensure_machine_row(
         name: machine.name,
         os: machine.os.unwrap_or_default(),
         home_dir: machine.home_dir.unwrap_or_default(),
+        production: false,
     })
 }
 
@@ -1099,6 +1100,7 @@ mod tests {
             name: format!("machine-{id}"),
             os: "linux".to_string(),
             home_dir: "/tmp".to_string(),
+            production: false,
         }
     }
 

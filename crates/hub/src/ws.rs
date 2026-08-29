@@ -559,6 +559,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                     let _ = sender.send(Message::Text(msg.into())).await;
 
                     // Update machine info in DB
+                    let mut production = false;
                     if let Ok(conn) = state.db.get() {
                         let _ = db::machines::update_machine_status(&conn, &machine_id, "online");
                         let _ = db::machines::update_machine_info(
@@ -567,6 +568,11 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                             Some(&os),
                             Some(&home_dir),
                         );
+                        production = db::machines::find_machine_by_id(&conn, &machine_id)
+                            .ok()
+                            .flatten()
+                            .map(|row| row.production)
+                            .unwrap_or(false);
                     }
 
                     let info = tc_protocol::MachineInfo {
@@ -574,6 +580,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                         name,
                         os,
                         home_dir,
+                        production,
                     };
                     let (conn_id, mut cmd_rx) =
                         state.manager.register_machine(info, machine_owner).await;
