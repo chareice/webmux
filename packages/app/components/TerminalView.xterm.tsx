@@ -505,6 +505,12 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           }
         },
         fitToContainer(opts) {
+          // Refresh the viewport measurement synchronously first. Fit
+          // requests arrive right after layout changes (split, rotate,
+          // zoom) that no longer remount this view, and the rAF-debounced
+          // ResizeObserver measure can lose the race against the fit —
+          // computing dimensions from the pre-change viewport size.
+          measureLayout();
           fitToContainer(opts);
         },
         scrollToBottom() {
@@ -527,7 +533,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         getSelection,
         getSelectionSnapshot,
       }),
-      [fitToContainer, sendImageFile, setMouseTrackingEnabled, getSelection, getSelectionSnapshot],
+      [fitToContainer, measureLayout, sendImageFile, setMouseTrackingEnabled, getSelection, getSelectionSnapshot],
     );
 
     // Create terminal once on mount — never recreated during reconnections

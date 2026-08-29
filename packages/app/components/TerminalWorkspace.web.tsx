@@ -32,6 +32,7 @@ import {
   closeWorkspacePane,
   createTerminalWorkspace,
   findAdjacentWorkspacePane,
+  flattenWorkspacePanes,
   getActiveWorkspaceGroup,
   isWorkspaceGroupFull,
   reconcileTerminalWorkspace,
@@ -208,6 +209,10 @@ function TerminalWorkspaceComponent({
   const [maximizedTerminalId, setMaximizedTerminalId] = useState<string | null>(
     null,
   );
+  // Render-time mirror so callbacks can see the current zoom without
+  // depending on the state value (which would churn their identities).
+  const maximizedTerminalIdRef = useRef<string | null>(null);
+  maximizedTerminalIdRef.current = maximizedTerminalId;
   const [paneMenu, setPaneMenu] = useState<{
     terminalId: string;
     x: number;
@@ -349,7 +354,16 @@ function TerminalWorkspaceComponent({
       });
       onPick(terminalId);
       if (!isCompact && isController && changedTerminal) {
-        requestPaneFit(terminalId, { focusTerminalId: terminalId });
+        // Switching focus dropped any zoom overlay above; the previously
+        // zoomed pane shrank back to its rect and needs a refit too (panes
+        // no longer remount on zoom changes).
+        const previouslyZoomed = maximizedTerminalIdRef.current;
+        requestPaneFit(
+          previouslyZoomed && previouslyZoomed !== terminalId
+            ? [terminalId, previouslyZoomed]
+            : terminalId,
+          { focusTerminalId: terminalId },
+        );
       }
     },
     [
@@ -682,7 +696,10 @@ function TerminalWorkspaceComponent({
     setMaximizedTerminalId((value) =>
       value === activeTerminal.id ? null : activeTerminal.id,
     );
-  }, [activeTerminal]);
+    // Zoom no longer remounts the pane (it's a z-index overlay), so the
+    // size change needs an explicit refit — mount-time fit doesn't happen.
+    requestPaneFit(activeTerminal.id, { focusTerminalId: activeTerminal.id });
+  }, [activeTerminal, requestPaneFit]);
 
   workspacePrefixActionsRef.current = {
     splitRight: () => void handleSplit("right"),
@@ -950,7 +967,35 @@ function TerminalWorkspaceComponent({
           background: terminalTheme.background,
         }}
       >
-        {maximizedTerminalId ? (
+        {activeGroup?.root ? (
+          // Zoom renders INSIDE the pane tree as a z-index overlay so the
+          // other panes (and the zoomed pane itself) keep their xterm
+          // instances mounted — see WorkspacePaneTree.
+          <WorkspacePaneTree
+            node={activeGroup.root}
+            maximizedTerminalId={maximizedTerminalId}
+            terminalsById={terminalsById}
+            activeTerminalId={activeTerminal?.id ?? null}
+            isController={isController}
+            canType={canType}
+            eventsReconnecting={eventsReconnecting}
+            deviceId={deviceId}
+            isTouch={isTouch}
+            focusRing={activeGroupPaneCount > 1}
+            fitRequest={fitRequest}
+            onActiveRef={(ref) => {
+              activeCardRef.current = ref;
+            }}
+            onFitRequestHandled={handleFitRequestHandled}
+            onFocus={activateTerminal}
+            onDestroy={handleDestroy}
+            onPaneContextMenu={handlePaneContextMenu}
+            onRequestControl={onRequestControl}
+            onReleaseControl={onReleaseControl}
+          />
+        ) : maximizedTerminalId ? (
+          // Defensive: a zoom without a layout tree (shouldn't happen in
+          // practice) still renders the terminal full-size.
           <WorkspacePaneLeaf
             terminal={
               terminalsById.get(maximizedTerminalId) ??
@@ -966,7 +1011,6 @@ function TerminalWorkspaceComponent({
             isTouch={isTouch}
             focusRing={activeGroupPaneCount > 1}
             fitRequestNonce={
-              maximizedTerminalId &&
               fitRequest?.terminalIds.includes(maximizedTerminalId)
                 ? fitRequest.nonce
                 : null
@@ -974,28 +1018,6 @@ function TerminalWorkspaceComponent({
             fitRequestShouldFocus={
               fitRequest?.focusTerminalId === maximizedTerminalId
             }
-            onActiveRef={(ref) => {
-              activeCardRef.current = ref;
-            }}
-            onFitRequestHandled={handleFitRequestHandled}
-            onFocus={activateTerminal}
-            onDestroy={handleDestroy}
-            onPaneContextMenu={handlePaneContextMenu}
-            onRequestControl={onRequestControl}
-            onReleaseControl={onReleaseControl}
-          />
-        ) : activeGroup?.root ? (
-          <WorkspacePaneTree
-            node={activeGroup.root}
-            terminalsById={terminalsById}
-            activeTerminalId={activeTerminal?.id ?? null}
-            isController={isController}
-            canType={canType}
-            eventsReconnecting={eventsReconnecting}
-            deviceId={deviceId}
-            isTouch={isTouch}
-            focusRing={activeGroupPaneCount > 1}
-            fitRequest={fitRequest}
             onActiveRef={(ref) => {
               activeCardRef.current = ref;
             }}
@@ -1028,8 +1050,22 @@ function TerminalWorkspaceComponent({
 
 export const TerminalWorkspace = memo(TerminalWorkspaceComponent);
 
+// Renders the layout tree as a FLAT list of absolutely positioned panes
+// keyed by terminal id inside one relative container. Compared to the old
+// recursive div tree this means layout changes (rotate, close, split, drag
+// ratios, zoom) only move rects around: React reconciles by key and never
+// unmounts a surviving pane, so its xterm instance, WebSocket, and the
+// machine-side tmux attach all stay alive. Zoom is a z-index overlay — the
+// covered panes keep their real size, so no spurious refits reach tmux.
+//
+// Touch workspaces (Fold inner screen, ~760-840 CSS px wide) render every
+// split stacked as a single column: side-by-side terminals get ~40 cols
+// each, too narrow to read. Only the rendering is overridden — the split
+// direction persisted on the hub is untouched, so the same group keeps its
+// saved side-by-side arrangement on desktop clients.
 function WorkspacePaneTree({
   node,
+  maximizedTerminalId,
   terminalsById,
   activeTerminalId,
   isController,
@@ -1048,6 +1084,7 @@ function WorkspacePaneTree({
   onReleaseControl,
 }: {
   node: WorkspacePaneNode;
+  maximizedTerminalId: string | null;
   terminalsById: Map<string, TerminalInfo>;
   activeTerminalId: string | null;
   isController: boolean;
@@ -1068,78 +1105,81 @@ function WorkspacePaneTree({
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
 }) {
-  if (node.type === "leaf") {
-    const terminal = terminalsById.get(node.terminalId);
-    if (!terminal) return null;
-    return (
-      <WorkspacePaneLeaf
-        terminal={terminal}
-        isActive={terminal.id === activeTerminalId}
-        isController={isController}
-        canType={canType}
-        eventsReconnecting={eventsReconnecting}
-        deviceId={deviceId}
-        isCompact={false}
-        isTouch={isTouch}
-        focusRing={focusRing}
-        fitRequestNonce={
-          fitRequest?.terminalIds.includes(terminal.id)
-            ? fitRequest.nonce
-            : null
-        }
-        fitRequestShouldFocus={fitRequest?.focusTerminalId === terminal.id}
-        onActiveRef={onActiveRef}
-        onFitRequestHandled={onFitRequestHandled}
-        onFocus={onFocus}
-        onDestroy={onDestroy}
-        onPaneContextMenu={onPaneContextMenu}
-        onRequestControl={onRequestControl}
-        onReleaseControl={onReleaseControl}
-      />
-    );
-  }
-  // Touch workspaces (Fold inner screen, ~760-840 CSS px wide) render every
-  // split stacked as a single column: side-by-side terminals get ~40 cols
-  // each, too narrow to read. Only the rendering is overridden — the split
-  // direction persisted on the hub is untouched, so the same group keeps its
-  // saved side-by-side arrangement on desktop clients.
-  const row = !isTouch && node.direction === "horizontal";
-  const treeProps = {
-    terminalsById,
-    activeTerminalId,
-    isController,
-    canType,
-    eventsReconnecting,
-    deviceId,
-    isTouch,
-    focusRing,
-    fitRequest,
-    onActiveRef,
-    onFitRequestHandled,
-    onFocus,
-    onDestroy,
-    onPaneContextMenu,
-    onRequestControl,
-    onReleaseControl,
-  };
+  const panes = flattenWorkspacePanes(node, { stackVertically: isTouch });
   return (
     <div
       style={{
-        display: "flex",
-        flexDirection: row ? "row" : "column",
+        position: "relative",
         width: "100%",
         height: "100%",
-        gap: 1,
         minWidth: 0,
         minHeight: 0,
       }}
     >
-      <div style={{ flex: node.ratio, minWidth: 0, minHeight: 0 }}>
-        <WorkspacePaneTree node={node.first} {...treeProps} />
-      </div>
-      <div style={{ flex: 1 - node.ratio, minWidth: 0, minHeight: 0 }}>
-        <WorkspacePaneTree node={node.second} {...treeProps} />
-      </div>
+      {panes.map((pane) => {
+        const terminal = terminalsById.get(pane.terminalId);
+        if (!terminal) return null;
+        const isMaximized = pane.terminalId === maximizedTerminalId;
+        return (
+          <div
+            key={pane.terminalId}
+            style={
+              isMaximized
+                ? {
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 1,
+                    background: terminalTheme.background,
+                  }
+                : {
+                    position: "absolute",
+                    left: `${pane.left * 100}%`,
+                    top: `${pane.top * 100}%`,
+                    width: `${pane.width * 100}%`,
+                    height: `${pane.height * 100}%`,
+                  }
+            }
+          >
+            <WorkspacePaneLeaf
+              terminal={terminal}
+              // While a zoom overlay is up, the zoomed pane is the ONLY
+              // active one — even if activeTerminalId points elsewhere
+              // (external switches don't clear the zoom). Two mounted
+              // panes must never both be active: their focus effects and
+              // onActiveRef would race, sending keystrokes to the covered
+              // pane. This matches the pre-flat behavior, where zoom
+              // rendered a single hardcoded-active leaf.
+              isActive={
+                maximizedTerminalId !== null
+                  ? isMaximized
+                  : terminal.id === activeTerminalId
+              }
+              isController={isController}
+              canType={canType}
+              eventsReconnecting={eventsReconnecting}
+              deviceId={deviceId}
+              isCompact={false}
+              isTouch={isTouch}
+              focusRing={focusRing}
+              fitRequestNonce={
+                fitRequest?.terminalIds.includes(terminal.id)
+                  ? fitRequest.nonce
+                  : null
+              }
+              fitRequestShouldFocus={
+                fitRequest?.focusTerminalId === terminal.id
+              }
+              onActiveRef={onActiveRef}
+              onFitRequestHandled={onFitRequestHandled}
+              onFocus={onFocus}
+              onDestroy={onDestroy}
+              onPaneContextMenu={onPaneContextMenu}
+              onRequestControl={onRequestControl}
+              onReleaseControl={onReleaseControl}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }

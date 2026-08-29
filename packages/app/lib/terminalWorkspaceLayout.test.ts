@@ -10,6 +10,7 @@ import {
   createTerminalWorkspace,
   getActiveWorkspaceGroup,
   findAdjacentWorkspacePane,
+  flattenWorkspacePanes,
   getMobileWorkspaceTabs,
   isWorkspaceGroupFull,
   planNewTerminalPlacement,
@@ -1049,5 +1050,44 @@ describe("pane cap", () => {
         cwd: "/work/a",
       }),
     ).toEqual({ needsNewTab: false, workspaceGroupId: null });
+  });
+});
+
+describe("flattenWorkspacePanes", () => {
+  const tree: WorkspacePaneNode = {
+    type: "split",
+    direction: "horizontal",
+    ratio: 0.5,
+    first: { type: "leaf", terminalId: "a" },
+    second: {
+      type: "split",
+      direction: "vertical",
+      ratio: 0.25,
+      first: { type: "leaf", terminalId: "b" },
+      second: { type: "leaf", terminalId: "c" },
+    },
+  };
+
+  it("returns fractional rects matching the split structure", () => {
+    expect(flattenWorkspacePanes(tree)).toEqual([
+      { terminalId: "a", left: 0, top: 0, width: 0.5, height: 1 },
+      { terminalId: "b", left: 0.5, top: 0, width: 0.5, height: 0.25 },
+      { terminalId: "c", left: 0.5, top: 0.25, width: 0.5, height: 0.75 },
+    ]);
+  });
+
+  it("stacks every split vertically for touch rendering", () => {
+    expect(flattenWorkspacePanes(tree, { stackVertically: true })).toEqual([
+      { terminalId: "a", left: 0, top: 0, width: 1, height: 0.5 },
+      { terminalId: "b", left: 0, top: 0.5, width: 1, height: 0.125 },
+      { terminalId: "c", left: 0, top: 0.625, width: 1, height: 0.375 },
+    ]);
+  });
+
+  it("handles a lone leaf and a null root", () => {
+    expect(flattenWorkspacePanes({ type: "leaf", terminalId: "x" })).toEqual([
+      { terminalId: "x", left: 0, top: 0, width: 1, height: 1 },
+    ]);
+    expect(flattenWorkspacePanes(null)).toEqual([]);
   });
 });
