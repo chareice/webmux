@@ -153,10 +153,16 @@ test("desktop thumbnail switch fits the newly focused terminal to the overlay", 
     cols: 80,
     rows: 24,
   });
+  // Both panes have to share a tab for the thumbnail switch: a terminal
+  // created without one gets a tab of its own.
+  const firstTabId = (await listTerminals(page)).find(
+    (terminal) => terminal.id === firstId,
+  )!.workspace_group_id!;
   const compactId = await createTerminalViaApi(page, {
     cwd: "/root",
     cols: 164,
     rows: 16,
+    workspaceGroupId: firstTabId,
   });
 
   await expandTerminalById(page, firstId);

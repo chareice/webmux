@@ -161,6 +161,20 @@ pub fn clear_workspace_group(conn: &Connection, workspace_group_id: &str) -> rus
     Ok(())
 }
 
+/// Live panes still in a tab — 0 means the tab is empty and a hub-created one
+/// can go.
+pub fn count_active_in_workspace_group(
+    conn: &Connection,
+    workspace_group_id: &str,
+) -> rusqlite::Result<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM terminal_sessions
+         WHERE workspace_group_id = ?1 AND destroyed_at IS NULL",
+        params![workspace_group_id],
+        |row| row.get(0),
+    )
+}
+
 pub fn find_active_by_machine(
     conn: &Connection,
     machine_id: &str,

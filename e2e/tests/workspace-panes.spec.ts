@@ -141,7 +141,12 @@ test("a tab caps at four panes and new terminals overflow into a new tab", async
   await expect.poll(async () => (await listTerminals(page)).length).toBe(5);
   await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(1);
   const groups = await listWorkspaceGroupsViaApi(page);
-  expect(groups).toHaveLength(1);
+  expect(groups).toHaveLength(2);
+  // Four panes in the first tab, the fifth terminal alone in the second.
+  const terminals = await listTerminals(page);
+  expect(
+    new Set(terminals.map((terminal) => terminal.workspace_group_id)).size,
+  ).toBe(2);
 
   await context.close();
 });
@@ -327,8 +332,13 @@ test("desktop workspace restores pane layout after reload", async ({ page }) => 
   const expectedOrder = [firstId, thirdId, secondId];
 
   await expect.poll(() => paneOrder(page)).toEqual(expectedOrder);
+  // Panes are saved under the tab the hub opened for the first terminal.
+  const groupKey = (await listTerminals(page)).find(
+    (terminal) => terminal.id === firstId,
+  )!.workspace_group_id!;
+  expect(groupKey).toBeTruthy();
   await expect
-    .poll(() => savedPaneOrder(page, "cwd:/root"), { timeout: 5_000 })
+    .poll(() => savedPaneOrder(page, groupKey), { timeout: 5_000 })
     .toEqual(expectedOrder);
 
   await page.reload();

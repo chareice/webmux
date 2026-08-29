@@ -53,11 +53,47 @@ pub fn create_workspace_group(
     name: &str,
     sort_order: i64,
 ) -> rusqlite::Result<WorkspaceGroupRow> {
+    insert_workspace_group(conn, id, user_id, machine_id, name, sort_order, false)
+}
+
+/// A tab the hub opened for a terminal created without one. It lives as long
+/// as its panes — `delete_workspace_group_if_auto` drops it once the last one
+/// closes, the way the client-derived cwd tabs it replaced used to vanish —
+/// until the user renames it and makes it their own.
+pub fn create_auto_workspace_group(
+    conn: &Connection,
+    id: &str,
+    user_id: &str,
+    machine_id: &str,
+    name: &str,
+    sort_order: i64,
+) -> rusqlite::Result<WorkspaceGroupRow> {
+    insert_workspace_group(conn, id, user_id, machine_id, name, sort_order, true)
+}
+
+fn insert_workspace_group(
+    conn: &Connection,
+    id: &str,
+    user_id: &str,
+    machine_id: &str,
+    name: &str,
+    sort_order: i64,
+    auto_created: bool,
+) -> rusqlite::Result<WorkspaceGroupRow> {
     let created_at = now_ms();
     conn.execute(
-        "INSERT INTO workspace_groups (id, user_id, machine_id, name, sort_order, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, user_id, machine_id, name, sort_order, created_at],
+        "INSERT INTO workspace_groups
+             (id, user_id, machine_id, name, sort_order, created_at, auto_created)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            id,
+            user_id,
+            machine_id,
+            name,
+            sort_order,
+            created_at,
+            auto_created as i64
+        ],
     )?;
     Ok(WorkspaceGroupRow {
         id: id.to_string(),
@@ -83,6 +119,8 @@ pub fn update_workspace_group_sort_order(
     )
 }
 
+/// Renaming adopts a hub-created tab: a tab the user has named is theirs and
+/// outlives its panes, like one they created from the tab bar.
 pub fn update_workspace_group_name(
     conn: &Connection,
     user_id: &str,
@@ -91,9 +129,23 @@ pub fn update_workspace_group_name(
     name: &str,
 ) -> rusqlite::Result<usize> {
     conn.execute(
-        "UPDATE workspace_groups SET name = ?1
+        "UPDATE workspace_groups SET name = ?1, auto_created = 0
          WHERE id = ?2 AND user_id = ?3 AND machine_id = ?4",
         params![name, group_id, user_id, machine_id],
+    )
+}
+
+/// Drop a hub-created tab; a tab the user created or renamed is left alone.
+pub fn delete_workspace_group_if_auto(
+    conn: &Connection,
+    user_id: &str,
+    machine_id: &str,
+    group_id: &str,
+) -> rusqlite::Result<usize> {
+    conn.execute(
+        "DELETE FROM workspace_groups
+         WHERE id = ?1 AND user_id = ?2 AND machine_id = ?3 AND auto_created = 1",
+        params![group_id, user_id, machine_id],
     )
 }
 
@@ -119,4 +171,50 @@ fn workspace_group_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workspa
         sort_order: row.get(4)?,
         created_at: row.get(5)?,
     })
+}
+
+/// Sort order for a tab appended to the end of a machine's strip. Every tab
+/// is a row with a sort_order, so "append" is always max + 1.
+pub fn next_sort_order(
+    conn: &Connection,
+    user_id: &str,
+    machine_id: &str,
+) -> rusqlite::Result<i64> {
+    let max: Option<i64> = conn.query_row(
+        "SELECT MAX(sort_order) FROM workspace_groups WHERE user_id = ?1 AND machine_id = ?2",
+        params![user_id, machine_id],
+        |row| row.get(0),
+    )?;
+    Ok(max.map_or(0, |sort_order| sort_order + 1))
+}
+
+/// Tab name for a terminal created without one: the cwd's last segment.
+/// Mirrors labelFromCwd in packages/app/lib/terminalWorkspaceLayout.ts so a
+/// hub-created tab reads exactly like the cwd tab clients used to derive.
+pub fn workspace_group_name_from_cwd(cwd: &str) -> String {
+    cwd.trim_end_matches('/')
+        .rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if cwd.is_empty() {
+                "workspace".to_string()
+            } else {
+                cwd.to_string()
+            }
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workspace_group_name_from_cwd;
+
+    #[test]
+    fn tab_name_is_the_cwd_tail() {
+        assert_eq!(workspace_group_name_from_cwd("/work/repo"), "repo");
+        assert_eq!(workspace_group_name_from_cwd("/work/repo/"), "repo");
+        assert_eq!(workspace_group_name_from_cwd("/"), "/");
+        assert_eq!(workspace_group_name_from_cwd("~"), "~");
+        assert_eq!(workspace_group_name_from_cwd(""), "workspace");
+    }
 }
