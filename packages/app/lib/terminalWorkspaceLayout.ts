@@ -739,6 +739,61 @@ function tileTerminals(ids: string[]): WorkspacePaneNode | null {
   };
 }
 
+export interface WorkspacePaneFlatRect {
+  terminalId: string;
+  /// Fractions of the workspace area, 0..1.
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/// Flatten the layout tree into absolutely-positionable pane rects. This
+/// exists so the workspace can render every pane as a KEYED SIBLING in one
+/// relative container instead of a recursive div tree: layout changes
+/// (rotate, close, split, zoom) then only move rects around and React never
+/// unmounts a pane's xterm instance for a structural reason.
+///
+/// `stackVertically` mirrors the touch rendering rule: every split renders
+/// as a column regardless of its persisted direction (side-by-side panes
+/// are unreadably narrow on touch widths).
+export function flattenWorkspacePanes(
+  root: WorkspacePaneNode | null,
+  options: { stackVertically?: boolean } = {},
+): WorkspacePaneFlatRect[] {
+  if (!root) return [];
+  const stack = options.stackVertically === true;
+  const collect = (
+    node: WorkspacePaneNode,
+    rect: { left: number; top: number; width: number; height: number },
+  ): WorkspacePaneFlatRect[] => {
+    if (node.type === "leaf") {
+      return [{ terminalId: node.terminalId, ...rect }];
+    }
+    if (!stack && node.direction === "horizontal") {
+      const firstWidth = rect.width * node.ratio;
+      return [
+        ...collect(node.first, { ...rect, width: firstWidth }),
+        ...collect(node.second, {
+          ...rect,
+          left: rect.left + firstWidth,
+          width: rect.width - firstWidth,
+        }),
+      ];
+    }
+    const firstHeight = rect.height * node.ratio;
+    return [
+      ...collect(node.first, { ...rect, height: firstHeight }),
+      ...collect(node.second, {
+        ...rect,
+        top: rect.top + firstHeight,
+        height: rect.height - firstHeight,
+      }),
+    ];
+  };
+  return collect(root, { left: 0, top: 0, width: 1, height: 1 });
+}
+
 function collectPaneRects(root: WorkspacePaneNode, rect: PaneRect): PaneRect[] {
   if (root.type === "leaf") {
     return [{ ...rect, terminalId: root.terminalId }];
