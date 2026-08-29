@@ -8,6 +8,7 @@ import {
   collectGroupPaneTerminalIds,
   collectPaneTerminalIds,
   createTerminalWorkspace,
+  focusWorkspacePane,
   getActiveWorkspaceGroup,
   findAdjacentWorkspacePane,
   flattenWorkspacePanes,
@@ -1089,5 +1090,31 @@ describe("flattenWorkspacePanes", () => {
       { terminalId: "x", left: 0, top: 0, width: 1, height: 1 },
     ]);
     expect(flattenWorkspacePanes(null)).toEqual([]);
+  });
+});
+
+describe("focusWorkspacePane", () => {
+  const terminals = [
+    groupedTerminal("a", "/root", "g1"),
+    groupedTerminal("b", "/tmp", "g2"),
+    groupedTerminal("c", "/tmp", "g2"),
+  ];
+  const groups: WorkspaceGroupInfo[] = [
+    { id: "g1", machine_id: "m1", name: "one", sort_order: 1 },
+    { id: "g2", machine_id: "m1", name: "two", sort_order: 2 },
+  ];
+
+  it("selects the containing group and focuses the pane", () => {
+    const workspace = createTerminalWorkspace(terminals, "a", groups);
+    const next = focusWorkspacePane(workspace, "c");
+
+    expect(next).not.toBeNull();
+    expect(next?.activeGroupId).toBe("g2");
+    expect(next?.activeTerminalId).toBe("c");
+  });
+
+  it("returns null when no group holds the terminal", () => {
+    const workspace = createTerminalWorkspace(terminals, "a", groups);
+    expect(focusWorkspacePane(workspace, "missing")).toBeNull();
   });
 });

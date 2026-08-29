@@ -118,7 +118,7 @@ test("terminal can be manually fitted by whichever device currently holds contro
 
   // Mobile takes control via the host sheet.
   await mobileTakeControl(mobilePage);
-  // Desktop flips to view-only — the TabBar's viewing pill appears.
+  // Desktop flips to view-only — the sidebar's viewing pill appears.
   await expectControlState(desktopPage, "viewing");
 
   // Becoming the controller auto-fits the terminal to the mobile dims (the
@@ -141,9 +141,8 @@ test("terminal can be manually fitted by whichever device currently holds contro
     .poll(async () => getTerminalViewScale(desktopPage))
     .toBe(1);
 
-  // Hand control back to desktop via the TabBar's viewing pill.
-  await desktopPage.getByTestId("workbench-request-control").click();
-  await expect(desktopPage.getByTestId("workbench-request-control")).toHaveCount(0);
+  // Hand control back to desktop via the sidebar's viewing pill.
+  await takeControlFromHeader(desktopPage);
   await mobileOpenHostSheet(mobilePage);
   await expect(mobilePage.getByTestId("mobile-control-toggle")).toHaveText(
     "Take control",

@@ -2,7 +2,7 @@
 
 ## Scenario 1: Desktop-sized terminal stays readable on mobile viewing
 
-1. **action:** In a desktop browser session, click the TabBar's "viewing" pill to take control, open a new terminal (TabBar ＋ button or `⌃B c`), right-click the pane and choose "Fit to window" from the context menu
+1. **action:** In a desktop browser session, click the sidebar's "viewing" pill to take control, open a new terminal (sidebar ＋ button or `⌃B c`), right-click the pane and choose "Fit to window" from the context menu
    **eval:** The shared terminal is explicitly resized for the desktop viewport — the server's authoritative `cols`/`rows` match the desktop workspace size.
 
 2. **action:** Open the same app on a mobile browser session (web viewport < 768px) without taking control. The mobile shell opens straight into the shared terminal — title bar on top, terminal in the middle, key bar at the bottom.
@@ -17,17 +17,17 @@
    **eval:** The server has a stable desktop-sized `cols`/`rows`.
 
 2. **action:** On mobile, take control from the host sheet ("Take control")
-   **eval:** Control moves to mobile (the desktop TabBar grows a "viewing" pill).
+   **eval:** Control moves to mobile (the desktop sidebar grows a "viewing" pill).
 
 3. **action:** Nothing further — becoming the controller auto-fits the terminal to the mobile viewport (mobile has no manual Fit button anymore)
    **eval:** The shared terminal resizes to the mobile viewport, and the desktop session keeps rendering it as a narrow centered terminal instead of stretching it full width.
 
-4. **action:** On desktop, reclaim control by clicking the TabBar's "viewing" pill, then right-click the pane and choose "Fit to window" again
+4. **action:** On desktop, reclaim control by clicking the sidebar's "viewing" pill, then right-click the pane and choose "Fit to window" again
    **eval:** The shared terminal resizes back to the desktop viewport, and the mobile session goes back to width-fitted local viewing.
 
 ## Scenario 3: Multiple shared terminals stay in sync across a handoff
 
-1. **action:** In a desktop browser session, click the TabBar's "viewing" pill to take control and open two terminals (TabBar ＋ button or `⌃B c` twice).
+1. **action:** In a desktop browser session, click the sidebar's "viewing" pill to take control and open two terminals (sidebar ＋ button or `⌃B c` twice).
    **eval:** Two live terminal panes exist in the desktop workspace for the same machine (as tabs and/or split panes).
 
 2. **action:** Open the same account on mobile

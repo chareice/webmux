@@ -1,0 +1,405 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+  <style>
+    body { margin: 0; background: #0b0c0f; }
+    * { box-sizing: border-box; }
+    a { color: #fb9d59; text-decoration: none; }
+    a:hover { color: #f7f8fb; }
+    .sans { font-family: 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-feature-settings: 'ss01','cv11'; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+  </style>
+</helmet>
+
+<div class="sans" style="width: 1440px; height: 900px; display: flex; background: #0b0c0f; color: #ccced1; font-size: 13px; overflow: hidden;">
+
+  <!-- ==================== SIDEBAR ==================== -->
+  <div style="width: 272px; flex-shrink: 0; height: 900px; display: flex; flex-direction: column; background: #111316; border-right: 1px solid #27292d;">
+
+    <!-- brand row -->
+    <div style="height: 40px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; border-bottom: 1px solid #1b1d20;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fb9d59" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+      <div class="mono" style="flex-grow: 1; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #909297;">WEBMUX</div>
+      <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 6px; color: #909297; flex-shrink: 0;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="20" y1="20" x2="16.2" y2="16.2"></line></svg>
+      </div>
+      <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: #1f2226; border: 1px solid #27292d; color: #ccced1; flex-shrink: 0;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      </div>
+    </div>
+
+    <!-- ===== HOSTS rail ===== -->
+    <div style="flex-shrink: 0; padding: 8px 8px 6px 8px; border-bottom: 1px solid #1b1d20;">
+      <div style="display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 4px;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#5b5e62" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        <div class="mono" style="flex-grow: 1; font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #5b5e62;">HOSTS</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62;">4</div>
+        <div style="width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; color: #5b5e62;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </div>
+      </div>
+
+      <div style="padding: 5px 7px 6px 7px; border-radius: 6px; background: #1f2226; margin-bottom: 2px;">
+        <div style="display: flex; align-items: center; gap: 7px;">
+          <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="5.5" fill="#63d18f" opacity="0.22"></circle><circle cx="6" cy="6" r="3" fill="#63d18f"></circle></svg>
+          <div style="flex-grow: 1; font-size: 12.5px; font-weight: 500; color: #f7f8fb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">nas</div>
+          <div class="mono" style="font-size: 10px; color: #ccced1; flex-shrink: 0;">8ms</div>
+        </div>
+        <div class="mono" style="display: flex; align-items: center; gap: 10px; font-size: 10px; color: #5b5e62; margin-top: 5px; padding-left: 17px;">
+          <span style="display: inline-flex; align-items: center; gap: 5px;">cpu<span style="display: inline-block; width: 30px; height: 4px; border-radius: 2px; background: #1f2226; overflow: hidden;"><span style="display: block; width: 34%; height: 4px; background: #909297;"></span></span></span>
+          <span style="display: inline-flex; align-items: center; gap: 5px;">mem<span style="display: inline-block; width: 30px; height: 4px; border-radius: 2px; background: #1f2226; overflow: hidden;"><span style="display: block; width: 61%; height: 4px; background: #909297;"></span></span></span>
+          <span style="display: inline-flex; align-items: center; gap: 5px;">disk<span style="display: inline-block; width: 30px; height: 4px; border-radius: 2px; background: #1f2226; overflow: hidden;"><span style="display: block; width: 22%; height: 4px; background: #909297;"></span></span></span>
+        </div>
+      </div>
+
+      <div style="padding: 5px 7px 6px 7px; border-radius: 6px; margin-bottom: 2px;">
+        <div style="display: flex; align-items: center; gap: 7px;">
+          <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="5.5" fill="#63d18f" opacity="0.22"></circle><circle cx="6" cy="6" r="3" fill="#63d18f"></circle></svg>
+          <div style="flex-grow: 1; font-size: 12.5px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">mbp-m3</div>
+          <div class="mono" style="font-size: 10px; color: #ccced1; flex-shrink: 0;">12ms</div>
+        </div>
+        <div class="mono" style="display: flex; align-items: center; gap: 10px; font-size: 10px; color: #5b5e62; margin-top: 5px; padding-left: 17px;">
+          <span style="display: inline-flex; align-items: center; gap: 5px;">cpu<span style="display: inline-block; width: 30px; height: 4px; border-radius: 2px; background: #1f2226; overflow: hidden;"><span style="display: block; width: 9%; height: 4px; background: #909297;"></span></span></span>
+          <span style="display: inline-flex; align-items: center; gap: 5px;">mem<span style="display: inline-block; width: 30px; height: 4px; border-radius: 2px; background: #1f2226; overflow: hidden;"><span style="display: block; width: 42%; height: 4px; background: #909297;"></span></span></span>
+          <span style="display: inline-flex; align-items: center; gap: 5px;">disk<span style="display: inline-block; width: 30px; height: 4px; border-radius: 2px; background: #1f2226; overflow: hidden;"><span style="display: block; width: 68%; height: 4px; background: #909297;"></span></span></span>
+        </div>
+      </div>
+
+      <div style="padding: 5px 7px 6px 7px; border-radius: 6px;">
+        <div style="display: flex; align-items: center; gap: 7px;">
+          <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="3" fill="#5b5e62"></circle></svg>
+          <div style="flex-grow: 1; font-size: 12.5px; color: #5b5e62; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">hetzner-1</div>
+          <div class="mono" style="font-size: 10px; color: #5b5e62; flex-shrink: 0;">—</div>
+        </div>
+        <div class="mono" style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #a8764e; margin-top: 5px; padding-left: 17px;">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#a8764e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M12 3a9 9 0 1 1-6.4 2.6"></path><polyline points="4 3 4 8 9 8"></polyline></svg>
+          <span>offline 4m · reconnecting</span>
+        </div>
+      </div>
+
+      <div style="padding: 5px 7px 6px 7px; border-radius: 6px;">
+        <div style="display: flex; align-items: center; gap: 7px;">
+          <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="5.5" fill="#63d18f" opacity="0.22"></circle><circle cx="6" cy="6" r="3" fill="#63d18f"></circle></svg>
+          <div style="flex-grow: 1; font-size: 12.5px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">zalify-prod</div>
+          <div class="mono" style="font-size: 9px; font-weight: 700; letter-spacing: 0.4px; color: #eabf3a; border: 1px solid rgba(234,191,58,0.4); background: rgba(234,191,58,0.1); border-radius: 4px; padding: 0 4px; flex-shrink: 0;">PROD</div>
+          <div class="mono" style="font-size: 10px; color: #ccced1; flex-shrink: 0;">31ms</div>
+        </div>
+        <div class="mono" style="display: flex; align-items: center; gap: 10px; font-size: 10px; color: #5b5e62; margin-top: 5px; padding-left: 17px;">
+          <span style="display: inline-flex; align-items: center; gap: 5px;">cpu<span style="display: inline-block; width: 30px; height: 4px; border-radius: 2px; background: #1f2226; overflow: hidden;"><span style="display: block; width: 12%; height: 4px; background: #909297;"></span></span></span>
+          <span style="display: inline-flex; align-items: center; gap: 5px;">mem<span style="display: inline-block; width: 30px; height: 4px; border-radius: 2px; background: #1f2226; overflow: hidden;"><span style="display: block; width: 55%; height: 4px; background: #909297;"></span></span></span>
+          <span style="display: inline-flex; align-items: center; gap: 5px;">disk<span style="display: inline-block; width: 30px; height: 4px; border-radius: 2px; background: #1f2226; overflow: hidden;"><span style="display: block; width: 40%; height: 4px; background: #909297;"></span></span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== "waiting on you" inbox banner ===== -->
+    <div style="flex-shrink: 0; margin: 8px 8px 2px 8px; border: 1px solid rgba(251,157,89,0.35); border-left: 2px solid #fb9d59; border-radius: 6px; background: rgba(251,157,89,0.09); display: flex; align-items: center; gap: 9px; height: 42px; padding: 0 8px 0 10px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fb9d59" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M21 15.5a2 2 0 0 1-2 2H8l-4 3.5v-15a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"></path></svg>
+      <div style="flex-grow: 1; min-width: 0;">
+        <div style="font-size: 12px; font-weight: 600; color: #fb9d59;">2 waiting on you</div>
+        <div class="mono" style="font-size: 10px; color: #a8764e; margin-top: 2px;">oldest 4m</div>
+      </div>
+      <div class="mono" style="font-size: 9px; color: #a8764e; border: 1px solid rgba(251,157,89,0.3); border-radius: 4px; padding: 2px 5px; flex-shrink: 0;">⇧⌘J</div>
+    </div>
+
+    <!-- ===== session tree ===== -->
+    <div style="flex-grow: 1; min-height: 0; overflow: hidden; padding: 4px 8px 0 8px;">
+
+      <!-- webmux · nas -->
+      <div style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#5b5e62" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        <div style="font-size: 11.5px; font-weight: 600; color: #909297; flex-shrink: 0;">webmux</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">nas · ~/projects/webmux</div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px 0 6px; border-radius: 6px; background: #1f2226; border-left: 2px solid #fb9d59; margin-bottom: 1px;">
+        <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(251,157,89,0.4); background: rgba(251,157,89,0.12); color: #fb9d59; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</div>
+        <div style="flex-grow: 1; font-size: 13px; font-weight: 500; color: #f7f8fb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">重构侧栏 IA</div>
+        <div class="mono" style="font-size: 10px; color: #a8764e; flex-shrink: 0;">1m</div>
+        <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="5.5" fill="#fb9d59" opacity="0.2"></circle><path d="M6 2 10 6 6 10 2 6z" fill="#fb9d59"></path></svg>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; margin-bottom: 1px;">
+        <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(99,209,143,0.35); background: rgba(99,209,143,0.1); color: #63d18f; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CX</div>
+        <div style="flex-grow: 1; font-size: 13px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">修 tmux scope 级联杀</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62; flex-shrink: 0;">2m</div>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#69c1fc" stroke-width="3" stroke-linecap="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="9" opacity="0.25"></circle><path d="M12 3a9 9 0 0 1 9 9"></path></svg>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; margin-bottom: 1px;">
+        <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid #27292d; background: #171a1d; color: #909297; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">&gt;_</div>
+        <div style="flex-grow: 1; font-size: 13px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">cargo watch</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62; flex-shrink: 0;">2 panes</div>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#69c1fc" stroke-width="3" stroke-linecap="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="9" opacity="0.25"></circle><path d="M12 3a9 9 0 0 1 9 9"></path></svg>
+      </div>
+
+      <!-- webmux · mbp-m3 -->
+      <div style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px; margin-top: 4px;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#5b5e62" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        <div style="font-size: 11.5px; font-weight: 600; color: #909297; flex-shrink: 0;">webmux</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">mbp-m3 · ~/dev/webmux</div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; margin-bottom: 1px;">
+        <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(251,157,89,0.4); background: rgba(251,157,89,0.12); color: #fb9d59; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</div>
+        <div style="flex-grow: 1; font-size: 13px; font-weight: 600; color: #f7f8fb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">桌面端 updater 签名核对</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62; flex-shrink: 0;">12m</div>
+        <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="3.2" fill="#f7f8fb"></circle></svg>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; margin-bottom: 1px;">
+        <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid #27292d; background: #171a1d; color: #909297; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">&gt;_</div>
+        <div style="flex-grow: 1; font-size: 13px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">pnpm dev</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62; flex-shrink: 0;">14m</div>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#69c1fc" stroke-width="3" stroke-linecap="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="9" opacity="0.25"></circle><path d="M12 3a9 9 0 0 1 9 9"></path></svg>
+      </div>
+
+      <!-- app.zalify.com · nas -->
+      <div style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px; margin-top: 4px;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#5b5e62" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        <div style="font-size: 11.5px; font-weight: 600; color: #909297; flex-shrink: 0;">app.zalify.com</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">nas · ~/apps/zalify</div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px 0 6px; border-radius: 6px; background: rgba(251,157,89,0.07); border-left: 2px solid rgba(251,157,89,0.55); margin-bottom: 1px;">
+        <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(187,154,244,0.35); background: rgba(187,154,244,0.1); color: #bb9af4; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">KI</div>
+        <div style="flex-grow: 1; font-size: 13px; font-weight: 500; color: #f7f8fb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">商品详情页 SSR 迁移</div>
+        <div class="mono" style="font-size: 10px; color: #a8764e; flex-shrink: 0;">4m</div>
+        <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="5.5" fill="#fb9d59" opacity="0.2"></circle><path d="M6 2 10 6 6 10 2 6z" fill="#fb9d59"></path></svg>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; margin-bottom: 1px;">
+        <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid #3a3d42; background: #1f2226; color: #909297; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">GR</div>
+        <div style="flex-grow: 1; font-size: 13px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">查线上 502</div>
+        <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="4" fill="none" stroke="#5b5e62" stroke-width="1.6"></circle></svg>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; margin-bottom: 1px;">
+        <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid #27292d; background: #171a1d; color: #909297; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">&gt;_</div>
+        <div style="flex-grow: 1; font-size: 13px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">tail -f caddy</div>
+        <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="4" fill="none" stroke="#5b5e62" stroke-width="1.6"></circle></svg>
+      </div>
+
+      <!-- tradebase · hetzner-1 -->
+      <div style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px; margin-top: 4px; opacity: 0.5;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#5b5e62" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        <div style="font-size: 11.5px; font-weight: 600; color: #909297; flex-shrink: 0;">tradebase</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">hetzner-1</div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; opacity: 0.5;">
+        <div class="mono" style="width: 22px; height: 15px; flex-shrink: 0; border-radius: 4px; border: 1px solid rgba(251,157,89,0.4); background: rgba(251,157,89,0.12); color: #fb9d59; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</div>
+        <div style="flex-grow: 1; font-size: 13px; color: #909297; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">客户回复 SOP 更新</div>
+        <svg width="10" height="10" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="4" fill="none" stroke="#5b5e62" stroke-width="1.6" stroke-dasharray="2.2 1.8"></circle></svg>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 8px; margin-top: 8px;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#5b5e62" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="9 6 15 12 9 18"></polyline></svg>
+        <div style="font-size: 11.5px; color: #5b5e62;">Archived</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62;">12</div>
+      </div>
+    </div>
+
+    <!-- ===== footer: user + control lease ===== -->
+    <div style="flex-shrink: 0; height: 48px; border-top: 1px solid #1b1d20; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 12px;">
+      <div class="mono" style="width: 24px; height: 24px; flex-shrink: 0; border-radius: 999px; background: #1f2226; border: 1px solid #27292d; color: #909297; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CS</div>
+      <div style="flex-grow: 1; min-width: 0;">
+        <div style="font-size: 12px; color: #ccced1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">chareice</div>
+        <div class="mono" style="font-size: 10px; color: #5b5e62; margin-top: 1px;">2 devices watching</div>
+      </div>
+      <div style="width: 24px; height: 24px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background: transparent; border: 1px solid #27292d; color: #909297;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10.5" width="16" height="10" rx="2"></rect><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path></svg>
+      </div>
+      <div style="width: 24px; height: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 6px; color: #909297;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 5 8.9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SESSION PANE (CHAT + TERMINAL SPLIT) ==================== -->
+  <div style="flex-grow: 1; min-width: 0; height: 900px; display: flex; flex-direction: column; background: #0b0c0f;">
+
+    <div style="height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 20px; border-bottom: 1px solid #27292d; background: #111316;">
+      <div class="mono" style="width: 26px; height: 26px; flex-shrink: 0; border-radius: 6px; border: 1px solid rgba(251,157,89,0.4); background: rgba(251,157,89,0.12); color: #fb9d59; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">CL</div>
+      <div style="min-width: 0;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="font-size: 13.5px; font-weight: 600; color: #f7f8fb; white-space: nowrap;">重构侧栏 IA</div>
+          <div class="mono" style="font-size: 10px; color: #5b5e62; border: 1px solid #27292d; border-radius: 4px; padding: 1px 5px; white-space: nowrap;">claude · opus-4.6</div>
+          <div class="mono" style="font-size: 10px; color: #909297; border: 1px solid #27292d; background: #171a1d; border-radius: 4px; padding: 1px 5px; white-space: nowrap;">auto-run</div>
+        </div>
+        <div class="mono" style="display: flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 10px; color: #5b5e62; white-space: nowrap;">
+          <svg width="8" height="8" viewBox="0 0 12 12" style="flex-shrink: 0;"><circle cx="6" cy="6" r="3" fill="#63d18f"></circle></svg>
+          <span style="color: #909297;">nas</span><span>·</span><span>~/projects/webmux</span><span>·</span><span>main</span>
+        </div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+
+      <div class="mono" style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px; background: rgba(251,157,89,0.12); border: 1px solid rgba(251,157,89,0.35); color: #fb9d59; font-size: 11px; font-weight: 600; flex-shrink: 0;">
+        <svg width="8" height="8" viewBox="0 0 12 12"><path d="M6 1 11 6 6 11 1 6z" fill="#fb9d59"></path></svg>
+        waiting on you
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 2px; flex-shrink: 0;">
+        <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: #1f2226; border: 1px solid #27292d; color: #f7f8fb;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="12" y1="4" x2="12" y2="20"></line></svg>
+        </div>
+        <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 6px; color: #909297;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg>
+        </div>
+        <div class="mono" style="display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; border: 1px solid #27292d; color: #5b5e62; font-size: 10px; margin-left: 4px;">2 / 4 panes</div>
+      </div>
+
+      <!-- toggle acts on the FOCUSED pane -->
+      <div style="display: flex; align-items: center; height: 26px; padding: 2px; border-radius: 6px; background: #171a1d; border: 1px solid #27292d; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 5px; height: 20px; padding: 0 9px; border-radius: 4px; background: #1f2226; color: #f7f8fb;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.7 8.7 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"></path></svg>
+          <span style="font-size: 11px; font-weight: 500;">Chat</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 5px; height: 20px; padding: 0 9px; border-radius: 4px; color: #909297;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          <span style="font-size: 11px;">Terminal</span>
+        </div>
+      </div>
+
+      <div style="width: 24px; height: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 6px; color: #909297;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="19" cy="12" r="1.5"></circle></svg>
+      </div>
+    </div>
+
+    <!-- workspace: two panes, one holds the chat view, one holds a terminal -->
+    <div style="flex-grow: 1; min-height: 0; padding: 8px; display: flex; gap: 1px; background: #0b0c0f;">
+
+      <!-- PANE 1 · chat view (focused) -->
+      <div style="width: 620px; flex-shrink: 0; display: flex; flex-direction: column; background: #0b0c0f; border: 1px solid rgba(251,157,89,0.35); box-shadow: 0 0 0 1px rgba(251,157,89,0.35); border-radius: 2px; overflow: hidden;">
+
+        <div style="display: flex; align-items: center; gap: 7px; height: 24px; flex-shrink: 0; padding: 0 9px; background: #111316; border-bottom: 1px solid #1b1d20;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fb9d59" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.7 8.7 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"></path></svg>
+          <div class="mono" style="font-size: 10px; color: #ccced1; flex-grow: 1;">chat · claude</div>
+          <div class="mono" style="font-size: 10px; color: #5b5e62;">pane 1</div>
+        </div>
+
+        <div style="flex-grow: 1; min-height: 0; overflow: hidden; padding: 12px 14px 0 14px; display: flex; flex-direction: column; gap: 11px;">
+          <div style="font-size: 11.5px; color: #2a2d31;">… earlier: Grep / Read / Edit(+2 −1)</div>
+
+          <div style="border-left: 2px solid #27292d; padding: 1px 0 1px 12px;">
+            <div class="mono" style="display: flex; align-items: center; gap: 7px; margin-bottom: 5px;">
+              <div style="font-size: 9.5px; font-weight: 700; letter-spacing: 1px; color: #909297;">CHAREICE</div>
+              <div style="font-size: 9.5px; color: #5b5e62;">08:47</div>
+            </div>
+            <div style="font-size: 13px; line-height: 1.7; color: #ccced1; text-wrap: pretty;">右边那个 watch 已经在跑了,你改完直接看它的输出就行。</div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 5px;">
+            <div style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #1b1d20; background: #111316;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#5b5e62" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="9 6 15 12 9 18"></polyline></svg>
+              <div class="mono" style="font-size: 11px; font-weight: 700; color: #ccced1; flex-shrink: 0;">Edit</div>
+              <div class="mono" style="font-size: 11px; color: #909297; flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">sidebar/repoRoot.ts</div>
+              <div class="mono" style="font-size: 10px; color: #5b5e62; flex-shrink: 0;">+18 −0</div>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#63d18f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="4 12.5 9.5 18 20 6.5"></polyline></svg>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #1b1d20; background: #111316;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#5b5e62" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="9 6 15 12 9 18"></polyline></svg>
+              <div class="mono" style="font-size: 11px; font-weight: 700; color: #ccced1; flex-shrink: 0;">Edit</div>
+              <div class="mono" style="font-size: 11px; color: #909297; flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">sidebar/groupSessions.ts</div>
+              <div class="mono" style="font-size: 10px; color: #5b5e62; flex-shrink: 0;">+2 −1</div>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#63d18f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="4 12.5 9.5 18 20 6.5"></polyline></svg>
+            </div>
+          </div>
+
+          <div style="font-size: 13px; line-height: 1.7; color: #ccced1; text-wrap: pretty;">改完了,watch 应该已经重编。有一处得你定:</div>
+
+          <div style="border: 1px solid rgba(251,157,89,0.45); border-radius: 10px; background: #171a1d; overflow: hidden; box-shadow: 0 0 0 3px rgba(251,157,89,0.07);">
+            <div style="display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; background: rgba(251,157,89,0.11); border-bottom: 1px solid rgba(251,157,89,0.25);">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fb9d59" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="9.2"></circle><path d="M9.5 9.2a2.6 2.6 0 1 1 3.4 2.5c-.6.2-.9.8-.9 1.4v.5"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              <div style="font-size: 11.5px; font-weight: 600; color: #fb9d59; flex-grow: 1;">claude 想确认一件事</div>
+              <div class="mono" style="font-size: 10px; color: #a8764e; flex-shrink: 0;">1m</div>
+            </div>
+            <div style="padding: 11px 12px; display: flex; flex-direction: column; gap: 8px;">
+              <div style="font-size: 13px; font-weight: 500; color: #f7f8fb; line-height: 1.55; text-wrap: pretty;">同一个仓库 checkout 在两台机器上,侧栏该怎么显示?</div>
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <div style="display: flex; align-items: flex-start; gap: 9px; padding: 9px 10px; border-radius: 8px; border: 1px solid #3a3d42; background: #1f2226;">
+                  <div class="mono" style="width: 16px; height: 16px; flex-shrink: 0; border-radius: 4px; border: 1px solid #4a4d52; color: #ccced1; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px;">A</div>
+                  <div style="min-width: 0;">
+                    <div style="font-size: 12px; font-weight: 600; color: #f7f8fb;">分成两组,各自标机器</div>
+                    <div style="font-size: 11px; color: #909297; margin-top: 2px; line-height: 1.5;">key = machine + repo root</div>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: flex-start; gap: 9px; padding: 9px 10px; border-radius: 8px; border: 1px solid #3a3d42; background: #1f2226;">
+                  <div class="mono" style="width: 16px; height: 16px; flex-shrink: 0; border-radius: 4px; border: 1px solid #4a4d52; color: #ccced1; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px;">B</div>
+                  <div style="min-width: 0;">
+                    <div style="font-size: 12px; font-weight: 600; color: #f7f8fb;">合并成一组,行内标机器</div>
+                    <div style="font-size: 11px; color: #909297; margin-top: 2px; line-height: 1.5;">key = repo root</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="flex-shrink: 0; padding: 10px 12px 12px 12px;">
+          <div style="border: 1px solid #27292d; border-radius: 10px; background: #111316; outline: 2px solid #69c1fc; outline-offset: -1px;">
+            <div style="padding: 10px 12px 6px 12px; font-size: 13px; color: #5b5e62;">选 A / B,或直接说…</div>
+            <div style="display: flex; align-items: center; gap: 6px; padding: 0 7px 7px 9px;">
+              <div class="mono" style="display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 999px; border: 1px solid #27292d; color: #909297; font-size: 10px; flex-shrink: 0;">opus-4.6</div>
+              <div style="flex-grow: 1;"></div>
+              <div class="mono" style="font-size: 10px; color: #3d4045;">⌘↵</div>
+              <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: #fb9d59; color: #0b0c0f; flex-shrink: 0;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="5"></line><polyline points="5.5 11.5 12 5 18.5 11.5"></polyline></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PANE 2 · terminal -->
+      <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; background: #05060a; border: 1px solid #27292d; border-radius: 2px; overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 7px; height: 24px; flex-shrink: 0; padding: 0 9px; background: #111316; border-bottom: 1px solid #1b1d20;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#909297" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          <div class="mono" style="font-size: 10px; color: #909297; flex-grow: 1;">cargo watch -x test</div>
+          <div class="mono" style="font-size: 10px; color: #5b5e62;">pane 2</div>
+        </div>
+        <div class="mono" style="flex-grow: 1; min-height: 0; padding: 10px 12px; font-size: 12px; line-height: 1.65; color: #ccced1; overflow: hidden;">
+          <div style="color: #5b5e62;">$ cargo watch -x 'test -p webmux-hub sidebar'</div>
+          <div style="height: 6px;"></div>
+          <div style="color: #909297;">[Running 'test -p webmux-hub sidebar']</div>
+          <div style="color: #909297;">   Compiling webmux-hub v0.4.2</div>
+          <div style="color: #fa6863;">error[E0425]: cannot find function `repoRoot` in this scope</div>
+          <div style="color: #909297;">  --&gt; src/sidebar/groupSessions.ts:24:16</div>
+          <div style="height: 6px;"></div>
+          <div style="color: #909297;">[Finished running. Exit status: 101]</div>
+          <div style="height: 10px;"></div>
+          <div style="color: #909297;">[Running 'test -p webmux-hub sidebar']</div>
+          <div style="color: #909297;">   Compiling webmux-hub v0.4.2</div>
+          <div style="color: #909297;">    Finished in 11.42s</div>
+          <div style="height: 6px;"></div>
+          <div>running 6 tests</div>
+          <div>test sidebar::group_by_repo_root ... <span style="color: #63d18f;">ok</span></div>
+          <div>test sidebar::group_falls_back_to_cwd ... <span style="color: #63d18f;">ok</span></div>
+          <div>test sidebar::same_repo_two_machines ... <span style="color: #fa6863;">FAILED</span></div>
+          <div>test sidebar::archived_excluded ... <span style="color: #63d18f;">ok</span></div>
+          <div style="height: 6px;"></div>
+          <div style="color: #fa6863;">---- sidebar::same_repo_two_machines stdout ----</div>
+          <div style="color: #909297;">assertion `left == right` failed</div>
+          <div style="color: #909297;">  left: 1   // 合并成了一组</div>
+          <div style="color: #909297;"> right: 2   // 测试期望两组</div>
+          <div style="height: 6px;"></div>
+          <div style="color: #909297;">test result: <span style="color: #fa6863;">FAILED</span>. 5 passed; 1 failed</div>
+          <div style="height: 6px;"></div>
+          <div style="color: #909297;">[Finished running. Exit status: 101]</div>
+          <div style="color: #5b5e62;">[Watching for changes… src/**]</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -26,23 +26,23 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   await pageA.getByTestId("empty-new-terminal").click();
 
   // The workspace is now the main view. Session A is controller: the
-  // control-gated tab-bar action is enabled for it.
+  // control-gated sidebar action is enabled for it.
   await pageA.getByTestId("expanded-terminal").waitFor({ state: "visible" });
-  await expect(pageA.getByTestId("tab-bar-new-group")).toBeEnabled();
+  await expect(pageA.getByTestId("sidebar-new-tab")).toBeEnabled();
 
   // Session B arrives in view-only mode with the workspace already visible;
   // the same gated action is disabled for it.
   await openApp(pageB);
   await expectControlState(pageB, "viewing");
   await pageB.getByTestId("expanded-terminal").waitFor({ state: "visible" });
-  await expect(pageB.getByTestId("tab-bar-new-group")).toBeDisabled();
+  await expect(pageB.getByTestId("sidebar-new-tab")).toBeDisabled();
 
   // Handoff: B takes control, A flips to viewing and its gated action
   // disables; B's enables.
   await takeControlFromHeader(pageB);
-  await expect(pageB.getByTestId("tab-bar-new-group")).toBeEnabled();
+  await expect(pageB.getByTestId("sidebar-new-tab")).toBeEnabled();
   await expectControlState(pageA, "viewing");
-  await expect(pageA.getByTestId("tab-bar-new-group")).toBeDisabled();
+  await expect(pageA.getByTestId("sidebar-new-tab")).toBeDisabled();
 
   // B closes the terminal through the real ⌃B x prefix path (idle shell:
   // no foreground process, so no confirm dialog).
@@ -55,8 +55,8 @@ test("desktop control handoff stays in sync across browser sessions", async ({ b
   // (auto-restored via the hub's WS-disconnect grace period).
   await pageA.reload();
   await pageB.reload();
-  await pageA.getByTestId("tab-bar").waitFor({ state: "visible", timeout: 20_000 });
-  await pageB.getByTestId("tab-bar").waitFor({ state: "visible", timeout: 20_000 });
+  await pageA.getByTestId("sidebar").waitFor({ state: "visible", timeout: 20_000 });
+  await pageB.getByTestId("sidebar").waitFor({ state: "visible", timeout: 20_000 });
   await expectControlState(pageA, "viewing");
   await expectControlState(pageB, "controlling");
   // Positive controller signal: the empty-state CTA only renders for the
