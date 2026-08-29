@@ -187,9 +187,13 @@ impl HubConnection {
         // tmux holds the live pane title for every terminal even when nobody
         // is attached, so poll it directly and report those titles as OSC —
         // the hub's precedence (OSC beats process) does the rest. The
-        // foreground process name remains the fallback for untitled panes.
-        // The same poll carries `pane_current_path`; cwds are reported only
-        // when they change, titles keep their every-tick behavior.
+        // foreground process name remains the fallback for untitled panes;
+        // it now rides in the same `list-panes -a` poll (`current_command`),
+        // so one tick costs one tmux subprocess total instead of one per
+        // untitled terminal. Titles and cwds are reported only when they
+        // change — every report used to trigger a synchronous SQLite write
+        // on the hub — and the dedup maps reset with each hub connection,
+        // so a reconnected hub always gets a full refresh.
         let pty_for_titles = pty.clone();
         let send_tx_for_titles = send_tx.clone();
         let mut title_fallback_task = tokio::spawn(async move {
@@ -197,32 +201,42 @@ impl HubConnection {
             interval.tick().await;
             let mut last_sent_cwd: std::collections::HashMap<String, String> =
                 std::collections::HashMap::new();
+            let mut last_sent_title: std::collections::HashMap<
+                String,
+                (String, TerminalTitleSource),
+            > = std::collections::HashMap::new();
             loop {
                 interval.tick().await;
                 let pane_infos = pty_for_titles.pane_infos();
-                for terminal_id in pty_for_titles.list_terminal_ids() {
+                let terminal_ids = pty_for_titles.list_terminal_ids();
+                // Drop dedup state for terminals that no longer exist so the
+                // maps can't grow without bound over a long connection.
+                last_sent_cwd.retain(|id, _| terminal_ids.contains(id));
+                last_sent_title.retain(|id, _| terminal_ids.contains(id));
+                for terminal_id in terminal_ids {
                     let pane_info = pane_infos.get(&terminal_id);
                     let title_update = match pane_info.and_then(|info| info.title.as_ref()) {
                         Some(title) => Some((title.clone(), TerminalTitleSource::Osc)),
-                        None => {
-                            let (_, process_name) =
-                                pty_for_titles.check_foreground_process(&terminal_id);
-                            fallback_title(process_name)
-                        }
+                        None => fallback_title(
+                            pane_info.and_then(|info| info.current_command.clone()),
+                        ),
                     };
                     // Never report an empty title: it would only flip the
                     // hub-side title_source and storm TerminalUpdated events.
-                    if let Some((title, source)) = title_update {
-                        if send_tx_for_titles
-                            .send(OutboundHubMessage::Json(MachineToHub::TerminalTitle {
-                                terminal_id: terminal_id.clone(),
-                                title,
-                                source,
-                            }))
-                            .await
-                            .is_err()
-                        {
-                            return;
+                    if let Some(update) = title_update {
+                        if last_sent_title.get(&terminal_id) != Some(&update) {
+                            if send_tx_for_titles
+                                .send(OutboundHubMessage::Json(MachineToHub::TerminalTitle {
+                                    terminal_id: terminal_id.clone(),
+                                    title: update.0.clone(),
+                                    source: update.1,
+                                }))
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                            last_sent_title.insert(terminal_id.clone(), update);
                         }
                     }
                     if let Some(cwd) = pane_info.and_then(|info| info.cwd.as_ref()) {

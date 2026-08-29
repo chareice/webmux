@@ -336,7 +336,10 @@ pub fn encode_attach_output_frame(attach_id: &str, data: &[u8]) -> Vec<u8> {
     frame
 }
 
-pub fn decode_attach_output_frame(frame: &[u8]) -> Result<(String, Bytes), String> {
+/// Decode an attach output frame. Takes `Bytes` so the payload comes back
+/// as a zero-copy slice of the incoming WebSocket message — the hub calls
+/// this once per output frame on its hottest path.
+pub fn decode_attach_output_frame(frame: &Bytes) -> Result<(String, Bytes), String> {
     if frame.is_empty() {
         return Err("frame is empty".to_string());
     }
@@ -357,10 +360,7 @@ pub fn decode_attach_output_frame(frame: &[u8]) -> Result<(String, Bytes), Strin
     let attach_id = std::str::from_utf8(&body[2..2 + attach_id_len])
         .map_err(|error| format!("attach id is not valid utf-8: {error}"))?
         .to_string();
-    Ok((
-        attach_id,
-        Bytes::copy_from_slice(&body[2 + attach_id_len..]),
-    ))
+    Ok((attach_id, frame.slice(1 + 2 + attach_id_len..)))
 }
 
 pub fn encode_terminal_preview_output_frame(terminal_id: &str, data: &[u8]) -> Vec<u8> {
@@ -413,6 +413,7 @@ mod tests {
         BrowserEventsClientMessage, BrowserEventsPong, MachineToHub, TerminalInfo,
         TerminalTitleSource,
     };
+    use bytes::Bytes;
 
     #[test]
     fn terminal_info_title_source_defaults_to_none_when_missing() {
@@ -468,7 +469,10 @@ mod tests {
 
     #[test]
     fn attach_output_frame_round_trips_without_loss() {
-        let frame = encode_attach_output_frame("attach-x", b"\x1b[38;5;246mhello\x00\xff");
+        let frame = Bytes::from(encode_attach_output_frame(
+            "attach-x",
+            b"\x1b[38;5;246mhello\x00\xff",
+        ));
         let (attach_id, payload) = decode_attach_output_frame(&frame).unwrap();
         assert_eq!(attach_id, "attach-x");
         assert_eq!(payload.as_ref(), b"\x1b[38;5;246mhello\x00\xff");
@@ -477,14 +481,15 @@ mod tests {
     #[test]
     fn attach_output_frame_rejects_truncated_payloads() {
         // 0x01 magic + truncated body
-        let error = decode_attach_output_frame(&[0x01, 0, 10, b't']).unwrap_err();
+        let error =
+            decode_attach_output_frame(&Bytes::from_static(&[0x01, 0, 10, b't'])).unwrap_err();
         assert!(error.contains("truncated"));
     }
 
     #[test]
     fn attach_output_frame_rejects_wrong_magic() {
         // A frame starting with anything other than 0x01 isn't ours.
-        let bad = [0xff_u8, 0, 4, b't', b'e', b's', b't'];
+        let bad = Bytes::from_static(&[0xff_u8, 0, 4, b't', b'e', b's', b't']);
         assert!(decode_attach_output_frame(&bad).is_err());
     }
 

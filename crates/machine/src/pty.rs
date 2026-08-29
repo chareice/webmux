@@ -30,6 +30,11 @@ pub struct PaneInfo {
     pub title: Option<String>,
     /// `pane_current_path`; `None` when tmux didn't report one.
     pub cwd: Option<String>,
+    /// `pane_current_command` when it is a real foreground process; `None`
+    /// for a bare shell (or when tmux didn't report one). Carried in the
+    /// same `list-panes -a` poll so callers never need a per-terminal
+    /// subprocess just to learn the process name.
+    pub current_command: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -281,7 +286,7 @@ impl PtyManager {
                 "list-panes",
                 "-a",
                 "-F",
-                "#{session_name}\t#{pane_title}\t#{pane_current_path}",
+                "#{session_name}\t#{pane_title}\t#{pane_current_path}\t#{pane_current_command}",
             ])
             .output();
         match output {
@@ -562,16 +567,18 @@ pub fn tmux_session_name(id: &str) -> String {
     format!("{}{}", TMUX_PREFIX, id)
 }
 
-/// Parse `tmux list-panes -a -F '#{session_name}\t#{pane_title}\t#{pane_current_path}'`
+/// Parse `tmux list-panes -a -F
+/// '#{session_name}\t#{pane_title}\t#{pane_current_path}\t#{pane_current_command}'`
 /// output into terminal_id -> PaneInfo. tmux initializes an untouched pane
 /// title to the machine hostname, so empty or hostname-equal titles count as
 /// "no title" (the caller falls back to the foreground process name). The
-/// path column may be missing or empty on older tmux — then there is simply
-/// no cwd to report.
+/// path and command columns may be missing or empty on older tmux — then
+/// there is simply no cwd / command to report. A bare shell counts as "no
+/// foreground command".
 fn parse_pane_info(output: &str, hostname: &str) -> HashMap<String, PaneInfo> {
     let mut panes = HashMap::new();
     for line in output.lines() {
-        let mut parts = line.splitn(3, '\t');
+        let mut parts = line.splitn(4, '\t');
         let Some(session_name) = parts.next() else {
             continue;
         };
@@ -588,10 +595,22 @@ fn parse_pane_info(output: &str, hostname: &str) -> HashMap<String, PaneInfo> {
             .map(str::trim)
             .filter(|path| !path.is_empty())
             .map(str::to_string);
-        if title.is_none() && cwd.is_none() {
+        let current_command = parts
+            .next()
+            .map(str::trim)
+            .filter(|cmd| !cmd.is_empty() && !is_shell_name(cmd))
+            .map(str::to_string);
+        if title.is_none() && cwd.is_none() && current_command.is_none() {
             continue;
         }
-        panes.insert(terminal_id.to_string(), PaneInfo { title, cwd });
+        panes.insert(
+            terminal_id.to_string(),
+            PaneInfo {
+                title,
+                cwd,
+                current_command,
+            },
+        );
     }
     panes
 }
@@ -878,6 +897,7 @@ mod tests {
             Some(&PaneInfo {
                 title: Some("fix the bug".to_string()),
                 cwd: Some("/home/user".to_string()),
+                ..PaneInfo::default()
             })
         );
         assert_eq!(
@@ -885,6 +905,7 @@ mod tests {
             Some(&PaneInfo {
                 title: Some("✳ 了解项目".to_string()),
                 cwd: Some("/src".to_string()),
+                ..PaneInfo::default()
             })
         );
     }
@@ -900,6 +921,7 @@ mod tests {
             Some(&PaneInfo {
                 title: None,
                 cwd: Some("/home/user".to_string()),
+                ..PaneInfo::default()
             })
         );
         assert_eq!(
@@ -907,6 +929,7 @@ mod tests {
             Some(&PaneInfo {
                 title: None,
                 cwd: Some("/dev".to_string()),
+                ..PaneInfo::default()
             })
         );
         assert_eq!(
@@ -929,6 +952,7 @@ mod tests {
             Some(&PaneInfo {
                 title: Some("fix the bug".to_string()),
                 cwd: Some("/home/user".to_string()),
+                ..PaneInfo::default()
             })
         );
     }
@@ -941,6 +965,7 @@ mod tests {
             Some(&PaneInfo {
                 title: Some("fix the bug".to_string()),
                 cwd: None,
+                ..PaneInfo::default()
             })
         );
     }
@@ -953,11 +978,31 @@ mod tests {
             Some(&PaneInfo {
                 title: Some("fix the bug".to_string()),
                 cwd: None,
+                ..PaneInfo::default()
             })
         );
         // No title and no path at all → no entry.
         let panes = parse_pane_info("wmx_aaa\t\t\n", "dev");
         assert!(panes.is_empty());
+    }
+
+    #[test]
+    fn parse_pane_info_extracts_a_foreground_command_but_not_a_shell() {
+        let panes = parse_pane_info(
+            "wmx_aaa\t\t/home/user\tnvim\nwmx_bbb\t\t/tmp\tfish\nwmx_ccc\t\t\tcargo\n",
+            "dev",
+        );
+        assert_eq!(
+            panes.get("aaa").and_then(|i| i.current_command.as_deref()),
+            Some("nvim")
+        );
+        // A bare shell is "no foreground command".
+        assert_eq!(panes.get("bbb").and_then(|i| i.current_command.as_deref()), None);
+        // Command alone is enough to keep the entry.
+        assert_eq!(
+            panes.get("ccc").and_then(|i| i.current_command.as_deref()),
+            Some("cargo")
+        );
     }
 
     #[test]

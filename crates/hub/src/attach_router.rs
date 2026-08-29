@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use std::sync::{Arc, RwLock};
+use tokio::sync::mpsc;
 
 /// Sink for bytes destined for one attached browser WebSocket.
 ///
@@ -16,8 +16,12 @@ pub struct WsSender(pub mpsc::Sender<Bytes>);
 /// terminal output, does not track output sequence numbers, and does not run
 /// a broadcast channel. Every attach is end-to-end an independent pipe;
 /// this router is the only per-attach state the hub holds.
+///
+/// The maps sit behind a synchronous `RwLock`, not an async mutex: the
+/// machine recv loop takes the read lock once per output frame, and the
+/// critical sections are a HashMap probe — never held across an await.
 pub struct HubRouter {
-    inner: Arc<Mutex<HubRouterInner>>,
+    inner: Arc<RwLock<HubRouterInner>>,
 }
 
 #[derive(Default)]
@@ -31,47 +35,47 @@ struct HubRouterInner {
 impl HubRouter {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(HubRouterInner::default())),
+            inner: Arc::new(RwLock::new(HubRouterInner::default())),
         }
     }
 
-    pub async fn register(
+    pub fn register(
         &self,
         attach_id: String,
         machine_id: String,
         terminal_id: String,
         sender: WsSender,
     ) {
-        let mut inner = self.inner.lock().await;
+        let mut inner = self.inner.write().unwrap();
         inner.senders.insert(attach_id.clone(), sender);
         inner
             .attach_to_terminal
             .insert(attach_id, (machine_id, terminal_id));
     }
 
-    pub async fn lookup_sender(&self, attach_id: &str) -> Option<WsSender> {
-        self.inner.lock().await.senders.get(attach_id).cloned()
+    pub fn lookup_sender(&self, attach_id: &str) -> Option<WsSender> {
+        self.inner.read().unwrap().senders.get(attach_id).cloned()
     }
 
-    pub async fn lookup_terminal(&self, attach_id: &str) -> Option<(String, String)> {
+    pub fn lookup_terminal(&self, attach_id: &str) -> Option<(String, String)> {
         self.inner
-            .lock()
-            .await
+            .read()
+            .unwrap()
             .attach_to_terminal
             .get(attach_id)
             .cloned()
     }
 
-    pub async fn unregister(&self, attach_id: &str) {
-        let mut inner = self.inner.lock().await;
+    pub fn unregister(&self, attach_id: &str) {
+        let mut inner = self.inner.write().unwrap();
         inner.senders.remove(attach_id);
         inner.attach_to_terminal.remove(attach_id);
     }
 
     /// Drop every attach belonging to a machine. Used when the machine
     /// disconnects so we don't leak orphan routing entries.
-    pub async fn drop_machine(&self, machine_id: &str) -> Vec<String> {
-        let mut inner = self.inner.lock().await;
+    pub fn drop_machine(&self, machine_id: &str) -> Vec<String> {
+        let mut inner = self.inner.write().unwrap();
         let dropped: Vec<String> = inner
             .attach_to_terminal
             .iter()
@@ -105,45 +109,35 @@ mod tests {
     async fn register_then_lookup_returns_the_same_sender() {
         let router = HubRouter::new();
         let (sender, mut rx) = ws_sender();
-        router
-            .register("a1".into(), "m".into(), "t".into(), sender)
-            .await;
-        let found = router.lookup_sender("a1").await.expect("registered");
+        router.register("a1".into(), "m".into(), "t".into(), sender);
+        let found = router.lookup_sender("a1").expect("registered");
         found.0.send(Bytes::from_static(b"hi")).await.unwrap();
         assert_eq!(rx.recv().await.unwrap().as_ref(), b"hi");
     }
 
-    #[tokio::test]
-    async fn unregister_removes_both_maps() {
+    #[test]
+    fn unregister_removes_both_maps() {
         let router = HubRouter::new();
         let (sender, _rx) = ws_sender();
-        router
-            .register("a1".into(), "m".into(), "t".into(), sender)
-            .await;
-        router.unregister("a1").await;
-        assert!(router.lookup_sender("a1").await.is_none());
-        assert!(router.lookup_terminal("a1").await.is_none());
+        router.register("a1".into(), "m".into(), "t".into(), sender);
+        router.unregister("a1");
+        assert!(router.lookup_sender("a1").is_none());
+        assert!(router.lookup_terminal("a1").is_none());
     }
 
-    #[tokio::test]
-    async fn drop_machine_drops_only_that_machines_attaches() {
+    #[test]
+    fn drop_machine_drops_only_that_machines_attaches() {
         let router = HubRouter::new();
         let (s1, _r1) = ws_sender();
         let (s2, _r2) = ws_sender();
         let (s3, _r3) = ws_sender();
-        router
-            .register("a1".into(), "m1".into(), "t1".into(), s1)
-            .await;
-        router
-            .register("a2".into(), "m1".into(), "t2".into(), s2)
-            .await;
-        router
-            .register("a3".into(), "m2".into(), "t3".into(), s3)
-            .await;
-        let dropped = router.drop_machine("m1").await;
+        router.register("a1".into(), "m1".into(), "t1".into(), s1);
+        router.register("a2".into(), "m1".into(), "t2".into(), s2);
+        router.register("a3".into(), "m2".into(), "t3".into(), s3);
+        let dropped = router.drop_machine("m1");
         assert_eq!(dropped.len(), 2);
-        assert!(router.lookup_sender("a1").await.is_none());
-        assert!(router.lookup_sender("a2").await.is_none());
-        assert!(router.lookup_sender("a3").await.is_some());
+        assert!(router.lookup_sender("a1").is_none());
+        assert!(router.lookup_sender("a2").is_none());
+        assert!(router.lookup_sender("a3").is_some());
     }
 }
