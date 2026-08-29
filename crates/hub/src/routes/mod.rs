@@ -1,3 +1,4 @@
+mod agent_sessions;
 mod api_tokens;
 mod auth;
 mod bookmarks;
@@ -16,6 +17,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(auth::router())
         .merge(terminals::router())
+        .merge(agent_sessions::router())
         .merge(bootstrap::router())
         .merge(focus::router())
         .merge(registration::router())

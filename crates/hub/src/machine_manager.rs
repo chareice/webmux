@@ -3,9 +3,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tc_protocol::{
-    BrowserEvent, BrowserEventEnvelope, BrowserStateSnapshot, ControlLeaseSnapshot, DirEntry,
-    HubToMachine, MachineInfo, MachineStatsSnapshot, MachineToHub, TerminalInfo,
-    WorkspaceGroupInfo, WorkspaceLayoutInfo, WorkspaceLayoutNode,
+    AgentSessionInfo, BrowserEvent, BrowserEventEnvelope, BrowserStateSnapshot,
+    ControlLeaseSnapshot, DirEntry, HubToMachine, MachineInfo, MachineStatsSnapshot, MachineToHub,
+    TerminalInfo, WorkspaceGroupInfo, WorkspaceLayoutInfo, WorkspaceLayoutNode,
 };
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 
@@ -213,6 +213,28 @@ impl MachineManager {
         }
         if let Some(conn) = machines.remove(machine_id) {
             let target_user_id = conn.user_id.clone();
+
+            // Agent processes die with the machine connection: their sessions
+            // go Disconnected (resume brings them back).
+            if let Ok(db_conn) = self.db.get() {
+                match crate::db::agent_sessions::mark_machine_sessions_disconnected(
+                    &db_conn, machine_id,
+                ) {
+                    Ok(rows) => {
+                        for row in rows {
+                            self.send_event(
+                                Some(row.user_id.clone()),
+                                BrowserEvent::AgentSessionUpdated {
+                                    session: crate::db::agent_sessions::row_to_info(&row),
+                                },
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to disconnect agent sessions of {}: {}", machine_id, e)
+                    }
+                }
+            }
 
             // Move terminals to persisted_terminals instead of destroying them
             if !conn.terminals.is_empty() {
@@ -513,6 +535,49 @@ impl MachineManager {
             Some(user_id.to_string()),
             BrowserEvent::WorkspaceLayoutUpdated { layout },
         );
+    }
+
+    pub fn publish_agent_session_created(&self, user_id: &str, session: AgentSessionInfo) {
+        self.send_event(
+            Some(user_id.to_string()),
+            BrowserEvent::AgentSessionCreated { session },
+        );
+    }
+
+    pub fn publish_agent_session_updated(&self, user_id: &str, session: AgentSessionInfo) {
+        self.send_event(
+            Some(user_id.to_string()),
+            BrowserEvent::AgentSessionUpdated { session },
+        );
+    }
+
+    pub fn publish_agent_session_destroyed(&self, user_id: &str, session_id: &str) {
+        self.send_event(
+            Some(user_id.to_string()),
+            BrowserEvent::AgentSessionDestroyed {
+                session_id: session_id.to_string(),
+            },
+        );
+    }
+
+    pub fn publish_agent_session_seen(&self, user_id: &str, session_id: &str, last_seen_seq: u64) {
+        self.send_event(
+            Some(user_id.to_string()),
+            BrowserEvent::AgentSessionSeen {
+                session_id: session_id.to_string(),
+                last_seen_seq,
+            },
+        );
+    }
+
+    /// Keep a connected machine's in-memory info in sync when its production
+    /// flag changes (offline machines are rebuilt from the DB at snapshot
+    /// time, so they need nothing here).
+    pub async fn set_machine_production(&self, machine_id: &str, production: bool) {
+        let mut machines = self.machines.lock().await;
+        if let Some(conn) = machines.get_mut(machine_id) {
+            conn.info.production = production;
+        }
     }
 
     pub async fn clear_workspace_group_assignments(
@@ -1230,10 +1295,121 @@ impl MachineManager {
                     self.send_event(target_user_id, BrowserEvent::TerminalResized { terminal });
                 }
             }
-            MachineToHub::AgentSessionUpdate { .. }
-            | MachineToHub::AgentSessionEvent { .. }
-            | MachineToHub::AgentSessionExited { .. } => {
-                tracing::warn!("agent session messages are not supported by this hub build");
+            MachineToHub::AgentSessionUpdate {
+                session_id,
+                status,
+                title,
+                acp_session_id,
+            } => {
+                let Ok(db_conn) = self.db.get() else {
+                    tracing::warn!("No DB connection for agent session update");
+                    return;
+                };
+                if let Err(e) = crate::db::agent_sessions::apply_update(
+                    &db_conn,
+                    &session_id,
+                    status,
+                    title.as_deref(),
+                    acp_session_id.as_deref(),
+                ) {
+                    tracing::warn!("Failed to persist agent session update: {}", e);
+                    return;
+                }
+                match crate::db::agent_sessions::find_session(&db_conn, &session_id) {
+                    Ok(Some(row)) => {
+                        self.send_event(
+                            Some(row.user_id.clone()),
+                            BrowserEvent::AgentSessionUpdated {
+                                session: crate::db::agent_sessions::row_to_info(&row),
+                            },
+                        );
+                    }
+                    Ok(None) => {} // deleted or unknown session: ignore
+                    Err(e) => {
+                        tracing::warn!("Failed to reload agent session {}: {}", session_id, e)
+                    }
+                }
+            }
+            MachineToHub::AgentSessionEvent {
+                session_id,
+                seq,
+                event,
+            } => {
+                let Ok(db_conn) = self.db.get() else {
+                    tracing::warn!("No DB connection for agent session event");
+                    return;
+                };
+                let row = match crate::db::agent_sessions::find_session(&db_conn, &session_id) {
+                    Ok(Some(row)) => row,
+                    Ok(None) => return, // deleted or unknown session: ignore
+                    Err(e) => {
+                        tracing::warn!("Failed to load agent session {}: {}", session_id, e);
+                        return;
+                    }
+                };
+                // A resumed session restarts its seq at 1; events at or below
+                // the stored watermark are already in the log.
+                if seq <= row.last_event_seq.max(0) as u64 {
+                    return;
+                }
+                let event_json = match serde_json::to_string(&event) {
+                    Ok(json) => json,
+                    Err(e) => {
+                        tracing::warn!("Failed to serialize agent session event: {}", e);
+                        return;
+                    }
+                };
+                if let Err(e) =
+                    crate::db::agent_sessions::insert_event(&db_conn, &session_id, seq, &event_json)
+                {
+                    tracing::warn!("Failed to persist agent session event: {}", e);
+                    return;
+                }
+                if let Err(e) =
+                    crate::db::agent_sessions::bump_last_event_seq(&db_conn, &session_id, seq)
+                {
+                    tracing::warn!("Failed to bump agent session event seq: {}", e);
+                }
+                self.send_event(
+                    Some(row.user_id.clone()),
+                    BrowserEvent::AgentSessionEvent {
+                        session_id,
+                        seq,
+                        event,
+                    },
+                );
+            }
+            MachineToHub::AgentSessionExited { session_id, reason } => {
+                tracing::info!(
+                    session_id = %session_id,
+                    reason = %reason,
+                    "agent session exited on machine"
+                );
+                let Ok(db_conn) = self.db.get() else {
+                    return;
+                };
+                if let Err(e) = crate::db::agent_sessions::set_status(
+                    &db_conn,
+                    &session_id,
+                    tc_protocol::AgentSessionStatus::Disconnected,
+                ) {
+                    tracing::warn!("Failed to mark agent session disconnected: {}", e);
+                    return;
+                }
+                match crate::db::agent_sessions::find_session(&db_conn, &session_id) {
+                    Ok(Some(row)) => {
+                        self.send_event(
+                            Some(row.user_id.clone()),
+                            BrowserEvent::AgentSessionUpdated {
+                                session: crate::db::agent_sessions::row_to_info(&row),
+                            },
+                        );
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::warn!("Failed to reload agent session {}: {}", session_id, e)
+                    }
+                }
             }
         }
     }
@@ -1563,7 +1739,7 @@ impl MachineManager {
                             name: machine_row.name,
                             os: machine_row.os.unwrap_or_default(),
                             home_dir: machine_row.home_dir.unwrap_or_default(),
-                            production: false,
+                            production: machine_row.production,
                         });
                         all_terminals.extend(terminals.iter().cloned());
                     }
@@ -1584,6 +1760,24 @@ impl MachineManager {
                     .any(|terminal| terminal.id == *terminal_id)
             });
 
+        // Agent sessions come straight from the DB: unlike terminals they
+        // stay listed (Disconnected) while their machine is offline.
+        let (agent_sessions, agent_session_seen) = self
+            .db
+            .get()
+            .ok()
+            .map(|conn| {
+                let sessions = crate::db::agent_sessions::find_sessions_by_user(&conn, user_id)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(crate::db::agent_sessions::row_to_info)
+                    .collect();
+                let seen = crate::db::agent_sessions::seen_by_user(&conn, user_id)
+                    .unwrap_or_default();
+                (sessions, seen)
+            })
+            .unwrap_or_default();
+
         BrowserStateSnapshot {
             snapshot_seq,
             last_focused_terminal_id,
@@ -1597,8 +1791,8 @@ impl MachineManager {
                 .into_iter()
                 .filter(|lease| visible_machine_ids.contains(lease.machine_id.as_str()))
                 .collect(),
-            agent_sessions: Vec::new(),
-            agent_session_seen: HashMap::new(),
+            agent_sessions,
+            agent_session_seen,
         }
     }
 
