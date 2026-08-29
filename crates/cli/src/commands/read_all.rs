@@ -483,6 +483,7 @@ mod tests {
             name: id.to_string(),
             os: "linux".to_string(),
             home_dir: "/home/user".to_string(),
+            production: false,
         }
     }
 

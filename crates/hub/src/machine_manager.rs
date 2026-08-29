@@ -1230,6 +1230,11 @@ impl MachineManager {
                     self.send_event(target_user_id, BrowserEvent::TerminalResized { terminal });
                 }
             }
+            MachineToHub::AgentSessionUpdate { .. }
+            | MachineToHub::AgentSessionEvent { .. }
+            | MachineToHub::AgentSessionExited { .. } => {
+                tracing::warn!("agent session messages are not supported by this hub build");
+            }
         }
     }
 
@@ -1558,6 +1563,7 @@ impl MachineManager {
                             name: machine_row.name,
                             os: machine_row.os.unwrap_or_default(),
                             home_dir: machine_row.home_dir.unwrap_or_default(),
+                            production: false,
                         });
                         all_terminals.extend(terminals.iter().cloned());
                     }
@@ -1591,6 +1597,8 @@ impl MachineManager {
                 .into_iter()
                 .filter(|lease| visible_machine_ids.contains(lease.machine_id.as_str()))
                 .collect(),
+            agent_sessions: Vec::new(),
+            agent_session_seen: HashMap::new(),
         }
     }
 
@@ -1729,6 +1737,7 @@ mod tests {
             name: format!("machine-{id}"),
             os: "linux".to_string(),
             home_dir: "/tmp".to_string(),
+            production: false,
         }
     }
 

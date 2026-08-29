@@ -574,6 +574,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                         name,
                         os,
                         home_dir,
+                        production: false,
                     };
                     let (conn_id, mut cmd_rx) =
                         state.manager.register_machine(info, machine_owner).await;

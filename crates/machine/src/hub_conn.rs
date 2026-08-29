@@ -647,6 +647,13 @@ async fn handle_hub_message(
                 }
             }
         }
+        HubToMachine::AgentSessionStart { .. }
+        | HubToMachine::AgentSessionPrompt { .. }
+        | HubToMachine::AgentSessionAnswer { .. }
+        | HubToMachine::AgentSessionCancel { .. }
+        | HubToMachine::AgentSessionKill { .. } => {
+            tracing::warn!("agent session commands are not supported by this node build");
+        }
     }
 }
 
