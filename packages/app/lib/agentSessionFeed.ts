@@ -145,6 +145,9 @@ export function ensureAgentSessionFeed(
   sessionId: string,
 ): void {
   const entry = getOrCreateEntry(machineId, sessionId);
+  // The entry may have been created from a live envelope before the session
+  // was known locally (machineId ""); the caller with a session object wins.
+  if (machineId) entry.machineId = machineId;
   if (entry.backfilled || entry.backfillPromise) return;
 
   entry.backfillPromise = (async () => {

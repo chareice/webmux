@@ -25,12 +25,14 @@ import {
 } from "react";
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import type { ResourceStats } from "@webmux/shared";
-import { Lock, LogOut, Plus, Settings } from "lucide-react";
+import { ChevronDown, Lock, LogOut, MessageCircle, Plus, Settings } from "lucide-react";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { colors, colorAlpha } from "@/lib/colors";
 import { diskPercent, diskTooltip } from "@/lib/resourceStats";
-import type { SidebarSection, SidebarTree } from "@/lib/sidebarTree";
+import type { SidebarRow, SidebarSection, SidebarTree } from "@/lib/sidebarTree";
+import { getAgentSessionPendingQuestion } from "@/lib/agentSessionFeed";
 import type { WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
+import { AgentBadge, AgentStatusDot } from "./AgentBadge.web";
 
 export type SidebarDropPlacement = "before" | "after";
 
@@ -52,6 +54,7 @@ interface SidebarProps {
   onAddMachine: () => void;
   onSelectSection: (machineId: string, groupId: string) => void;
   onSelectRow: (machineId: string, groupId: string, terminalId: string) => void;
+  onSelectAgentRow: (machineId: string, agentSessionId: string) => void;
   onNewTab: () => void;
   onNewTerminalInSection: (machineId: string, group: WorkspaceGroup) => void;
   onRenameSection: (machineId: string, group: WorkspaceGroup) => void;
@@ -81,6 +84,7 @@ function SidebarComponent({
   onAddMachine,
   onSelectSection,
   onSelectRow,
+  onSelectAgentRow,
   onNewTab,
   onNewTerminalInSection,
   onRenameSection,
@@ -93,6 +97,7 @@ function SidebarComponent({
   onSignOut,
 }: SidebarProps) {
   const [hoveredSectionId, setHoveredSectionId] = useState<string | null>(null);
+  const [inboxOpen, setInboxOpen] = useState(false);
   const [sectionMenu, setSectionMenu] = useState<{
     machineId: string;
     group: WorkspaceGroup;
@@ -326,8 +331,8 @@ function SidebarComponent({
           data-testid="sidebar-new-tab"
           onClick={onNewTab}
           disabled={!isActiveController}
-          title="New tab"
-          aria-label="New tab"
+          title="New session"
+          aria-label="New session"
           style={{
             width: 24,
             height: 24,
@@ -476,6 +481,19 @@ function SidebarComponent({
         })}
       </div>
 
+      {/* "waiting on you" inbox — only while ≥1 agent session is asked */}
+      {tree.askedSessions.length > 0 && (
+        <InboxBanner
+          tree={tree}
+          open={inboxOpen}
+          onToggle={() => setInboxOpen((value) => !value)}
+          onSelectSession={(machineId, sessionId) => {
+            setInboxOpen(false);
+            onSelectAgentRow(machineId, sessionId);
+          }}
+        />
+      )}
+
       {/* session tree */}
       <div
         style={{
@@ -528,6 +546,9 @@ function SidebarComponent({
                   }
                   onSelectRow={(terminalId) =>
                     onSelectRow(machine.machineId, section.groupId, terminalId)
+                  }
+                  onSelectAgentRow={(agentSessionId) =>
+                    onSelectAgentRow(machine.machineId, agentSessionId)
                   }
                   onNewTerminal={() =>
                     onNewTerminalInSection(machine.machineId, section.group)
@@ -667,6 +688,7 @@ function SidebarSectionBlock({
   onHover,
   onSelect,
   onSelectRow,
+  onSelectAgentRow,
   onNewTerminal,
   onContextMenu,
   onArmDrag,
@@ -681,6 +703,7 @@ function SidebarSectionBlock({
   onHover: (groupId: string | null) => void;
   onSelect: () => void;
   onSelectRow: (terminalId: string) => void;
+  onSelectAgentRow: (agentSessionId: string) => void;
   onNewTerminal: () => void;
   onContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onArmDrag: (event: ReactMouseEvent<HTMLElement>) => void;
@@ -816,9 +839,13 @@ function SidebarSectionBlock({
       </div>
 
       {section.rows.map((row) =>
-        // Agent rows exist in the projection but have no sidebar rendering
-        // yet; skip them here.
-        row.kind === "agent" ? null : (
+        row.kind === "agent" ? (
+          <AgentRow
+            key={row.agentSessionId}
+            row={row}
+            onSelect={() => onSelectAgentRow(row.agentSessionId)}
+          />
+        ) : (
           <button
             key={row.terminalId}
             type="button"
@@ -863,6 +890,262 @@ function SidebarSectionBlock({
       )}
     </div>
   );
+}
+
+/* ---------- agent session row ---------- */
+
+// Agent rows per Main.dc.html + States.dc.html: 2-letter badge, status dot
+// (amber diamond only for asked), unread = bold title + small solid dot.
+// `asked` rows get the amber left bar + tint — the only amber in the tree.
+function AgentRow({
+  row,
+  onSelect,
+}: {
+  row: Extract<SidebarRow, { kind: "agent" }>;
+  onSelect: () => void;
+}) {
+  const asked = row.status === "asked";
+  const dimmed = row.status === "disconnected";
+  return (
+    <button
+      type="button"
+      data-testid={`sidebar-agent-row-${row.agentSessionId}`}
+      onClick={onSelect}
+      title={row.title}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        width: "100%",
+        height: 30,
+        padding: "0 8px 0 6px",
+        border: "none",
+        borderRadius: 6,
+        background: asked
+          ? colorAlpha.accentSubtle
+          : row.selected
+            ? colors.bg2
+            : "transparent",
+        borderLeft: asked
+          ? "2px solid rgb(var(--color-accent) / 0.55)"
+          : "2px solid transparent",
+        cursor: "pointer",
+        textAlign: "left",
+        opacity: dimmed ? 0.5 : 1,
+        marginBottom: 1,
+      }}
+    >
+      <AgentBadge kind={row.agentKind} />
+      <span
+        style={{
+          flexGrow: 1,
+          fontSize: 13,
+          fontWeight: row.unread ? 600 : row.selected ? 500 : 400,
+          color:
+            row.unread || row.selected
+              ? colors.fg0
+              : dimmed
+                ? colors.fg3
+                : colors.fg1,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          minWidth: 0,
+        }}
+      >
+        {row.title}
+      </span>
+      {row.unread && (
+        <span
+          data-testid={`sidebar-agent-row-${row.agentSessionId}-unread`}
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: 999,
+            background: colors.fg0,
+            flexShrink: 0,
+          }}
+        />
+      )}
+      <AgentStatusDot status={row.status} />
+    </button>
+  );
+}
+
+/* ---------- inbox banner (asked sessions only) ---------- */
+
+function InboxBanner({
+  tree,
+  open,
+  onToggle,
+  onSelectSession,
+}: {
+  tree: SidebarTree;
+  open: boolean;
+  onToggle: () => void;
+  onSelectSession: (machineId: string, sessionId: string) => void;
+}) {
+  const machineNameById = new Map(
+    tree.machines.map((machine) => [machine.machineId, machine.name]),
+  );
+  const oldest = tree.askedSessions[0];
+  return (
+    <div style={{ flexShrink: 0, margin: "8px 8px 2px" }}>
+      <button
+        type="button"
+        data-testid="sidebar-inbox"
+        onClick={onToggle}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 9,
+          width: "100%",
+          minHeight: 42,
+          padding: "4px 8px 4px 10px",
+          border: `1px solid ${colorAlpha.accentLine}`,
+          borderLeft: `2px solid ${colors.accent}`,
+          borderRadius: 6,
+          background: colorAlpha.accentSubtle,
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <MessageCircle size={14} color={colors.accent} style={{ flexShrink: 0 }} />
+        <span style={{ flexGrow: 1, minWidth: 0 }}>
+          <span
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 600,
+              color: colors.accent,
+            }}
+          >
+            {tree.askedSessions.length} waiting on you
+          </span>
+          <span
+            style={{
+              display: "block",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: colors.accentDim,
+              marginTop: 2,
+            }}
+          >
+            oldest {formatAge(oldest.createdAtMs)}
+          </span>
+        </span>
+        <ChevronDown
+          size={11}
+          color={colors.accentDim}
+          style={{
+            flexShrink: 0,
+            transform: open ? "rotate(180deg)" : "none",
+          }}
+        />
+      </button>
+      {open && (
+        <div
+          style={{
+            marginTop: 4,
+            border: `1px solid ${colors.line}`,
+            borderRadius: 8,
+            background: colors.bg2,
+            overflow: "hidden",
+          }}
+        >
+          {tree.askedSessions.map((entry) => {
+            const question = getAgentSessionPendingQuestion(entry.sessionId);
+            return (
+              <button
+                key={entry.sessionId}
+                type="button"
+                data-testid={`sidebar-inbox-item-${entry.sessionId}`}
+                onClick={() => onSelectSession(entry.machineId, entry.sessionId)}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  padding: "8px 10px",
+                  border: "none",
+                  borderBottom: `1px solid ${colors.lineSoft}`,
+                  background: "transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <AgentBadge kind={entry.agentKind} />
+                  <span
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      color: colors.fg0,
+                      flexShrink: 0,
+                      maxWidth: "55%",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {entry.title}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      color: colors.fg3,
+                      flexGrow: 1,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}
+                  >
+                    {machineNameById.get(entry.machineId) ?? ""}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      color: colors.accentDim,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {formatAge(entry.createdAtMs)}
+                  </span>
+                </span>
+                {question && (
+                  <span
+                    style={{
+                      display: "block",
+                      fontSize: 12,
+                      color: colors.fg1,
+                      marginTop: 6,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {question.prompt.split("\n", 1)[0]}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Compact age label: "just now", "4m", "2h", "3d". */
+function formatAge(fromMs: number): string {
+  const deltaMs = Math.max(0, Date.now() - fromMs);
+  const minutes = Math.floor(deltaMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
 /* ---------- bits ---------- */
