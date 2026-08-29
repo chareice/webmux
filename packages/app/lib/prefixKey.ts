@@ -229,10 +229,41 @@ export function loadPrefixBindings(
   return bindings;
 }
 
+// Cached view of the browser-storage bindings for hot paths (the global
+// keydown handler reloads bindings on every key press). The cache is
+// invalidated by the save/reset helpers below (same tab) and by the
+// `storage` event (other tabs); callers that pass an explicit storage
+// bypass it entirely.
+let cachedBindings: PrefixBindings | null = null;
+let storageListenerInstalled = false;
+
+export function invalidatePrefixBindingsCache() {
+  cachedBindings = null;
+}
+
+function installStorageInvalidation() {
+  if (storageListenerInstalled || typeof window === "undefined") return;
+  storageListenerInstalled = true;
+  window.addEventListener("storage", (event) => {
+    if (event.key === null || event.key === PREFIX_BINDINGS_STORAGE_KEY) {
+      cachedBindings = null;
+    }
+  });
+}
+
+export function loadPrefixBindingsCached(): PrefixBindings {
+  if (!cachedBindings) {
+    installStorageInvalidation();
+    cachedBindings = loadPrefixBindings();
+  }
+  return cachedBindings;
+}
+
 export function savePrefixBindings(
   bindings: PrefixBindings,
   storage: Pick<Storage, "setItem"> | null = getBrowserStorage(),
 ) {
+  invalidatePrefixBindingsCache();
   if (!storage) return;
   storage.setItem(PREFIX_BINDINGS_STORAGE_KEY, JSON.stringify(bindings));
 }
@@ -267,6 +298,7 @@ export function getPrefixBindingConflict(
 export function resetPrefixBindings(
   storage: Pick<Storage, "removeItem"> | null = getBrowserStorage(),
 ): PrefixBindings {
+  invalidatePrefixBindingsCache();
   if (storage) storage.removeItem(PREFIX_BINDINGS_STORAGE_KEY);
   return { ...DEFAULT_PREFIX_BINDINGS };
 }

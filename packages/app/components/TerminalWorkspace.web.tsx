@@ -117,6 +117,10 @@ type PaneMenuEvent = {
   preventDefault: () => void;
 };
 
+// Stable no-op so TerminalCard's memo comparator doesn't see a fresh
+// function identity on every parent render (panes never render tab strips).
+const NOOP_SELECT_TAB = () => {};
+
 // Prefix actions owned by this component (TerminalCanvas owns the rest).
 const WORKSPACE_PREFIX_ACTIONS: PrefixActionId[] = [
   "splitRight",
@@ -1293,7 +1297,7 @@ export function WorkspacePaneLeaf({
         eventsReconnecting={eventsReconnecting}
         reconnectIndicatorActive={isActive}
         deviceId={deviceId}
-        onSelectTab={() => {}}
+        onSelectTab={NOOP_SELECT_TAB}
         onDestroy={onDestroy}
         onRequestControl={onRequestControl}
         onReleaseControl={onReleaseControl}

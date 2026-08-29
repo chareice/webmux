@@ -10,8 +10,9 @@ import {
 import {
   createPrefixEngine,
   isPrefixTriggerEvent,
-  loadPrefixBindings,
+  loadPrefixBindingsCached,
   type PrefixActionId,
+  type PrefixBindings,
   type PrefixEngine,
   type PrefixKeyEventLike,
   type PrefixResult,
@@ -38,13 +39,16 @@ const PrefixKeyContext = createContext<PrefixKeyContextValue | null>(null);
 
 interface PrefixKeyController {
   engine: PrefixEngine;
+  bindings: PrefixBindings;
   actionHandlers: Map<PrefixActionId, PrefixActionHandler>;
   literalHandler: { current: PrefixActionHandler | null };
 }
 
 function createPrefixKeyController(): PrefixKeyController {
+  const bindings = loadPrefixBindingsCached();
   return {
-    engine: createPrefixEngine(loadPrefixBindings()),
+    engine: createPrefixEngine(bindings),
+    bindings,
     actionHandlers: new Map(),
     literalHandler: { current: null },
   };
@@ -55,8 +59,14 @@ function runControllerKeydown(
   event: PrefixKeyEventLike,
 ): PrefixResult {
   // Reload bindings on every keydown so rebinding in Settings takes effect
-  // without a reload (same live-read behaviour the old system had).
-  controller.engine.setBindings(loadPrefixBindings());
+  // without a reload. The cached loader only re-reads localStorage after a
+  // save/reset (or a cross-tab storage event), so a plain keystroke costs
+  // one identity check here instead of a getItem + JSON.parse.
+  const bindings = loadPrefixBindingsCached();
+  if (bindings !== controller.bindings) {
+    controller.engine.setBindings(bindings);
+    controller.bindings = bindings;
+  }
   const result = controller.engine.handleKeydown(event);
   if (result.type === "action") {
     controller.actionHandlers.get(result.action)?.();
