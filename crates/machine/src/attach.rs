@@ -41,6 +41,9 @@ pub enum AttachEvent {
 enum AttachCommand {
     Input(Bytes),
     Resize { cols: u16, rows: u16 },
+    /// Ask tmux to fully redraw this attach's client (hub dropped output
+    /// frames for a slow browser and needs the screen repaired).
+    Refresh,
 }
 
 /// Per-machine collection of live attaches.
@@ -128,6 +131,19 @@ impl AttachManager {
         }
     }
 
+    /// Request a full tmux redraw of this attach's client.
+    pub async fn refresh(&self, attach_id: &str) -> bool {
+        let command_tx = {
+            let inner = self.inner.lock().await;
+            inner.get(attach_id).map(|handle| handle.command_tx.clone())
+        };
+        if let Some(command_tx) = command_tx {
+            command_tx.send(AttachCommand::Refresh).await.is_ok()
+        } else {
+            false
+        }
+    }
+
     /// Drop the attach handle. The writer thread sees its input channel
     /// close, kills the tmux attach child, and the reader thread exits on
     /// PTY EOF — eventually emitting an `AttachEvent::Died` to the consumer.
@@ -203,6 +219,10 @@ fn run_attach_task(
         let _ = reader_events_tx.blocking_send(AttachEvent::Died(exit));
     });
 
+    // The tmux client behind this attach is the spawned child process;
+    // its pid is how a Refresh finds the right client to redraw.
+    let child_pid = child.process_id();
+
     // Writer loop on this thread: commands → PTY. Exits when command_tx is
     // dropped (close_attach / AttachManager dropped).
     while let Some(command) = command_rx.blocking_recv() {
@@ -224,6 +244,11 @@ fn run_attach_task(
                     .is_err()
                 {
                     break;
+                }
+            }
+            AttachCommand::Refresh => {
+                if let Some(pid) = child_pid {
+                    crate::pty::refresh_tmux_client_by_pid(pid);
                 }
             }
         }

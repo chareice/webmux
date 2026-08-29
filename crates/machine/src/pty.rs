@@ -722,6 +722,40 @@ pub fn spawn_tmux_attach(session_id: &str, cols: u16, rows: u16) -> Result<TmuxA
 /// Resize the tmux window for a session. With `window-size manual` set in
 /// tmux.conf, this is the single source of truth for window sizing —
 /// clients attaching/detaching no longer auto-resize.
+/// Force a full redraw of one tmux client, identified by the pid of its
+/// `tmux attach` process. Used after the hub dropped output frames for a
+/// slow browser: the hub keeps no bytes to retransmit, so a redraw is the
+/// only way to repair that client's screen. Both subprocess calls are
+/// best-effort — a vanished client just means there is nothing to repair.
+pub fn refresh_tmux_client_by_pid(pid: u32) {
+    let output = tmux_cmd()
+        .args([
+            "-L",
+            TMUX_SOCKET,
+            "list-clients",
+            "-F",
+            "#{client_pid}\t#{client_tty}",
+        ])
+        .output();
+    let Ok(out) = output else { return };
+    if !out.status.success() {
+        return;
+    }
+    let pid_text = pid.to_string();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let mut parts = line.splitn(2, '\t');
+        if parts.next() != Some(pid_text.as_str()) {
+            continue;
+        }
+        if let Some(tty) = parts.next().map(str::trim).filter(|tty| !tty.is_empty()) {
+            let _ = tmux_cmd()
+                .args(["-L", TMUX_SOCKET, "refresh-client", "-t", tty])
+                .status();
+        }
+        return;
+    }
+}
+
 pub fn tmux_resize_window(session_id: &str, cols: u16, rows: u16) {
     let name = tmux_session_name(session_id);
     let _ = tmux_cmd()

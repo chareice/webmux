@@ -161,6 +161,13 @@ pub enum HubToMachine {
     },
     #[serde(rename = "close_attach")]
     CloseAttach { attach_id: String },
+    /// Ask tmux to fully redraw the client behind this attach. Sent by the
+    /// hub after it had to drop output frames for a slow browser: the hub is
+    /// byte-stateless, so a full redraw is the only way to repair the
+    /// client's screen. Older machines fail to parse the unknown variant and
+    /// simply skip it.
+    #[serde(rename = "refresh_attach")]
+    RefreshAttach { attach_id: String },
     #[serde(rename = "attach_input")]
     AttachInput { attach_id: String, data: String },
     #[serde(rename = "attach_resize")]

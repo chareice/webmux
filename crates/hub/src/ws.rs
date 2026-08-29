@@ -213,12 +213,28 @@ async fn handle_terminal_ws(
     }
 
     // Outbound: forward bytes from out_rx to the WS as binary frames.
-    // No coalescing needed — bytes are already chunked at PTY read size.
-    // `chunk` is a zero-copy slice of the machine frame; hand it to axum
-    // as-is instead of round-tripping through a Vec.
+    // Chunks that queued up while the socket was busy are merged into one
+    // message: a single WS write (and a single onmessage on the browser)
+    // instead of one per PTY read. A lone chunk is forwarded zero-copy.
     let mut send_task = tokio::spawn(async move {
-        while let Some(chunk) = out_rx.recv().await {
-            if sender.send(Message::Binary(chunk)).await.is_err() {
+        let mut chunks: Vec<Bytes> = Vec::with_capacity(32);
+        loop {
+            let received = out_rx.recv_many(&mut chunks, 32).await;
+            if received == 0 {
+                break; // channel closed
+            }
+            let message = if chunks.len() == 1 {
+                chunks.pop().unwrap()
+            } else {
+                let total = chunks.iter().map(|chunk| chunk.len()).sum();
+                let mut merged = Vec::with_capacity(total);
+                for chunk in chunks.drain(..) {
+                    merged.extend_from_slice(&chunk);
+                }
+                Bytes::from(merged)
+            };
+            chunks.clear();
+            if sender.send(Message::Binary(message)).await.is_err() {
                 break;
             }
         }
@@ -602,6 +618,49 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                         }
                     });
 
+                    // Slow-browser resync. The hub is byte-stateless: when
+                    // the recv loop below has to drop output frames because
+                    // a browser channel is full, those bytes are gone and
+                    // that client's screen is corrupt until something
+                    // repaints it. This task absorbs drop notices until a
+                    // burst goes quiet, then asks the machine to have tmux
+                    // fully redraw the affected clients (RefreshAttach).
+                    let resync_manager = state.manager.clone();
+                    let resync_mid = machine_id.clone();
+                    let (resync_tx, mut resync_rx) = mpsc::channel::<String>(64);
+                    let resync_task = tokio::spawn(async move {
+                        // Wait for the drop burst to settle so the redraw
+                        // lands after the last dropped frame; cap the wait
+                        // so an endless burst still repairs periodically.
+                        const SETTLE: Duration = Duration::from_millis(300);
+                        const MAX_WAIT: Duration = Duration::from_secs(5);
+                        while let Some(first) = resync_rx.recv().await {
+                            let mut pending: std::collections::HashSet<String> =
+                                std::collections::HashSet::from([first]);
+                            let deadline = tokio::time::Instant::now() + MAX_WAIT;
+                            loop {
+                                if tokio::time::Instant::now() >= deadline {
+                                    break;
+                                }
+                                match tokio::time::timeout(SETTLE, resync_rx.recv()).await {
+                                    Ok(Some(attach_id)) => {
+                                        pending.insert(attach_id);
+                                    }
+                                    Ok(None) => return,
+                                    Err(_) => break, // quiet — burst is over
+                                }
+                            }
+                            for attach_id in pending {
+                                let _ = resync_manager
+                                    .send_to_machine(
+                                        &resync_mid,
+                                        HubToMachine::RefreshAttach { attach_id },
+                                    )
+                                    .await;
+                            }
+                        }
+                    });
+
                     // Handle incoming messages from machine
                     let router = state.router.clone();
                     let mut recv_task = tokio::spawn(async move {
@@ -637,6 +696,10 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                                                             attach_id = %attach_id,
                                                             "dropping attach output: browser channel full"
                                                         );
+                                                        // Schedule a tmux redraw for this
+                                                        // client once the burst settles —
+                                                        // dropped bytes can't be replayed.
+                                                        let _ = resync_tx.try_send(attach_id.clone());
                                                     }
                                                     Err(TrySendError::Closed(_)) => {
                                                         tracing::debug!(
@@ -674,6 +737,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                     send_task.abort();
                     recv_task.abort();
                     control_task.abort();
+                    resync_task.abort();
 
                     (machine_id, conn_id)
                 }
