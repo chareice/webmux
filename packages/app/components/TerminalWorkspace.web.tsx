@@ -33,6 +33,7 @@ import {
   createTerminalWorkspace,
   findAdjacentWorkspacePane,
   flattenWorkspacePanes,
+  focusWorkspacePane,
   getActiveWorkspaceGroup,
   isWorkspaceGroupFull,
   reconcileTerminalWorkspace,
@@ -92,16 +93,20 @@ interface TerminalWorkspaceProps {
   ) => Promise<WorkspaceGroupInfo | null>;
   onRequestControl?: (machineId: string) => void;
   onReleaseControl?: (machineId: string) => void;
-  // Command channel for the desktop TabBar / command palette (Phase 2). The
-  // workspace fills it with live handlers; the chrome above calls them.
+  // Command channel for the desktop Sidebar / command palette. The
+  // workspace fills it with live handlers; the chrome calls them.
   commandsRef?: MutableRefObject<WorkspaceCommandChannel>;
   onActiveGroupChange?: (groupId: string | null) => void;
+  // Focused pane mirror for the sidebar tree's row highlight.
+  onActiveTerminalChange?: (terminalId: string | null) => void;
 }
 
-// Handlers the desktop chrome (TabBar, CommandPalette) invokes on the
+// Handlers the desktop chrome (Sidebar, CommandPalette) invokes on the
 // workspace. Optional fields stay unset until the workspace mounts.
 export interface WorkspaceCommandChannel {
   selectGroup?: (groupId: string) => void;
+  // Select the pane's group AND focus the pane (sidebar row click).
+  focusPane?: (terminalId: string) => void;
   reorderGroups?: (
     sourceGroupId: string,
     targetGroupId: string,
@@ -122,7 +127,8 @@ type PaneMenuEvent = {
 // function identity on every parent render (panes never render tab strips).
 const NOOP_SELECT_TAB = () => {};
 
-// Prefix actions owned by this component (TerminalCanvas owns the rest).
+// Prefix actions owned by this component (TerminalCanvas owns the rest,
+// including the cross-machine selectTab1..9 section shortcuts).
 const WORKSPACE_PREFIX_ACTIONS: PrefixActionId[] = [
   "splitRight",
   "splitDown",
@@ -135,15 +141,6 @@ const WORKSPACE_PREFIX_ACTIONS: PrefixActionId[] = [
   "closePane",
   "nextTab",
   "prevTab",
-  "selectTab1",
-  "selectTab2",
-  "selectTab3",
-  "selectTab4",
-  "selectTab5",
-  "selectTab6",
-  "selectTab7",
-  "selectTab8",
-  "selectTab9",
 ];
 
 export interface WorkspaceFitRequest {
@@ -180,6 +177,7 @@ function TerminalWorkspaceComponent({
   onReleaseControl,
   commandsRef,
   onActiveGroupChange,
+  onActiveTerminalChange,
 }: TerminalWorkspaceProps) {
   const [workspace, setWorkspace] = useState(() =>
     createTerminalWorkspace(
@@ -202,6 +200,9 @@ function TerminalWorkspaceComponent({
   );
   const activeCardRef = useRef<TerminalCardRef | null>(null);
   const pendingGroupSelectionRef = useRef<string | null>(null);
+  // A focusPane command aimed at a terminal the workspace state does not
+  // have yet (e.g. issued while crossing machines, before reconcile).
+  const pendingPaneFocusRef = useRef<string | null>(null);
   const fitRequestCounterRef = useRef(0);
   const [fitRequest, setFitRequest] = useState<WorkspaceFitRequest | null>(
     null,
@@ -625,14 +626,6 @@ function TerminalWorkspaceComponent({
     [activateGroup, workspace.activeGroupId, workspace.groups],
   );
 
-  const switchGroupByIndex = useCallback(
-    (index: number) => {
-      const group = workspace.groups[index];
-      if (group && group.id !== workspace.activeGroupId) activateGroup(group.id);
-    },
-    [activateGroup, workspace.activeGroupId, workspace.groups],
-  );
-
   const handleDestroy = useCallback(
     (target: TerminalInfo) => {
       if (!isController) return;
@@ -715,15 +708,6 @@ function TerminalWorkspaceComponent({
     },
     nextTab: () => switchGroupByOffset(1),
     prevTab: () => switchGroupByOffset(-1),
-    selectTab1: () => switchGroupByIndex(0),
-    selectTab2: () => switchGroupByIndex(1),
-    selectTab3: () => switchGroupByIndex(2),
-    selectTab4: () => switchGroupByIndex(3),
-    selectTab5: () => switchGroupByIndex(4),
-    selectTab6: () => switchGroupByIndex(5),
-    selectTab7: () => switchGroupByIndex(6),
-    selectTab8: () => switchGroupByIndex(7),
-    selectTab9: () => switchGroupByIndex(8),
   };
 
   useEffect(() => {
@@ -744,13 +728,24 @@ function TerminalWorkspaceComponent({
     };
   }, [prefixKey]);
 
-  // ---- desktop chrome command channel (TabBar / command palette) ----
+  // ---- desktop chrome command channel (Sidebar / command palette) ----
   // Handlers change identity every render, so the ref is refilled on every
   // commit rather than memoized.
   useEffect(() => {
     if (!commandsRef) return;
     commandsRef.current = {
       selectGroup: (groupId) => activateGroup(groupId),
+      focusPane: (terminalId) => {
+        // The terminal may not be reconciled into a group yet (sidebar row
+        // click racing a machine switch) — park it; the flush effect below
+        // retries once the pane exists.
+        if (focusWorkspacePane(workspaceRef.current, terminalId)) {
+          pendingPaneFocusRef.current = null;
+          activateTerminal(terminalId);
+        } else {
+          pendingPaneFocusRef.current = terminalId;
+        }
+      },
       reorderGroups: (sourceGroupId, targetGroupId, placement) =>
         void handleReorderGroups(sourceGroupId, targetGroupId, placement),
       runPrefixAction: (action) =>
@@ -768,6 +763,20 @@ function TerminalWorkspaceComponent({
   useEffect(() => {
     onActiveGroupChange?.(workspace.activeGroupId);
   }, [onActiveGroupChange, workspace.activeGroupId]);
+
+  useEffect(() => {
+    onActiveTerminalChange?.(workspace.activeTerminalId);
+  }, [onActiveTerminalChange, workspace.activeTerminalId]);
+
+  // Flush a parked focusPane command once its terminal is part of a group
+  // (post-reconcile, e.g. right after a cross-machine sidebar selection).
+  useEffect(() => {
+    const pending = pendingPaneFocusRef.current;
+    if (!pending) return;
+    if (!focusWorkspacePane(workspace, pending)) return;
+    pendingPaneFocusRef.current = null;
+    activateTerminal(pending);
+  }, [workspace, activateTerminal]);
 
   // Right-clicking a desktop pane also focuses it (the leaf's onMouseDown),
   // so by the time a menu item is clicked the split/zoom handlers below see

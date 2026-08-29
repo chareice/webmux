@@ -16,7 +16,7 @@ import type {
   WorkspaceLayoutNode,
 } from "@webmux/shared";
 import { AppTitleBar } from "./AppTitleBar.web";
-import { TabBar } from "./TabBar.web";
+import { Sidebar } from "./Sidebar.web";
 import {
   CommandPalette,
   type PaletteFilter,
@@ -77,6 +77,7 @@ import {
   planNewTerminalPlacement,
   type WorkspaceGroup,
 } from "@/lib/terminalWorkspaceLayout";
+import { buildSidebarTree } from "@/lib/sidebarTree";
 import {
   createInitialMainLayout,
   mainLayoutReducer,
@@ -119,7 +120,8 @@ const RenameGroupDialog = lazy(() =>
 );
 
 // Prefix actions owned by TerminalCanvas (workspace-owned actions are
-// registered by TerminalWorkspace).
+// registered by TerminalWorkspace). ⌃B 1..9 select the Nth section of the
+// sidebar tree across machines, so they live here where the tree is built.
 const CANVAS_PREFIX_ACTIONS: PrefixActionId[] = [
   "newTerminal",
   "cheatSheet",
@@ -127,6 +129,15 @@ const CANVAS_PREFIX_ACTIONS: PrefixActionId[] = [
   "switchHost",
   "commandPalette",
   "copyMode",
+  "selectTab1",
+  "selectTab2",
+  "selectTab3",
+  "selectTab4",
+  "selectTab5",
+  "selectTab6",
+  "selectTab7",
+  "selectTab8",
+  "selectTab9",
 ];
 
 interface CreateTerminalOptions {
@@ -271,10 +282,14 @@ function TerminalCanvasInner() {
       }
     | null
   >(null);
-  const [groupDeleteConfirmation, setGroupDeleteConfirmation] =
-    useState<WorkspaceGroup | null>(null);
-  const [groupRenameTarget, setGroupRenameTarget] =
-    useState<WorkspaceGroup | null>(null);
+  const [groupDeleteConfirmation, setGroupDeleteConfirmation] = useState<{
+    machineId: string;
+    group: WorkspaceGroup;
+  } | null>(null);
+  const [groupRenameTarget, setGroupRenameTarget] = useState<{
+    machineId: string;
+    group: WorkspaceGroup;
+  } | null>(null);
 
   const machines = browserState.machines;
   const terminals = browserState.terminals;
@@ -588,7 +603,6 @@ function TerminalCanvasInner() {
   const activeMachine = activeMachineId
     ? machines.find((m) => m.id === activeMachineId) ?? null
     : machines[0] ?? null;
-  const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
 
   const scopeBookmark =
     layout.selectedWorkpathId === "all" || !activeMachine
@@ -628,9 +642,10 @@ function TerminalCanvasInner() {
     );
   }, [workspaceLayouts, activeMachine]);
 
-  // ---- desktop TabBar / command palette state (Phase 2) ----
-  // Same grouping the workspace computes (persistent groups + cwd fallback),
-  // derived here so the TabBar can render above the workspace.
+  // ---- desktop Sidebar / command palette state ----
+  // tabGroups is the ACTIVE machine's grouping (mobile title bar + new-tab
+  // naming); the sidebar builds its own per-machine projection in
+  // sidebarTree below.
   const scopedTerminalsById = useMemo(
     () => new Map(scopedTerminals.map((t) => [t.id, t])),
     [scopedTerminals],
@@ -646,7 +661,117 @@ function TerminalCanvasInner() {
     [scopedTerminals, activeMachineWorkspaceGroups, activeMachineWorkspaceLayouts],
   );
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [sidebarActiveTerminalId, setSidebarActiveTerminalId] = useState<
+    string | null
+  >(null);
   const workspaceCommandsRef = useRef<WorkspaceCommandChannel>({});
+
+  // Host filter: clicking a host in the sidebar dims the other machines'
+  // tree sections. UI-only, "all visible" by default — it never scopes the
+  // workspace the way the old activeMachineId mode switch did.
+  const [hostFilterId, setHostFilterId] = useState<string | null>(null);
+  useEffect(() => {
+    if (hostFilterId && !machines.some((m) => m.id === hostFilterId)) {
+      setHostFilterId(null);
+    }
+  }, [machines, hostFilterId]);
+  const handleToggleHostFilter = useCallback((machineId: string) => {
+    setHostFilterId((current) => (current === machineId ? null : machineId));
+  }, []);
+
+  const machineOnline = useMemo(
+    () =>
+      Object.fromEntries(
+        machines.map((machine) => [
+          machine.id,
+          Boolean(machineStats[machine.id]) ||
+            terminals.some((t) => t.machine_id === machine.id && t.reachable),
+        ]),
+      ),
+    [machines, machineStats, terminals],
+  );
+  const sidebarTree = useMemo(
+    () =>
+      buildSidebarTree({
+        machines,
+        terminals,
+        workspaceGroups,
+        workspaceLayouts,
+        machineOnline,
+        hostFilterId,
+        activeMachineId,
+        activeGroupId,
+        activeTerminalId: sidebarActiveTerminalId,
+      }),
+    [
+      machines,
+      terminals,
+      workspaceGroups,
+      workspaceLayouts,
+      machineOnline,
+      hostFilterId,
+      activeMachineId,
+      activeGroupId,
+      sidebarActiveTerminalId,
+    ],
+  );
+
+  // Sidebar selection, robust across machine switches: when the target
+  // section lives on another machine, switch activeMachineId first and park
+  // the selection; the flush effect below replays it once the workspace is
+  // showing that machine (same pending pattern the workspace uses for
+  // groups that have not reconciled yet).
+  const pendingSidebarSelectionRef = useRef<{
+    machineId: string;
+    groupId: string;
+    terminalId: string | null;
+  } | null>(null);
+  const runSidebarTarget = useCallback(
+    (target: { groupId: string; terminalId: string | null }) => {
+      workspaceCommandsRef.current.selectGroup?.(target.groupId);
+      if (target.terminalId) {
+        workspaceCommandsRef.current.focusPane?.(target.terminalId);
+      }
+    },
+    [],
+  );
+  const selectSidebarTarget = useCallback(
+    (target: {
+      machineId: string;
+      groupId: string;
+      terminalId: string | null;
+    }) => {
+      if (target.machineId === activeMachineId) {
+        pendingSidebarSelectionRef.current = null;
+        runSidebarTarget(target);
+        return;
+      }
+      pendingSidebarSelectionRef.current = target;
+      setActiveMachineId(target.machineId);
+    },
+    [activeMachineId, runSidebarTarget],
+  );
+  useEffect(() => {
+    const pending = pendingSidebarSelectionRef.current;
+    if (!pending || pending.machineId !== activeMachineId) return;
+    pendingSidebarSelectionRef.current = null;
+    runSidebarTarget(pending);
+  }, [activeMachineId, workspaceGroups, runSidebarTarget]);
+
+  // ⌃B 1..9: select the Nth visible sidebar section, across machines
+  // top-to-bottom (the tree's shortcutIndex order).
+  const selectSidebarSectionByIndex = useCallback(
+    (index: number) => {
+      const section = sidebarTree.visibleSections[index];
+      if (!section) return;
+      selectSidebarTarget({
+        machineId: section.machineId,
+        groupId: section.groupId,
+        terminalId: null,
+      });
+    },
+    [sidebarTree, selectSidebarTarget],
+  );
   const [paletteState, setPaletteState] = useState<{
     open: boolean;
     filter: PaletteFilter;
@@ -1167,22 +1292,22 @@ function TerminalCanvasInner() {
   }, [activeMachineId, createTab, isActiveController]);
 
   const performDeleteGroup = useCallback(
-    async (group: WorkspaceGroup) => {
-      if (!activeMachineId || !group.workspaceGroupId) return;
-      await deleteWorkspaceGroup(activeMachineId, group.workspaceGroupId);
+    async (machineId: string, group: WorkspaceGroup) => {
+      if (!group.workspaceGroupId) return;
+      await deleteWorkspaceGroup(machineId, group.workspaceGroupId);
       // Panes fall back to their cwd groups server-side; nothing to do here.
     },
-    [activeMachineId],
+    [],
   );
 
   const performRenameGroup = useCallback(
-    async (group: WorkspaceGroup, name: string) => {
-      if (!activeMachineId || !group.workspaceGroupId) return;
-      await renameWorkspaceGroup(activeMachineId, group.workspaceGroupId, name);
+    async (machineId: string, group: WorkspaceGroup, name: string) => {
+      if (!group.workspaceGroupId) return;
+      await renameWorkspaceGroup(machineId, group.workspaceGroupId, name);
       // The renamed group arrives via workspace_group_updated; nothing to do
       // here.
     },
-    [activeMachineId],
+    [],
   );
 
   const handleNewGroupClick = useCallback(() => {
@@ -1190,23 +1315,64 @@ function TerminalCanvasInner() {
   }, [handleNewGroup]);
 
   const handleDeleteGroup = useCallback(
-    (group: WorkspaceGroup) => {
-      if (!isActiveController) return;
+    (machineId: string, group: WorkspaceGroup) => {
+      if (!isMachineController(machineId)) return;
       if (group.paneCount > 0) {
-        setGroupDeleteConfirmation(group);
+        setGroupDeleteConfirmation({ machineId, group });
         return;
       }
-      void performDeleteGroup(group);
+      void performDeleteGroup(machineId, group);
     },
-    [isActiveController, performDeleteGroup],
+    [isMachineController, performDeleteGroup],
   );
 
   const handleRenameGroup = useCallback(
-    (group: WorkspaceGroup) => {
-      if (!isActiveController || !group.persistent) return;
-      setGroupRenameTarget(group);
+    (machineId: string, group: WorkspaceGroup) => {
+      if (!isMachineController(machineId) || !group.persistent) return;
+      setGroupRenameTarget({ machineId, group });
     },
-    [isActiveController],
+    [isMachineController],
+  );
+
+  // Sidebar section "＋" / "New terminal here": create a terminal in that
+  // section's group, on that section's machine. A full target overflows
+  // into a fresh tab, same as every other creation path.
+  const handleNewTerminalInSection = useCallback(
+    async (machineId: string, group: WorkspaceGroup) => {
+      if (!deviceId) return;
+      if (!isMachineController(machineId)) return;
+      const machine = machines.find((m) => m.id === machineId);
+      if (!machine) return;
+      const cwd = group.cwd || machine.home_dir || "~";
+      const machineGroups =
+        sidebarTree.machines
+          .find((m) => m.machineId === machineId)
+          ?.sections.map((section) => section.group) ?? [];
+      const placement = planNewTerminalPlacement(machineGroups, {
+        tabId: group.id,
+        cwd,
+      });
+      let workspaceGroupId = placement.workspaceGroupId;
+      if (placement.needsNewTab) {
+        const taken = new Set(machineGroups.map((g) => g.label));
+        let n = machineGroups.length + 1;
+        while (taken.has(`tab ${n}`)) n += 1;
+        const created = await createWorkspaceGroup(machineId, `tab ${n}`);
+        workspaceGroupId = created.id;
+      }
+      if (machineId !== activeMachineId) setActiveMachineId(machineId);
+      await handleCreateTerminal(machineId, cwd, undefined, {
+        workspaceGroupId,
+      });
+    },
+    [
+      activeMachineId,
+      deviceId,
+      handleCreateTerminal,
+      isMachineController,
+      machines,
+      sidebarTree,
+    ],
   );
 
   // ---- prefix-key shortcut engine (⌃B) ----
@@ -1237,6 +1403,15 @@ function TerminalCanvasInner() {
     // TODO(phase 3+): copy mode. Registered as a no-op so armed + key is
     // swallowed, not typed.
     copyMode: () => {},
+    selectTab1: () => selectSidebarSectionByIndex(0),
+    selectTab2: () => selectSidebarSectionByIndex(1),
+    selectTab3: () => selectSidebarSectionByIndex(2),
+    selectTab4: () => selectSidebarSectionByIndex(3),
+    selectTab5: () => selectSidebarSectionByIndex(4),
+    selectTab6: () => selectSidebarSectionByIndex(5),
+    selectTab7: () => selectSidebarSectionByIndex(6),
+    selectTab8: () => selectSidebarSectionByIndex(7),
+    selectTab9: () => selectSidebarSectionByIndex(8),
   };
 
   useEffect(() => {
@@ -1301,14 +1476,13 @@ function TerminalCanvasInner() {
   }, [layout.selectedWorkpathId, activeMachine, bookmarks]);
 
   // Command palette rows, in the spec's fixed order. Workspace-owned actions
-  // (splits, tab selection) go through the workspace command channel.
+  // (splits) go through the workspace command channel; tab rows mirror the
+  // sidebar tree (all machines, ⌃B N hints follow the tree order); host rows
+  // toggle the sidebar host filter instead of switching a mode.
   const paletteRows = useMemo<PaletteRow[]>(() => {
     const bindings = loadPrefixBindings();
-    const otherOnlineMachines = machines.filter(
-      (machine) =>
-        machine.id !== activeMachine?.id &&
-        (Boolean(machineStats[machine.id]) ||
-          terminals.some((t) => t.machine_id === machine.id && t.reachable)),
+    const machineNameById = new Map(
+      machines.map((machine) => [machine.id, machine.name]),
     );
     return [
       {
@@ -1354,25 +1528,39 @@ function TerminalCanvasInner() {
         action: () =>
           workspaceCommandsRef.current.runPrefixAction?.("rotateLayout"),
       },
-      ...tabGroups.map((group, index): PaletteRow => {
-        const tabAction = `selectTab${index + 1}` as PrefixActionId;
+      ...sidebarTree.visibleSections.map((section): PaletteRow => {
+        const tabAction =
+          section.shortcutIndex !== null
+            ? (`selectTab${section.shortcutIndex}` as PrefixActionId)
+            : null;
+        const machineName = machineNameById.get(section.machineId) ?? "";
+        const onActiveMachine = section.machineId === activeMachine?.id;
         return {
-          id: `tab-${group.id}`,
+          id: `tab-${section.groupId}`,
           section: "tabs",
-          label: group.label,
-          keywords: group.cwd,
-          hint:
-            index < 9 ? formatPrefixBinding(tabAction, bindings) : undefined,
-          action: () => workspaceCommandsRef.current.selectGroup?.(group.id),
+          label: onActiveMachine
+            ? section.label
+            : `${machineName} · ${section.label}`,
+          keywords: `${section.cwd} ${machineName}`,
+          hint: tabAction ? formatPrefixBinding(tabAction, bindings) : undefined,
+          action: () =>
+            selectSidebarTarget({
+              machineId: section.machineId,
+              groupId: section.groupId,
+              terminalId: null,
+            }),
         };
       }),
-      ...otherOnlineMachines.map(
+      ...machines.map(
         (machine): PaletteRow => ({
           id: `host-${machine.id}`,
           section: "hosts",
-          label: machine.name,
+          label:
+            hostFilterId === machine.id
+              ? `${machine.name} (filtered)`
+              : machine.name,
           keywords: machine.os,
-          action: () => setActiveMachineId(machine.id),
+          action: () => handleToggleHostFilter(machine.id),
         }),
       ),
       {
@@ -1403,12 +1591,13 @@ function TerminalCanvasInner() {
   }, [
     machines,
     activeMachine,
-    machineStats,
-    terminals,
-    tabGroups,
+    sidebarTree,
+    hostFilterId,
     isActiveController,
     handleNewTerminalFromHeader,
     handleNewGroup,
+    handleToggleHostFilter,
+    selectSidebarTarget,
     logout,
   ]);
 
@@ -1492,6 +1681,54 @@ function TerminalCanvasInner() {
             </MobileWorkbench>
           ) : (
             <KeyBarSlotProvider>
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  minWidth: 0,
+                  minHeight: 0,
+                }}
+              >
+              <Sidebar
+                tree={sidebarTree}
+                machineStats={machineStats}
+                rttMs={rttMs}
+                hostFilterId={hostFilterId}
+                activeMachineId={activeMachineId}
+                isControllerFor={isMachineController}
+                isActiveController={isActiveController}
+                viewOnlyLocked={viewOnlyLocked}
+                onToggleHostFilter={handleToggleHostFilter}
+                onAddMachine={() => setAddMachineOpen(true)}
+                onSelectSection={(machineId, groupId) =>
+                  selectSidebarTarget({ machineId, groupId, terminalId: null })
+                }
+                onSelectRow={(machineId, groupId, terminalId) =>
+                  selectSidebarTarget({ machineId, groupId, terminalId })
+                }
+                onNewTab={handleNewGroupClick}
+                onNewTerminalInSection={(machineId, group) =>
+                  void handleNewTerminalInSection(machineId, group)
+                }
+                onRenameSection={handleRenameGroup}
+                onDeleteSection={handleDeleteGroup}
+                onReorderSections={(sourceGroupId, targetGroupId, placement) =>
+                  workspaceCommandsRef.current.reorderGroups?.(
+                    sourceGroupId,
+                    targetGroupId,
+                    placement,
+                  )
+                }
+                onRequestControl={() => {
+                  if (activeMachine) void handleRequestControl(activeMachine.id);
+                }}
+                onEngageViewOnly={() => {
+                  if (activeMachine) handleEngageViewOnly(activeMachine.id);
+                }}
+                onDisengageViewOnly={handleDisengageViewOnly}
+                onOpenSettings={() => setShowSettings(true)}
+                onSignOut={() => void logout()}
+              />
               <main
                 style={{
                   flex: 1,
@@ -1501,45 +1738,6 @@ function TerminalCanvasInner() {
                   background: colors.bg0,
                 }}
               >
-              <TabBar
-                groups={tabGroups}
-                activeGroupId={activeGroupId}
-                terminalsById={scopedTerminalsById}
-                terminals={terminals}
-                machines={machines}
-                activeMachineId={activeMachineId}
-                controlLeases={controlLeases}
-                deviceId={deviceId}
-                machineStats={machineStats}
-                stats={activeStats}
-                rttMs={rttMs}
-                isController={isActiveController}
-                isTouch={isTouch}
-                viewOnlyLocked={viewOnlyLocked}
-                onSelectGroup={(groupId) =>
-                  workspaceCommandsRef.current.selectGroup?.(groupId)
-                }
-                onNewGroup={handleNewGroupClick}
-                onRenameGroup={handleRenameGroup}
-                onDeleteGroup={handleDeleteGroup}
-                onReorderGroups={(sourceGroupId, targetGroupId, placement) =>
-                  workspaceCommandsRef.current.reorderGroups?.(
-                    sourceGroupId,
-                    targetGroupId,
-                    placement,
-                  )
-                }
-                onSelectMachine={setActiveMachineId}
-                onAddMachine={() => setAddMachineOpen(true)}
-                onRequestControl={() => {
-                  if (activeMachine) void handleRequestControl(activeMachine.id);
-                }}
-                onEngageViewOnly={() => {
-                  if (activeMachine) handleEngageViewOnly(activeMachine.id);
-                }}
-                onDisengageViewOnly={handleDisengageViewOnly}
-              />
-
               {scopedTerminals.length === 0 ? (
                 <EmptyState
                   scopeLabel={scopeLabel}
@@ -1576,10 +1774,12 @@ function TerminalCanvasInner() {
                   onReleaseControl={handleReleaseControl}
                   commandsRef={workspaceCommandsRef}
                   onActiveGroupChange={setActiveGroupId}
+                  onActiveTerminalChange={setSidebarActiveTerminalId}
                 />
               )}
               <WorkspaceKeyBarSlot />
               </main>
+              </div>
             </KeyBarSlotProvider>
           )}
           {showHandoffBanner && (
@@ -1643,13 +1843,13 @@ function TerminalCanvasInner() {
             <ConfirmDialog
               open
               title="Delete tab?"
-              message={`"${groupDeleteConfirmation.label}" has ${groupDeleteConfirmation.paneCount} pane(s). They will move back to their directory tabs; no terminal is closed.`}
+              message={`"${groupDeleteConfirmation.group.label}" has ${groupDeleteConfirmation.group.paneCount} pane(s). They will move back to their directory tabs; no terminal is closed.`}
               confirmLabel="Delete tab"
               variant="danger"
               onConfirm={() => {
-                const group = groupDeleteConfirmation;
+                const target = groupDeleteConfirmation;
                 setGroupDeleteConfirmation(null);
-                void performDeleteGroup(group);
+                void performDeleteGroup(target.machineId, target.group);
               }}
               onCancel={() => setGroupDeleteConfirmation(null)}
             />
@@ -1660,11 +1860,11 @@ function TerminalCanvasInner() {
           <Suspense fallback={<LazyLoadingFallback />}>
             <RenameGroupDialog
               open
-              initialName={groupRenameTarget.label}
+              initialName={groupRenameTarget.group.label}
               onSubmit={(name) => {
-                const group = groupRenameTarget;
+                const target = groupRenameTarget;
                 setGroupRenameTarget(null);
-                void performRenameGroup(group, name);
+                void performRenameGroup(target.machineId, target.group, name);
               }}
               onCancel={() => setGroupRenameTarget(null)}
             />
