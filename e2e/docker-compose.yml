@@ -36,6 +36,10 @@ services:
       - e2e-node
       - --name
       - e2e-machine
+    environment:
+      # Lets the fake ACP agent emit session/request_permission; sessions
+      # created with auto_run=false then surface ask-cards in the chat view.
+      FAKE_ACP_ASK: "1"
     depends_on:
       hub:
         condition: service_healthy

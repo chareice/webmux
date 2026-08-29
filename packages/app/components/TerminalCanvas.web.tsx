@@ -10,6 +10,7 @@ import {
 } from "react";
 import type {
   TerminalInfo,
+  AgentSessionInfo,
   Bookmark,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
@@ -28,9 +29,13 @@ import { HandoffBanner } from "./HandoffBanner";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { Terminal as TerminalIcon } from "lucide-react";
 import {
+  answerAgentSession,
+  cancelAgentSession,
+  createAgentSession,
   createTerminal,
   createWorkspaceGroup,
   deleteWorkspaceGroup,
+  destroyAgentSession,
   destroyTerminal,
   checkForegroundProcess,
   assignTerminalWorkspaceGroup,
@@ -38,11 +43,13 @@ import {
   getBootstrap,
   listBookmarks,
   listWorkspaceGroups,
+  promptAgentSession,
   putFocus,
   requestControl,
   reorderWorkspaceGroups,
   releaseControl,
   renameWorkspaceGroup,
+  resumeAgentSession,
   saveWorkspaceLayout,
 } from "@/lib/api";
 import {
@@ -79,6 +86,11 @@ import {
 } from "@/lib/terminalWorkspaceLayout";
 import { buildSidebarTree } from "@/lib/sidebarTree";
 import {
+  applyLiveAgentSessionEvent,
+  getAgentSessionPendingQuestion,
+  removeAgentSessionFeed,
+} from "@/lib/agentSessionFeed";
+import {
   createInitialMainLayout,
   mainLayoutReducer,
 } from "@/lib/mainLayoutReducer";
@@ -91,6 +103,7 @@ import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 import { readViewOnlyLock, writeViewOnlyLock } from "@/lib/viewOnlyLock";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import { LazyLoadingFallback } from "./LazyLoadingFallback";
+import type { NewSessionRequest } from "./NewSessionDialog.web";
 
 const OnboardingView = lazy(() =>
   lazyWithReload(() =>
@@ -115,6 +128,20 @@ const RenameGroupDialog = lazy(() =>
   lazyWithReload(() =>
     import("./RenameGroupDialog").then((module) => ({
       default: module.RenameGroupDialog,
+    })),
+  ),
+);
+const AgentChatView = lazy(() =>
+  lazyWithReload(() =>
+    import("./AgentChatView.web").then((module) => ({
+      default: module.AgentChatView,
+    })),
+  ),
+);
+const NewSessionDialog = lazy(() =>
+  lazyWithReload(() =>
+    import("./NewSessionDialog.web").then((module) => ({
+      default: module.NewSessionDialog,
     })),
   ),
 );
@@ -264,6 +291,13 @@ function TerminalCanvasInner() {
   const [showHandoffBanner, setShowHandoffBanner] = useState(false);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
+  // Selected agent session (chat view full-area on the right). Mutually
+  // exclusive with terminal group/zoom selection; mirrored in the URL hash
+  // as `#/a/<id>` alongside the terminal zoom's `#/t/<id>`.
+  const [selectedAgentSessionId, setSelectedAgentSessionId] = useState<
+    string | null
+  >(null);
+  const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [addMachineOpen, setAddMachineOpen] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -293,6 +327,8 @@ function TerminalCanvasInner() {
 
   const machines = browserState.machines;
   const terminals = browserState.terminals;
+  const agentSessions = browserState.agentSessions;
+  const agentSessionSeen = browserState.agentSessionSeen;
   const workspaceGroups = browserState.workspaceGroups;
   const workspaceLayouts = browserState.workspaceLayouts;
   const machineStats = browserState.machineStats;
@@ -381,21 +417,31 @@ function TerminalCanvasInner() {
     };
   }, [machines, terminals.length]);
 
-  // URL hash <-> zoom-state sync.
+  // URL hash <-> zoom/agent-selection sync.
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.startsWith("#/t/")) {
       const id = hash.slice(4);
       if (id) dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: id });
+    } else if (hash.startsWith("#/a/")) {
+      const id = hash.slice(4);
+      if (id) setSelectedAgentSessionId(id);
     }
   }, []);
   useEffect(() => {
     const onPopState = () => {
       const hash = window.location.hash;
-      if (hash.startsWith("#/t/")) {
-        dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: hash.slice(4) });
-      } else {
+      if (hash.startsWith("#/a/")) {
+        const id = hash.slice(4);
         dispatchLayout({ type: "UNZOOM" });
+        setSelectedAgentSessionId(id || null);
+      } else {
+        setSelectedAgentSessionId(null);
+        if (hash.startsWith("#/t/")) {
+          dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: hash.slice(4) });
+        } else {
+          dispatchLayout({ type: "UNZOOM" });
+        }
       }
     };
     window.addEventListener("popstate", onPopState);
@@ -479,6 +525,113 @@ function TerminalCanvasInner() {
     zoomedTerminalIdRef.current = layout.zoomedTerminalId;
   }, [layout.zoomedTerminalId]);
 
+  // Refs the events-WS handler reads (it is registered once per reconnect and
+  // must see the latest values without re-subscribing).
+  const selectedAgentSessionIdRef = useRef<string | null>(selectedAgentSessionId);
+  useEffect(() => {
+    selectedAgentSessionIdRef.current = selectedAgentSessionId;
+  }, [selectedAgentSessionId]);
+  const agentSessionsRef = useRef(agentSessions);
+  useEffect(() => {
+    agentSessionsRef.current = agentSessions;
+  }, [agentSessions]);
+
+  const clearAgentSelection = useCallback(() => {
+    setSelectedAgentSessionId(null);
+    if (window.location.hash.startsWith("#/a/")) {
+      window.history.pushState(null, "", window.location.pathname);
+    }
+  }, []);
+
+  const handleSelectAgentSession = useCallback(
+    (machineId: string, sessionId: string) => {
+      void machineId; // chat view is machine-agnostic; gating uses the session's machine_id
+      if (zoomedTerminalIdRef.current) dispatchLayout({ type: "UNZOOM" });
+      setSelectedAgentSessionId(sessionId);
+      window.history.pushState(null, "", `#/a/${sessionId}`);
+    },
+    [],
+  );
+
+  // A restored `#/a/<id>` whose session no longer exists falls back to the
+  // plain workspace instead of rendering a dead chat view.
+  const bootstrapReadyForAgents = bootstrapReady;
+  useEffect(() => {
+    if (!bootstrapReadyForAgents || !selectedAgentSessionId) return;
+    if (agentSessions.some((session) => session.id === selectedAgentSessionId))
+      return;
+    setSelectedAgentSessionId(null);
+    if (window.location.hash.startsWith("#/a/")) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, [bootstrapReadyForAgents, selectedAgentSessionId, agentSessions]);
+
+  // Free text while an ask-card is open: a text-only answer CANCELS the
+  // permission request (ACP request_permission has no free-form channel —
+  // see the backend report's deviation note), so the text is re-sent as a
+  // prompt right after the card resolves.
+  const handleSendAgentMessage = useCallback(
+    async (session: AgentSessionInfo, text: string) => {
+      if (!deviceId) return;
+      const pending = getAgentSessionPendingQuestion(session.id);
+      if (pending) {
+        await answerAgentSession(
+          session.machine_id,
+          session.id,
+          { requestId: pending.requestId, text },
+          deviceId,
+        );
+      }
+      await promptAgentSession(session.machine_id, session.id, text, deviceId);
+    },
+    [deviceId],
+  );
+
+  const handleAnswerAgentOption = useCallback(
+    async (session: AgentSessionInfo, requestId: string, optionId: string) => {
+      if (!deviceId) return;
+      await answerAgentSession(
+        session.machine_id,
+        session.id,
+        { requestId, optionId },
+        deviceId,
+      );
+    },
+    [deviceId],
+  );
+
+  const handleCancelAgentTurn = useCallback(
+    async (session: AgentSessionInfo) => {
+      if (!deviceId) return;
+      await cancelAgentSession(session.machine_id, session.id, deviceId);
+    },
+    [deviceId],
+  );
+
+  const handleResumeAgentSession = useCallback(
+    async (session: AgentSessionInfo) => {
+      if (!deviceId) return;
+      await resumeAgentSession(session.machine_id, session.id, deviceId);
+    },
+    [deviceId],
+  );
+
+  const handleKillAgentSession = useCallback(
+    async (session: AgentSessionInfo) => {
+      if (!deviceId) return;
+      await destroyAgentSession(session.machine_id, session.id, deviceId);
+      // The agent_session_destroyed event clears the selection; close it
+      // locally too so the view doesn't wait on the round trip.
+      if (selectedAgentSessionIdRef.current === session.id) {
+        setSelectedAgentSessionId(null);
+        if (window.location.hash === `#/a/${session.id}`) {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+      }
+    },
+    [deviceId],
+  );
+
   useEffect(() => {
     if (!bootstrapReady || !deviceId) return;
     const ws = new WebSocket(eventsWsUrl(deviceId, lastSeqRef.current));
@@ -552,6 +705,30 @@ function TerminalCanvasInner() {
           }
           return next;
         });
+        // Agent-session envelopes have a second consumer beyond
+        // bootstrapState: the per-session transcript feed (chat view + inbox
+        // question prompts).
+        const browserEvent = envelope.event;
+        if (browserEvent?.type === "agent_session_event") {
+          const machineId =
+            agentSessionsRef.current.find(
+              (session) => session.id === browserEvent.session_id,
+            )?.machine_id ?? "";
+          applyLiveAgentSessionEvent(
+            machineId,
+            browserEvent.session_id,
+            browserEvent.seq,
+            browserEvent.event,
+          );
+        } else if (browserEvent?.type === "agent_session_destroyed") {
+          removeAgentSessionFeed(browserEvent.session_id);
+          if (selectedAgentSessionIdRef.current === browserEvent.session_id) {
+            setSelectedAgentSessionId(null);
+            if (window.location.hash === `#/a/${browserEvent.session_id}`) {
+              window.history.replaceState(null, "", window.location.pathname);
+            }
+          }
+        }
         if (needsResync) ws.close();
       } catch {
         /* ignore malformed events */
@@ -702,6 +879,9 @@ function TerminalCanvasInner() {
         activeMachineId,
         activeGroupId,
         activeTerminalId: sidebarActiveTerminalId,
+        agentSessions,
+        agentSessionSeen,
+        selectedAgentSessionId,
       }),
     [
       machines,
@@ -713,6 +893,9 @@ function TerminalCanvasInner() {
       activeMachineId,
       activeGroupId,
       sidebarActiveTerminalId,
+      agentSessions,
+      agentSessionSeen,
+      selectedAgentSessionId,
     ],
   );
 
@@ -741,6 +924,14 @@ function TerminalCanvasInner() {
       groupId: string;
       terminalId: string | null;
     }) => {
+      // Terminal selection and agent-session selection are mutually
+      // exclusive; picking any terminal section/row leaves the chat view.
+      if (selectedAgentSessionIdRef.current) {
+        setSelectedAgentSessionId(null);
+        if (window.location.hash.startsWith("#/a/")) {
+          window.history.pushState(null, "", window.location.pathname);
+        }
+      }
       if (target.machineId === activeMachineId) {
         pendingSidebarSelectionRef.current = null;
         runSidebarTarget(target);
@@ -801,6 +992,7 @@ function TerminalCanvasInner() {
     handoffLandingHandledRef.current = true;
 
     if (window.location.hash.startsWith("#/t/")) return;
+    if (window.location.hash.startsWith("#/a/")) return;
     const terminalId = browserState.lastFocusedTerminalId;
     if (!terminalId) return;
     const terminal = terminals.find((item) => item.id === terminalId);
@@ -914,6 +1106,7 @@ function TerminalCanvasInner() {
               ?.id ?? layout.selectedWorkpathId,
         });
       }
+      setSelectedAgentSessionId(null);
       window.history.pushState(null, "", `#/t/${newTerminal.id}`);
       return newTerminal;
     },
@@ -924,6 +1117,50 @@ function TerminalCanvasInner() {
       isCompact,
       layout.selectedWorkpathId,
       viewportHeight,
+    ],
+  );
+
+  // New-session dialog submit: the terminal chip routes to the existing
+  // create-terminal flow; agent kinds create + select an agent session.
+  const handleNewSessionRequest = useCallback(
+    (request: NewSessionRequest) => {
+      setNewSessionOpen(false);
+      if (!deviceId || !isMachineController(request.machineId)) return;
+      const kind = request.kind;
+      if (kind === "terminal") {
+        void handleCreateTerminal(request.machineId, request.cwd).catch(
+          (error) => console.error("Failed to create terminal", error),
+        );
+        return;
+      }
+      void (async () => {
+        const session = await createAgentSession(
+          request.machineId,
+          {
+            agentKind: kind,
+            cwd: request.cwd,
+            autoRun: request.autoRun,
+          },
+          deviceId,
+        );
+        setBrowserState((prev) => ({
+          ...prev,
+          agentSessions: prev.agentSessions.some(
+            (item) => item.id === session.id,
+          )
+            ? prev.agentSessions
+            : [...prev.agentSessions, session],
+        }));
+        handleSelectAgentSession(session.machine_id, session.id);
+      })().catch((error) =>
+        console.error("Failed to create agent session", error),
+      );
+    },
+    [
+      deviceId,
+      isMachineController,
+      handleCreateTerminal,
+      handleSelectAgentSession,
     ],
   );
 
@@ -1035,6 +1272,7 @@ function TerminalCanvasInner() {
   }, [closeConfirmation, deviceId]);
 
   const handleZoomTerminal = useCallback((id: string) => {
+    setSelectedAgentSessionId(null);
     dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: id });
     window.history.pushState(null, "", `#/t/${id}`);
   }, []);
@@ -1310,10 +1548,6 @@ function TerminalCanvasInner() {
     [],
   );
 
-  const handleNewGroupClick = useCallback(() => {
-    void handleNewGroup();
-  }, [handleNewGroup]);
-
   const handleDeleteGroup = useCallback(
     (machineId: string, group: WorkspaceGroup) => {
       if (!isMachineController(machineId)) return;
@@ -1443,6 +1677,24 @@ function TerminalCanvasInner() {
     return () => window.removeEventListener("keydown", onKeydown);
   }, [isCompact]);
 
+  // Esc leaves the selected agent session's chat view (mirrors the unzoom
+  // binding below for terminals). The composer textarea is not inside
+  // `.xterm`, so plain Esc while typing still exits — intended, and the
+  // draft text survives in the view's state until it unmounts.
+  useEffect(() => {
+    if (isCompact || !selectedAgentSessionId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        e.key === "Escape" &&
+        !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey
+      ) {
+        clearAgentSelection();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isCompact, selectedAgentSessionId, clearAgentSelection]);
+
   // Esc unzooms the expanded view, unless focus is inside xterm (which needs
   // Esc for its own bindings — the expanded overlay handles that case).
   // Compact chrome has no overlay to dismiss.
@@ -1464,6 +1716,21 @@ function TerminalCanvasInner() {
   }, [isCompact, layout.zoomedTerminalId]);
 
   // ---- render ----
+
+  const selectedAgentSession = selectedAgentSessionId
+    ? (agentSessions.find((session) => session.id === selectedAgentSessionId) ??
+      null)
+    : null;
+  const sessionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const terminal of terminals) {
+      counts[terminal.machine_id] = (counts[terminal.machine_id] ?? 0) + 1;
+    }
+    for (const session of agentSessions) {
+      counts[session.machine_id] = (counts[session.machine_id] ?? 0) + 1;
+    }
+    return counts;
+  }, [terminals, agentSessions]);
 
   const scopeLabel = useMemo(() => {
     if (layout.selectedWorkpathId === "all" || !activeMachine) return "All";
@@ -1706,7 +1973,8 @@ function TerminalCanvasInner() {
                 onSelectRow={(machineId, groupId, terminalId) =>
                   selectSidebarTarget({ machineId, groupId, terminalId })
                 }
-                onNewTab={handleNewGroupClick}
+                onSelectAgentRow={handleSelectAgentSession}
+                onNewTab={() => setNewSessionOpen(true)}
                 onNewTerminalInSection={(machineId, group) =>
                   void handleNewTerminalInSection(machineId, group)
                 }
@@ -1738,7 +2006,55 @@ function TerminalCanvasInner() {
                   background: colors.bg0,
                 }}
               >
-              {scopedTerminals.length === 0 ? (
+              {selectedAgentSession ? (
+                <Suspense fallback={<LazyLoadingFallback />}>
+                  <AgentChatView
+                    session={selectedAgentSession}
+                    machineName={
+                      machines.find(
+                        (machine) => machine.id === selectedAgentSession.machine_id,
+                      )?.name ?? selectedAgentSession.machine_id
+                    }
+                    canType={canTypeOnMachine(selectedAgentSession.machine_id)}
+                    onTakeControl={() =>
+                      void handleRequestControl(selectedAgentSession.machine_id)
+                    }
+                    onSend={(text) =>
+                      void handleSendAgentMessage(selectedAgentSession, text).catch(
+                        (error) =>
+                          console.error("Failed to send agent message", error),
+                      )
+                    }
+                    onStop={() =>
+                      void handleCancelAgentTurn(selectedAgentSession).catch(
+                        (error) =>
+                          console.error("Failed to cancel agent turn", error),
+                      )
+                    }
+                    onAnswerOption={(requestId, optionId) =>
+                      void handleAnswerAgentOption(
+                        selectedAgentSession,
+                        requestId,
+                        optionId,
+                      ).catch((error) =>
+                        console.error("Failed to answer agent question", error),
+                      )
+                    }
+                    onKill={() =>
+                      void handleKillAgentSession(selectedAgentSession).catch(
+                        (error) =>
+                          console.error("Failed to kill agent session", error),
+                      )
+                    }
+                    onResume={() =>
+                      void handleResumeAgentSession(selectedAgentSession).catch(
+                        (error) =>
+                          console.error("Failed to resume agent session", error),
+                      )
+                    }
+                  />
+                </Suspense>
+              ) : scopedTerminals.length === 0 ? (
                 <EmptyState
                   scopeLabel={scopeLabel}
                   canCreate={isActiveController}
@@ -1800,6 +2116,21 @@ function TerminalCanvasInner() {
 
         {addMachineOpen && (
           <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
+        )}
+
+        {!isCompact && newSessionOpen && (
+          <Suspense fallback={<LazyLoadingFallback />}>
+            <NewSessionDialog
+              machines={machines}
+              machineOnline={machineOnline}
+              sessionCounts={sessionCounts}
+              isControllerFor={isMachineController}
+              initialMachineId={activeMachineId}
+              initialCwd={activeMachine?.home_dir ?? null}
+              onClose={() => setNewSessionOpen(false)}
+              onCreate={handleNewSessionRequest}
+            />
+          </Suspense>
         )}
 
         {!isCompact && paletteState.open && (

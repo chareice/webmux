@@ -5,6 +5,8 @@ export interface MachineInfo {
   name: string
   os: string
   home_dir: string
+  /** Production machines default agent sessions to auto_run=false. */
+  production?: boolean
 }
 
 export interface TerminalInfo {
@@ -75,7 +77,73 @@ export interface BrowserStateSnapshot {
   workspace_layouts?: WorkspaceLayoutInfo[]
   machine_stats: MachineStatsSnapshot[]
   control_leases: ControlLeaseSnapshot[]
+  agent_sessions?: AgentSessionInfo[]
+  /** session_id → last_seen_seq for the requesting user (cross-device read sync). */
+  agent_session_seen?: Record<string, number>
 }
+
+// ── Agent sessions (ACP) — mirrors crates/protocol/src/lib.rs ──
+
+export type AgentKind = "claude" | "codex" | "grok" | "kimi"
+
+export type AgentSessionStatus =
+  | "starting"
+  | "working"
+  | "asked"
+  | "idle"
+  | "error"
+  | "disconnected"
+
+export interface AgentSessionInfo {
+  id: string
+  machine_id: string
+  agent_kind: AgentKind
+  cwd: string
+  /** Agent/user visible title; defaults to the last path segment of `cwd`. */
+  title: string
+  status: AgentSessionStatus
+  auto_run: boolean
+  /** Set once session/new returns; needed for resume. */
+  acp_session_id?: string | null
+  workspace_group_id?: string | null
+  last_event_seq: number
+  created_at_ms: number
+}
+
+export interface AgentQuestionOption {
+  id: string
+  label: string
+  detail?: string | null
+}
+
+/** Normalized ACP session updates; the hub persists them as the event log. */
+export type AgentEvent =
+  | { type: "user_message"; text: string }
+  | { type: "agent_message_chunk"; text: string }
+  | { type: "thought_chunk"; text: string }
+  | {
+      type: "tool_call"
+      tool_call_id: string
+      title: string
+      kind?: string | null
+      status: string
+    }
+  | {
+      type: "tool_call_update"
+      tool_call_id: string
+      status?: string | null
+      content?: string | null
+    }
+  | { type: "plan"; entries_json: string }
+  | {
+      type: "question"
+      request_id: string
+      prompt: string
+      options: AgentQuestionOption[]
+    }
+  | { type: "question_resolved"; request_id: string }
+  | { type: "turn_ended"; stop_reason: string }
+  | { type: "error"; message: string }
 
 export interface ResourceStats {
   cpu_percent: number
@@ -231,6 +299,11 @@ export type BrowserEvent =
   | BrowserEvent.WorkspaceLayoutUpdated
   | BrowserEvent.MachineStats
   | BrowserEvent.ModeChanged
+  | BrowserEvent.AgentSessionCreated
+  | BrowserEvent.AgentSessionUpdated
+  | BrowserEvent.AgentSessionDestroyed
+  | BrowserEvent.AgentSessionEvent
+  | BrowserEvent.AgentSessionSeen
 
 export namespace BrowserEvent {
   export interface MachineOnline {
@@ -302,6 +375,34 @@ export namespace BrowserEvent {
     type: 'mode_changed'
     machine_id: string
     controller_device_id: string | null
+  }
+
+  export interface AgentSessionCreated {
+    type: 'agent_session_created'
+    session: AgentSessionInfo
+  }
+
+  export interface AgentSessionUpdated {
+    type: 'agent_session_updated'
+    session: AgentSessionInfo
+  }
+
+  export interface AgentSessionDestroyed {
+    type: 'agent_session_destroyed'
+    session_id: string
+  }
+
+  export interface AgentSessionEvent {
+    type: 'agent_session_event'
+    session_id: string
+    seq: number
+    event: AgentEvent
+  }
+
+  export interface AgentSessionSeen {
+    type: 'agent_session_seen'
+    session_id: string
+    last_seen_seq: number
   }
 }
 

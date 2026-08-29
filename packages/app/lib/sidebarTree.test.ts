@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  AgentSessionInfo,
   MachineInfo,
   TerminalInfo,
   WorkspaceGroupInfo,
@@ -28,6 +29,26 @@ function terminal(
     cols: 120,
     rows: 40,
     reachable: true,
+    ...overrides,
+  };
+}
+
+function agentSession(
+  id: string,
+  machineId: string,
+  cwd: string,
+  overrides: Partial<AgentSessionInfo> = {},
+): AgentSessionInfo {
+  return {
+    id,
+    machine_id: machineId,
+    agent_kind: "claude",
+    cwd,
+    title: `agent-${id}`,
+    status: "idle",
+    auto_run: false,
+    last_event_seq: 0,
+    created_at_ms: 0,
     ...overrides,
   };
 }
@@ -94,7 +115,10 @@ describe("buildSidebarTree", () => {
     // state never reorders the tree.
     expect(sections.map((s) => s.groupId)).toEqual(["g1", "cwd:/a", "cwd:/b"]);
     expect(sections[1].persistent).toBe(false);
-    expect(sections[1].rows[0].reachable).toBe(false);
+    expect(sections[1].rows[0]).toMatchObject({
+      kind: "terminal",
+      reachable: false,
+    });
   });
 
   it("builds rows from pane terminals with display titles and reachable dots", () => {
@@ -113,9 +137,27 @@ describe("buildSidebarTree", () => {
     const section = tree.machines[0].sections[0];
     expect(section.groupId).toBe("cwd:/a");
     expect(section.rows).toEqual([
-      { terminalId: "t1", title: "nvim", reachable: true, focused: false },
-      { terminalId: "t2", title: "title-t2", reachable: false, focused: false },
-      { terminalId: "t3", title: "shell", reachable: true, focused: false },
+      {
+        kind: "terminal",
+        terminalId: "t1",
+        title: "nvim",
+        reachable: true,
+        focused: false,
+      },
+      {
+        kind: "terminal",
+        terminalId: "t2",
+        title: "title-t2",
+        reachable: false,
+        focused: false,
+      },
+      {
+        kind: "terminal",
+        terminalId: "t3",
+        title: "shell",
+        reachable: true,
+        focused: false,
+      },
     ]);
   });
 
@@ -181,10 +223,16 @@ describe("buildSidebarTree", () => {
     );
 
     expect(tree.machines[0].sections[0].active).toBe(true);
-    expect(tree.machines[0].sections[0].rows[0].focused).toBe(true);
+    expect(tree.machines[0].sections[0].rows[0]).toMatchObject({
+      kind: "terminal",
+      focused: true,
+    });
     // Same group id shape on another machine must not light up.
     expect(tree.machines[1].sections[0].active).toBe(false);
-    expect(tree.machines[1].sections[0].rows[0].focused).toBe(false);
+    expect(tree.machines[1].sections[0].rows[0]).toMatchObject({
+      kind: "terminal",
+      focused: false,
+    });
   });
 
   it("treats a machine with stats or reachable terminals as online", () => {
@@ -206,5 +254,169 @@ describe("buildSidebarTree", () => {
       }),
     );
     expect(offline.machines[0].online).toBe(false);
+  });
+
+  it("places an agent session in its workspace_group_id's section, after terminal rows", () => {
+    const tree = buildSidebarTree(
+      input({
+        machines: [machine("m1", "nas")],
+        workspaceGroups: [group("g1", "m1", "work", 1)],
+        terminals: [terminal("t1", "m1", "/a", { workspace_group_id: "g1" })],
+        agentSessions: [
+          agentSession("s1", "m1", "/elsewhere", {
+            workspace_group_id: "g1",
+            agent_kind: "codex",
+            status: "working",
+          }),
+        ],
+      }),
+    );
+
+    const section = tree.machines[0].sections[0];
+    expect(section.groupId).toBe("g1");
+    expect(section.rows.map((row) => row.kind)).toEqual([
+      "terminal",
+      "agent",
+    ]);
+    expect(section.rows[1]).toEqual({
+      kind: "agent",
+      agentSessionId: "s1",
+      title: "agent-s1",
+      agentKind: "codex",
+      status: "working",
+      unread: false,
+      selected: false,
+    });
+  });
+
+  it("places an ungrouped agent session in the section whose cwd matches", () => {
+    const tree = buildSidebarTree(
+      input({
+        machines: [machine("m1", "nas")],
+        workspaceGroups: [group("g1", "m1", "work", 1)],
+        // g1's cwd is "/a" (derived from its terminal).
+        terminals: [terminal("t1", "m1", "/a", { workspace_group_id: "g1" })],
+        agentSessions: [agentSession("s1", "m1", "/a")],
+      }),
+    );
+
+    const sections = tree.machines[0].sections;
+    expect(sections).toHaveLength(1);
+    expect(sections[0].rows.map((row) => row.kind)).toEqual([
+      "terminal",
+      "agent",
+    ]);
+    expect(sections[0].rows[1]).toMatchObject({
+      kind: "agent",
+      agentSessionId: "s1",
+    });
+  });
+
+  it("shares one synthetic cwd section between unmatched agent sessions", () => {
+    const tree = buildSidebarTree(
+      input({
+        machines: [machine("m1", "nas")],
+        workspaceGroups: [group("g1", "m1", "work", 1)],
+        agentSessions: [
+          agentSession("s2", "m1", "/proj/app", { created_at_ms: 2 }),
+          agentSession("s1", "m1", "/proj/api", { created_at_ms: 1 }),
+          agentSession("s3", "m1", "/proj/app", { created_at_ms: 3 }),
+        ],
+      }),
+    );
+
+    const sections = tree.machines[0].sections;
+    // Persistent group first, then synthetic sections in first-seen order —
+    // never re-sorted by status or anything else.
+    expect(sections.map((s) => s.groupId)).toEqual([
+      "g1",
+      "cwd:/proj/app",
+      "cwd:/proj/api",
+    ]);
+    const synthetic = sections[1];
+    expect(synthetic.label).toBe("app");
+    expect(synthetic.cwd).toBe("/proj/app");
+    expect(synthetic.persistent).toBe(false);
+    expect(synthetic.group).toMatchObject({
+      id: "cwd:/proj/app",
+      workspaceGroupId: null,
+      persistent: false,
+      paneCount: 0,
+    });
+    // Same cwd → same synthetic section, rows in input order.
+    expect(synthetic.rows.map((row) => row.kind)).toEqual(["agent", "agent"]);
+    expect(
+      synthetic.rows.map((row) => row.kind === "agent" && row.agentSessionId),
+    ).toEqual(["s2", "s3"]);
+  });
+
+  it("marks agent rows unread only when unseen and not selected", () => {
+    const tree = buildSidebarTree(
+      input({
+        machines: [machine("m1", "nas")],
+        agentSessions: [
+          // No seen entry at all → unseen when last_event_seq > 0.
+          agentSession("s1", "m1", "/a", { last_event_seq: 3 }),
+          // seen == last_event_seq → caught up.
+          agentSession("s2", "m1", "/a", { last_event_seq: 3 }),
+          // Behind, but it is the open session → unread is meaningless.
+          agentSession("s3", "m1", "/a", { last_event_seq: 3 }),
+        ],
+        agentSessionSeen: { s2: 3, s3: 1 },
+        selectedAgentSessionId: "s3",
+      }),
+    );
+
+    const rows = tree.machines[0].sections[0].rows;
+    expect(
+      rows.map((row) => row.kind === "agent" && [row.agentSessionId, row.unread, row.selected]),
+    ).toEqual([
+      ["s1", true, false],
+      ["s2", false, false],
+      ["s3", false, true],
+    ]);
+  });
+
+  it("collects askedSessions oldest first across all machines, ignoring the host filter", () => {
+    const tree = buildSidebarTree(
+      input({
+        machines: [machine("m1", "nas"), machine("m2", "mbp")],
+        hostFilterId: "m1",
+        agentSessions: [
+          agentSession("s-working", "m1", "/a", {
+            status: "working",
+            created_at_ms: 1,
+          }),
+          // Asked on the dimmed machine — must still surface in the inbox.
+          agentSession("s-asked-new", "m2", "/b", {
+            status: "asked",
+            agent_kind: "kimi",
+            created_at_ms: 30,
+          }),
+          agentSession("s-asked-old", "m1", "/a", {
+            status: "asked",
+            created_at_ms: 10,
+          }),
+        ],
+      }),
+    );
+
+    expect(tree.machines[1].dimmed).toBe(true);
+    expect(tree.askedSessions).toEqual([
+      {
+        sessionId: "s-asked-old",
+        machineId: "m1",
+        title: "agent-s-asked-old",
+        agentKind: "claude",
+        createdAtMs: 10,
+      },
+      {
+        sessionId: "s-asked-new",
+        machineId: "m2",
+        title: "agent-s-asked-new",
+        agentKind: "kimi",
+        createdAtMs: 30,
+      },
+    ]);
   });
 });

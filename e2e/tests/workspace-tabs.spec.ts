@@ -299,7 +299,10 @@ test("a new tab lands at the end of the strip, after the hub-created ones", asyn
   await expect(workspaceGroup(page, "root")).toBeVisible();
   await expect(workspaceGroup(page, "tmp")).toBeVisible();
 
-  await page.getByTestId("sidebar-new-tab").click();
+  // The brand-row ＋ now opens the new-session dialog; a bare new tab comes
+  // from the command palette's "New tab" action.
+  await pressPrefixKey(page, "k");
+  await page.getByTestId("command-palette-row-new-tab").click();
 
   await expect.poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
     .toBe(3);
@@ -735,7 +738,7 @@ async function dragWorkspaceGroupTo(
   await page.mouse.up();
 }
 
-test("sidebar creates tabs via ＋ and deletes them via the section context menu", async ({ page }) => {
+test("sidebar creates tabs via the palette and deletes them via the section context menu", async ({ page }) => {
   await openApp(page);
   await resetMachineState(page);
   await takeControlFromHeader(page);
@@ -747,8 +750,10 @@ test("sidebar creates tabs via ＋ and deletes them via the section context menu
   // The terminal already sits in the tab the hub opened for it.
   const cwdTab = (await listWorkspaceGroupsViaApi(page))[0];
 
-  // The sidebar's brand-row ＋ creates a second tab.
-  await page.getByTestId("sidebar-new-tab").click();
+  // The brand-row ＋ now opens the new-session dialog; a bare second tab
+  // comes from the command palette's "New tab" action.
+  await pressPrefixKey(page, "k");
+  await page.getByTestId("command-palette-row-new-tab").click();
   await expect
     .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
     .toBe(2);

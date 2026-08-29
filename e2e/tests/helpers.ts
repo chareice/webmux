@@ -117,6 +117,7 @@ export async function destroyAllTerminals(page: Page): Promise<void> {
 export async function resetMachineState(page: Page): Promise<void> {
   await requestMachineControl(page);
   await destroyAllTerminals(page);
+  await destroyAllAgentSessions(page);
   await deleteAllWorkspaceGroups(page);
   await deleteAllWorkspaceLayouts(page);
   await expectTerminalCount(page, 0);
@@ -324,6 +325,66 @@ export async function expectTerminalCount(
   count: number,
 ): Promise<void> {
   await expect.poll(async () => (await listTerminals(page)).length).toBe(count);
+}
+
+/* ---------- agent sessions ---------- */
+
+export interface ListedAgentSession {
+  id: string;
+  machine_id: string;
+  agent_kind: string;
+  cwd: string;
+  title: string;
+  status: string;
+  auto_run: boolean;
+  last_event_seq: number;
+  created_at_ms: number;
+}
+
+export async function listAgentSessions(
+  page: Page,
+): Promise<ListedAgentSession[]> {
+  const response = await page.request.get("/api/bootstrap", {
+    headers: await getAuthHeaders(page),
+  });
+  expect(response.ok()).toBeTruthy();
+  const snapshot = await response.json();
+  return (snapshot.agent_sessions ?? []) as ListedAgentSession[];
+}
+
+export async function createAgentSessionViaApi(
+  page: Page,
+  opts: { agentKind?: string; cwd?: string; autoRun?: boolean } = {},
+): Promise<ListedAgentSession> {
+  const headers = await getAuthHeaders(page);
+  const deviceId = await getDeviceId(page);
+  const response = await page.request.post(
+    `/api/machines/${MACHINE_ID}/agent-sessions`,
+    {
+      headers,
+      data: {
+        agent_kind: opts.agentKind ?? "kimi",
+        cwd: opts.cwd ?? "/tmp",
+        device_id: deviceId,
+        ...(opts.autoRun !== undefined ? { auto_run: opts.autoRun } : {}),
+      },
+    },
+  );
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
+export async function destroyAllAgentSessions(page: Page): Promise<void> {
+  const headers = await getAuthHeaders(page);
+  const deviceId = await getDeviceId(page);
+  for (const session of await listAgentSessions(page)) {
+    const response = await page.request.delete(
+      `/api/machines/${session.machine_id}/agent-sessions/${session.id}?device_id=${encodeURIComponent(deviceId)}`,
+      { headers },
+    );
+    expect(response.ok()).toBeTruthy();
+  }
+  await expect.poll(async () => (await listAgentSessions(page)).length).toBe(0);
 }
 
 export function getExpandedOverlay(page: Page): Locator {

@@ -1,4 +1,5 @@
 import type {
+  AgentSessionInfo,
   BrowserEvent,
   BrowserEventEnvelope,
   BrowserStateSnapshot,
@@ -18,6 +19,8 @@ export interface BrowserSessionState {
   workspaceLayouts: WorkspaceLayoutInfo[];
   machineStats: Record<string, ResourceStats>;
   controlLeases: Record<string, string>;
+  agentSessions: AgentSessionInfo[];
+  agentSessionSeen: Record<string, number>;
 }
 
 export const EMPTY_BROWSER_SESSION_STATE: BrowserSessionState = {
@@ -29,6 +32,8 @@ export const EMPTY_BROWSER_SESSION_STATE: BrowserSessionState = {
   workspaceLayouts: [],
   machineStats: {},
   controlLeases: {},
+  agentSessions: [],
+  agentSessionSeen: {},
 };
 
 export function applyBootstrapSnapshot(
@@ -49,6 +54,8 @@ export function applyBootstrapSnapshot(
         controller_device_id ? [[machine_id, controller_device_id]] : [],
       ),
     ),
+    agentSessions: snapshot.agent_sessions ?? [],
+    agentSessionSeen: snapshot.agent_session_seen ?? {},
   };
 }
 
@@ -183,6 +190,46 @@ function applyBrowserEvent(
           [event.machine_id]: event.controller_device_id,
         },
       };
+    case "agent_session_created":
+    case "agent_session_updated":
+      return {
+        ...state,
+        agentSessions: upsertAgentSession(state.agentSessions, event.session),
+      };
+    case "agent_session_destroyed":
+      return {
+        ...state,
+        agentSessions: state.agentSessions.filter(
+          (session) => session.id !== event.session_id,
+        ),
+        agentSessionSeen: omitKey(state.agentSessionSeen, event.session_id),
+      };
+    case "agent_session_event": {
+      if (
+        !state.agentSessions.some((session) => session.id === event.session_id)
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        agentSessions: state.agentSessions.map((session) =>
+          session.id === event.session_id && event.seq > session.last_event_seq
+            ? { ...session, last_event_seq: event.seq }
+            : session,
+        ),
+      };
+    }
+    case "agent_session_seen": {
+      const current = state.agentSessionSeen[event.session_id] ?? 0;
+      if (event.last_seen_seq <= current) return state;
+      return {
+        ...state,
+        agentSessionSeen: {
+          ...state.agentSessionSeen,
+          [event.session_id]: event.last_seen_seq,
+        },
+      };
+    }
     default:
       return state;
   }
@@ -225,6 +272,19 @@ function upsertTerminal(
   }
   const next = terminals.slice();
   next[existingIndex] = terminal;
+  return next;
+}
+
+function upsertAgentSession(
+  sessions: AgentSessionInfo[],
+  session: AgentSessionInfo,
+): AgentSessionInfo[] {
+  const existingIndex = sessions.findIndex((item) => item.id === session.id);
+  if (existingIndex === -1) {
+    return [...sessions, session];
+  }
+  const next = sessions.slice();
+  next[existingIndex] = session;
   return next;
 }
 
