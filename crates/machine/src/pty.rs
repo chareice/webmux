@@ -501,6 +501,14 @@ set -g focus-events on
 set -g history-limit 10000
 bind -n WheelUpPane if -Ft= '#{mouse_any_flag}' 'send -M' 'if -Ft= \"#{pane_in_mode}\" \"send -M\" \"copy-mode -e\"'
 bind -n MouseDrag1Pane if -Ft= '#{mouse_any_flag}' 'send -M' 'copy-mode -eM'
+# tmux's default copy-mode wheel bindings jump 5 lines per report. Web
+# clients already convert scroll distance into one report per line of
+# travel (xterm scrollSensitivity), so 5x on top makes scrolling land in
+# lurches. One line per report tracks the finger/trackpad 1:1.
+bind -T copy-mode WheelUpPane select-pane \\; send -N1 -X scroll-up
+bind -T copy-mode WheelDownPane select-pane \\; send -N1 -X scroll-down
+bind -T copy-mode-vi WheelUpPane select-pane \\; send -N1 -X scroll-up
+bind -T copy-mode-vi WheelDownPane select-pane \\; send -N1 -X scroll-down
 ",
     );
     // Drag-select end is conditional on scroll position: back in history,
@@ -906,6 +914,23 @@ mod tests {
             content.contains("WheelUpPane") && content.contains("copy-mode -e"),
             "missing scroll-to-copy-mode binding"
         );
+        // Copy-mode wheel must scroll one line per report (tmux defaults to
+        // 5), or web-client scrolling lands in 5-line lurches.
+        for table in ["copy-mode", "copy-mode-vi"] {
+            for (event, action) in
+                [("WheelUpPane", "scroll-up"), ("WheelDownPane", "scroll-down")]
+            {
+                let line = format!(
+                    "bind -T {} {} select-pane \\; send -N1 -X {}",
+                    table, event, action
+                );
+                assert!(
+                    content.contains(&line),
+                    "missing 1-line wheel binding: {}",
+                    line
+                );
+            }
+        }
         // window-size is set per-session in create_terminal (after new-session)
         // rather than via the global config, because tmux 3.3a's server
         // crashes during startup if `set -g window-size manual` is in the
