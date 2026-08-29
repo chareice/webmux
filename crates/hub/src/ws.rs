@@ -186,15 +186,12 @@ async fn handle_terminal_ws(
     // Register the attach in the router BEFORE asking the machine to open
     // it, so any AttachOutput that arrives can be routed immediately.
     let (out_tx, mut out_rx) = mpsc::channel::<Bytes>(64);
-    state
-        .router
-        .register(
-            attach_id.clone(),
-            machine_id.clone(),
-            terminal_id.clone(),
-            WsSender(out_tx),
-        )
-        .await;
+    state.router.register(
+        attach_id.clone(),
+        machine_id.clone(),
+        terminal_id.clone(),
+        WsSender(out_tx),
+    );
 
     if let Err(e) = state
         .manager
@@ -211,19 +208,17 @@ async fn handle_terminal_ws(
     {
         let msg = serde_json::to_string(&ServerMessage::Error { message: e }).unwrap();
         let _ = sender.send(Message::Text(msg.into())).await;
-        state.router.unregister(&attach_id).await;
+        state.router.unregister(&attach_id);
         return;
     }
 
     // Outbound: forward bytes from out_rx to the WS as binary frames.
     // No coalescing needed — bytes are already chunked at PTY read size.
+    // `chunk` is a zero-copy slice of the machine frame; hand it to axum
+    // as-is instead of round-tripping through a Vec.
     let mut send_task = tokio::spawn(async move {
         while let Some(chunk) = out_rx.recv().await {
-            if sender
-                .send(Message::Binary(chunk.to_vec().into()))
-                .await
-                .is_err()
-            {
+            if sender.send(Message::Binary(chunk)).await.is_err() {
                 break;
             }
         }
@@ -335,7 +330,7 @@ async fn handle_terminal_ws(
             },
         )
         .await;
-    state.router.unregister(&attach_id).await;
+    state.router.unregister(&attach_id);
 }
 
 async fn terminal_previews_ws_handler(
@@ -409,15 +404,12 @@ async fn handle_terminal_previews_ws(socket: WebSocket, user_id: Option<String>,
 
                                 let attach_id = uuid::Uuid::new_v4().to_string();
                                 let (attach_tx, mut attach_rx) = mpsc::channel::<Bytes>(64);
-                                state
-                                    .router
-                                    .register(
-                                        attach_id.clone(),
-                                        machine_id.clone(),
-                                        terminal_id.clone(),
-                                        WsSender(attach_tx),
-                                    )
-                                    .await;
+                                state.router.register(
+                                    attach_id.clone(),
+                                    machine_id.clone(),
+                                    terminal_id.clone(),
+                                    WsSender(attach_tx),
+                                );
 
                                 let (attach_cols, attach_rows) = state
                                     .manager
@@ -439,7 +431,7 @@ async fn handle_terminal_previews_ws(socket: WebSocket, user_id: Option<String>,
                                     .await
                                     .is_err()
                                 {
-                                    state.router.unregister(&attach_id).await;
+                                    state.router.unregister(&attach_id);
                                     continue;
                                 }
 
@@ -478,7 +470,7 @@ async fn handle_terminal_previews_ws(socket: WebSocket, user_id: Option<String>,
                                             },
                                         )
                                         .await;
-                                    state.router.unregister(&attach.attach_id).await;
+                                    state.router.unregister(&attach.attach_id);
                                 }
                             }
                         }
@@ -502,7 +494,7 @@ async fn handle_terminal_previews_ws(socket: WebSocket, user_id: Option<String>,
                 },
             )
             .await;
-        state.router.unregister(&attach.attach_id).await;
+        state.router.unregister(&attach.attach_id);
     }
 }
 
@@ -581,10 +573,37 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                         }
                     });
 
+                    // Control messages (Text) are handled on their own task:
+                    // handle_machine_message does synchronous SQLite work
+                    // (title/cwd/resize updates), and processing it inline
+                    // would stall binary output forwarding for every
+                    // terminal on this machine. Ordering among control
+                    // messages is preserved (single consumer); ordering
+                    // between control and output frames is not load-bearing
+                    // — they already travel to browsers over different
+                    // WebSockets.
+                    let ctrl_manager = state.manager.clone();
+                    let ctrl_router = state.router.clone();
+                    let ctrl_mid = machine_id.clone();
+                    let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<MachineToHub>(256);
+                    let control_task = tokio::spawn(async move {
+                        while let Some(machine_msg) = ctrl_rx.recv().await {
+                            // For AttachDied, also drop the per-attach
+                            // route here — MachineManager has no
+                            // access to the router, so without this
+                            // step the browser WS would stay open
+                            // with no more bytes flowing into it.
+                            if let MachineToHub::AttachDied { attach_id, .. } = &machine_msg {
+                                ctrl_router.unregister(attach_id);
+                            }
+                            ctrl_manager
+                                .handle_machine_message(&ctrl_mid, machine_msg)
+                                .await;
+                        }
+                    });
+
                     // Handle incoming messages from machine
-                    let manager = state.manager.clone();
                     let router = state.router.clone();
-                    let mid = machine_id.clone();
                     let mut recv_task = tokio::spawn(async move {
                         while let Some(Ok(msg)) = receiver.next().await {
                             match msg {
@@ -594,22 +613,15 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                                     else {
                                         continue;
                                     };
-                                    // For AttachDied, also drop the per-attach
-                                    // route here — MachineManager has no
-                                    // access to the router, so without this
-                                    // step the browser WS would stay open
-                                    // with no more bytes flowing into it.
-                                    if let MachineToHub::AttachDied { attach_id, .. } = &machine_msg
-                                    {
-                                        router.unregister(attach_id).await;
+                                    if ctrl_tx.send(machine_msg).await.is_err() {
+                                        break;
                                     }
-                                    manager.handle_machine_message(&mid, machine_msg).await;
                                 }
                                 Message::Binary(data) => {
                                     match decode_attach_output_frame(&data) {
                                         Ok((attach_id, payload)) => {
                                             if let Some(sender) =
-                                                router.lookup_sender(&attach_id).await
+                                                router.lookup_sender(&attach_id)
                                             {
                                                 // Never let a single slow browser
                                                 // backpressure the entire machine→hub
@@ -655,9 +667,13 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                     }
                     // JoinHandle drop doesn't cancel; abort the loser so it
                     // doesn't keep half the WS alive after the other side
-                    // already gave up.
+                    // already gave up. Aborting recv_task drops ctrl_tx,
+                    // which lets control_task drain and exit on its own;
+                    // abort it anyway so a wedged handler can't outlive the
+                    // connection.
                     send_task.abort();
                     recv_task.abort();
+                    control_task.abort();
 
                     (machine_id, conn_id)
                 }
@@ -675,7 +691,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
         .manager
         .unregister_machine(&machine_id, &conn_id)
         .await;
-    let dropped = state.router.drop_machine(&machine_id).await;
+    let dropped = state.router.drop_machine(&machine_id);
     if !dropped.is_empty() {
         tracing::info!(
             "dropped {} attach routing entries for offline machine {}",
