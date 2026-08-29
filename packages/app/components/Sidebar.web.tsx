@@ -815,48 +815,52 @@ function SidebarSectionBlock({
         </button>
       </div>
 
-      {section.rows.map((row) => (
-        <button
-          key={row.terminalId}
-          type="button"
-          data-testid={`sidebar-row-${row.terminalId}`}
-          onClick={() => onSelectRow(row.terminalId)}
-          title={row.title}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            width: "100%",
-            height: 26,
-            padding: "0 8px 0 16px",
-            border: "none",
-            borderRadius: 6,
-            background: row.focused ? colors.bg2 : "transparent",
-            cursor: "pointer",
-            textAlign: "left",
-          }}
-        >
-          <RowDot reachable={row.reachable} />
-          <span
+      {section.rows.map((row) =>
+        // Agent rows exist in the projection but have no sidebar rendering
+        // yet; skip them here.
+        row.kind === "agent" ? null : (
+          <button
+            key={row.terminalId}
+            type="button"
+            data-testid={`sidebar-row-${row.terminalId}`}
+            onClick={() => onSelectRow(row.terminalId)}
+            title={row.title}
             style={{
-              flexGrow: 1,
-              fontSize: 13,
-              fontWeight: row.focused ? 500 : 400,
-              color: row.focused
-                ? colors.fg0
-                : row.reachable
-                  ? colors.fg1
-                  : colors.fg3,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              height: 26,
+              padding: "0 8px 0 16px",
+              border: "none",
+              borderRadius: 6,
+              background: row.focused ? colors.bg2 : "transparent",
+              cursor: "pointer",
+              textAlign: "left",
             }}
           >
-            {row.title}
-          </span>
-        </button>
-      ))}
+            <RowDot reachable={row.reachable} />
+            <span
+              style={{
+                flexGrow: 1,
+                fontSize: 13,
+                fontWeight: row.focused ? 500 : 400,
+                color: row.focused
+                  ? colors.fg0
+                  : row.reachable
+                    ? colors.fg1
+                    : colors.fg3,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+              }}
+            >
+              {row.title}
+            </span>
+          </button>
+        ),
+      )}
     </div>
   );
 }
