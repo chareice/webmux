@@ -225,6 +225,7 @@ impl AcpManager {
 
         let actor = SessionActor {
             session_id: session_id.clone(),
+            cwd,
             auto_run,
             seq: 0,
             acp_session_id: None,
@@ -332,6 +333,9 @@ enum PendingRpc {
 
 struct SessionActor {
     session_id: String,
+    /// Working directory the agent was spawned with; ACP wants it back in
+    /// session/new and session/load params.
+    cwd: String,
     auto_run: bool,
     /// Per-session monotonic event sequence, machine-assigned, starts at 1.
     seq: u64,
@@ -741,7 +745,7 @@ impl SessionActor {
                 "session/load",
                 json!({
                     "sessionId": acp_session_id,
-                    "cwd": ".",
+                    "cwd": self.cwd,
                     "mcpServers": [],
                 }),
             )
@@ -755,7 +759,7 @@ impl SessionActor {
         self.send_request(
             PendingRpc::SessionNew,
             "session/new",
-            json!({"cwd": ".", "mcpServers": []}),
+            json!({"cwd": self.cwd, "mcpServers": []}),
         )
         .await;
     }
