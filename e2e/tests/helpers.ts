@@ -18,14 +18,14 @@ async function authenticate(page: Page): Promise<void> {
 
 /**
  * Open the app, authenticate, and wait for the new workbench shell to be
- * ready. Works for both desktop (TabBar + workspace) and mobile
+ * ready. Works for both desktop (Sidebar + workspace) and mobile
  * (MobileWorkbench) layouts.
  */
 export async function openApp(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto("/");
   await Promise.race([
-    page.getByTestId("tab-bar").waitFor({
+    page.getByTestId("sidebar").waitFor({
       state: "visible",
       timeout: 20_000,
     }),
@@ -124,9 +124,9 @@ export async function resetMachineState(page: Page): Promise<void> {
   // control pill). Then wait for the UI to pick up the mode change so
   // follow-up assertions on the viewing pill land reliably.
   await releaseMachineControl(page);
-  const tabBar = page.getByTestId("tab-bar");
-  if (await tabBar.isVisible().catch(() => false)) {
-    await expect(page.getByTestId("workbench-request-control")).toBeVisible();
+  const sidebar = page.getByTestId("sidebar");
+  if (await sidebar.isVisible().catch(() => false)) {
+    await expect(page.getByTestId("sidebar-control-pill")).toBeVisible();
   }
 }
 
@@ -169,34 +169,37 @@ export async function deleteAllWorkspaceGroups(page: Page): Promise<void> {
 }
 
 /**
- * The TabBar control affordance: a "viewing" pill that exists only while the
- * user is NOT the controller (controlling renders nothing — it's the normal
- * state). Clicking it requests control.
+ * The sidebar's control affordance: a "viewing" pill that exists only while
+ * the user is NOT the controller (controlling renders the view-only lock
+ * button instead — control is the normal state). Clicking it requests
+ * control.
  */
 export function getControlToggle(page: Page): Locator {
-  return page.getByTestId("workbench-request-control");
+  return page.getByTestId("sidebar-control-pill");
 }
 
 export async function expectControlState(
   page: Page,
   state: "controlling" | "viewing",
 ): Promise<void> {
-  const pill = page.getByTestId("workbench-request-control");
   if (state === "controlling") {
-    await expect(pill).toHaveCount(0);
+    // The controller sees the view-only lock button, never the pill.
+    await expect(page.getByTestId("sidebar-control-pill")).toHaveCount(0);
+    await expect(page.getByTestId("sidebar-view-only-lock")).toBeVisible();
   } else {
-    await expect(pill).toBeVisible();
+    await expect(page.getByTestId("sidebar-control-pill")).toBeVisible();
   }
 }
 
 export async function takeControlFromHeader(page: Page): Promise<void> {
-  await page.getByTestId("workbench-request-control").click();
+  await page.getByTestId("sidebar-control-pill").click();
   await expectControlState(page, "controlling");
 }
 
 export async function releaseControlFromHeader(page: Page): Promise<void> {
-  // The desktop chrome has no release button — controlling renders no pill.
-  // Release via the API and wait for the viewing pill to come back.
+  // The desktop chrome has no release button — controlling renders a
+  // view-only lock, not a release action. Release via the API and wait for
+  // the viewing pill to come back.
   await releaseMachineControl(page);
   await expectControlState(page, "viewing");
 }
