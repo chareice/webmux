@@ -117,7 +117,8 @@ body {
   display: none;
 }
 
-.xterm .xterm-scrollable-element > .scrollbar {
+.xterm .xterm-scrollable-element > .scrollbar,
+.xterm .xterm-scrollable-element > .xterm-scrollbar {
   display: none !important;
 }
 

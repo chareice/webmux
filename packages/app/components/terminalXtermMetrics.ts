@@ -17,6 +17,24 @@ type TerminalWithRenderService = Terminal & {
   };
 };
 
+function cellFromUnknown(
+  cell: { width?: number; height?: number } | undefined,
+): CellMetrics | null {
+  if (!cell) return null;
+  const { width, height } = cell;
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+  return { width, height };
+}
+
 export function measureTerminalSurface(
   container: HTMLDivElement | null,
 ): { width: number; height: number } {
@@ -41,23 +59,14 @@ export function measureTerminalSurface(
   return { width, height };
 }
 
-// Match the private renderer path used by @xterm/addon-fit. Public xterm APIs
-// do not expose CSS cell metrics, and deriving them from surface size races
-// against terminal.resize().
+// Prefer the public 6.1 `term.dimensions` API (what @xterm/addon-fit reads)
+// and fall back to the private renderer path used before that existed.
+// Deriving cell size from a surface measurement races against terminal.resize().
 export function readXtermCellMetrics(term: Terminal): CellMetrics | null {
-  const cell = (term as TerminalWithRenderService)._core?._renderService
-    ?.dimensions?.css?.cell;
-  if (!cell) return null;
-  const { width, height } = cell;
-  if (
-    typeof width !== "number" ||
-    typeof height !== "number" ||
-    !Number.isFinite(width) ||
-    !Number.isFinite(height) ||
-    width <= 0 ||
-    height <= 0
-  ) {
-    return null;
-  }
-  return { width, height };
+  const fromPublic = cellFromUnknown(term.dimensions?.css?.cell);
+  if (fromPublic) return fromPublic;
+  return cellFromUnknown(
+    (term as TerminalWithRenderService)._core?._renderService?.dimensions?.css
+      ?.cell,
+  );
 }

@@ -12,4 +12,8 @@ COPY --from=builder /app/target/release/webmux-node /usr/local/bin/
 COPY e2e/fake-acp-agent.py /opt/webmux/fake-acp-agent.py
 COPY e2e/machine.json /root/.config/webmux/machine.json
 
+# UTF-8 locale so tmux and readline handle multibyte input/echo (CJK IME
+# e2e tests); bookworm's glibc always ships C.UTF-8.
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+
 CMD ["webmux-node"]

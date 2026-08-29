@@ -13,7 +13,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 
 import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
-import { measureTerminalSurface } from "./terminalXtermMetrics";
+import { measureTerminalSurface, readXtermCellMetrics } from "./terminalXtermMetrics";
 import { useTerminalFitController } from "./useTerminalFitController";
 import { useTerminalLiveSocket } from "./useTerminalLiveSocket";
 import { terminalTheme } from "@/lib/colors";
@@ -40,13 +40,23 @@ import { createExternalUrlOpener } from "@/lib/terminalLinks";
 import { useDisplayMode } from "@/lib/hooks";
 import { usePrefixKey } from "@/lib/prefixKeyContext";
 import { filterBrowserGeneratedTerminalInput } from "@/lib/terminalInputFilter";
+import {
+  createInputBatcher,
+  type InputBatcher,
+} from "@/lib/terminalInputBatcher";
 import { createWheelDirectionGate } from "@/lib/terminalWheelGate";
 import { activateGpuRenderer } from "@/lib/terminalGpuRenderer";
 import { resolveTerminalFontFamily } from "@/lib/terminalFonts";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
-const TERMINAL_SCROLL_SENSITIVITY = 6;
+// Chosen so one cell-height of trackpad/finger travel emits ~one wheel
+// report: xterm's pixel-delta path divides by cell height and dampens
+// likely-trackpad deltas by 0.3, so sensitivity 3 lands at ~1 report/line.
+// tmux's copy-mode bindings scroll 1 line per report (machine tmux.conf
+// overrides tmux's 5-line default), giving finger-true scrolling. The old
+// value of 6 (picked when tmux still jumped 5 lines/report) overshot 2x.
+const TERMINAL_SCROLL_SENSITIVITY = 3;
 
 // Invoke a Tauri command through the internals global rather than
 // dynamic-importing the plugin's JS package. Metro turns
@@ -126,6 +136,9 @@ interface XtermMouseService {
 
 type TerminalWithMouseService = Terminal & {
   _core?: {
+    // 6.1 split coordinate math out of MouseService; keep the old field as
+    // a fallback so the patch survives either layout.
+    _mouseCoordsService?: XtermMouseService;
     _mouseService?: XtermMouseService;
   };
 };
@@ -157,7 +170,12 @@ function getLayoutMouseEvent<T extends { clientX: number; clientY: number }>(
 function patchScaledMouseCoordinates(term: Terminal): () => void {
   // xterm calculates mouse cells from untransformed renderer metrics. Adjust
   // pointer coordinates when an ancestor visually scales the terminal.
-  const mouseService = (term as TerminalWithMouseService)._core?._mouseService;
+  const core = (term as TerminalWithMouseService)._core;
+  const mouseService = [core?._mouseCoordsService, core?._mouseService].find(
+    (service) =>
+      typeof service?.getCoords === "function" &&
+      typeof service.getMouseReportCoords === "function",
+  );
   if (!mouseService) return () => {};
 
   const originalGetCoords = mouseService.getCoords.bind(mouseService);
@@ -276,6 +294,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const measureRafRef = useRef<number | null>(null);
     const recentClipboardImagePasteRef =
       useRef<ImagePasteDedupeRecord | null>(null);
+    const inputBatcherRef = useRef<InputBatcher | null>(null);
+    // Stamped with the send time of each input batch when the echo-latency
+    // probe is enabled (localStorage webmux:echo-probe=1); the live socket
+    // turns the first output after it into a round-trip sample.
+    const echoProbeSentAtRef = useRef<number | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
     const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
     const [sessionGeneration, setSessionGeneration] = useState(0);
@@ -433,6 +456,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         const { base64, mime } = await readFileAsBase64(file);
         const ext = mime.includes("/") ? `.${mime.split("/")[1]}` : "";
         const filename = safeFilename(file.name ?? "", ext);
+        inputBatcherRef.current?.flush();
         ws.send(JSON.stringify(buildImagePasteMessage(base64, mime, filename)));
       },
       [],
@@ -493,12 +517,21 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       ref,
       () => ({
         sendInput(data: string) {
+          // Route through the same batcher as onData input so key-bar bytes
+          // stay ordered with keyboard bytes. The ref is only null before
+          // the mount effect runs.
+          const batcher = inputBatcherRef.current;
+          if (batcher) {
+            batcher.push(data);
+            return;
+          }
           const ws = wsRef.current;
           if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
             ws.send(JSON.stringify({ type: "input", data }));
           }
         },
         sendCommandInput(data: string) {
+          inputBatcherRef.current?.flush();
           const ws = wsRef.current;
           if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
             ws.send(JSON.stringify({ type: "command_input", data }));
@@ -568,6 +601,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         theme: terminalTheme,
         cursorBlink: true,
         scrollback: 0,
+        // 6.1 defaults showScrollbar to true and draws `.xterm-scrollbar`.
+        // Scrollback is 0 (tmux copy-mode owns history), so the slider is
+        // chrome we never want.
+        scrollbar: { showScrollbar: false },
         macOptionClickForcesSelection: true,
         // xterm dampens likely trackpad wheel deltas before emitting mouse
         // wheel reports. Keep small terminal scroll gestures responsive.
@@ -660,20 +697,34 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         winAny.__webmuxTerminals.set(terminalId, term);
       }
 
-      // Forward terminal input to the current WebSocket. Per-keystroke,
-      // unbuffered: xterm's hidden textarea (and its IME composition
-      // handling) delivers data to onData as it is committed, and each
-      // event is sent immediately. The optional transform hook is the
+      // Forward terminal input to the current WebSocket: xterm's hidden
+      // textarea (and its IME composition handling) delivers data to onData
+      // as it is committed. The optional transform hook is the
       // mobile Ctrl latch — it rewrites the armed key to its control byte.
+      //
+      // Same-tick bursts (the wheel-report loops during scroll) are
+      // coalesced into one WS message; the batcher flushes in a microtask,
+      // so keystroke latency is unchanged. Guards are evaluated at flush
+      // time inside the send callback. Command/image sends flush first so
+      // cross-type message ordering is preserved.
+      const echoProbeEnabled =
+        localStorage.getItem("webmux:echo-probe") === "1";
+      const batcher = createInputBatcher((data) => {
+        const ws = wsRef.current;
+        if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
+          ws.send(JSON.stringify({ type: "input", data }));
+          if (echoProbeEnabled) {
+            echoProbeSentAtRef.current = performance.now();
+          }
+        }
+      });
+      inputBatcherRef.current = batcher;
       term.onData((data) => {
         const userInput = filterBrowserGeneratedTerminalInput(data);
         if (!userInput) return;
         const transformed =
           inputTransformRef?.current?.(userInput) ?? userInput;
-        const ws = wsRef.current;
-        if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
-          ws.send(JSON.stringify({ type: "input", data: transformed }));
-        }
+        batcher.push(transformed);
       });
 
       // 25 MB cap per file — WS frames larger than this regularly choke the
@@ -700,6 +751,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           if (!result.send) return;
         }
 
+        batcher.flush();
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify(buildImagePasteMessage(base64, mime, filename)));
@@ -854,18 +906,111 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
       container.addEventListener("mousedown", handleSelectMouseDown);
 
-      // Touch scroll handling for mobile
-      const lineHeight = (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
+      // Touch scroll handling for mobile. Quantize finger travel with the
+      // measured cell height, not fontSize*lineHeight: rendered cells are
+      // taller than that for most fonts (14px font → 17px cell), and xterm
+      // re-quantizes wheel deltas against its own cell metrics, so a
+      // misestimated quantum loses ~20% of the scroll distance.
+      const lineHeight =
+        readXtermCellMetrics(term)?.height ??
+        (term.options.fontSize ?? 14) * (term.options.lineHeight ?? 1);
       let lastTouchY = 0;
       let accumulatedDelta = 0;
       let tapStart: { x: number; y: number; at: number } | null = null;
+
+      // Flick momentum: recent (time, clientY) samples measure release
+      // velocity; a rAF loop then keeps feeding pixels into the same
+      // wheel-report pipeline with exponential decay. Without this, lifting
+      // the finger stops the scroll dead — tmux copy-mode has no inertia of
+      // its own. Samples use event.timeStamp (not receipt time): Chromium
+      // coalesces touchmove delivery, so performance.now() at the handler
+      // can lag the actual touch by tens of ms and mismeasure velocity.
+      let velocitySamples: { t: number; y: number }[] = [];
+      let momentumRaf = 0;
+      let lastMomentumPos = { x: 0, y: 0 };
+      let tapInterruptedMomentum = false;
+
+      const stopMomentum = () => {
+        if (momentumRaf) {
+          cancelAnimationFrame(momentumRaf);
+          momentumRaf = 0;
+        }
+      };
+
+      // Convert vertical pixel travel into per-line synthetic wheel events on
+      // the xterm viewport (xterm turns them into SGR reports for tmux).
+      const scrollByPixels = (dy: number, clientX: number, clientY: number) => {
+        accumulatedDelta += dy;
+        const lines = Math.trunc(accumulatedDelta / lineHeight);
+        if (lines === 0) return;
+        const vp = container.querySelector(".xterm-viewport");
+        if (vp) {
+          for (let i = 0; i < Math.abs(lines); i++) {
+            vp.dispatchEvent(
+              new WheelEvent("wheel", {
+                deltaY: lines > 0 ? lineHeight : -lineHeight,
+                clientX,
+                clientY,
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+          }
+        }
+        accumulatedDelta -= lines * lineHeight;
+      };
+
+      const MOMENTUM_MIN_START = 0.4; // px/ms — slower lifts are a stop, not a flick
+      const MOMENTUM_MIN_KEEP = 0.05; // px/ms — decay floor
+      const MOMENTUM_DECAY = 0.94; // per 16.7ms frame
+
+      const startMomentum = (endedAt: number) => {
+        // Velocity from the samples inside the last 100ms of the gesture.
+        // If that window is sparse (dropped touchmoves, or CDP/test pacing
+        // slower than a real 16ms poll), fall back to the last two samples
+        // so a real flick still gets an inertia estimate.
+        let window_ = velocitySamples.filter((s) => endedAt - s.t <= 100);
+        if (window_.length < 2) {
+          window_ = velocitySamples.slice(-2);
+        }
+        if (window_.length < 2) return;
+        const first = window_[0];
+        const last = window_[window_.length - 1];
+        const dt = last.t - first.t;
+        if (dt <= 0) return;
+        let velocity = (first.y - last.y) / dt; // + = scroll down (finger up)
+        if (Math.abs(velocity) < MOMENTUM_MIN_START) return;
+
+        let prevFrame = endedAt;
+        const step = (frameTime: number) => {
+          const frameDt = Math.min(frameTime - prevFrame, 50);
+          prevFrame = frameTime;
+          scrollByPixels(
+            velocity * frameDt,
+            lastMomentumPos.x,
+            lastMomentumPos.y,
+          );
+          velocity *= Math.pow(MOMENTUM_DECAY, frameDt / 16.7);
+          if (Math.abs(velocity) >= MOMENTUM_MIN_KEEP) {
+            momentumRaf = requestAnimationFrame(step);
+          } else {
+            momentumRaf = 0;
+          }
+        };
+        momentumRaf = requestAnimationFrame(step);
+      };
 
       const onTouchStart = (e: TouchEvent) => {
         e.stopPropagation();
         const touch = e.touches[0];
         if (touch) {
+          // A tap that lands mid-momentum is "stop scrolling", not a tap on
+          // whatever link happens to slide under the finger.
+          tapInterruptedMomentum = momentumRaf !== 0;
+          stopMomentum();
           lastTouchY = touch.clientY;
           accumulatedDelta = 0;
+          velocitySamples = [{ t: e.timeStamp, y: touch.clientY }];
           tapStart =
             e.touches.length === 1
               ? { x: touch.clientX, y: touch.clientY, at: Date.now() }
@@ -890,6 +1035,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         const start = tapStart;
         tapStart = null;
         const touch = e.changedTouches[0];
+        if (e.touches.length === 0) {
+          startMomentum(e.timeStamp);
+          velocitySamples = [];
+        }
         if (!start || !touch) return;
         const moved = Math.hypot(
           touch.clientX - start.x,
@@ -897,7 +1046,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         );
         // A tap, not a scroll or a long-press: activate the link the
         // synthetic hover registered under the finger.
-        if (moved <= 14 && Date.now() - start.at <= 500 && hoveredLink) {
+        if (
+          moved <= 14 &&
+          Date.now() - start.at <= 500 &&
+          hoveredLink &&
+          !tapInterruptedMomentum
+        ) {
+          stopMomentum();
           openExternalUrl(hoveredLink);
         }
       };
@@ -907,28 +1062,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         const touch = e.touches[0];
         if (touch) {
           const currentY = touch.clientY;
-          accumulatedDelta += lastTouchY - currentY;
+          velocitySamples.push({ t: e.timeStamp, y: currentY });
+          if (velocitySamples.length > 8) velocitySamples.shift();
+          lastMomentumPos = { x: touch.clientX, y: touch.clientY };
+          scrollByPixels(lastTouchY - currentY, touch.clientX, touch.clientY);
           lastTouchY = currentY;
-          const lines = Math.trunc(accumulatedDelta / lineHeight);
-          if (lines !== 0) {
-            const vp = container.querySelector(".xterm-viewport");
-            if (vp) {
-              for (let i = 0; i < Math.abs(lines); i++) {
-                vp.dispatchEvent(
-                  new WheelEvent("wheel", {
-                    deltaY: lines > 0 ? lineHeight : -lineHeight,
-                    clientX: touch.clientX,
-                    clientY: touch.clientY,
-                    screenX: touch.screenX,
-                    screenY: touch.screenY,
-                    bubbles: true,
-                    cancelable: true,
-                  }),
-                );
-              }
-            }
-            accumulatedDelta -= lines * lineHeight;
-          }
         }
       };
       container.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -944,6 +1082,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       }
 
       return () => {
+        batcher.flush();
+        if (inputBatcherRef.current === batcher) {
+          inputBatcherRef.current = null;
+        }
         resizeObserver.disconnect();
         if (measureRafRef.current) {
           cancelAnimationFrame(measureRafRef.current);
@@ -957,6 +1099,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         document.removeEventListener("mouseup", handleSelectMouseUp);
         selectionAutoCopy.dispose();
         selectionChangeDisposable.dispose();
+        stopMomentum();
         container.removeEventListener("touchstart", onTouchStart);
         container.removeEventListener("touchmove", onTouchMove);
         container.removeEventListener("touchend", onTouchEnd);
@@ -985,6 +1128,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       termRef,
       wsRef,
       wsUrl,
+      terminalId,
+      echoProbeSentAtRef,
       scheduleMeasure,
       sessionGeneration,
       setSessionGeneration,
