@@ -172,6 +172,11 @@ impl AcpManager {
         let spawn = tokio::process::Command::new(&argv[0])
             .args(&argv[1..])
             .current_dir(&cwd)
+            // A node started from inside a Claude Code terminal would leak
+            // these into the adapter, whose nested-session guard then refuses
+            // to launch claude. The agents we host are not nested sessions.
+            .env_remove("CLAUDECODE")
+            .env_remove("CLAUDE_CODE_ENTRYPOINT")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
