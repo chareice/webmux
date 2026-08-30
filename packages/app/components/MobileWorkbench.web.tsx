@@ -48,7 +48,9 @@ import {
   AgentBadge,
   AgentStatusDot,
   AGENT_STATUS_LABEL,
+  SESSION_KIND_META,
 } from "./AgentBadge.web";
+import { useStartingElapsedSec } from "@/lib/agentStarting";
 
 interface MobileWorkbenchProps {
   machines: MachineInfo[];
@@ -200,7 +202,8 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     : null;
   const activeTerminalRow =
     rows.find(
-      (row) => row.kind === "terminal" && row.terminal.id === activeTerminalId,
+      (row): row is Extract<MobileSessionRow, { kind: "terminal" }> =>
+        row.kind === "terminal" && row.terminal.id === activeTerminalId,
     ) ?? null;
   const activeRow = activeAgentSession
     ? (rows.find(
@@ -214,6 +217,11 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
   const otherAskedSessions = activeAgentSession
     ? askedSessions.filter((entry) => entry.sessionId !== activeAgentSession.id)
     : [];
+
+  // Starting-state honesty (same rule as the desktop chat header): the pill
+  // names the agent and ticks elapsed seconds instead of a bare "starting…".
+  const activeAgentStarting = activeAgentSession?.status === "starting";
+  const startingElapsedSec = useStartingElapsedSec(activeAgentStarting);
 
   // Prev/next in strip order (terminals and agent sessions share one order);
   // no wraparound at either end.
@@ -266,14 +274,16 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
               !event.target.closest("[data-title-bar-swipe='ignore']"),
           }
         : null;
-      if (!activeTerminalRow) return;
+      // Long-press is a terminal-pane gesture; while a chat is open the
+      // title bar belongs to the agent session (kill has its own button).
+      if (!activeTerminalRow || activeAgentSession) return;
       titleBarTimerRef.current = window.setTimeout(() => {
         titleBarTimerRef.current = null;
         suppressTitleBarClickRef.current = true;
         setChipSheet(activeTerminalRow);
       }, 500);
     },
-    [activeTerminalRow, cancelTitleBarTimer],
+    [activeTerminalRow, activeAgentSession, cancelTitleBarTimer],
   );
 
   const handleTitleBarTouchMove = useCallback(
@@ -493,7 +503,9 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                 }}
               >
                 <AgentStatusDot status={activeAgentSession.status} />
-                {AGENT_STATUS_LABEL[activeAgentSession.status]}
+                {activeAgentStarting
+                  ? `正在启动 ${SESSION_KIND_META[activeAgentSession.agent_kind].label}… ${startingElapsedSec}s`
+                  : AGENT_STATUS_LABEL[activeAgentSession.status]}
               </span>
             </>
           ) : activeTerminalRow ? (
