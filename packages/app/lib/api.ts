@@ -394,6 +394,15 @@ export function terminalWsUrl(
   const params = new URLSearchParams();
   if (_token) params.set("token", _token);
   if (deviceId) params.set("device_id", deviceId);
+  // deflate-raw-v1 request: the hub acks only if the machine also supports
+  // it; old hubs ignore the param and the stream stays uncompressed.
+  // Escape hatch: localStorage "webmux:compress" === "off".
+  if (
+    typeof localStorage !== "undefined" &&
+    localStorage.getItem("webmux:compress") !== "off"
+  ) {
+    params.set("compress", "deflate-raw-v1");
+  }
   const qs = params.toString();
   return `${base}/ws/terminal/${machineId}/${terminalId}${qs ? '?' + qs : ''}`;
 }

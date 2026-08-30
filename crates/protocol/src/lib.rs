@@ -2,6 +2,8 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod compression;
+
 // ── Shared data types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -259,6 +261,12 @@ pub enum HubToMachine {
         terminal_id: String,
         cols: u16,
         rows: u16,
+        /// deflate-raw-v1: compress this attach's output stream. Set by the
+        /// hub only when the browser requested compression AND the machine
+        /// declared the capability; old machines deserialize fine (serde
+        /// default) and old hubs never set it.
+        #[serde(default)]
+        compress: bool,
     },
     #[serde(rename = "close_attach")]
     CloseAttach { attach_id: String },
@@ -329,6 +337,10 @@ pub enum MachineToHub {
         name: String,
         os: String,
         home_dir: String,
+        /// Optional capability list (e.g. `DEFLATE_RAW_V1`). Old hubs ignore
+        /// it; old machines omit it and deserialize fine on new hubs.
+        #[serde(default)]
+        capabilities: Vec<String>,
     },
     #[serde(rename = "terminal_created")]
     TerminalCreated {
@@ -805,5 +817,55 @@ mod tests {
         .unwrap();
         assert!(snapshot.agent_sessions.is_empty());
         assert!(snapshot.agent_session_seen.is_empty());
+    }
+
+    // ── deflate-raw-v1 negotiation: old-peer compatibility ──
+
+    #[test]
+    fn open_attach_without_compress_deserializes_uncompressed() {
+        // Old hubs never send `compress`; new machines must default to false.
+        use super::HubToMachine;
+        let parsed = serde_json::from_str::<HubToMachine>(
+            r#"{"type":"open_attach","attach_id":"a-1","terminal_id":"t-1","cols":80,"rows":24}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            parsed,
+            HubToMachine::OpenAttach { compress: false, .. }
+        ));
+
+        let with_compress = serde_json::from_str::<HubToMachine>(
+            r#"{"type":"open_attach","attach_id":"a-1","terminal_id":"t-1","cols":80,"rows":24,"compress":true}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            with_compress,
+            HubToMachine::OpenAttach { compress: true, .. }
+        ));
+    }
+
+    #[test]
+    fn register_without_capabilities_deserializes_with_none() {
+        // Old machines omit the capability list; new hubs must see it as
+        // "no capabilities" so compression stays off.
+        use super::MachineToHub;
+        let parsed = serde_json::from_str::<MachineToHub>(
+            r#"{"type":"register","machine_id":"m","machine_secret":"s","name":"n","os":"linux","home_dir":"/tmp"}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            parsed,
+            MachineToHub::Register { capabilities, .. } if capabilities.is_empty()
+        ));
+
+        let with_caps = serde_json::from_str::<MachineToHub>(
+            r#"{"type":"register","machine_id":"m","machine_secret":"s","name":"n","os":"linux","home_dir":"/tmp","capabilities":["deflate-raw-v1"]}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            with_caps,
+            MachineToHub::Register { capabilities, .. }
+                if capabilities == ["deflate-raw-v1"]
+        ));
     }
 }
