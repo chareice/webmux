@@ -1013,7 +1013,7 @@ function terminalExists(terminals: TerminalInfo[], id: string): boolean {
   return terminals.some((terminal) => terminal.id === id);
 }
 
-function labelFromCwd(cwd: string): string {
+export function labelFromCwd(cwd: string): string {
   const cleaned = cwd.replace(/\/+$/, "");
   const tail = cleaned.split("/").filter(Boolean).at(-1);
   return tail || cwd || "workspace";

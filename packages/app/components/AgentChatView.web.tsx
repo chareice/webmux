@@ -42,6 +42,11 @@ export interface AgentChatViewProps {
   /** Same gating as terminal input: this device holds the machine's control
    *  lease (or view-only isn't locked). */
   canType: boolean;
+  /** Compact (phone) layout: the in-view header is dropped (the mobile
+   *  title bar carries badge/title/status/kill), the stream goes full-width,
+   *  ask-card options become 52px touch targets and the composer a 44px row
+   *  that rides above the soft keyboard via the root visualViewport height. */
+  compact?: boolean;
   onTakeControl: () => void;
   /** Send free text. When an ask-card is unresolved the canvas routes this
    *  as answer(text) + prompt(text) — ACP has no free-form answer channel. */
@@ -57,6 +62,7 @@ export function AgentChatView({
   session,
   machineName,
   canType,
+  compact = false,
   onTakeControl,
   onSend,
   onStop,
@@ -176,7 +182,8 @@ export function AgentChatView({
         background: colors.bg0,
       }}
     >
-      {/* header */}
+      {/* header (desktop only — the mobile title bar covers this) */}
+      {!compact && (
       <div
         data-testid="agent-chat-header"
         style={{
@@ -334,6 +341,7 @@ export function AgentChatView({
           <X size={15} />
         </button>
       </div>
+      )}
 
       {/* message stream */}
       <div style={{ position: "relative", flexGrow: 1, minHeight: 0 }}>
@@ -345,9 +353,9 @@ export function AgentChatView({
         >
           <div
             style={{
-              maxWidth: 820,
+              maxWidth: compact ? undefined : 820,
               margin: "0 auto",
-              padding: "12px 24px 12px",
+              padding: compact ? "12px 14px" : "12px 24px 12px",
               display: "flex",
               flexDirection: "column",
               gap: 12,
@@ -366,6 +374,7 @@ export function AgentChatView({
                 key={block.id}
                 block={block}
                 agentLabel={kindMeta.label}
+                compact={compact}
                 onAnswerOption={onAnswerOption}
               />
             ))}
@@ -398,8 +407,43 @@ export function AgentChatView({
       </div>
 
       {/* composer */}
-      <div style={{ flexShrink: 0, padding: "0 24px 16px" }}>
-        <div style={{ maxWidth: 820, margin: "0 auto" }}>
+      <div
+        style={{
+          flexShrink: 0,
+          padding: compact
+            ? "10px 12px calc(10px + env(safe-area-inset-bottom))"
+            : "0 24px 16px",
+        }}
+      >
+        <div style={{ maxWidth: compact ? undefined : 820, margin: "0 auto" }}>
+          {compact && resumable && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                marginBottom: 8,
+              }}
+            >
+              <button
+                type="button"
+                data-testid="agent-chat-resume"
+                onClick={onResume}
+                style={{
+                  height: 32,
+                  padding: "0 16px",
+                  borderRadius: 999,
+                  border: `1px solid ${colorAlpha.accentLine}`,
+                  background: colorAlpha.accentLight12,
+                  color: colors.accent,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Resume session
+              </button>
+            </div>
+          )}
           {status === "starting" && (
             <div
               data-testid="agent-chat-starting-note"
@@ -465,6 +509,7 @@ export function AgentChatView({
                 alignItems: "flex-end",
                 gap: 8,
                 padding: "10px 10px 10px 14px",
+                minHeight: compact ? 44 : undefined,
                 opacity: live ? 1 : 0.6,
               }}
             >
@@ -496,16 +541,18 @@ export function AgentChatView({
                   maxHeight: 160,
                 }}
               />
-              <span
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 10,
-                  color: colors.fg3,
-                  flexShrink: 0,
-                }}
-              >
-                ↵ send · ⇧↵ newline
-              </span>
+              {!compact && (
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    color: colors.fg3,
+                    flexShrink: 0,
+                  }}
+                >
+                  ↵ send · ⇧↵ newline
+                </span>
+              )}
               {working ? (
                 <button
                   type="button"
@@ -513,7 +560,12 @@ export function AgentChatView({
                   onClick={onStop}
                   title="Stop"
                   aria-label="Stop"
-                  style={{ ...sendButtonStyle, background: colors.bg3, color: colors.fg1 }}
+                  style={{
+                    ...sendButtonStyle,
+                    ...(compact ? compactSendButtonSize : null),
+                    background: colors.bg3,
+                    color: colors.fg1,
+                  }}
                 >
                   <Square size={12} />
                 </button>
@@ -527,6 +579,7 @@ export function AgentChatView({
                   aria-label="Send"
                   style={{
                     ...sendButtonStyle,
+                    ...(compact ? compactSendButtonSize : null),
                     opacity: !inputEnabled || input.trim() === "" ? 0.45 : 1,
                     cursor:
                       !inputEnabled || input.trim() === "" ? "not-allowed" : "pointer",
