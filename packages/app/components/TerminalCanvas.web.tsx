@@ -152,6 +152,13 @@ const NewSessionDialog = lazy(() =>
     })),
   ),
 );
+const NewSessionSheet = lazy(() =>
+  lazyWithReload(() =>
+    import("./NewSessionSheet.web").then((module) => ({
+      default: module.NewSessionSheet,
+    })),
+  ),
+);
 
 // Prefix actions owned by TerminalCanvas (workspace-owned actions are
 // registered by TerminalWorkspace). ⌃B 1..9 select the Nth section of the
@@ -305,6 +312,13 @@ function TerminalCanvasInner() {
     string | null
   >(null);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
+  // Mobile only: the group the title-bar ＋ was pressed from — seeds the
+  // new-session sheet's directory step and the terminal chip's placement.
+  const [mobileNewSessionGroup, setMobileNewSessionGroup] =
+    useState<WorkspaceGroup | null>(null);
+  // Mobile only: agent session awaiting kill confirmation (title-bar ✕).
+  const [agentKillTarget, setAgentKillTarget] =
+    useState<AgentSessionInfo | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [addMachineOpen, setAddMachineOpen] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -1425,6 +1439,81 @@ function TerminalCanvasInner() {
     [activeMachine, handleCreateWorkspacePane, resolveNewTerminalGroupId],
   );
 
+  // Mobile title-bar ＋ / switcher "New session" row: remember which group
+  // the sheet was opened from (it seeds the directory step and the terminal
+  // chip's placement), then open the sheet.
+  const handleOpenMobileNewSession = useCallback(
+    (group: WorkspaceGroup | null) => {
+      setMobileNewSessionGroup(group);
+      setNewSessionOpen(true);
+    },
+    [],
+  );
+
+  // Mobile new-session sheet submit. Agent kinds share the desktop create
+  // path (model + machine switch included); the terminal chip preserves the
+  // old mobile ＋ behavior exactly — placement aimed at the group the sheet
+  // was opened from (on the active machine), overflowing a full tab into a
+  // fresh one.
+  const handleMobileNewSessionRequest = useCallback(
+    (request: NewSessionRequest) => {
+      setNewSessionOpen(false);
+      if (!deviceId || !isMachineController(request.machineId)) return;
+      if (request.kind !== "terminal") {
+        void createAndSelectAgentSession(request.machineId, {
+          agentKind: request.kind,
+          cwd: request.cwd,
+          autoRun: request.autoRun,
+          modelId: request.modelId,
+        }).catch((error) =>
+          console.error("Failed to create agent session", error),
+        );
+        return;
+      }
+      const tabId =
+        mobileNewSessionGroup &&
+        activeMachine &&
+        request.machineId === activeMachine.id
+          ? mobileNewSessionGroup.id
+          : null;
+      void (async () => {
+        const workspaceGroupId = await resolveNewTerminalGroupId(
+          request.machineId,
+          request.cwd,
+          tabId,
+        );
+        await handleCreateWorkspacePane({
+          machineId: request.machineId,
+          cwd: request.cwd,
+          workspaceGroupId,
+        });
+      })().catch((error) => {
+        console.error("Failed to create terminal", error);
+      });
+    },
+    [
+      deviceId,
+      isMachineController,
+      createAndSelectAgentSession,
+      mobileNewSessionGroup,
+      activeMachine,
+      resolveNewTerminalGroupId,
+      handleCreateWorkspacePane,
+    ],
+  );
+
+  // Picking an agent session on mobile (switcher row, inbox banner,
+  // cross-session reminder, swipe): the chat page is machine-agnostic, but
+  // the session model is scoped to the active machine, so follow the pick
+  // across hosts.
+  const handleMobilePickAgentSession = useCallback(
+    (machineId: string, sessionId: string) => {
+      if (machineId !== activeMachineId) setActiveMachineId(machineId);
+      handleSelectAgentSession(machineId, sessionId);
+    },
+    [activeMachineId, handleSelectAgentSession],
+  );
+
   const handleMobileCloseTerminal = useCallback(
     (target: TerminalInfo) => {
       // Closing the active terminal moves to its strip-order neighbor so the
@@ -1980,6 +2069,13 @@ function TerminalCanvasInner() {
               onPickTerminal={handleZoomTerminal}
               onNewTerminal={handleMobileNewTerminal}
               onCloseTerminal={handleMobileCloseTerminal}
+              agentSessions={agentSessions}
+              agentSessionSeen={agentSessionSeen}
+              askedSessions={sidebarTree.askedSessions}
+              selectedAgentSessionId={selectedAgentSessionId}
+              onPickAgentSession={handleMobilePickAgentSession}
+              onKillAgentSession={setAgentKillTarget}
+              onOpenNewSession={handleOpenMobileNewSession}
               onSelectMachine={setActiveMachineId}
               onAddMachine={() => setAddMachineOpen(true)}
               onRequestControl={handleRequestControl}
@@ -1987,6 +2083,64 @@ function TerminalCanvasInner() {
               onEngageViewOnly={handleEngageViewOnly}
               onDisengageViewOnly={handleDisengageViewOnly}
               onOpenSettings={() => setShowSettings(true)}
+              chatContent={
+                selectedAgentSession ? (
+                  <Suspense fallback={<LazyLoadingFallback />}>
+                    <AgentChatView
+                      compact
+                      session={selectedAgentSession}
+                      machineName={
+                        machines.find(
+                          (machine) =>
+                            machine.id === selectedAgentSession.machine_id,
+                        )?.name ?? selectedAgentSession.machine_id
+                      }
+                      canType={canTypeOnMachine(selectedAgentSession.machine_id)}
+                      onTakeControl={() =>
+                        void handleRequestControl(selectedAgentSession.machine_id)
+                      }
+                      onSend={(text) =>
+                        void handleSendAgentMessage(
+                          selectedAgentSession,
+                          text,
+                        ).catch((error) =>
+                          console.error("Failed to send agent message", error),
+                        )
+                      }
+                      onStop={() =>
+                        void handleCancelAgentTurn(selectedAgentSession).catch(
+                          (error) =>
+                            console.error("Failed to cancel agent turn", error),
+                        )
+                      }
+                      onAnswerOption={(requestId, optionId) =>
+                        void handleAnswerAgentOption(
+                          selectedAgentSession,
+                          requestId,
+                          optionId,
+                        ).catch((error) =>
+                          console.error("Failed to answer agent question", error),
+                        )
+                      }
+                      onSelectModel={(modelId) =>
+                        void handleSelectAgentModel(
+                          selectedAgentSession,
+                          modelId,
+                        ).catch((error) =>
+                          console.error("Failed to switch agent model", error),
+                        )
+                      }
+                      onKill={() => setAgentKillTarget(selectedAgentSession)}
+                      onResume={() =>
+                        void handleResumeAgentSession(selectedAgentSession).catch(
+                          (error) =>
+                            console.error("Failed to resume agent session", error),
+                        )
+                      }
+                    />
+                  </Suspense>
+                ) : null
+              }
             >
               {scopedTerminals.length > 0 && workspaceTerminal ? (
                 <TerminalWorkspace
@@ -2207,6 +2361,45 @@ function TerminalCanvasInner() {
               terminals={terminals}
               onClose={() => setNewSessionOpen(false)}
               onCreate={handleNewSessionRequest}
+            />
+          </Suspense>
+        )}
+
+        {isCompact && newSessionOpen && (
+          <Suspense fallback={<LazyLoadingFallback />}>
+            <NewSessionSheet
+              machines={machines}
+              machineOnline={machineOnline}
+              sessionCounts={sessionCounts}
+              isControllerFor={isMachineController}
+              initialMachineId={activeMachineId}
+              initialCwd={
+                mobileNewSessionGroup?.cwd || activeMachine?.home_dir || null
+              }
+              agentSessions={agentSessions}
+              terminals={terminals}
+              onClose={() => setNewSessionOpen(false)}
+              onCreate={handleMobileNewSessionRequest}
+            />
+          </Suspense>
+        )}
+
+        {agentKillTarget && (
+          <Suspense fallback={<LazyLoadingFallback />}>
+            <ConfirmDialog
+              open
+              title={`Kill "${agentKillTarget.title}"?`}
+              message="The agent process is terminated and the session's event log is deleted. This cannot be undone."
+              confirmLabel="Kill session"
+              variant="danger"
+              onConfirm={() => {
+                const target = agentKillTarget;
+                setAgentKillTarget(null);
+                void handleKillAgentSession(target).catch((error) =>
+                  console.error("Failed to kill agent session", error),
+                );
+              }}
+              onCancel={() => setAgentKillTarget(null)}
             />
           </Suspense>
         )}
