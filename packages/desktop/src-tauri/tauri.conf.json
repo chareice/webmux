@@ -1,6 +1,6 @@
 {
   "productName": "webmux",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "identifier": "com.webmux.desktop",
   "build": {
     "frontendDist": "../../app/dist",
