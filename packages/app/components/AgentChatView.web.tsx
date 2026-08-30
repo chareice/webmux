@@ -1,11 +1,18 @@
 // Full-area chat view for an agent session — the right-side replacement for
 // the terminal workspace while an agent session is selected (like a zoomed
 // terminal). Layout per docs/design/next-ia/Main.dc.html: header (badge +
-// title, machine · cwd, status pill, auto-run label, resume/kill), a
-// centered message stream (user turns, assistant text, collapsible thought
-// blocks and tool-call rows, ask-cards, error rows, turn dividers), and a
-// composer (Enter sends, Shift+Enter newline; Send becomes Stop while the
-// agent is working).
+// title, machine · cwd, status pill, auto-run label, model picker,
+// resume/kill), a centered message stream (user turns, assistant text,
+// collapsible thought blocks and tool-call rows, ask-cards, error rows, turn
+// dividers), and a composer (Enter sends, Shift+Enter newline; Send becomes
+// Stop while the agent is working).
+//
+// While the session is `starting` the pill says so honestly ("正在启动
+// <agent>… Ns", with a cold-start hint for the npx-wrapped agents) and the
+// composer stays enabled — the backend queues early prompts. The header
+// model dropdown switches the session's model via POST …/model (disabled
+// mid-turn); sessions whose agent never reported models show a static label
+// or nothing.
 //
 // The transcript comes from the per-session feed store (backfill + live
 // events); session metadata (status/title/auto_run) comes from browserState
@@ -36,6 +43,14 @@ import { ConfirmDialog } from "./ConfirmDialog";
 
 const SEEN_DEBOUNCE_MS = 1000;
 
+// The npx-wrapped adapters boot a full agent CLI under npx; their cold start
+// is slow enough (~1 min measured for claude) that a bare "starting" pill
+// reads as broken.
+const COLD_START_HINT: Partial<Record<AgentSessionInfo["agent_kind"], string>> = {
+  claude: "claude 冷启动约 1 分钟",
+  codex: "codex 冷启动约 1 分钟",
+};
+
 export interface AgentChatViewProps {
   session: AgentSessionInfo;
   machineName: string;
@@ -54,6 +69,8 @@ export interface AgentChatViewProps {
   /** Cancel the current turn (Stop while working). */
   onStop: () => void;
   onAnswerOption: (requestId: string, optionId: string) => void;
+  /** Switch the session's model (header dropdown; POST …/model). */
+  onSelectModel: (modelId: string) => void;
   onKill: () => void;
   onResume: () => void;
 }
@@ -67,6 +84,7 @@ export function AgentChatView({
   onSend,
   onStop,
   onAnswerOption,
+  onSelectModel,
   onKill,
   onResume,
 }: AgentChatViewProps) {
@@ -149,6 +167,25 @@ export function AgentChatView({
   const live = status !== "disconnected" && status !== "error";
   const working = status === "working";
   const inputEnabled = canType && live;
+
+  // ---- starting-state honesty: named agent + elapsed seconds ----
+  const starting = status === "starting";
+  const startingSinceRef = useRef<number | null>(null);
+  if (starting && startingSinceRef.current === null) {
+    startingSinceRef.current = Date.now();
+  } else if (!starting) {
+    startingSinceRef.current = null;
+  }
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!starting) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [starting]);
+  const startingElapsedSec =
+    starting && startingSinceRef.current !== null
+      ? Math.max(0, Math.floor((nowMs - startingSinceRef.current) / 1000))
+      : 0;
 
   const send = useCallback(() => {
     const text = input.trim();
@@ -233,6 +270,53 @@ export function AgentChatView({
                 auto-run off
               </span>
             )}
+            {/* model picker: a dropdown when the agent reported models, a
+                static label when only the current model is known, nothing
+                when the agent has no model support at all. Disabled mid-turn
+                (ACP switches between turns). */}
+            {session.available_models && session.available_models.length > 0 ? (
+              <select
+                data-testid="agent-chat-model-select"
+                value={session.current_model_id ?? ""}
+                disabled={working || !canType}
+                onChange={(event) => {
+                  if (event.target.value) onSelectModel(event.target.value);
+                }}
+                title="Model"
+                aria-label="Model"
+                style={{
+                  ...headerChipStyle,
+                  background: colors.bg2,
+                  color: colors.fg2,
+                  height: 20,
+                  cursor: working || !canType ? "not-allowed" : "pointer",
+                }}
+              >
+                {session.current_model_id == null && (
+                  <option value="">model</option>
+                )}
+                {session.available_models.map((model) => (
+                  <option key={model.model_id} value={model.model_id}>
+                    {model.name || model.model_id}
+                  </option>
+                ))}
+                {session.current_model_id != null &&
+                  !session.available_models.some(
+                    (model) => model.model_id === session.current_model_id,
+                  ) && (
+                    <option value={session.current_model_id}>
+                      {session.current_model_id}
+                    </option>
+                  )}
+              </select>
+            ) : session.current_model_id ? (
+              <span
+                data-testid="agent-chat-model-label"
+                style={{ ...headerChipStyle, background: colors.bg2 }}
+              >
+                {session.current_model_id}
+              </span>
+            ) : null}
           </div>
           <div
             style={{
@@ -293,8 +377,24 @@ export function AgentChatView({
           }}
         >
           <AgentStatusDot status={status} />
-          {AGENT_STATUS_LABEL[status]}
+          {starting
+            ? `正在启动 ${kindMeta.label}… ${startingElapsedSec}s`
+            : AGENT_STATUS_LABEL[status]}
         </span>
+
+        {starting && COLD_START_HINT[session.agent_kind] && (
+          <span
+            data-testid="agent-chat-starting-hint"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: colors.fg3,
+              flexShrink: 0,
+            }}
+          >
+            {COLD_START_HINT[session.agent_kind]}
+          </span>
+        )}
 
         {resumable && (
           <button

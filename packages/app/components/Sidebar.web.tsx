@@ -58,6 +58,9 @@ interface SidebarProps {
   onSelectAgentRow: (machineId: string, agentSessionId: string) => void;
   onNewTab: () => void;
   onNewTerminalInSection: (machineId: string, group: WorkspaceGroup) => void;
+  /** Project-level ＋ → "New agent chat": instant create in that project's
+   *  cwd with the remembered agent+model, no dialog. */
+  onNewAgentChatInSection: (machineId: string, group: WorkspaceGroup) => void;
   onRenameSection: (machineId: string, group: WorkspaceGroup) => void;
   onDeleteSection: (machineId: string, group: WorkspaceGroup) => void;
   onReorderSections: (
@@ -88,6 +91,7 @@ function SidebarComponent({
   onSelectAgentRow,
   onNewTab,
   onNewTerminalInSection,
+  onNewAgentChatInSection,
   onRenameSection,
   onDeleteSection,
   onReorderSections,
@@ -100,6 +104,14 @@ function SidebarComponent({
   const [hoveredSectionId, setHoveredSectionId] = useState<string | null>(null);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [sectionMenu, setSectionMenu] = useState<{
+    machineId: string;
+    group: WorkspaceGroup;
+    x: number;
+    y: number;
+  } | null>(null);
+  // The section header ＋ menu: New agent chat (instant, remembered defaults)
+  // or New terminal here (the old direct behavior).
+  const [plusMenu, setPlusMenu] = useState<{
     machineId: string;
     group: WorkspaceGroup;
     x: number;
@@ -254,6 +266,25 @@ function SidebarComponent({
   );
 
   const closeSectionMenu = useCallback(() => setSectionMenu(null), []);
+  const closePlusMenu = useCallback(() => setPlusMenu(null), []);
+  const plusMenuItems = useMemo<ContextMenuEntry[]>(() => {
+    if (!plusMenu) return [];
+    const canControl = isControllerFor(plusMenu.machineId);
+    return [
+      {
+        label: "New agent chat",
+        disabled: !canControl,
+        onClick: () =>
+          onNewAgentChatInSection(plusMenu.machineId, plusMenu.group),
+      },
+      {
+        label: "New terminal here",
+        disabled: !canControl,
+        onClick: () =>
+          onNewTerminalInSection(plusMenu.machineId, plusMenu.group),
+      },
+    ];
+  }, [plusMenu, isControllerFor, onNewAgentChatInSection, onNewTerminalInSection]);
   const sectionMenuItems = useMemo<ContextMenuEntry[]>(() => {
     if (!sectionMenu) return [];
     const canControl = isControllerFor(sectionMenu.machineId);
@@ -551,8 +582,13 @@ function SidebarComponent({
                   onSelectAgentRow={(agentSessionId) =>
                     onSelectAgentRow(machine.machineId, agentSessionId)
                   }
-                  onNewTerminal={() =>
-                    onNewTerminalInSection(machine.machineId, section.group)
+                  onOpenPlusMenu={(x, y) =>
+                    setPlusMenu({
+                      machineId: machine.machineId,
+                      group: section.group,
+                      x,
+                      y,
+                    })
                   }
                   onContextMenu={(event) => {
                     event.preventDefault();
@@ -595,6 +631,15 @@ function SidebarComponent({
           y={sectionMenu.y}
           items={sectionMenuItems}
           onClose={closeSectionMenu}
+        />
+      )}
+
+      {plusMenu && (
+        <ContextMenu
+          x={plusMenu.x}
+          y={plusMenu.y}
+          items={plusMenuItems}
+          onClose={closePlusMenu}
         />
       )}
 
@@ -690,7 +735,7 @@ function SidebarSectionBlock({
   onSelect,
   onSelectRow,
   onSelectAgentRow,
-  onNewTerminal,
+  onOpenPlusMenu,
   onContextMenu,
   onArmDrag,
   onStartGripDrag,
@@ -705,7 +750,7 @@ function SidebarSectionBlock({
   onSelect: () => void;
   onSelectRow: (terminalId: string) => void;
   onSelectAgentRow: (agentSessionId: string) => void;
-  onNewTerminal: () => void;
+  onOpenPlusMenu: (x: number, y: number) => void;
   onContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onArmDrag: (event: ReactMouseEvent<HTMLElement>) => void;
   onStartGripDrag: (event: ReactMouseEvent<HTMLElement>) => void;
@@ -813,12 +858,13 @@ function SidebarSectionBlock({
           data-testid={`sidebar-section-new-${section.groupId}`}
           onClick={(event) => {
             event.stopPropagation();
-            onNewTerminal();
+            const rect = event.currentTarget.getBoundingClientRect();
+            onOpenPlusMenu(rect.left, rect.bottom + 4);
           }}
           onMouseDown={(event) => event.stopPropagation()}
           disabled={!canControl}
-          title="New terminal here"
-          aria-label={`New terminal in ${section.label}`}
+          title="New session here"
+          aria-label={`New session in ${section.label}`}
           style={{
             width: 18,
             height: 18,

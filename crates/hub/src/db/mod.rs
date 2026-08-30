@@ -223,6 +223,27 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
+    if !column_exists(conn, "agent_sessions", "available_models")? {
+        conn.execute(
+            "ALTER TABLE agent_sessions ADD COLUMN available_models TEXT NOT NULL DEFAULT '[]'",
+            [],
+        )?;
+    }
+
+    if !column_exists(conn, "agent_sessions", "current_model_id")? {
+        conn.execute(
+            "ALTER TABLE agent_sessions ADD COLUMN current_model_id TEXT",
+            [],
+        )?;
+    }
+
+    if !column_exists(conn, "agent_sessions", "requested_model_id")? {
+        conn.execute(
+            "ALTER TABLE agent_sessions ADD COLUMN requested_model_id TEXT",
+            [],
+        )?;
+    }
+
     migrate_scrollable_workspace_layouts(conn)?;
     migrate_ungrouped_terminals_into_tabs(conn)?;
     delete_empty_auto_tabs(conn)?;

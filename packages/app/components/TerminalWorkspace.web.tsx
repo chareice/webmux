@@ -36,6 +36,7 @@ import {
   focusWorkspacePane,
   getActiveWorkspaceGroup,
   isWorkspaceGroupFull,
+  mountedWorkspaceGroupIds,
   reconcileTerminalWorkspace,
   rotateWorkspaceLayout,
   selectWorkspaceGroup,
@@ -254,6 +255,33 @@ function TerminalWorkspaceComponent({
   }, [siblings, terminal.id, workspaceGroups, workspaceLayouts]);
 
   const activeGroup = getActiveWorkspaceGroup(workspace);
+  // Keep-alive LRU (size 2): the group active on the previous render stays
+  // mounted-but-hidden so flipping back is instant (no xterm/WS/tmux
+  // rebuild). Refs update during render — same pattern as
+  // maximizedTerminalIdRef — because the switched-away group must already
+  // appear in THIS render's mounted list; an effect would run too late and
+  // unmount it first.
+  const renderedActiveGroupIdRef = useRef<string | null>(
+    workspace.activeGroupId,
+  );
+  const previousActiveGroupIdRef = useRef<string | null>(null);
+  if (workspace.activeGroupId !== renderedActiveGroupIdRef.current) {
+    previousActiveGroupIdRef.current = renderedActiveGroupIdRef.current;
+    renderedActiveGroupIdRef.current = workspace.activeGroupId;
+  }
+  const mountedGroups = mountedWorkspaceGroupIds(
+    workspace,
+    previousActiveGroupIdRef.current,
+    isTouch,
+  )
+    .map((id) => workspace.groups.find((group) => group.id === id))
+    .filter((group): group is WorkspaceGroup => Boolean(group));
+  // A terminal mid-move (optimistic split/assign racing reconcile) can
+  // transiently sit in BOTH the active and the kept-alive group's tree.
+  // Rendering both would mount two xterm + WS instances for one terminal, so
+  // hidden trees skip every pane the active tree claims; the next reconcile
+  // cleans the state up.
+  const activePaneIds = new Set(collectIds(activeGroup?.root ?? null));
   const activeTerminal = workspace.activeTerminalId
     ? terminalsById.get(workspace.activeTerminalId) ?? null
     : null;
@@ -977,31 +1005,80 @@ function TerminalWorkspaceComponent({
         }}
       >
         {activeGroup?.root ? (
-          // Zoom renders INSIDE the pane tree as a z-index overlay so the
-          // other panes (and the zoomed pane itself) keep their xterm
-          // instances mounted — see WorkspacePaneTree.
-          <WorkspacePaneTree
-            node={activeGroup.root}
-            maximizedTerminalId={maximizedTerminalId}
-            terminalsById={terminalsById}
-            activeTerminalId={activeTerminal?.id ?? null}
-            isController={isController}
-            canType={canType}
-            eventsReconnecting={eventsReconnecting}
-            deviceId={deviceId}
-            isTouch={isTouch}
-            focusRing={activeGroupPaneCount > 1}
-            fitRequest={fitRequest}
-            onActiveRef={(ref) => {
-              activeCardRef.current = ref;
+          // Every mounted group's tree renders stacked in one relative
+          // container; the wrapper key keeps the tree (xterm + WS + tmux
+          // attach) alive across group switches. The hidden group uses
+          // visibility, NOT display:none — layout must keep running so
+          // ResizeObserver/fit stay correct while hidden. Zoom renders
+          // INSIDE the pane tree as a z-index overlay so the other panes
+          // (and the zoomed pane itself) keep their xterm instances
+          // mounted — see WorkspacePaneTree.
+          <div
+            style={{
+              position: "relative",
+              width: "100%",
+              height: "100%",
+              minWidth: 0,
+              minHeight: 0,
             }}
-            onFitRequestHandled={handleFitRequestHandled}
-            onFocus={activateTerminal}
-            onDestroy={handleDestroy}
-            onPaneContextMenu={handlePaneContextMenu}
-            onRequestControl={onRequestControl}
-            onReleaseControl={onReleaseControl}
-          />
+          >
+            {mountedGroups.map((group) => {
+              const isActiveGroup = group.id === activeGroup.id;
+              return (
+                <div
+                  key={group.id}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    visibility: isActiveGroup ? "visible" : "hidden",
+                    pointerEvents: isActiveGroup ? "auto" : "none",
+                    zIndex: isActiveGroup ? 1 : 0,
+                  }}
+                >
+                  {group.root ? (
+                    <WorkspacePaneTree
+                      node={group.root}
+                      // A hidden group's tree gets no active leaf (two
+                      // active leaves race focus/onActiveRef — see the
+                      // zoom comment in WorkspacePaneTree) and no zoom or
+                      // fit requests; those are re-issued on switch-back.
+                      maximizedTerminalId={
+                        isActiveGroup ? maximizedTerminalId : null
+                      }
+                      terminalsById={
+                        isActiveGroup
+                          ? terminalsById
+                          : new Map(
+                              [...terminalsById].filter(
+                                ([id]) => !activePaneIds.has(id),
+                              ),
+                            )
+                      }
+                      activeTerminalId={
+                        isActiveGroup ? activeTerminal?.id ?? null : null
+                      }
+                      isController={isController}
+                      canType={canType}
+                      eventsReconnecting={eventsReconnecting}
+                      deviceId={deviceId}
+                      isTouch={isTouch}
+                      focusRing={collectIds(group.root).length > 1}
+                      fitRequest={isActiveGroup ? fitRequest : null}
+                      onActiveRef={(ref) => {
+                        activeCardRef.current = ref;
+                      }}
+                      onFitRequestHandled={handleFitRequestHandled}
+                      onFocus={activateTerminal}
+                      onDestroy={handleDestroy}
+                      onPaneContextMenu={handlePaneContextMenu}
+                      onRequestControl={onRequestControl}
+                      onReleaseControl={onReleaseControl}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         ) : maximizedTerminalId ? (
           // Defensive: a zoom without a layout tree (shouldn't happen in
           // practice) still renders the terminal full-size.

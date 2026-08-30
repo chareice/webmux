@@ -9,7 +9,10 @@ services:
       context: ..
       dockerfile: e2e/Dockerfile.hub
     ports:
-      - "127.0.0.1:4317:4317"
+      # Host-side debug publish only — the runner talks to hub over the compose
+      # network. Parameterized so parallel stacks (distinct COMPOSE_PROJECT_NAME
+      # per session/worktree) don't fight over the host port.
+      - "127.0.0.1:${E2E_HUB_HOST_PORT:-4317}:4317"
     environment:
       DATABASE_PATH: "/app/data/tc.db"
       WEBMUX_STATIC_DIR: "/app/web"

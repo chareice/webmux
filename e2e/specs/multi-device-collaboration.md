@@ -2,7 +2,7 @@
 
 ## Scenario 1: Desktop-sized terminal stays readable on mobile viewing
 
-1. **action:** In a desktop browser session, click the sidebar's "viewing" pill to take control, open a new terminal (sidebar ＋ button (new-session dialog → terminal) or `⌃B c`), right-click the pane and choose "Fit to window" from the context menu
+1. **action:** In a desktop browser session, click the sidebar's "viewing" pill to take control, open a new terminal (sidebar ＋ button (new-session panel → terminal) or `⌃B c`), right-click the pane and choose "Fit to window" from the context menu
    **eval:** The shared terminal is explicitly resized for the desktop viewport — the server's authoritative `cols`/`rows` match the desktop workspace size.
 
 2. **action:** Open the same app on a mobile browser session (web viewport < 768px) without taking control. The mobile shell opens straight into the shared terminal — title bar on top, terminal in the middle, key bar at the bottom.
@@ -27,7 +27,7 @@
 
 ## Scenario 3: Multiple shared terminals stay in sync across a handoff
 
-1. **action:** In a desktop browser session, click the sidebar's "viewing" pill to take control and open two terminals (sidebar ＋ button (new-session dialog → terminal) or `⌃B c` twice).
+1. **action:** In a desktop browser session, click the sidebar's "viewing" pill to take control and open two terminals (sidebar ＋ button (new-session panel → terminal) or `⌃B c` twice).
    **eval:** Two live terminal panes exist in the desktop workspace for the same machine (as tabs and/or split panes).
 
 2. **action:** Open the same account on mobile
