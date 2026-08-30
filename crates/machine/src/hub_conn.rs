@@ -3,6 +3,7 @@ use futures::{SinkExt, StreamExt};
 use std::sync::Arc;
 use std::time::Duration;
 use tc_protocol::{
+    compression::{AttachCompressor, DEFLATE_RAW_V1},
     encode_attach_output_frame, DirEntry, HubToMachine, MachineToHub, TerminalTitleSource,
 };
 use tokio::sync::mpsc;
@@ -23,6 +24,12 @@ const SEND_BATCH_LIMIT: usize = 64;
 enum OutboundHubMessage {
     Json(MachineToHub),
     AttachOutput { attach_id: String, data: Bytes },
+    /// Turn deflate-raw-v1 on/off for one attach in the send loop. Flows
+    /// through the same channel as output so it is ordered against that
+    /// attach's AttachOutput chunks: the send task creates the per-attach
+    /// compressor before the first compressed chunk and drops it after the
+    /// last one.
+    AttachCompression { attach_id: String, enable: bool },
 }
 
 /// One WebSocket message ready to feed to the sink.
@@ -30,6 +37,9 @@ enum OutboundHubMessage {
 enum WireMessage {
     Json(String),
     AttachFrame { attach_id: String, payload: Vec<u8> },
+    /// Pass-through of OutboundHubMessage::AttachCompression; consumed by the
+    /// send loop, never sent on the wire. Acts as a merge barrier.
+    AttachCompression { attach_id: String, enable: bool },
 }
 
 /// Flatten a drained send batch into wire messages, merging *adjacent*
@@ -44,6 +54,9 @@ fn coalesce_outbound_batch(
         match message {
             OutboundHubMessage::Json(msg) => {
                 wire.push(WireMessage::Json(serde_json::to_string(&msg).unwrap()));
+            }
+            OutboundHubMessage::AttachCompression { attach_id, enable } => {
+                wire.push(WireMessage::AttachCompression { attach_id, enable });
             }
             OutboundHubMessage::AttachOutput { attach_id, data } => {
                 if let Some(WireMessage::AttachFrame {
@@ -119,6 +132,7 @@ impl HubConnection {
             name: self.machine_name.clone(),
             os: std::env::consts::OS.to_string(),
             home_dir: dirs_home(),
+            capabilities: vec![DEFLATE_RAW_V1.to_string()],
         };
         let msg = serde_json::to_string(&register).unwrap();
         ws_tx
@@ -346,10 +360,17 @@ impl HubConnection {
         // WS write instead of one syscall + frame header + masking pass per
         // read. Order across the channel is preserved — only *adjacent*
         // same-attach chunks merge, and JSON messages act as barriers.
+        // Compression (deflate-raw-v1) applies after the merge, at the WS
+        // message boundary: one sync flush per frame, one long-lived
+        // compressor per attach (context takeover). The hub relays the bytes
+        // verbatim; the browser's inflater equally accepts merged or split
+        // deliveries of this stream.
         let mut send_task = tokio::spawn(async move {
             let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
             ping_interval.tick().await; // skip immediate first tick
             let mut batch: Vec<OutboundHubMessage> = Vec::with_capacity(SEND_BATCH_LIMIT);
+            let mut compressors: std::collections::HashMap<String, AttachCompressor> =
+                std::collections::HashMap::new();
             'outer: loop {
                 tokio::select! {
                     received = send_rx.recv_many(&mut batch, SEND_BATCH_LIMIT) => {
@@ -359,9 +380,25 @@ impl HubConnection {
                         for wire in coalesce_outbound_batch(batch.drain(..)) {
                             let message = match wire {
                                 WireMessage::Json(text) => Message::Text(text.into()),
-                                WireMessage::AttachFrame { attach_id, payload } => Message::Binary(
-                                    encode_attach_output_frame(&attach_id, &payload).into(),
-                                ),
+                                WireMessage::AttachCompression { attach_id, enable } => {
+                                    if enable {
+                                        compressors.insert(attach_id, AttachCompressor::new());
+                                    } else {
+                                        compressors.remove(&attach_id);
+                                    }
+                                    continue;
+                                }
+                                WireMessage::AttachFrame { attach_id, payload } => {
+                                    let payload = match compressors.get_mut(&attach_id) {
+                                        Some(compressor) => {
+                                            compressor.compress_message(&payload)
+                                        }
+                                        None => payload,
+                                    };
+                                    Message::Binary(
+                                        encode_attach_output_frame(&attach_id, &payload).into(),
+                                    )
+                                }
                             };
                             if ws_tx.feed(message).await.is_err() {
                                 break 'outer;
@@ -570,7 +607,18 @@ async fn handle_hub_message(
             terminal_id,
             cols,
             rows,
+            compress,
         } => {
+            if compress {
+                // Must precede this attach's first AttachOutput in the send
+                // channel so the send loop has the compressor ready.
+                let _ = send_tx
+                    .send(OutboundHubMessage::AttachCompression {
+                        attach_id: attach_id.clone(),
+                        enable: true,
+                    })
+                    .await;
+            }
             let scanner_terminal_id = terminal_id.clone();
             let mut events_rx = attach_mgr
                 .open(attach_id.clone(), terminal_id, cols, rows)
@@ -624,6 +672,14 @@ async fn handle_hub_message(
                                     reason: reason.to_string(),
                                 }))
                                 .await;
+                            // Drop the per-attach compressor even if no
+                            // CloseAttach follows.
+                            let _ = send_tx
+                                .send(OutboundHubMessage::AttachCompression {
+                                    attach_id: attach_id.clone(),
+                                    enable: false,
+                                })
+                                .await;
                             break;
                         }
                     }
@@ -632,6 +688,14 @@ async fn handle_hub_message(
         }
         HubToMachine::CloseAttach { attach_id } => {
             attach_mgr.close(&attach_id).await;
+            // Any AttachOutput queued before this point is still compressed
+            // with the live compressor; this drops it afterwards.
+            let _ = send_tx
+                .send(OutboundHubMessage::AttachCompression {
+                    attach_id,
+                    enable: false,
+                })
+                .await;
         }
         HubToMachine::RefreshAttach { attach_id } => {
             attach_mgr.refresh(&attach_id).await;

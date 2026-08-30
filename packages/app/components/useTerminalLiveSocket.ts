@@ -1,6 +1,7 @@
 import { useEffect, type RefObject } from "react";
 import type { Terminal } from "@xterm/xterm";
 
+import { createDeflateRawV1Session } from "@/lib/attachCompression";
 import { createOrderedBinaryOutputQueue } from "@/lib/orderedBinaryOutput.mjs";
 import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 
@@ -139,13 +140,45 @@ export function useTerminalLiveSocket({
 
     const orderedOutput = createOrderedBinaryOutputQueue(enqueueOutput);
 
+    // deflate-raw-v1: inactive until the hub's CompressionEnabled ack text
+    // frame arrives (old hub / old machine / opted-out → never), so binary
+    // frames before it are raw PTY bytes exactly as before. The ack is
+    // guaranteed to precede every binary frame on this socket.
+    const compression = createDeflateRawV1Session({
+      onAck: () => {
+        if (!terminalId) return;
+        const winAny = window as unknown as {
+          __webmuxCompression?: Record<string, boolean>;
+        };
+        (winAny.__webmuxCompression ??= {})[terminalId] = true;
+      },
+      onError: (error) => {
+        // Inflate errors are unrecoverable (the stream context is corrupt):
+        // log once and close so the reconnect path re-attaches with a fresh
+        // context — renegotiation may also land uncompressed.
+        // eslint-disable-next-line no-console
+        console.warn("[webmux] deflate-raw-v1 inflate failed, closing socket", error);
+        ws.close();
+      },
+    });
+
     ws.onmessage = (event) => {
       if (typeof event.data === "string") {
+        compression.handleText(event.data);
         return;
       }
 
       if (event.data instanceof ArrayBuffer) {
-        orderedOutput.push(event.data);
+        const inflated = compression.handleBinary(event.data);
+        if (inflated === null) {
+          orderedOutput.push(event.data);
+          return;
+        }
+        // push() is synchronous, so these chunks are already in stream order;
+        // feeding enqueueOutput directly preserves immediate-first-write.
+        for (const chunk of inflated) {
+          enqueueOutput(chunk);
+        }
         return;
       }
 

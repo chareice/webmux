@@ -16,7 +16,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "cors", "set-header"] }
 portable-pty = "0.9"
 vt100 = "0.15"
-tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 rusqlite = { version = "0.34", features = ["bundled"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.27"
@@ -31,3 +31,4 @@ chrono = "0.4"
 http = "1"
 sysinfo = "0.33"
 bytes = "1"
+flate2 = "1"

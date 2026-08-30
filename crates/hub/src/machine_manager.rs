@@ -68,6 +68,8 @@ struct MachineConnection {
     pub terminals: HashMap<String, TerminalInfo>,
     /// Latest resource stats from this machine
     pub latest_stats: Option<tc_protocol::ResourceStats>,
+    /// Capability tokens from the machine's Register (e.g. deflate-raw-v1).
+    pub capabilities: Vec<String>,
 }
 
 pub struct MachineManager {
@@ -156,6 +158,17 @@ impl MachineManager {
         info: MachineInfo,
         user_id: Option<String>,
     ) -> (String, mpsc::Receiver<HubToMachine>) {
+        self.register_machine_with_capabilities(info, user_id, Vec::new())
+            .await
+    }
+
+    /// Register a machine that declared capabilities in its Register message.
+    pub async fn register_machine_with_capabilities(
+        &self,
+        info: MachineInfo,
+        user_id: Option<String>,
+        capabilities: Vec<String>,
+    ) -> (String, mpsc::Receiver<HubToMachine>) {
         let (cmd_tx, cmd_rx) = mpsc::channel(256);
         let machine_id = info.id.clone();
         let conn_id = uuid::Uuid::new_v4().to_string();
@@ -167,6 +180,7 @@ impl MachineManager {
             cmd_tx,
             terminals: HashMap::new(),
             latest_stats: None,
+            capabilities,
         };
 
         {
@@ -198,6 +212,18 @@ impl MachineManager {
         self.send_event(user_id, BrowserEvent::MachineOnline { machine: info });
 
         (conn_id, cmd_rx)
+    }
+
+    /// Whether the connected machine declared `capability` in its Register.
+    /// Unknown/disconnected machines report false, so optional wire features
+    /// (e.g. deflate-raw-v1) stay off unless both sides opted in.
+    pub async fn machine_supports(&self, machine_id: &str, capability: &str) -> bool {
+        self.machines
+            .lock()
+            .await
+            .get(machine_id)
+            .map(|conn| conn.capabilities.iter().any(|c| c == capability))
+            .unwrap_or(false)
     }
 
     /// Unregister a machine when it disconnects. Only removes if conn_id matches.

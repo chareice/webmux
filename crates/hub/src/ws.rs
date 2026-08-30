@@ -66,6 +66,12 @@ enum ClientMessage {
 enum ServerMessage {
     #[serde(rename = "error")]
     Error { message: String },
+    /// Ack for deflate-raw-v1 negotiation: sent before any output byte can
+    /// reach the socket, telling the browser to inflate all subsequent binary
+    /// frames for this attach. Without this ack, binary frames are raw PTY
+    /// bytes exactly as before.
+    #[serde(rename = "compression_enabled")]
+    CompressionEnabled { algo: String },
 }
 
 #[derive(Deserialize)]
@@ -159,8 +165,18 @@ async fn terminal_ws_handler(
     }
 
     let device_id = params.get("device_id").cloned().unwrap_or_default();
+    let compress_requested = params.get("compress").map(String::as_str)
+        == Some(tc_protocol::compression::DEFLATE_RAW_V1);
     ws.on_upgrade(move |socket| {
-        handle_terminal_ws(socket, machine_id, terminal_id, device_id, user_id, state)
+        handle_terminal_ws(
+            socket,
+            machine_id,
+            terminal_id,
+            device_id,
+            user_id,
+            compress_requested,
+            state,
+        )
     })
 }
 
@@ -170,6 +186,7 @@ async fn handle_terminal_ws(
     terminal_id: String,
     device_id: String,
     user_id: Option<String>,
+    compress_requested: bool,
     state: AppState,
 ) {
     let (mut sender, mut receiver) = socket.split();
@@ -193,6 +210,28 @@ async fn handle_terminal_ws(
         WsSender(out_tx),
     );
 
+    // deflate-raw-v1 negotiation: compress only when the browser asked AND
+    // the machine declared the capability. Old peers on either side simply
+    // never opt in and the stream stays uncompressed. The ack goes out before
+    // OpenAttach is dispatched (and before send_task, which owns `sender`
+    // from here on, exists), so no binary frame can precede it on this
+    // socket: the browser starts inflating exactly at the stream boundary.
+    let compress = compress_requested
+        && state
+            .manager
+            .machine_supports(&machine_id, tc_protocol::compression::DEFLATE_RAW_V1)
+            .await;
+    if compress {
+        let ack = serde_json::to_string(&ServerMessage::CompressionEnabled {
+            algo: tc_protocol::compression::DEFLATE_RAW_V1.to_string(),
+        })
+        .unwrap();
+        if sender.send(Message::Text(ack.into())).await.is_err() {
+            state.router.unregister(&attach_id);
+            return;
+        }
+    }
+
     if let Err(e) = state
         .manager
         .send_to_machine(
@@ -202,6 +241,7 @@ async fn handle_terminal_ws(
                 terminal_id: terminal_id.clone(),
                 cols,
                 rows,
+                compress,
             },
         )
         .await
@@ -442,6 +482,9 @@ async fn handle_terminal_previews_ws(socket: WebSocket, user_id: Option<String>,
                                             terminal_id: terminal_id.clone(),
                                             cols: attach_cols,
                                             rows: attach_rows,
+                                            // Preview clients never negotiate
+                                            // compression.
+                                            compress: false,
                                         },
                                     )
                                     .await
@@ -533,6 +576,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                     name,
                     os,
                     home_dir,
+                    capabilities,
                 }) => {
                     let machine_owner =
                         match authenticate_machine(&state, &machine_id, &machine_secret).await {
@@ -582,8 +626,20 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                         home_dir,
                         production,
                     };
-                    let (conn_id, mut cmd_rx) =
-                        state.manager.register_machine(info, machine_owner).await;
+                    // deflate-raw-v1 capability is recorded per machine and
+                    // only ever gates terminal-output compression for
+                    // browser attaches that explicitly opted in.
+                    //
+                    // Security: a compressed stream that mixes secrets with
+                    // attacker-influenced bytes is a CRIME-class oracle.
+                    // webmux sessions are single-tenant per user today, so
+                    // the practical risk is low — but if a shared-session /
+                    // multi-tenant mode ever appears, compression MUST be
+                    // disabled for it (never ack CompressionEnabled there).
+                    let (conn_id, mut cmd_rx) = state
+                        .manager
+                        .register_machine_with_capabilities(info, machine_owner, capabilities)
+                        .await;
                     tracing::info!("Machine {} registered (conn={})", machine_id, &conn_id[..8]);
 
                     // Spawn task to forward commands from Hub to Machine
