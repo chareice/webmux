@@ -1092,6 +1092,7 @@ fn content_text(update: &Value) -> String {
 ///   description}], currentModelId}` — claude-code-acp, codex-acp, grok.
 /// - kimi's `configOptions`: a select whose category is "model", with
 ///   `options: [{value, name, description?}]` and `currentValue`.
+///
 /// Returns None when the result carries neither shape (callers keep their
 /// previous state then — relevant for session/load).
 fn parse_session_models(result: &Value) -> Option<(Vec<AgentModelInfo>, Option<String>)> {
