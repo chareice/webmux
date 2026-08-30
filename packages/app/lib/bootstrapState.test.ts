@@ -522,6 +522,73 @@ describe("machine_offline event", () => {
   });
 });
 
+describe("machine_removed event", () => {
+  it("drops the machine and everything that belonged to it", () => {
+    const initial: BrowserSessionState = {
+      ...EMPTY_BROWSER_SESSION_STATE,
+      lastSeq: 1,
+      lastFocusedTerminalId: "t1",
+      machines: [
+        { id: "m1", name: "nas", os: "linux", home_dir: "/" },
+        { id: "m2", name: "mbp", os: "darwin", home_dir: "/" },
+      ],
+      terminals: [
+        {
+          id: "t1",
+          machine_id: "m1",
+          title: "bash",
+          cwd: "/",
+          cols: 80,
+          rows: 24,
+          reachable: false,
+        },
+        {
+          id: "t2",
+          machine_id: "m2",
+          title: "zsh",
+          cwd: "/",
+          cols: 80,
+          rows: 24,
+          reachable: true,
+        },
+      ],
+      workspaceGroups: [
+        { id: "g1", machine_id: "m1", name: "tab 1", sort_order: 0 },
+        { id: "g2", machine_id: "m2", name: "tab 1", sort_order: 0 },
+      ],
+      workspaceLayouts: [
+        { machine_id: "m1", group_key: "g1", root: null, updated_at: 1 },
+      ],
+      machineStats: {
+        m1: {
+          cpu_percent: 1,
+          memory_total: 1,
+          memory_used: 1,
+          disks: [],
+        },
+      },
+      controlLeases: { m1: "d1", m2: "d2" },
+      agentSessions: [agentSession("s1"), { ...agentSession("s2"), machine_id: "m2" }],
+      agentSessionSeen: { s1: 3, s2: 1 },
+    };
+
+    const state = applyBrowserEventEnvelope(
+      initial,
+      envelope(2, { type: "machine_removed", machine_id: "m1" }),
+    );
+
+    expect(state.machines.map((machine) => machine.id)).toEqual(["m2"]);
+    expect(state.terminals.map((terminal) => terminal.id)).toEqual(["t2"]);
+    expect(state.workspaceGroups.map((group) => group.id)).toEqual(["g2"]);
+    expect(state.workspaceLayouts).toEqual([]);
+    expect(state.machineStats).toEqual({});
+    expect(state.controlLeases).toEqual({ m2: "d2" });
+    expect(state.agentSessions.map((session) => session.id)).toEqual(["s2"]);
+    expect(state.agentSessionSeen).toEqual({ s2: 1 });
+    expect(state.lastFocusedTerminalId).toBeNull();
+  });
+});
+
 describe("shouldResyncForEnvelope", () => {
   it("returns false for first event after bootstrap", () => {
     const state = { ...EMPTY_BROWSER_SESSION_STATE, lastSeq: 5 };

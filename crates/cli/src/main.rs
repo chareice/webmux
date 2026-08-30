@@ -54,8 +54,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// List online machines
+    /// List machines, or forget one
     Machines {
+        #[command(subcommand)]
+        action: Option<MachinesAction>,
+        /// Include offline registered hosts
+        #[arg(long)]
+        all: bool,
         /// Machine-readable JSON on stdout
         #[arg(long)]
         json: bool,
@@ -170,6 +175,18 @@ enum Commands {
     },
 }
 
+#[derive(Subcommand)]
+enum MachinesAction {
+    /// Forget a registered machine
+    Rm {
+        /// Machine id, unique id prefix, or unique name
+        machine: String,
+        /// Do not ask for confirmation
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -203,7 +220,12 @@ async fn run(cli: Cli) -> Result<(), CliError> {
     let hub_client = client::HubClient::new(&resolved)?;
 
     match cli.command {
-        Commands::Machines { json } => commands::machines::run(&hub_client, json).await,
+        Commands::Machines { action, json, all } => match action {
+            Some(MachinesAction::Rm { machine, yes }) => {
+                commands::machines::rm(&hub_client, &machine, yes).await
+            }
+            None => commands::machines::run(&hub_client, json, all).await,
+        },
         Commands::Ls { machine, json } => commands::ls::run(&hub_client, machine, json).await,
         Commands::Open {
             machine,

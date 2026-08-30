@@ -53,6 +53,7 @@ interface SidebarProps {
   viewOnlyLocked: boolean;
   onToggleHostFilter: (machineId: string) => void;
   onAddMachine: () => void;
+  onRemoveHost: (machineId: string) => void;
   onSelectSection: (machineId: string, groupId: string) => void;
   onSelectRow: (machineId: string, groupId: string, terminalId: string) => void;
   onSelectAgentRow: (machineId: string, agentSessionId: string) => void;
@@ -86,6 +87,7 @@ function SidebarComponent({
   viewOnlyLocked,
   onToggleHostFilter,
   onAddMachine,
+  onRemoveHost,
   onSelectSection,
   onSelectRow,
   onSelectAgentRow,
@@ -114,6 +116,11 @@ function SidebarComponent({
   const [plusMenu, setPlusMenu] = useState<{
     machineId: string;
     group: WorkspaceGroup;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [hostMenu, setHostMenu] = useState<{
+    machineId: string;
     x: number;
     y: number;
   } | null>(null);
@@ -267,6 +274,16 @@ function SidebarComponent({
 
   const closeSectionMenu = useCallback(() => setSectionMenu(null), []);
   const closePlusMenu = useCallback(() => setPlusMenu(null), []);
+  const closeHostMenu = useCallback(() => setHostMenu(null), []);
+  const hostMenuItems = useMemo<ContextMenuEntry[]>(() => {
+    if (!hostMenu) return [];
+    return [
+      {
+        label: "Remove host",
+        onClick: () => onRemoveHost(hostMenu.machineId),
+      },
+    ];
+  }, [hostMenu, onRemoveHost]);
   const plusMenuItems = useMemo<ContextMenuEntry[]>(() => {
     if (!plusMenu) return [];
     const canControl = isControllerFor(plusMenu.machineId);
@@ -465,6 +482,15 @@ function SidebarComponent({
               type="button"
               data-testid={`sidebar-host-${machine.machineId}`}
               onClick={() => onToggleHostFilter(machine.machineId)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setHostMenu({
+                  machineId: machine.machineId,
+                  x: event.clientX,
+                  y: event.clientY,
+                });
+              }}
               title={
                 isFilteredIn ? "Show all hosts" : `Show only ${machine.name}`
               }
@@ -640,6 +666,15 @@ function SidebarComponent({
           y={plusMenu.y}
           items={plusMenuItems}
           onClose={closePlusMenu}
+        />
+      )}
+
+      {hostMenu && (
+        <ContextMenu
+          x={hostMenu.x}
+          y={hostMenu.y}
+          items={hostMenuItems}
+          onClose={closeHostMenu}
         />
       )}
 

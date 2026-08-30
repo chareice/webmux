@@ -257,7 +257,11 @@ impl MachineManager {
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to disconnect agent sessions of {}: {}", machine_id, e)
+                        tracing::warn!(
+                            "Failed to disconnect agent sessions of {}: {}",
+                            machine_id,
+                            e
+                        )
                     }
                 }
             }
@@ -300,6 +304,63 @@ impl MachineManager {
         }
     }
 
+    /// Permanently forget a machine owned by `user_id`: drop any live
+    /// connection (so the WS handler's later unregister no-ops), delete the
+    /// DB row (cascade tabs/sessions/bookmarks), and broadcast MachineRemoved.
+    /// Returns Ok(false) when the row is missing or belongs to someone else.
+    pub async fn remove_machine(&self, user_id: &str, machine_id: &str) -> Result<bool, String> {
+        {
+            let conn = self.db.get().map_err(|error| error.to_string())?;
+            let owned = crate::db::machines::find_machine_by_id(&conn, machine_id)
+                .map_err(|error| error.to_string())?
+                .is_some_and(|row| row.user_id == user_id);
+            if !owned {
+                return Ok(false);
+            }
+        }
+
+        // Drop the live connection first so cmd_tx close tears the WS down
+        // and unregister_machine later no-ops on a missing conn.
+        {
+            let mut machines = self.machines.lock().await;
+            machines.remove(machine_id);
+        }
+        self.persisted_terminals.lock().await.remove(machine_id);
+        self.clear_machine_mode(user_id, machine_id);
+
+        {
+            let conn = self.db.get().map_err(|error| error.to_string())?;
+            crate::db::machines::delete_machine(&conn, machine_id)
+                .map_err(|error| error.to_string())?;
+        }
+
+        self.send_event(
+            Some(user_id.to_string()),
+            BrowserEvent::MachineRemoved {
+                machine_id: machine_id.to_string(),
+            },
+        );
+        Ok(true)
+    }
+
+    fn clear_machine_mode(&self, user_id: &str, machine_id: &str) {
+        let mut mode_by_user = self.mode.lock().unwrap();
+        let mut empty = false;
+        if let Some(mode) = mode_by_user.get_mut(user_id) {
+            mode.control_leases.remove(machine_id);
+            for stashed in mode.released_leases.values_mut() {
+                stashed.retain(|id| id != machine_id);
+            }
+            mode.released_leases.retain(|_, values| !values.is_empty());
+            empty = mode.connected_devices.is_empty()
+                && mode.control_leases.is_empty()
+                && mode.released_leases.is_empty();
+        }
+        if empty {
+            mode_by_user.remove(user_id);
+        }
+    }
+
     /// List all online machines
     pub async fn list_machines(&self) -> Vec<MachineInfo> {
         self.machines
@@ -318,6 +379,14 @@ impl MachineManager {
             .filter(|conn| connection_visible_to(conn, user_id))
             .map(|conn| conn.info.clone())
             .collect()
+    }
+
+    /// Online machines first, then every other machine this user has
+    /// registered (including ones that never connected).
+    pub async fn list_known_machines_for_user(&self, user_id: &str) -> Vec<MachineInfo> {
+        let mut machines = self.list_machines_for_user(user_id).await;
+        append_missing_db_machines(&self.db, user_id, &mut machines);
+        machines
     }
 
     /// List all terminals across all machines (or for a specific machine)
@@ -488,8 +557,8 @@ impl MachineManager {
 
         // Moving the last pane out of a hub-created tab empties it, and an
         // empty one of those is gone as surely as if its pane had closed.
-        if let Some(previous_group_id) = previous_group_id
-            .filter(|previous| Some(previous) != workspace_group_id.as_ref())
+        if let Some(previous_group_id) =
+            previous_group_id.filter(|previous| Some(previous) != workspace_group_id.as_ref())
         {
             self.prune_auto_tab_if_empty(Some(user_id), machine_id, &previous_group_id);
         }
@@ -1777,6 +1846,10 @@ impl MachineManager {
             }
         }
 
+        // Registered machines with no live connection and no persisted
+        // terminals still belong in HOSTS so the user can forget them.
+        append_missing_db_machines(&self.db, user_id, &mut all_machines);
+
         let last_focused_terminal_id = self
             .db
             .get()
@@ -1802,8 +1875,8 @@ impl MachineManager {
                     .iter()
                     .map(crate::db::agent_sessions::row_to_info)
                     .collect();
-                let seen = crate::db::agent_sessions::seen_by_user(&conn, user_id)
-                    .unwrap_or_default();
+                let seen =
+                    crate::db::agent_sessions::seen_by_user(&conn, user_id).unwrap_or_default();
                 (sessions, seen)
             })
             .unwrap_or_default();
@@ -1921,6 +1994,36 @@ fn connection_visible_to(conn: &MachineConnection, user_id: &str) -> bool {
         .as_deref()
         .map(|owner| owner == user_id)
         .unwrap_or(true)
+}
+
+fn machine_info_from_row(row: &crate::db::types::MachineRow) -> MachineInfo {
+    MachineInfo {
+        id: row.id.clone(),
+        name: row.name.clone(),
+        os: row.os.clone().unwrap_or_default(),
+        home_dir: row.home_dir.clone().unwrap_or_default(),
+        production: row.production,
+    }
+}
+
+fn append_missing_db_machines(
+    db: &crate::db::DbPool,
+    user_id: &str,
+    machines: &mut Vec<MachineInfo>,
+) {
+    let Ok(conn) = db.get() else {
+        return;
+    };
+    let Ok(rows) = crate::db::machines::find_machines_by_user(&conn, user_id) else {
+        return;
+    };
+    let seen: HashSet<String> = machines.iter().map(|machine| machine.id.clone()).collect();
+    for row in rows {
+        if seen.contains(&row.id) {
+            continue;
+        }
+        machines.push(machine_info_from_row(&row));
+    }
 }
 
 fn event_visible_to(envelope: &EventEnvelope, user_id: Option<&str>) -> bool {
@@ -2574,7 +2677,12 @@ mod tests {
         {
             let conn = pool.get().unwrap();
             crate::db::workspace_groups::create_auto_workspace_group(
-                &conn, "tab-tmp", "user-a", "machine-a", "tmp", 0,
+                &conn,
+                "tab-tmp",
+                "user-a",
+                "machine-a",
+                "tmp",
+                0,
             )
             .unwrap();
         }
@@ -2599,7 +2707,12 @@ mod tests {
         {
             let conn = pool.get().unwrap();
             crate::db::workspace_groups::create_workspace_group(
-                &conn, "tab-main", "user-a", "machine-a", "Main", 0,
+                &conn,
+                "tab-main",
+                "user-a",
+                "machine-a",
+                "Main",
+                0,
             )
             .unwrap();
         }
@@ -2624,11 +2737,21 @@ mod tests {
         {
             let conn = pool.get().unwrap();
             crate::db::workspace_groups::create_auto_workspace_group(
-                &conn, "tab-tmp", "user-a", "machine-a", "tmp", 0,
+                &conn,
+                "tab-tmp",
+                "user-a",
+                "machine-a",
+                "tmp",
+                0,
             )
             .unwrap();
             crate::db::workspace_groups::create_workspace_group(
-                &conn, "tab-main", "user-a", "machine-a", "Main", 1,
+                &conn,
+                "tab-main",
+                "user-a",
+                "machine-a",
+                "Main",
+                1,
             )
             .unwrap();
         }
@@ -2654,7 +2777,12 @@ mod tests {
         {
             let conn = pool.get().unwrap();
             crate::db::workspace_groups::create_auto_workspace_group(
-                &conn, "tab-tmp", "user-a", "machine-a", "tmp", 0,
+                &conn,
+                "tab-tmp",
+                "user-a",
+                "machine-a",
+                "tmp",
+                0,
             )
             .unwrap();
         }
@@ -2662,7 +2790,11 @@ mod tests {
         {
             let conn = pool.get().unwrap();
             crate::db::workspace_groups::update_workspace_group_name(
-                &conn, "user-a", "machine-a", "tab-tmp", "Scratch",
+                &conn,
+                "user-a",
+                "machine-a",
+                "tab-tmp",
+                "Scratch",
             )
             .unwrap();
         }
@@ -2795,6 +2927,100 @@ mod tests {
         assert_eq!(snapshot.terminals.len(), 1);
         assert_eq!(snapshot.terminals[0].id, "term-a");
         assert!(!snapshot.terminals[0].reachable);
+    }
+
+    #[tokio::test]
+    async fn snapshot_includes_registered_machines_with_no_terminals() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "stale-box");
+        let manager = MachineManager::new(pool);
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert_eq!(snapshot.machines.len(), 1);
+        assert_eq!(snapshot.machines[0].id, "stale-box");
+        assert!(snapshot.terminals.is_empty());
+    }
+
+    #[tokio::test]
+    async fn remove_machine_forgets_offline_host_and_cascades() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "stale-box");
+        {
+            let conn = pool.get().unwrap();
+            crate::db::bookmarks::create_bookmark(
+                &conn,
+                "bm-1",
+                "user-a",
+                "stale-box",
+                "/tmp",
+                "tmp",
+                0,
+            )
+            .unwrap();
+            crate::db::terminal_sessions::insert(
+                &conn,
+                "term-stale",
+                "stale-box",
+                "bash",
+                "/tmp",
+                80,
+                24,
+            )
+            .unwrap();
+        }
+        let manager = MachineManager::new(pool.clone());
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert_eq!(snapshot.machines.len(), 1);
+        assert_eq!(snapshot.terminals.len(), 1);
+
+        assert!(manager.remove_machine("user-a", "stale-box").await.unwrap());
+        assert!(!manager.remove_machine("user-a", "stale-box").await.unwrap());
+
+        let snapshot = manager.snapshot_for_user("user-a").await;
+        assert!(snapshot.machines.is_empty());
+        assert!(snapshot.terminals.is_empty());
+
+        let conn = pool.get().unwrap();
+        assert!(crate::db::machines::find_machine_by_id(&conn, "stale-box")
+            .unwrap()
+            .is_none());
+        assert!(
+            crate::db::bookmarks::find_bookmarks_by_machine(&conn, "user-a", "stale-box")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            crate::db::terminal_sessions::find_active_by_machine(&conn, "stale-box")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn remove_machine_drops_a_live_connection() {
+        let pool = test_db();
+        seed_machine(&pool, "user-a", "machine-a");
+        let manager = MachineManager::new(pool);
+
+        let (_conn_id, mut cmd_rx) = manager
+            .register_machine(machine("machine-a"), Some("user-a".to_string()))
+            .await;
+        manager.request_control("user-a", "machine-a", "device-a");
+        assert_eq!(manager.list_machines_for_user("user-a").await.len(), 1);
+        assert_eq!(
+            manager.get_controller("user-a", "machine-a").as_deref(),
+            Some("device-a")
+        );
+
+        assert!(manager.remove_machine("user-a", "machine-a").await.unwrap());
+        assert!(manager.list_machines_for_user("user-a").await.is_empty());
+        assert!(manager.get_controller("user-a", "machine-a").is_none());
+        assert!(cmd_rx.recv().await.is_none(), "cmd channel should close");
+        assert!(manager
+            .snapshot_for_user("user-a")
+            .await
+            .machines
+            .is_empty());
     }
 
     #[tokio::test]

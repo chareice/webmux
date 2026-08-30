@@ -88,6 +88,7 @@ interface MobileWorkbenchProps {
   onOpenNewSession: (group: WorkspaceGroup | null) => void;
   onSelectMachine: (id: string) => void;
   onAddMachine: () => void;
+  onRemoveHost: (machineId: string) => void;
   onRequestControl: (machineId: string) => void;
   viewOnlyLocked: boolean;
   onEngageViewOnly: (machineId: string) => void;
@@ -124,6 +125,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     onOpenNewSession,
     onSelectMachine,
     onAddMachine,
+    onRemoveHost,
     onRequestControl,
     viewOnlyLocked,
     onEngageViewOnly,
@@ -1044,8 +1046,19 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             const controlling =
               deviceId !== null && controlLeases[m.id] === deviceId;
             return (
-              <button
+              <div
                 key={m.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto",
+                  alignItems: "center",
+                  background: isActive ? colors.bg2 : "transparent",
+                  borderLeft: isActive
+                    ? `3px solid ${colors.accent}`
+                    : "3px solid transparent",
+                }}
+              >
+              <button
                 type="button"
                 onClick={() => {
                   onSelectMachine(m.id);
@@ -1059,10 +1072,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                   width: "100%",
                   textAlign: "left",
                   padding: "12px 16px",
-                  background: isActive ? colors.bg2 : "transparent",
-                  borderLeft: isActive
-                    ? `3px solid ${colors.accent}`
-                    : "3px solid transparent",
+                  background: "transparent",
                   border: "none",
                   cursor: "pointer",
                   color: colors.fg1,
@@ -1103,6 +1113,30 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                   {terminals.filter((t) => t.machine_id === m.id).length} term
                 </div>
               </button>
+              <button
+                type="button"
+                data-testid={`mobile-host-remove-${m.id}`}
+                title={`Remove ${m.name}`}
+                aria-label={`Remove ${m.name}`}
+                onClick={() => {
+                  setHostSheetOpen(false);
+                  onRemoveHost(m.id);
+                }}
+                style={{
+                  width: 48,
+                  height: 48,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "transparent",
+                  border: "none",
+                  color: colors.fg3,
+                  cursor: "pointer",
+                }}
+              >
+                <X size={16} />
+              </button>
+              </div>
             );
           })}
           <MenuRow

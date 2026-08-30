@@ -51,6 +51,7 @@ export function ConfirmDialog({
     <div
       role="dialog"
       aria-modal="true"
+      data-testid="confirm-dialog"
       aria-labelledby="confirm-dialog-title"
       onClick={onCancel}
       style={{

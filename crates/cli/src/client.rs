@@ -103,6 +103,10 @@ impl HubClient {
         self.get("/machines").await
     }
 
+    pub async fn machines_including_offline(&self) -> Result<Vec<MachineInfo>, CliError> {
+        self.get("/machines?include_offline=true").await
+    }
+
     pub async fn terminals(&self) -> Result<Vec<TerminalInfo>, CliError> {
         self.get("/terminals").await
     }
@@ -158,6 +162,20 @@ impl HubClient {
             .await
             .map_err(network_error)?;
         parse_json(response).await
+    }
+
+    pub async fn delete_machine(&self, machine_id: &str) -> Result<(), CliError> {
+        let response = self
+            .http
+            .delete(self.url(&format!("/machines/{machine_id}")))
+            .send()
+            .await
+            .map_err(network_error)?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(status_error(response.status(), response).await)
+        }
     }
 
     pub async fn delete_terminal(

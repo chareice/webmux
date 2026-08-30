@@ -204,9 +204,15 @@ pub struct AgentModelInfo {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
     /// Echo of user prompts, so the event log is the full transcript.
-    UserMessage { text: String },
-    AgentMessageChunk { text: String },
-    ThoughtChunk { text: String },
+    UserMessage {
+        text: String,
+    },
+    AgentMessageChunk {
+        text: String,
+    },
+    ThoughtChunk {
+        text: String,
+    },
     ToolCall {
         tool_call_id: String,
         title: String,
@@ -222,15 +228,23 @@ pub enum AgentEvent {
         content: Option<String>,
     },
     /// Raw JSON of ACP plan entries; the browser renders them later.
-    Plan { entries_json: String },
+    Plan {
+        entries_json: String,
+    },
     Question {
         request_id: String,
         prompt: String,
         options: Vec<AgentQuestionOption>,
     },
-    QuestionResolved { request_id: String },
-    TurnEnded { stop_reason: String },
-    Error { message: String },
+    QuestionResolved {
+        request_id: String,
+    },
+    TurnEnded {
+        stop_reason: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -348,7 +362,10 @@ pub enum HubToMachine {
     /// Switch the session's model (ACP session/set_model). Agents that never
     /// reported models reject this locally with an Error event.
     #[serde(rename = "agent_session_set_model")]
-    AgentSessionSetModel { session_id: String, model_id: String },
+    AgentSessionSetModel {
+        session_id: String,
+        model_id: String,
+    },
     /// Terminate the agent process.
     #[serde(rename = "agent_session_kill")]
     AgentSessionKill { session_id: String },
@@ -461,6 +478,10 @@ pub enum BrowserEvent {
     MachineOnline { machine: MachineInfo },
     #[serde(rename = "machine_offline")]
     MachineOffline { machine_id: String },
+    /// The user forgot this machine. Clients must drop it and every
+    /// terminal / tab / agent session that belonged to it.
+    #[serde(rename = "machine_removed")]
+    MachineRemoved { machine_id: String },
     #[serde(rename = "terminal_created")]
     TerminalCreated { terminal: TerminalInfo },
     #[serde(rename = "terminal_updated")]
@@ -514,7 +535,10 @@ pub enum BrowserEvent {
     /// Cross-device read sync: another device of the same user advanced its
     /// read cursor for this session.
     #[serde(rename = "agent_session_seen")]
-    AgentSessionSeen { session_id: String, last_seen_seq: u64 },
+    AgentSessionSeen {
+        session_id: String,
+        last_seen_seq: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -792,10 +816,9 @@ mod tests {
             kind: Some("edit".to_string()),
             status: "in_progress".to_string(),
         };
-        let parsed = serde_json::from_str::<AgentEvent>(
-            &serde_json::to_string(&tool_call).unwrap(),
-        )
-        .unwrap();
+        let parsed =
+            serde_json::from_str::<AgentEvent>(&serde_json::to_string(&tool_call).unwrap())
+                .unwrap();
         assert_eq!(parsed, tool_call);
     }
 
@@ -894,10 +917,8 @@ mod tests {
             description: None,
         };
         assert_eq!(
-            serde_json::from_str::<AgentModelInfo>(
-                &serde_json::to_string(&model).unwrap()
-            )
-            .unwrap(),
+            serde_json::from_str::<AgentModelInfo>(&serde_json::to_string(&model).unwrap())
+                .unwrap(),
             model
         );
     }
@@ -936,7 +957,10 @@ mod tests {
         .unwrap();
         assert!(matches!(
             parsed,
-            HubToMachine::OpenAttach { compress: false, .. }
+            HubToMachine::OpenAttach {
+                compress: false,
+                ..
+            }
         ));
 
         let with_compress = serde_json::from_str::<HubToMachine>(
