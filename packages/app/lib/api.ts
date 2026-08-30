@@ -80,6 +80,8 @@ export const deleteApiToken = (id: string) =>
 // Machines
 export const listMachines = () =>
   request<MachineInfo[]>("GET", "/api/machines");
+export const deleteMachine = (machineId: string) =>
+  request<void>("DELETE", `/api/machines/${machineId}`);
 export const getBootstrap = () =>
   request<BrowserStateSnapshot>("GET", "/api/bootstrap");
 export const putFocus = (terminalId: string, machineId: string) =>

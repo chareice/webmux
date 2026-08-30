@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   configure,
   deleteWorkspaceGroup,
+  deleteMachine,
   createApiToken,
   deleteApiToken,
   createAgentSession,
@@ -27,6 +28,18 @@ describe("api request", () => {
     ).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/machines/machine-a/workspace-groups/group-a",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  test("deletes a machine with 204", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(deleteMachine("machine-a")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/machines/machine-a",
       expect.objectContaining({ method: "DELETE" }),
     );
   });

@@ -171,16 +171,28 @@ async fn ensure_machine_row(
     })
 }
 
+#[derive(Deserialize)]
+struct ListMachinesQuery {
+    #[serde(default)]
+    include_offline: bool,
+}
+
 async fn list_machines(
     State(state): State<AppState>,
     auth_user: AuthUser,
+    Query(query): Query<ListMachinesQuery>,
 ) -> Json<Vec<MachineInfo>> {
-    Json(
+    Json(if query.include_offline {
+        state
+            .manager
+            .list_known_machines_for_user(&auth_user.user_id)
+            .await
+    } else {
         state
             .manager
             .list_machines_for_user(&auth_user.user_id)
-            .await,
-    )
+            .await
+    })
 }
 
 async fn list_all_terminals(
@@ -280,8 +292,10 @@ async fn create_terminal(
     // left. A real row keeps the strip a single ordered list.
     let group_id = match req.workspace_group_id {
         Some(group_id) => group_id,
-        None => auto_create_workspace_group(&state, &auth_user.user_id, &machine_id, &terminal.cwd)
-            .await?,
+        None => {
+            auto_create_workspace_group(&state, &auth_user.user_id, &machine_id, &terminal.cwd)
+                .await?
+        }
     };
 
     state
@@ -312,15 +326,13 @@ async fn auto_create_workspace_group(
                 format!("DB error: {}", e),
             )
         })?;
-        let sort_order =
-            crate::db::workspace_groups::next_sort_order(&conn, user_id, machine_id).map_err(
-                |e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("DB error: {}", e),
-                    )
-                },
-            )?;
+        let sort_order = crate::db::workspace_groups::next_sort_order(&conn, user_id, machine_id)
+            .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {}", e),
+            )
+        })?;
         let row = crate::db::workspace_groups::create_auto_workspace_group(
             &conn,
             &uuid::Uuid::new_v4().to_string(),
@@ -580,17 +592,14 @@ async fn create_workspace_group(
             format!("DB error: {}", e),
         )
     })?;
-    let sort_order = crate::db::workspace_groups::next_sort_order(
-        &conn,
-        &auth_user.user_id,
-        &machine_id,
-    )
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("DB error: {}", e),
-        )
-    })?;
+    let sort_order =
+        crate::db::workspace_groups::next_sort_order(&conn, &auth_user.user_id, &machine_id)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("DB error: {}", e),
+                )
+            })?;
     let id = uuid::Uuid::new_v4().to_string();
     let row = crate::db::workspace_groups::create_workspace_group(
         &conn,
@@ -1265,7 +1274,12 @@ mod tests {
             )
             .unwrap();
             crate::db::workspace_groups::create_workspace_group(
-                &conn, "group-a", "user-a", "machine-a", "tab 1", 0,
+                &conn,
+                "group-a",
+                "user-a",
+                "machine-a",
+                "tab 1",
+                0,
             )
             .unwrap();
         }
@@ -1301,7 +1315,9 @@ mod tests {
 
         let conn = state.db.get().unwrap();
         let groups = crate::db::workspace_groups::find_workspace_groups_by_machine(
-            &conn, "user-a", "machine-a",
+            &conn,
+            "user-a",
+            "machine-a",
         )
         .unwrap();
         assert_eq!(groups.len(), 2);

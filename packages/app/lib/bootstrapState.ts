@@ -104,6 +104,44 @@ function applyBrowserEvent(
         controlLeases: nextLeases,
       };
     }
+    case "machine_removed": {
+      const machineId = event.machine_id;
+      const remainingTerminals = state.terminals.filter(
+        (terminal) => terminal.machine_id !== machineId,
+      );
+      const removedSessionIds = new Set(
+        state.agentSessions
+          .filter((session) => session.machine_id === machineId)
+          .map((session) => session.id),
+      );
+      const nextSeen: Record<string, number> = {};
+      for (const [sessionId, seq] of Object.entries(state.agentSessionSeen)) {
+        if (!removedSessionIds.has(sessionId)) nextSeen[sessionId] = seq;
+      }
+      const lastFocusedStillPresent = remainingTerminals.some(
+        (terminal) => terminal.id === state.lastFocusedTerminalId,
+      );
+      return {
+        ...state,
+        machines: state.machines.filter((machine) => machine.id !== machineId),
+        terminals: remainingTerminals,
+        workspaceGroups: state.workspaceGroups.filter(
+          (group) => group.machine_id !== machineId,
+        ),
+        workspaceLayouts: state.workspaceLayouts.filter(
+          (layout) => layout.machine_id !== machineId,
+        ),
+        machineStats: omitKey(state.machineStats, machineId),
+        controlLeases: omitKey(state.controlLeases, machineId),
+        agentSessions: state.agentSessions.filter(
+          (session) => session.machine_id !== machineId,
+        ),
+        agentSessionSeen: nextSeen,
+        lastFocusedTerminalId: lastFocusedStillPresent
+          ? state.lastFocusedTerminalId
+          : null,
+      };
+    }
     case "terminal_created":
     case "terminal_updated":
     case "terminal_resized":

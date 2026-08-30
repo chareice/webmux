@@ -6,9 +6,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use tc_protocol::{
-    AgentKind, AgentSessionInfo, AgentSessionStatus, HubToMachine, MachineInfo,
-};
+use tc_protocol::{AgentKind, AgentSessionInfo, AgentSessionStatus, HubToMachine, MachineInfo};
 
 use crate::auth::AuthUser;
 use crate::db::agent_sessions::{self, row_to_info};
@@ -168,7 +166,12 @@ async fn create_agent_session(
         .map_err(db_error)?
         .filter(|machine| machine.user_id == auth_user.user_id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Machine not found".to_string()))?;
-    ensure_control(&state, &auth_user.user_id, &machine_id, req.device_id.as_deref())?;
+    ensure_control(
+        &state,
+        &auth_user.user_id,
+        &machine_id,
+        req.device_id.as_deref(),
+    )?;
 
     let auto_run = req.auto_run.unwrap_or(!machine.production);
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -223,11 +226,13 @@ async fn prompt_agent_session(
     Json(req): Json<PromptRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let row = load_owned_session(&state, &auth_user.user_id, &machine_id, &session_id)?;
-    ensure_control(&state, &auth_user.user_id, &machine_id, req.device_id.as_deref())?;
-    if matches!(
-        row.status.as_str(),
-        "disconnected" | "error"
-    ) {
+    ensure_control(
+        &state,
+        &auth_user.user_id,
+        &machine_id,
+        req.device_id.as_deref(),
+    )?;
+    if matches!(row.status.as_str(), "disconnected" | "error") {
         return Err(not_live_error());
     }
     state
@@ -251,7 +256,12 @@ async fn answer_agent_session(
     Json(req): Json<AnswerRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let row = load_owned_session(&state, &auth_user.user_id, &machine_id, &session_id)?;
-    ensure_control(&state, &auth_user.user_id, &machine_id, req.device_id.as_deref())?;
+    ensure_control(
+        &state,
+        &auth_user.user_id,
+        &machine_id,
+        req.device_id.as_deref(),
+    )?;
     if matches!(row.status.as_str(), "disconnected" | "error") {
         return Err(not_live_error());
     }
@@ -281,7 +291,12 @@ async fn set_agent_session_model(
     Json(req): Json<SetModelRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let row = load_owned_session(&state, &auth_user.user_id, &machine_id, &session_id)?;
-    ensure_control(&state, &auth_user.user_id, &machine_id, req.device_id.as_deref())?;
+    ensure_control(
+        &state,
+        &auth_user.user_id,
+        &machine_id,
+        req.device_id.as_deref(),
+    )?;
     if matches!(row.status.as_str(), "disconnected" | "error") {
         return Err(not_live_error());
     }
@@ -421,21 +436,17 @@ async fn get_agent_session_events(
         .unwrap_or(EVENTS_DEFAULT_LIMIT)
         .clamp(1, EVENTS_MAX_LIMIT);
     let conn = state.db.get().map_err(db_error)?;
-    let events = agent_sessions::events_page(
-        &conn,
-        &session_id,
-        query.from_seq.unwrap_or(0),
-        limit,
-    )
-    .map_err(db_error)?
-    .into_iter()
-    .map(|(seq, event_json)| AgentEventEntry {
-        seq,
-        // Stored by the hub itself from validated AgentEvents; fall back to
-        // null rather than failing the page if a row is somehow malformed.
-        event: serde_json::from_str(&event_json).unwrap_or(serde_json::Value::Null),
-    })
-    .collect();
+    let events =
+        agent_sessions::events_page(&conn, &session_id, query.from_seq.unwrap_or(0), limit)
+            .map_err(db_error)?
+            .into_iter()
+            .map(|(seq, event_json)| AgentEventEntry {
+                seq,
+                // Stored by the hub itself from validated AgentEvents; fall back to
+                // null rather than failing the page if a row is somehow malformed.
+                event: serde_json::from_str(&event_json).unwrap_or(serde_json::Value::Null),
+            })
+            .collect();
     Ok(Json(AgentEventsPage {
         events,
         last_seq: row.last_event_seq.max(0) as u64,
@@ -473,7 +484,12 @@ async fn update_machine(
         .map_err(db_error)?
         .filter(|machine| machine.user_id == auth_user.user_id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Machine not found".to_string()))?;
-    ensure_control(&state, &auth_user.user_id, &machine_id, req.device_id.as_deref())?;
+    ensure_control(
+        &state,
+        &auth_user.user_id,
+        &machine_id,
+        req.device_id.as_deref(),
+    )?;
 
     crate::db::machines::set_machine_production(&conn, &machine_id, req.production)
         .map_err(db_error)?;
@@ -492,6 +508,28 @@ async fn update_machine(
         production: req.production,
     };
     Ok(Json(info))
+}
+
+async fn delete_machine(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path(machine_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let removed = state
+        .manager
+        .remove_machine(&auth_user.user_id, &machine_id)
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DB error: {error}"),
+            )
+        })?;
+    if !removed {
+        return Err((StatusCode::NOT_FOUND, "Machine not found".to_string()));
+    }
+    state.router.drop_machine(&machine_id);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub fn router() -> Router<AppState> {
@@ -528,8 +566,14 @@ pub fn router() -> Router<AppState> {
             "/api/machines/{machine_id}/agent-sessions/{session_id}/events",
             get(get_agent_session_events),
         )
-        .route("/api/agent-sessions/{session_id}/seen", put(mark_agent_session_seen))
-        .route("/api/machines/{machine_id}", patch(update_machine))
+        .route(
+            "/api/agent-sessions/{session_id}/seen",
+            put(mark_agent_session_seen),
+        )
+        .route(
+            "/api/machines/{machine_id}",
+            patch(update_machine).delete(delete_machine),
+        )
 }
 
 #[cfg(test)]
@@ -656,7 +700,10 @@ mod tests {
             "cwd": "/work/repo",
             "device_id": "device-a",
         });
-        payload.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        payload
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         let (status, body) = request(
             state,
             Method::POST,
@@ -745,6 +792,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delete_machine_returns_204_and_forgets_the_row() {
+        let (state, mut cmd_rx) = state_with_machine().await;
+        let mut events = state.manager.subscribe_events();
+
+        let (status, body) = request(&state, Method::DELETE, "/api/machines/machine-a", None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "delete failed: {body}");
+        assert!(cmd_rx.recv().await.is_none());
+
+        let broadcast = tokio::time::timeout(std::time::Duration::from_secs(1), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            broadcast.event,
+            tc_protocol::BrowserEvent::MachineRemoved { ref machine_id }
+                if machine_id == "machine-a"
+        ));
+
+        {
+            let conn = state.db.get().unwrap();
+            assert!(crate::db::machines::find_machine_by_id(&conn, "machine-a")
+                .unwrap()
+                .is_none());
+        }
+
+        let (status, _) = request(&state, Method::DELETE, "/api/machines/machine-a", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn delete_machine_is_404_for_another_users_host() {
+        let state = test_state();
+        {
+            let conn = state.db.get().unwrap();
+            crate::db::users::create_user(
+                &conn, "user-b", "test", "user-b", "User B", None, "user",
+            )
+            .unwrap();
+            crate::db::machines::ensure_machine_for_user(
+                &conn,
+                "machine-b",
+                "user-b",
+                "Machine B",
+                Some("linux"),
+                Some("/tmp"),
+            )
+            .unwrap();
+        }
+
+        let (status, _) = request(&state, Method::DELETE, "/api/machines/machine-b", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let conn = state.db.get().unwrap();
+        assert!(crate::db::machines::find_machine_by_id(&conn, "machine-b")
+            .unwrap()
+            .is_some());
+    }
+
+    #[tokio::test]
     async fn machine_events_are_persisted_and_page_correctly() {
         let (state, mut cmd_rx) = state_with_machine().await;
         let (body, _) = create_session(&state, &mut cmd_rx, json!({})).await;
@@ -816,23 +921,13 @@ mod tests {
         let session_id = body["id"].as_str().unwrap().to_string();
 
         let uri = format!("/api/agent-sessions/{session_id}/seen");
-        let (status, body) = request(
-            &state,
-            Method::PUT,
-            &uri,
-            Some(json!({"last_seen_seq": 5})),
-        )
-        .await;
+        let (status, body) =
+            request(&state, Method::PUT, &uri, Some(json!({"last_seen_seq": 5}))).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["last_seen_seq"], 5);
 
-        let (status, body) = request(
-            &state,
-            Method::PUT,
-            &uri,
-            Some(json!({"last_seen_seq": 2})),
-        )
-        .await;
+        let (status, body) =
+            request(&state, Method::PUT, &uri, Some(json!({"last_seen_seq": 2}))).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["last_seen_seq"], 5, "the cursor never regresses");
 
@@ -849,8 +944,9 @@ mod tests {
         let (state, mut cmd_rx) = state_with_machine().await;
         let (body, _) = create_session(&state, &mut cmd_rx, json!({})).await;
         let session_id = body["id"].as_str().unwrap().to_string();
-        let uri =
-            format!("/api/machines/machine-a/agent-sessions/{session_id}/resume?device_id=device-a");
+        let uri = format!(
+            "/api/machines/machine-a/agent-sessions/{session_id}/resume?device_id=device-a"
+        );
 
         // Still running: resume is a conflict.
         let (status, _) = request(&state, Method::POST, &uri, None).await;
@@ -919,7 +1015,10 @@ mod tests {
         let (body, _) = create_session(&state, &mut cmd_rx, json!({})).await;
         let session_id = body["id"].as_str().unwrap().to_string();
 
-        state.manager.unregister_machine("machine-a", &conn_id).await;
+        state
+            .manager
+            .unregister_machine("machine-a", &conn_id)
+            .await;
 
         let conn = state.db.get().unwrap();
         let row = crate::db::agent_sessions::find_session(&conn, &session_id)
@@ -983,9 +1082,7 @@ mod tests {
         let (status, _) = request(
             &state,
             Method::DELETE,
-            &format!(
-                "/api/machines/machine-a/agent-sessions/{session_id}?device_id=device-a"
-            ),
+            &format!("/api/machines/machine-a/agent-sessions/{session_id}?device_id=device-a"),
             None,
         )
         .await;
@@ -999,9 +1096,11 @@ mod tests {
         assert!(crate::db::agent_sessions::find_session(&conn, &session_id)
             .unwrap()
             .is_none());
-        assert!(crate::db::agent_sessions::events_page(&conn, &session_id, 0, 10)
-            .unwrap()
-            .is_empty());
+        assert!(
+            crate::db::agent_sessions::events_page(&conn, &session_id, 0, 10)
+                .unwrap()
+                .is_empty()
+        );
         assert!(crate::db::agent_sessions::seen_by_user(&conn, "user-a")
             .unwrap()
             .is_empty());
@@ -1011,7 +1110,8 @@ mod tests {
     async fn create_with_model_forwards_it_and_stores_it_as_requested() {
         let (state, mut cmd_rx) = state_with_machine().await;
 
-        let (body, cmd) = create_session(&state, &mut cmd_rx, json!({"model_id": "kimi-code/k3"})).await;
+        let (body, cmd) =
+            create_session(&state, &mut cmd_rx, json!({"model_id": "kimi-code/k3"})).await;
         let session_id = body["id"].as_str().unwrap().to_string();
         match cmd {
             HubToMachine::AgentSessionStart { model_id, .. } => {

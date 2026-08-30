@@ -299,6 +299,7 @@ export namespace MachineToHub {
 export type BrowserEvent =
   | BrowserEvent.MachineOnline
   | BrowserEvent.MachineOffline
+  | BrowserEvent.MachineRemoved
   | BrowserEvent.TerminalCreated
   | BrowserEvent.TerminalUpdated
   | BrowserEvent.TerminalResized
@@ -324,6 +325,11 @@ export namespace BrowserEvent {
 
   export interface MachineOffline {
     type: 'machine_offline'
+    machine_id: string
+  }
+
+  export interface MachineRemoved {
+    type: 'machine_removed'
     machine_id: string
   }
 

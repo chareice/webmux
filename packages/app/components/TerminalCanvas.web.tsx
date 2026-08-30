@@ -35,6 +35,7 @@ import {
   createAgentSession,
   createTerminal,
   createWorkspaceGroup,
+  deleteMachine,
   deleteWorkspaceGroup,
   destroyAgentSession,
   destroyTerminal,
@@ -344,6 +345,11 @@ function TerminalCanvasInner() {
   const [groupRenameTarget, setGroupRenameTarget] = useState<{
     machineId: string;
     group: WorkspaceGroup;
+  } | null>(null);
+  const [hostRemoveTarget, setHostRemoveTarget] = useState<{
+    machineId: string;
+    name: string;
+    online: boolean;
   } | null>(null);
 
   const machines = browserState.machines;
@@ -888,6 +894,32 @@ function TerminalCanvasInner() {
       ),
     [machines, machineStats, terminals],
   );
+  const handleRemoveHost = useCallback(
+    (machineId: string) => {
+      const machine = machines.find((item) => item.id === machineId);
+      setHostRemoveTarget({
+        machineId,
+        name: machine?.name ?? machineId,
+        online: Boolean(machineOnline[machineId]),
+      });
+    },
+    [machineOnline, machines],
+  );
+  const confirmRemoveHost = useCallback(() => {
+    const target = hostRemoveTarget;
+    setHostRemoveTarget(null);
+    if (!target) return;
+    void (async () => {
+      try {
+        await deleteMachine(target.machineId);
+      } catch (error) {
+        console.error("Failed to remove host", error);
+        showWorkspaceToast(
+          error instanceof Error ? error.message : "Failed to remove host",
+        );
+      }
+    })();
+  }, [hostRemoveTarget]);
   const sidebarTree = useMemo(
     () =>
       buildSidebarTree({
@@ -2078,6 +2110,7 @@ function TerminalCanvasInner() {
               onOpenNewSession={handleOpenMobileNewSession}
               onSelectMachine={setActiveMachineId}
               onAddMachine={() => setAddMachineOpen(true)}
+              onRemoveHost={handleRemoveHost}
               onRequestControl={handleRequestControl}
               viewOnlyLocked={viewOnlyLocked}
               onEngageViewOnly={handleEngageViewOnly}
@@ -2188,6 +2221,7 @@ function TerminalCanvasInner() {
                 viewOnlyLocked={viewOnlyLocked}
                 onToggleHostFilter={handleToggleHostFilter}
                 onAddMachine={() => setAddMachineOpen(true)}
+                onRemoveHost={handleRemoveHost}
                 onSelectSection={(machineId, groupId) =>
                   selectSidebarTarget({ machineId, groupId, terminalId: null })
                 }
@@ -2438,6 +2472,24 @@ function TerminalCanvasInner() {
 
         {cheatSheetOpen && (
           <CheatSheetOverlay onClose={() => setCheatSheetOpen(false)} />
+        )}
+
+        {hostRemoveTarget && (
+          <Suspense fallback={<LazyLoadingFallback />}>
+            <ConfirmDialog
+              open
+              title={`Remove ${hostRemoveTarget.name}?`}
+              message={
+                hostRemoveTarget.online
+                  ? `"${hostRemoveTarget.name}" is connected. Removing it disconnects the host and it will not reconnect until registered again. Tabs and sessions for this host leave webmux.`
+                  : `"${hostRemoveTarget.name}" is offline. Removing it forgets the host and its tabs and sessions. Re-register to add it back.`
+              }
+              confirmLabel="Remove host"
+              variant="danger"
+              onConfirm={confirmRemoveHost}
+              onCancel={() => setHostRemoveTarget(null)}
+            />
+          </Suspense>
         )}
 
         {groupDeleteConfirmation && (

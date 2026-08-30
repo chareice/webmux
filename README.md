@@ -33,7 +33,8 @@ or export `WEBMUX_URL` + `WEBMUX_TOKEN` (flags `--url/--token` override both).
 ### Commands
 
 ```
-webmux machines [--json]                       # list machines (online/offline)
+webmux machines [--all] [--json]               # list machines (default: online; --all includes offline)
+webmux machines rm <id|name> [--yes]           # forget a registered machine
 webmux ls [--machine <id>] [--json]            # list terminals: id, title, group, cwd, size, reachable
 webmux open <machine> --cwd <dir> [--cmd <shell command>] [--group <name>] [--json]
 webmux read <term> [--lines N] [--json]        # capture the current screen as text
