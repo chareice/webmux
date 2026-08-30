@@ -24,6 +24,10 @@ pub struct CreateAgentSessionRequest {
     pub auto_run: Option<bool>,
     #[serde(default)]
     pub workspace_group_id: Option<String>,
+    /// Model to run on, applied via session/set_model once the session is
+    /// ready (ACP session/new itself has no model param).
+    #[serde(default)]
+    pub model_id: Option<String>,
     #[serde(default)]
     pub device_id: Option<String>,
 }
@@ -70,6 +74,13 @@ struct AgentEventsPage {
 #[derive(Deserialize)]
 pub struct SeenRequest {
     pub last_seen_seq: u64,
+}
+
+#[derive(Deserialize)]
+pub struct SetModelRequest {
+    pub model_id: String,
+    #[serde(default)]
+    pub device_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -174,6 +185,7 @@ async fn create_agent_session(
                 cwd: req.cwd.clone(),
                 auto_run,
                 resume_acp_session_id: None,
+                model_id: req.model_id.clone(),
             },
         )
         .await
@@ -190,6 +202,7 @@ async fn create_agent_session(
         AgentSessionStatus::Starting,
         auto_run,
         req.workspace_group_id.as_deref(),
+        req.model_id.as_deref(),
     )
     .map_err(db_error)?;
 
@@ -258,6 +271,34 @@ async fn answer_agent_session(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Switch the session's model; the machine answers session/set_model and the
+/// confirmed model lands via the agent_session_update relay. Lease-gated like
+/// prompt.
+async fn set_agent_session_model(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+    Path((machine_id, session_id)): Path<(String, String)>,
+    Json(req): Json<SetModelRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let row = load_owned_session(&state, &auth_user.user_id, &machine_id, &session_id)?;
+    ensure_control(&state, &auth_user.user_id, &machine_id, req.device_id.as_deref())?;
+    if matches!(row.status.as_str(), "disconnected" | "error") {
+        return Err(not_live_error());
+    }
+    state
+        .manager
+        .send_to_machine(
+            &machine_id,
+            HubToMachine::AgentSessionSetModel {
+                session_id,
+                model_id: req.model_id,
+            },
+        )
+        .await
+        .map_err(|e| (StatusCode::CONFLICT, e))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn cancel_agent_session(
     State(state): State<AppState>,
     auth_user: AuthUser,
@@ -312,6 +353,7 @@ async fn resume_agent_session(
                 cwd: row.cwd.clone(),
                 auto_run: row.auto_run,
                 resume_acp_session_id: row.acp_session_id.clone(),
+                model_id: None,
             },
         )
         .await
@@ -469,6 +511,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/machines/{machine_id}/agent-sessions/{session_id}/cancel",
             post(cancel_agent_session),
+        )
+        .route(
+            "/api/machines/{machine_id}/agent-sessions/{session_id}/model",
+            post(set_agent_session_model),
         )
         .route(
             "/api/machines/{machine_id}/agent-sessions/{session_id}/resume",
@@ -642,12 +688,14 @@ mod tests {
                 cwd,
                 auto_run,
                 resume_acp_session_id,
+                model_id,
             } => {
                 assert_eq!(cmd_session_id, session_id);
                 assert_eq!(agent_kind, tc_protocol::AgentKind::Kimi);
                 assert_eq!(cwd, "/work/repo");
                 assert!(auto_run);
                 assert_eq!(resume_acp_session_id, None);
+                assert_eq!(model_id, None);
             }
             other => panic!("unexpected machine command: {other:?}"),
         }
@@ -817,6 +865,8 @@ mod tests {
                     status: None,
                     title: None,
                     acp_session_id: Some("acp-9".to_string()),
+                    available_models: None,
+                    current_model_id: None,
                 },
             )
             .await;
@@ -955,5 +1005,148 @@ mod tests {
         assert!(crate::db::agent_sessions::seen_by_user(&conn, "user-a")
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_with_model_forwards_it_and_stores_it_as_requested() {
+        let (state, mut cmd_rx) = state_with_machine().await;
+
+        let (body, cmd) = create_session(&state, &mut cmd_rx, json!({"model_id": "kimi-code/k3"})).await;
+        let session_id = body["id"].as_str().unwrap().to_string();
+        match cmd {
+            HubToMachine::AgentSessionStart { model_id, .. } => {
+                assert_eq!(model_id.as_deref(), Some("kimi-code/k3"))
+            }
+            other => panic!("unexpected machine command: {other:?}"),
+        }
+
+        let conn = state.db.get().unwrap();
+        let row = crate::db::agent_sessions::find_session(&conn, &session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.requested_model_id.as_deref(), Some("kimi-code/k3"));
+        // The requested model is not the current one until the machine
+        // confirms it.
+        assert_eq!(row.current_model_id, None);
+    }
+
+    #[tokio::test]
+    async fn model_route_is_lease_gated_and_relays_set_model() {
+        let (state, mut cmd_rx) = state_with_machine().await;
+        let (body, _) = create_session(&state, &mut cmd_rx, json!({})).await;
+        let session_id = body["id"].as_str().unwrap().to_string();
+        let uri = format!("/api/machines/machine-a/agent-sessions/{session_id}/model");
+
+        // No lease → 403.
+        let (status, _) = request(
+            &state,
+            Method::POST,
+            &uri,
+            Some(json!({"model_id": "fake-model-b"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        let (status, _) = request(
+            &state,
+            Method::POST,
+            &uri,
+            Some(json!({"model_id": "fake-model-b", "device_id": "device-a"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert!(matches!(
+            cmd_rx.recv().await.unwrap(),
+            HubToMachine::AgentSessionSetModel { session_id: id, model_id }
+                if id == session_id && model_id == "fake-model-b"
+        ));
+
+        // A disconnected session refuses with 409, like prompt.
+        state
+            .manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::AgentSessionExited {
+                    session_id: session_id.clone(),
+                    reason: "gone".to_string(),
+                },
+            )
+            .await;
+        let (status, _) = request(
+            &state,
+            Method::POST,
+            &uri,
+            Some(json!({"model_id": "fake-model-b", "device_id": "device-a"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn machine_model_updates_persist_and_reach_the_bootstrap_snapshot() {
+        let (state, mut cmd_rx) = state_with_machine().await;
+        let (body, _) = create_session(&state, &mut cmd_rx, json!({})).await;
+        let session_id = body["id"].as_str().unwrap().to_string();
+
+        state
+            .manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::AgentSessionUpdate {
+                    session_id: session_id.clone(),
+                    status: Some(tc_protocol::AgentSessionStatus::Idle),
+                    title: None,
+                    acp_session_id: Some("acp-1".to_string()),
+                    available_models: Some(vec![
+                        tc_protocol::AgentModelInfo {
+                            model_id: "fake-model-a".to_string(),
+                            name: "Fake Model A".to_string(),
+                            description: None,
+                        },
+                        tc_protocol::AgentModelInfo {
+                            model_id: "fake-model-b".to_string(),
+                            name: "Fake Model B".to_string(),
+                            description: Some("the other one".to_string()),
+                        },
+                    ]),
+                    current_model_id: Some("fake-model-a".to_string()),
+                },
+            )
+            .await;
+
+        let snapshot = state.manager.snapshot_for_user("user-a").await;
+        let session = snapshot
+            .agent_sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .expect("the session is in the snapshot");
+        assert_eq!(session.current_model_id.as_deref(), Some("fake-model-a"));
+        assert_eq!(session.available_models.len(), 2);
+        assert_eq!(session.available_models[1].model_id, "fake-model-b");
+
+        // A model-only update (no status) changes just the current model.
+        state
+            .manager
+            .handle_machine_message(
+                "machine-a",
+                MachineToHub::AgentSessionUpdate {
+                    session_id: session_id.clone(),
+                    status: None,
+                    title: None,
+                    acp_session_id: None,
+                    available_models: None,
+                    current_model_id: Some("fake-model-b".to_string()),
+                },
+            )
+            .await;
+        let snapshot = state.manager.snapshot_for_user("user-a").await;
+        let session = snapshot
+            .agent_sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .unwrap();
+        assert_eq!(session.current_model_id.as_deref(), Some("fake-model-b"));
+        assert_eq!(session.available_models.len(), 2, "list untouched by None");
+        assert_eq!(session.status, tc_protocol::AgentSessionStatus::Idle);
     }
 }

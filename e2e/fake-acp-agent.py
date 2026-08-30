@@ -6,6 +6,11 @@ session/new, session/load (replays stored history as session/update
 notifications), session/prompt (emits a deterministic event sequence) and
 session/cancel. No network, stdlib only.
 
+Model support (unless FAKE_ACP_MODELS=0): session/new and session/load
+results carry a `models` block with two fake models (fake-model-a current,
+fake-model-b); session/set_model switches the current model or answers
+-32602 for an unknown model id.
+
 Deterministic prompt flow per turn:
   1. agent_thought_chunk  "thinking about: <text>"
   2. agent_message_chunk  "echo: <text>"
@@ -24,11 +29,28 @@ import os
 import sys
 
 ASK = os.environ.get("FAKE_ACP_ASK") == "1"
+MODELS_ENABLED = os.environ.get("FAKE_ACP_MODELS") != "0"
 
-sessions = {}  # session_id -> {"cwd": str, "history": [prompt texts]}
+FAKE_MODELS = [
+    {"modelId": "fake-model-a", "name": "Fake Model A", "description": "The default fake model"},
+    {"modelId": "fake-model-b", "name": "Fake Model B"},
+]
+
+sessions = {}  # session_id -> {"cwd": str, "history": [prompt texts], "model": str}
 session_counter = 0
 request_counter = 0
 current_session_id = None  # session being prompted, for notifications
+
+
+def models_block(session):
+    if not MODELS_ENABLED:
+        return {}
+    return {
+        "models": {
+            "currentModelId": session["model"],
+            "availableModels": FAKE_MODELS,
+        }
+    }
 
 
 def send(message):
@@ -191,6 +213,20 @@ def handle_session_load(request_id, params):
                 "content": {"type": "text", "text": f"echo: {text}"},
             }
         )
+    respond(request_id, models_block(session))
+
+
+def handle_set_model(request_id, params):
+    session_id = params.get("sessionId")
+    session = sessions.get(session_id)
+    if session is None:
+        respond_error(request_id, -32602, "unknown session")
+        return
+    model_id = params.get("modelId")
+    if model_id not in {model["modelId"] for model in FAKE_MODELS}:
+        respond_error(request_id, -32602, f"unknown model id: {model_id}")
+        return
+    session["model"] = model_id
     respond(request_id, {})
 
 
@@ -216,10 +252,19 @@ def main():
         elif method == "session/new":
             session_counter += 1
             session_id = f"fake-session-{session_counter}"
-            sessions[session_id] = {"cwd": params.get("cwd", ""), "history": []}
-            respond(request_id, {"sessionId": session_id})
+            sessions[session_id] = {
+                "cwd": params.get("cwd", ""),
+                "history": [],
+                "model": "fake-model-a",
+            }
+            respond(
+                request_id,
+                {"sessionId": session_id, **models_block(sessions[session_id])},
+            )
         elif method == "session/load":
             handle_session_load(request_id, params)
+        elif method == "session/set_model":
+            handle_set_model(request_id, params)
         elif method == "session/prompt":
             handle_prompt(request_id, params)
         elif method == "session/cancel":

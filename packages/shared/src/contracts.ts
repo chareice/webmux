@@ -94,6 +94,13 @@ export type AgentSessionStatus =
   | "error"
   | "disconnected"
 
+/** One model an agent session can run on (mirrors AgentModelInfo in Rust). */
+export interface AgentModelInfo {
+  model_id: string
+  name: string
+  description?: string | null
+}
+
 export interface AgentSessionInfo {
   id: string
   machine_id: string
@@ -106,6 +113,10 @@ export interface AgentSessionInfo {
   /** Set once session/new returns; needed for resume. */
   acp_session_id?: string | null
   workspace_group_id?: string | null
+  /** Models this session can switch between; empty/missing = unsupported. */
+  available_models?: AgentModelInfo[]
+  /** The model currently in use, if the agent reported one. */
+  current_model_id?: string | null
   last_event_seq: number
   created_at_ms: number
 }

@@ -290,6 +290,8 @@ export const createAgentSession = (
     cwd: string;
     autoRun?: boolean;
     workspaceGroupId?: string | null;
+    /** Applied via session/set_model once the session is ready. */
+    modelId?: string | null;
   },
   deviceId?: string,
 ) =>
@@ -305,7 +307,19 @@ export const createAgentSession = (
       ...(args.workspaceGroupId
         ? { workspace_group_id: args.workspaceGroupId }
         : {}),
+      ...(args.modelId ? { model_id: args.modelId } : {}),
     },
+  );
+export const setAgentSessionModel = (
+  machineId: string,
+  sessionId: string,
+  modelId: string,
+  deviceId?: string,
+) =>
+  request<void>(
+    "POST",
+    `/api/machines/${machineId}/agent-sessions/${sessionId}/model`,
+    { model_id: modelId, device_id: deviceId },
   );
 export const promptAgentSession = (
   machineId: string,

@@ -12,7 +12,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use tc_protocol::{AgentEvent, AgentKind, AgentQuestionOption, AgentSessionStatus, MachineToHub};
+use tc_protocol::{
+    AgentEvent, AgentKind, AgentModelInfo, AgentQuestionOption, AgentSessionStatus, MachineToHub,
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::mpsc;
@@ -120,6 +122,9 @@ enum SessionCommand {
         option_id: Option<String>,
         text: Option<String>,
     },
+    SetModel {
+        model_id: String,
+    },
     Cancel,
     Kill,
 }
@@ -163,6 +168,7 @@ impl AcpManager {
         cwd: String,
         auto_run: bool,
         resume_acp_session_id: Option<String>,
+        requested_model_id: Option<String>,
     ) {
         // A stale handle (session already running, e.g. duplicate start) is
         // replaced: kill the old process before spawning a new one.
@@ -202,6 +208,8 @@ impl AcpManager {
                         status: Some(AgentSessionStatus::Error),
                         title: None,
                         acp_session_id: None,
+                        available_models: None,
+                        current_model_id: None,
                     })
                     .await;
                 let _ = self
@@ -277,6 +285,12 @@ impl AcpManager {
             queued_commands: std::collections::VecDeque::new(),
             pending: HashMap::new(),
             next_rpc_id: 1,
+            available_models: Vec::new(),
+            current_model_id: None,
+            supports_models: false,
+            requested_model_id,
+            flush_after_set_model: false,
+            modes: None,
             stdin,
             child,
             outbound: self.outbound.clone(),
@@ -316,6 +330,11 @@ impl AcpManager {
 
     pub async fn cancel(&self, session_id: &str) {
         self.send_command(session_id, SessionCommand::Cancel).await;
+    }
+
+    pub async fn set_model(&self, session_id: &str, model_id: String) {
+        self.send_command(session_id, SessionCommand::SetModel { model_id })
+            .await;
     }
 
     /// Terminate the agent process. The actor reports AgentSessionExited once
@@ -371,6 +390,9 @@ enum PendingRpc {
     SessionNew,
     SessionLoad,
     Prompt,
+    /// session/set_model; carries the requested model so the success path can
+    /// report it as current.
+    SetModel { model_id: String },
 }
 
 /// Commands (prompt/answer/cancel) arriving while the handshake is still in
@@ -399,6 +421,23 @@ struct SessionActor {
     queued_commands: std::collections::VecDeque<SessionCommand>,
     pending: HashMap<u64, PendingRpc>,
     next_rpc_id: u64,
+    /// Model state reported by session/new (or session/load). Normalized from
+    /// either ACP shape: the standard `models` key (claude/codex/grok) or
+    /// kimi's `configOptions` select whose category is "model".
+    available_models: Vec<AgentModelInfo>,
+    current_model_id: Option<String>,
+    /// False until the agent surfaces any model info; SetModel commands are
+    /// rejected locally with an Error event while this is false.
+    supports_models: bool,
+    /// Create-time model: applied via session/set_model right after the
+    /// session is ready, before queued prompts are flushed.
+    requested_model_id: Option<String>,
+    /// Queued commands flush after the create-time set_model answers, so the
+    /// first prompt runs on the requested model.
+    flush_after_set_model: bool,
+    /// Modes the agent advertised (ACP `modes` key). Parsed and stashed for a
+    /// future mode UI; deliberately not surfaced yet.
+    modes: Option<Value>,
     stdin: ChildStdin,
     child: Child,
     outbound: mpsc::Sender<MachineToHub>,
@@ -518,6 +557,7 @@ impl SessionActor {
                 option_id,
                 text,
             } => self.handle_answer(request_id, option_id, text).await,
+            SessionCommand::SetModel { model_id } => self.handle_set_model(model_id).await,
             SessionCommand::Cancel => {
                 if let Some(acp_session_id) = self.acp_session_id.clone() {
                     self.send_notification("session/cancel", json!({"sessionId": acp_session_id}))
@@ -569,6 +609,65 @@ impl SessionActor {
             }),
         )
         .await;
+    }
+
+    async fn handle_set_model(&mut self, model_id: String) {
+        if !self.supports_models {
+            self.emit_event(AgentEvent::Error {
+                message: "this agent does not support model switching".to_string(),
+            })
+            .await;
+            return;
+        }
+        let Some(acp_session_id) = self.acp_session_id.clone() else {
+            return;
+        };
+        self.send_request(
+            PendingRpc::SetModel {
+                model_id: model_id.clone(),
+            },
+            "session/set_model",
+            json!({"sessionId": acp_session_id, "modelId": model_id}),
+        )
+        .await;
+    }
+
+    /// Record the model/mode state from a session/new or session/load result.
+    /// `replace` (session/new) redefines the state; session/load only fills
+    /// in what it actually carries.
+    fn adopt_session_config(&mut self, result: &Value, replace: bool) {
+        let parsed = parse_session_models(result);
+        if replace || parsed.is_some() {
+            let (models, current) = parsed.unwrap_or_default();
+            self.supports_models = !models.is_empty() || current.is_some();
+            self.available_models = models;
+            self.current_model_id = current;
+        }
+        if let Some(modes) = result.get("modes") {
+            self.modes = Some(modes.clone());
+        }
+    }
+
+    /// Apply the create-time model, if any: session/set_model first, queued
+    /// commands only after it answers (success or error — never blocking the
+    /// session on a model the agent refuses).
+    async fn apply_requested_model_then_flush(&mut self) {
+        let Some(model_id) = self.requested_model_id.take() else {
+            self.flush_queued_commands().await;
+            return;
+        };
+        if !self.supports_models {
+            self.emit_event(AgentEvent::Error {
+                message: format!(
+                    "this agent does not support model selection; requested model \"{model_id}\" was not applied"
+                ),
+            })
+            .await;
+            self.flush_queued_commands().await;
+            return;
+        }
+        self.flush_after_set_model = true;
+        self.handle_set_model(model_id).await;
     }
 
     async fn handle_answer(
@@ -767,6 +866,7 @@ impl SessionActor {
                     .get("sessionId")
                     .and_then(Value::as_str)
                     .map(str::to_string);
+                self.adopt_session_config(&result, true);
                 let _ = self
                     .outbound
                     .send(MachineToHub::AgentSessionUpdate {
@@ -774,17 +874,20 @@ impl SessionActor {
                         status: Some(AgentSessionStatus::Idle),
                         title: None,
                         acp_session_id: self.acp_session_id.clone(),
+                        available_models: Some(self.available_models.clone()),
+                        current_model_id: self.current_model_id.clone(),
                     })
                     .await;
-                self.flush_queued_commands().await;
+                self.apply_requested_model_then_flush().await;
             }
             PendingRpc::SessionLoad => {
                 self.suppress_updates = false;
                 // The load succeeded, so the resumed id is the live ACP
                 // session id again.
                 self.acp_session_id = self.resume_acp_session_id.clone();
+                self.adopt_session_config(&result, false);
                 self.send_status(AgentSessionStatus::Idle).await;
-                self.flush_queued_commands().await;
+                self.apply_requested_model_then_flush().await;
             }
             PendingRpc::Prompt => {
                 let stop_reason = result
@@ -799,6 +902,24 @@ impl SessionActor {
                     AgentSessionStatus::Idle
                 };
                 self.send_status(status).await;
+            }
+            PendingRpc::SetModel { model_id } => {
+                self.current_model_id = Some(model_id.clone());
+                let _ = self
+                    .outbound
+                    .send(MachineToHub::AgentSessionUpdate {
+                        session_id: self.session_id.clone(),
+                        status: None,
+                        title: None,
+                        acp_session_id: None,
+                        available_models: None,
+                        current_model_id: Some(model_id),
+                    })
+                    .await;
+                if self.flush_after_set_model {
+                    self.flush_after_set_model = false;
+                    self.flush_queued_commands().await;
+                }
             }
         }
     }
@@ -820,6 +941,17 @@ impl SessionActor {
             PendingRpc::Prompt => {
                 self.emit_event(AgentEvent::Error { message: text }).await;
                 self.send_status(AgentSessionStatus::Idle).await;
+            }
+            PendingRpc::SetModel { model_id } => {
+                // A refused model switch must not fail the session.
+                self.emit_event(AgentEvent::Error {
+                    message: format!("model \"{model_id}\" was not applied: {text}"),
+                })
+                .await;
+                if self.flush_after_set_model {
+                    self.flush_after_set_model = false;
+                    self.flush_queued_commands().await;
+                }
             }
         }
     }
@@ -917,6 +1049,8 @@ impl SessionActor {
                 status: Some(status),
                 title: None,
                 acp_session_id: None,
+                available_models: None,
+                current_model_id: None,
             })
             .await;
     }
@@ -950,6 +1084,85 @@ fn content_text(update: &Value) -> String {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string()
+}
+
+/// Normalize the model state out of a session/new (or session/load) result.
+/// Two shapes exist in the wild (verified by probing the agents):
+/// - Standard ACP `models`: `{availableModels: [{modelId, name,
+///   description}], currentModelId}` — claude-code-acp, codex-acp, grok.
+/// - kimi's `configOptions`: a select whose category is "model", with
+///   `options: [{value, name, description?}]` and `currentValue`.
+///
+/// Returns None when the result carries neither shape (callers keep their
+/// previous state then — relevant for session/load).
+fn parse_session_models(result: &Value) -> Option<(Vec<AgentModelInfo>, Option<String>)> {
+    if let Some(models) = result.get("models") {
+        let available = models
+            .get("availableModels")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| {
+                        Some(AgentModelInfo {
+                            model_id: item.get("modelId")?.as_str()?.to_string(),
+                            name: item
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string(),
+                            description: item
+                                .get("description")
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let current = models
+            .get("currentModelId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        return Some((available, current));
+    }
+    let config_options = result.get("configOptions")?.as_array()?;
+    let model_option = config_options
+        .iter()
+        .find(|option| option.get("category").and_then(Value::as_str) == Some("model"))
+        .or_else(|| {
+            config_options
+                .iter()
+                .find(|option| option.get("id").and_then(Value::as_str) == Some("model"))
+        })?;
+    let available = model_option
+        .get("options")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    Some(AgentModelInfo {
+                        model_id: item.get("value")?.as_str()?.to_string(),
+                        name: item
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        description: item
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let current = model_option
+        .get("currentValue")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    Some((available, current))
 }
 
 /// Map one ACP session/update payload to a normalized AgentEvent. Unknown
@@ -1045,8 +1258,9 @@ mod tests {
     }
 
     /// argv for the fake ACP agent, or None when python3/the script is
-    /// unavailable (tests then skip).
-    fn fake_agent_command(ask: bool) -> Option<Vec<String>> {
+    /// unavailable (tests then skip). `models: false` spawns it with
+    /// FAKE_ACP_MODELS=0 so it advertises no model support.
+    fn fake_agent_command(ask: bool, models: bool) -> Option<Vec<String>> {
         let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../e2e/fake-acp-agent.py")
             .canonicalize()
@@ -1061,19 +1275,26 @@ mod tests {
         if !python3_available {
             return None;
         }
-        let mut argv: Vec<String> = if ask {
-            // FAKE_ACP_ASK=1 without spawning through a shell.
-            vec!["env".to_string(), "FAKE_ACP_ASK=1".to_string()]
-        } else {
-            Vec::new()
-        };
+        let mut argv: Vec<String> = Vec::new();
+        let mut envs: Vec<String> = Vec::new();
+        if ask {
+            envs.push("FAKE_ACP_ASK=1".to_string());
+        }
+        if !models {
+            envs.push("FAKE_ACP_MODELS=0".to_string());
+        }
+        if !envs.is_empty() {
+            // Env vars without spawning through a shell.
+            argv.push("env".to_string());
+            argv.extend(envs);
+        }
         argv.push("python3".to_string());
         argv.push(script.to_string_lossy().into_owned());
         Some(argv)
     }
 
-    fn harness(ask: bool) -> Option<(AcpManager, mpsc::Receiver<MachineToHub>)> {
-        let argv = fake_agent_command(ask)?;
+    fn harness(ask: bool, models: bool) -> Option<(AcpManager, mpsc::Receiver<MachineToHub>)> {
+        let argv = fake_agent_command(ask, models)?;
         let (tx, rx) = mpsc::channel(256);
         let overrides = HashMap::from([("kimi".to_string(), argv)]);
         Some((AcpManager::new(overrides, tx), rx))
@@ -1155,6 +1376,7 @@ mod tests {
                 "/tmp".to_string(),
                 auto_run,
                 resume_acp_session_id,
+                None,
             )
             .await;
         collect_until(rx, session_ready).await
@@ -1162,7 +1384,7 @@ mod tests {
 
     #[tokio::test]
     async fn prompt_produces_normalized_event_sequence() {
-        let Some((manager, mut rx)) = harness(false) else {
+        let Some((manager, mut rx)) = harness(false, true) else {
             eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
             return;
         };
@@ -1237,7 +1459,7 @@ mod tests {
 
     #[tokio::test]
     async fn auto_run_approves_permission_without_a_question_event() {
-        let Some((manager, mut rx)) = harness(true) else {
+        let Some((manager, mut rx)) = harness(true, true) else {
             eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
             return;
         };
@@ -1260,7 +1482,7 @@ mod tests {
 
     #[tokio::test]
     async fn prompt_during_handshake_is_queued_and_runs_on_ready() {
-        let Some((manager, mut rx)) = harness(false) else {
+        let Some((manager, mut rx)) = harness(false, true) else {
             eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
             return;
         };
@@ -1271,6 +1493,7 @@ mod tests {
                 AgentKind::Kimi,
                 "/tmp".to_string(),
                 true,
+                None,
                 None,
             )
             .await;
@@ -1293,7 +1516,7 @@ mod tests {
 
     #[tokio::test]
     async fn question_parks_until_answer_resolves_it() {
-        let Some((manager, mut rx)) = harness(true) else {
+        let Some((manager, mut rx)) = harness(true, true) else {
             eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
             return;
         };
@@ -1378,7 +1601,7 @@ mod tests {
 
     #[tokio::test]
     async fn child_crash_reports_exited() {
-        let Some((manager, mut rx)) = harness(false) else {
+        let Some((manager, mut rx)) = harness(false, true) else {
             eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
             return;
         };
@@ -1404,7 +1627,7 @@ mod tests {
 
     #[tokio::test]
     async fn kill_terminates_the_agent_process() {
-        let Some((manager, mut rx)) = harness(false) else {
+        let Some((manager, mut rx)) = harness(false, true) else {
             eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
             return;
         };
@@ -1427,7 +1650,7 @@ mod tests {
 
     #[tokio::test]
     async fn resume_falls_back_to_a_new_session_when_history_is_gone() {
-        let Some((manager, mut rx)) = harness(false) else {
+        let Some((manager, mut rx)) = harness(false, true) else {
             eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
             return;
         };
@@ -1460,6 +1683,236 @@ mod tests {
         let msgs = collect_until(&mut rx, is_turn_ended).await;
         assert!(events_of(&msgs).iter().any(
             |(_, event)| matches!(event, AgentEvent::AgentMessageChunk { text } if text == "echo: still here")
+        ));
+        manager.kill_all().await;
+    }
+
+    #[test]
+    fn parse_session_models_handles_both_wire_shapes() {
+        // Standard ACP shape (claude/codex/grok).
+        let standard = json!({
+            "sessionId": "x",
+            "models": {
+                "currentModelId": "grok-4.6",
+                "availableModels": [
+                    {"modelId": "grok-4.6", "name": "Grok 4.6", "description": "frontier"},
+                    {"modelId": "grok-4.5", "name": "Grok 4.5"}
+                ]
+            }
+        });
+        let (models, current) = parse_session_models(&standard).unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].model_id, "grok-4.6");
+        assert_eq!(models[0].description.as_deref(), Some("frontier"));
+        assert_eq!(models[1].description, None);
+        assert_eq!(current.as_deref(), Some("grok-4.6"));
+
+        // kimi's configOptions shape: the select whose category is "model".
+        let kimi = json!({
+            "sessionId": "x",
+            "configOptions": [
+                {"type": "select", "id": "thinking", "category": "thought_level",
+                 "currentValue": "high", "options": [{"value": "low", "name": "Low"}]},
+                {"type": "select", "id": "model", "category": "model",
+                 "currentValue": "kimi-code/k3",
+                 "options": [
+                     {"value": "kimi-code/kimi-for-coding", "name": "K2.7 Coding"},
+                     {"value": "kimi-code/k3", "name": "K3"}
+                 ]}
+            ]
+        });
+        let (models, current) = parse_session_models(&kimi).unwrap();
+        assert_eq!(
+            models.iter().map(|m| m.model_id.as_str()).collect::<Vec<_>>(),
+            vec!["kimi-code/kimi-for-coding", "kimi-code/k3"]
+        );
+        assert_eq!(current.as_deref(), Some("kimi-code/k3"));
+
+        // Neither shape: None (session/load results often carry nothing).
+        assert!(parse_session_models(&json!({"sessionId": "x"})).is_none());
+        // An empty availableModels list still counts as a definitive answer.
+        assert_eq!(
+            parse_session_models(&json!({"models": {"availableModels": []}})),
+            Some((Vec::new(), None))
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_update_carries_the_advertised_models() {
+        let Some((manager, mut rx)) = harness(false, true) else {
+            eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
+            return;
+        };
+        let ready = start_and_wait_ready(&manager, &mut rx, "s-models", false, None).await;
+        assert!(ready.iter().any(|msg| matches!(
+            msg,
+            MachineToHub::AgentSessionUpdate {
+                status: Some(AgentSessionStatus::Idle),
+                available_models: Some(models),
+                current_model_id: Some(current),
+                ..
+            } if models.len() == 2
+                && models[0].model_id == "fake-model-a"
+                && models[1].model_id == "fake-model-b"
+                && current == "fake-model-a"
+        )));
+        manager.kill_all().await;
+    }
+
+    #[tokio::test]
+    async fn create_time_model_is_applied_before_queued_prompts() {
+        let Some((manager, mut rx)) = harness(false, true) else {
+            eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
+            return;
+        };
+        // Request a model at create time and race a prompt in during the
+        // handshake: the set_model update must land before the prompt echo.
+        manager
+            .start_session(
+                "s-create-model".to_string(),
+                AgentKind::Kimi,
+                "/tmp".to_string(),
+                true,
+                None,
+                Some("fake-model-b".to_string()),
+            )
+            .await;
+        manager
+            .prompt("s-create-model", "on the new model".to_string())
+            .await;
+        let msgs = collect_until(&mut rx, is_turn_ended).await;
+
+        let model_update_pos = msgs.iter().position(|msg| matches!(
+            msg,
+            MachineToHub::AgentSessionUpdate {
+                current_model_id: Some(id),
+                ..
+            } if id == "fake-model-b"
+        ));
+        let echo_pos = msgs.iter().position(|msg| matches!(
+            msg,
+            MachineToHub::AgentSessionEvent {
+                event: AgentEvent::UserMessage { .. },
+                ..
+            }
+        ));
+        assert!(
+            matches!(model_update_pos, Some(m) if Some(m) < echo_pos),
+            "the create-time model applies before queued prompts flush: {msgs:?}"
+        );
+        assert!(events_of(&msgs).iter().any(
+            |(_, event)| matches!(event, AgentEvent::AgentMessageChunk { text } if text == "echo: on the new model")
+        ));
+        manager.kill_all().await;
+    }
+
+    #[tokio::test]
+    async fn set_model_switches_and_reports_the_current_model() {
+        let Some((manager, mut rx)) = harness(false, true) else {
+            eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
+            return;
+        };
+        start_and_wait_ready(&manager, &mut rx, "s-switch", false, None).await;
+
+        manager
+            .set_model("s-switch", "fake-model-b".to_string())
+            .await;
+        let msgs = collect_until(&mut rx, |msg| {
+            matches!(
+                msg,
+                MachineToHub::AgentSessionUpdate {
+                    current_model_id: Some(id),
+                    ..
+                } if id == "fake-model-b"
+            )
+        })
+        .await;
+        assert!(
+            !events_of(&msgs)
+                .iter()
+                .any(|(_, event)| matches!(event, AgentEvent::Error { .. })),
+            "a successful switch emits no error: {msgs:?}"
+        );
+
+        // And the session keeps working on the new model.
+        manager.prompt("s-switch", "still alive".to_string()).await;
+        let msgs = collect_until(&mut rx, is_turn_ended).await;
+        assert!(events_of(&msgs).iter().any(
+            |(_, event)| matches!(event, AgentEvent::AgentMessageChunk { text } if text == "echo: still alive")
+        ));
+        manager.kill_all().await;
+    }
+
+    #[tokio::test]
+    async fn set_model_error_is_an_event_not_a_session_failure() {
+        let Some((manager, mut rx)) = harness(false, true) else {
+            eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
+            return;
+        };
+        start_and_wait_ready(&manager, &mut rx, "s-bad-model", false, None).await;
+
+        manager
+            .set_model("s-bad-model", "not-a-model".to_string())
+            .await;
+        let msgs = collect_until(&mut rx, |msg| {
+            matches!(
+                msg,
+                MachineToHub::AgentSessionEvent {
+                    event: AgentEvent::Error { .. },
+                    ..
+                }
+            )
+        })
+        .await;
+        assert!(events_of(&msgs).iter().any(
+            |(_, event)| matches!(event, AgentEvent::Error { message } if message.contains("not-a-model"))
+        ));
+        assert!(
+            !statuses_of(&msgs).contains(&AgentSessionStatus::Error),
+            "a refused model switch never fails the session"
+        );
+        manager.kill_all().await;
+    }
+
+    #[tokio::test]
+    async fn set_model_is_rejected_locally_when_the_agent_reported_no_models() {
+        let Some((manager, mut rx)) = harness(false, false) else {
+            eprintln!("skipping: python3 or e2e/fake-acp-agent.py unavailable");
+            return;
+        };
+        let ready = start_and_wait_ready(&manager, &mut rx, "s-no-models", false, None).await;
+        assert!(ready.iter().any(|msg| matches!(
+            msg,
+            MachineToHub::AgentSessionUpdate {
+                status: Some(AgentSessionStatus::Idle),
+                available_models: Some(models),
+                current_model_id: None,
+                ..
+            } if models.is_empty()
+        )));
+
+        manager
+            .set_model("s-no-models", "fake-model-b".to_string())
+            .await;
+        let msgs = collect_until(&mut rx, |msg| {
+            matches!(
+                msg,
+                MachineToHub::AgentSessionEvent {
+                    event: AgentEvent::Error { .. },
+                    ..
+                }
+            )
+        })
+        .await;
+        assert!(events_of(&msgs).iter().any(
+            |(_, event)| matches!(event, AgentEvent::Error { message } if message.contains("does not support model switching")
+        )));
+
+        // The session itself is unaffected.
+        manager.prompt("s-no-models", "ping".to_string()).await;
+        let msgs = collect_until(&mut rx, is_turn_ended).await;
+        assert!(events_of(&msgs).iter().any(
+            |(_, event)| matches!(event, AgentEvent::AgentMessageChunk { text } if text == "echo: ping")
         ));
         manager.kill_all().await;
     }

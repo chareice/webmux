@@ -1300,6 +1300,8 @@ impl MachineManager {
                 status,
                 title,
                 acp_session_id,
+                available_models,
+                current_model_id,
             } => {
                 let Ok(db_conn) = self.db.get() else {
                     tracing::warn!("No DB connection for agent session update");
@@ -1311,6 +1313,8 @@ impl MachineManager {
                     status,
                     title.as_deref(),
                     acp_session_id.as_deref(),
+                    available_models.as_deref(),
+                    current_model_id.as_deref(),
                 ) {
                     tracing::warn!("Failed to persist agent session update: {}", e);
                     return;

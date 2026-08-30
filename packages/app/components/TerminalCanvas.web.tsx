@@ -10,6 +10,7 @@ import {
 } from "react";
 import type {
   TerminalInfo,
+  AgentKind,
   AgentSessionInfo,
   Bookmark,
   WorkspaceGroupInfo,
@@ -51,6 +52,7 @@ import {
   renameWorkspaceGroup,
   resumeAgentSession,
   saveWorkspaceLayout,
+  setAgentSessionModel,
 } from "@/lib/api";
 import {
   estimateInitialTerminalDimensions,
@@ -101,6 +103,11 @@ import {
 import { TerminalPreviewMuxProvider } from "@/lib/terminalPreviewMuxReact";
 import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 import { readViewOnlyLock, writeViewOnlyLock } from "@/lib/viewOnlyLock";
+import {
+  readSessionDefaults,
+  recordSessionModels,
+  writeLastCwd,
+} from "@/lib/sessionDefaults";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import { LazyLoadingFallback } from "./LazyLoadingFallback";
 import type { NewSessionRequest } from "./NewSessionDialog.web";
@@ -1120,8 +1127,35 @@ function TerminalCanvasInner() {
     ],
   );
 
-  // New-session dialog submit: the terminal chip routes to the existing
-  // create-terminal flow; agent kinds create + select an agent session.
+  // Create an agent session and select it; shared by the new-session panel
+  // and the sidebar section ＋ → "New agent chat" instant path.
+  const createAndSelectAgentSession = useCallback(
+    async (
+      machineId: string,
+      args: {
+        agentKind: AgentKind;
+        cwd: string;
+        autoRun?: boolean;
+        modelId?: string | null;
+      },
+    ) => {
+      if (!deviceId) return;
+      const session = await createAgentSession(machineId, args, deviceId);
+      setBrowserState((prev) => ({
+        ...prev,
+        agentSessions: prev.agentSessions.some((item) => item.id === session.id)
+          ? prev.agentSessions
+          : [...prev.agentSessions, session],
+      }));
+      if (machineId !== activeMachineId) setActiveMachineId(machineId);
+      handleSelectAgentSession(session.machine_id, session.id);
+    },
+    [deviceId, activeMachineId, handleSelectAgentSession],
+  );
+
+  // New-session panel submit: the terminal chip routes to the existing
+  // create-terminal flow; agent kinds create + select an agent session. The
+  // panel itself persists the choices as the remembered defaults.
   const handleNewSessionRequest = useCallback(
     (request: NewSessionRequest) => {
       setNewSessionOpen(false);
@@ -1133,35 +1167,68 @@ function TerminalCanvasInner() {
         );
         return;
       }
-      void (async () => {
-        const session = await createAgentSession(
-          request.machineId,
-          {
-            agentKind: kind,
-            cwd: request.cwd,
-            autoRun: request.autoRun,
-          },
-          deviceId,
-        );
-        setBrowserState((prev) => ({
-          ...prev,
-          agentSessions: prev.agentSessions.some(
-            (item) => item.id === session.id,
-          )
-            ? prev.agentSessions
-            : [...prev.agentSessions, session],
-        }));
-        handleSelectAgentSession(session.machine_id, session.id);
-      })().catch((error) =>
-        console.error("Failed to create agent session", error),
-      );
+      void createAndSelectAgentSession(request.machineId, {
+        agentKind: kind,
+        cwd: request.cwd,
+        autoRun: request.autoRun,
+        modelId: request.modelId,
+      }).catch((error) => console.error("Failed to create agent session", error));
     },
     [
       deviceId,
       isMachineController,
       handleCreateTerminal,
-      handleSelectAgentSession,
+      createAndSelectAgentSession,
     ],
+  );
+
+  // Sidebar section ＋ → "New agent chat": zero-dialog create in that
+  // project's cwd with the remembered agent + model (auto-run remembered,
+  // else the machine default).
+  const handleNewAgentChatInSection = useCallback(
+    (machineId: string, group: WorkspaceGroup) => {
+      if (!deviceId || !isMachineController(machineId)) return;
+      const machine = machines.find((m) => m.id === machineId);
+      if (!machine) return;
+      const cwd = group.cwd || machine.home_dir || "~";
+      const defaults = readSessionDefaults(window.localStorage);
+      // "terminal" is not an agent; the instant path falls back to kimi.
+      const agentKind: AgentKind =
+        defaults.agentKind === "terminal" ? "kimi" : defaults.agentKind;
+      writeLastCwd(window.localStorage, machineId, cwd);
+      void createAndSelectAgentSession(machineId, {
+        agentKind,
+        cwd,
+        autoRun: defaults.autoRun ?? !(machine.production ?? false),
+        modelId: defaults.modelId,
+      }).catch((error) => console.error("Failed to create agent session", error));
+    },
+    [
+      deviceId,
+      isMachineController,
+      machines,
+      createAndSelectAgentSession,
+    ],
+  );
+
+  // Feed the per-agent-kind model cache: the create panel's model dropdown
+  // reads it so options exist even before a session is selected.
+  useEffect(() => {
+    for (const session of agentSessions) {
+      recordSessionModels(
+        window.localStorage,
+        session.agent_kind,
+        session.available_models,
+      );
+    }
+  }, [agentSessions]);
+
+  const handleSelectAgentModel = useCallback(
+    async (session: AgentSessionInfo, modelId: string) => {
+      if (!deviceId) return;
+      await setAgentSessionModel(session.machine_id, session.id, modelId, deviceId);
+    },
+    [deviceId],
   );
 
   const handleRequestControl = useCallback(
@@ -1978,6 +2045,9 @@ function TerminalCanvasInner() {
                 onNewTerminalInSection={(machineId, group) =>
                   void handleNewTerminalInSection(machineId, group)
                 }
+                onNewAgentChatInSection={(machineId, group) =>
+                  handleNewAgentChatInSection(machineId, group)
+                }
                 onRenameSection={handleRenameGroup}
                 onDeleteSection={handleDeleteGroup}
                 onReorderSections={(sourceGroupId, targetGroupId, placement) =>
@@ -2050,6 +2120,12 @@ function TerminalCanvasInner() {
                       void handleResumeAgentSession(selectedAgentSession).catch(
                         (error) =>
                           console.error("Failed to resume agent session", error),
+                      )
+                    }
+                    onSelectModel={(modelId) =>
+                      void handleSelectAgentModel(selectedAgentSession, modelId).catch(
+                        (error) =>
+                          console.error("Failed to switch agent model", error),
                       )
                     }
                   />
@@ -2127,6 +2203,8 @@ function TerminalCanvasInner() {
               isControllerFor={isMachineController}
               initialMachineId={activeMachineId}
               initialCwd={activeMachine?.home_dir ?? null}
+              agentSessions={agentSessions}
+              terminals={terminals}
               onClose={() => setNewSessionOpen(false)}
               onCreate={handleNewSessionRequest}
             />

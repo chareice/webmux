@@ -697,9 +697,10 @@ async fn handle_hub_message(
             cwd,
             auto_run,
             resume_acp_session_id,
+            model_id,
         } => {
             acp_manager
-                .start_session(session_id, agent_kind, cwd, auto_run, resume_acp_session_id)
+                .start_session(session_id, agent_kind, cwd, auto_run, resume_acp_session_id, model_id)
                 .await;
         }
         HubToMachine::AgentSessionPrompt { session_id, text } => {
@@ -717,6 +718,12 @@ async fn handle_hub_message(
         }
         HubToMachine::AgentSessionCancel { session_id } => {
             acp_manager.cancel(&session_id).await;
+        }
+        HubToMachine::AgentSessionSetModel {
+            session_id,
+            model_id,
+        } => {
+            acp_manager.set_model(&session_id, model_id).await;
         }
         HubToMachine::AgentSessionKill { session_id } => {
             acp_manager.kill(&session_id).await;

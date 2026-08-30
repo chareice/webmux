@@ -163,6 +163,14 @@ pub struct AgentSessionInfo {
     pub acp_session_id: Option<String>,
     #[serde(default)]
     pub workspace_group_id: Option<String>,
+    /// Models this session can switch between; empty = the agent doesn't
+    /// expose model selection (the UI renders nothing then).
+    #[serde(default)]
+    pub available_models: Vec<AgentModelInfo>,
+    /// The model the session is currently running on, if the agent reported
+    /// one. May name a model that is not in `available_models`.
+    #[serde(default)]
+    pub current_model_id: Option<String>,
     pub last_event_seq: u64,
     pub created_at_ms: i64,
 }
@@ -173,6 +181,18 @@ pub struct AgentQuestionOption {
     pub label: String,
     #[serde(default)]
     pub detail: Option<String>,
+}
+
+/// One model an agent session can run on. Normalized from the ACP shapes the
+/// adapters actually expose: the standard `models.availableModels` of
+/// session/new (claude/codex/grok) and kimi's `configOptions` select whose
+/// category is "model".
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentModelInfo {
+    pub model_id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// Normalized ACP session updates. The machine translates the agent-specific
@@ -297,6 +317,11 @@ pub enum HubToMachine {
         auto_run: bool,
         #[serde(skip_serializing_if = "Option::is_none", default)]
         resume_acp_session_id: Option<String>,
+        /// Model requested at create time. ACP session/new has no model
+        /// param, so the machine applies this via session/set_model right
+        /// after the session is ready, before flushing queued prompts.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        model_id: Option<String>,
     },
     #[serde(rename = "agent_session_prompt")]
     AgentSessionPrompt { session_id: String, text: String },
@@ -312,6 +337,10 @@ pub enum HubToMachine {
     /// Cancel the current turn (ACP session/cancel).
     #[serde(rename = "agent_session_cancel")]
     AgentSessionCancel { session_id: String },
+    /// Switch the session's model (ACP session/set_model). Agents that never
+    /// reported models reject this locally with an Error event.
+    #[serde(rename = "agent_session_set_model")]
+    AgentSessionSetModel { session_id: String, model_id: String },
     /// Terminate the agent process.
     #[serde(rename = "agent_session_kill")]
     AgentSessionKill { session_id: String },
@@ -390,6 +419,12 @@ pub enum MachineToHub {
         title: Option<String>,
         #[serde(default)]
         acp_session_id: Option<String>,
+        /// Some = the agent's model list (empty means the agent explicitly
+        /// reported no model support); None = unchanged.
+        #[serde(default)]
+        available_models: Option<Vec<AgentModelInfo>>,
+        #[serde(default)]
+        current_model_id: Option<String>,
     },
     /// One normalized agent event. `seq` is per-session monotonic and
     /// machine-assigned, starting at 1 (restarted on resume; the hub ignores
@@ -761,6 +796,7 @@ mod tests {
             cwd: "/work/repo".to_string(),
             auto_run: true,
             resume_acp_session_id: Some("acp-9".to_string()),
+            model_id: Some("kimi-code/k3".to_string()),
         };
         let json = serde_json::to_string(&start).unwrap();
         assert!(json.contains(r#""type":"agent_session_start""#));
@@ -783,6 +819,75 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains(r#""type":"agent_session_event""#));
         assert!(json.contains(r#""type":"turn_ended""#));
+    }
+
+    #[test]
+    fn agent_session_model_messages_round_trip() {
+        use super::{AgentKind, AgentModelInfo, AgentSessionInfo, HubToMachine, MachineToHub};
+
+        let set_model = HubToMachine::AgentSessionSetModel {
+            session_id: "s-1".to_string(),
+            model_id: "grok-4.5".to_string(),
+        };
+        let json = serde_json::to_string(&set_model).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"agent_session_set_model","session_id":"s-1","model_id":"grok-4.5"}"#
+        );
+        let parsed = serde_json::from_str::<HubToMachine>(&json).unwrap();
+        assert!(matches!(
+            parsed,
+            HubToMachine::AgentSessionSetModel { model_id, .. } if model_id == "grok-4.5"
+        ));
+
+        // A create without a model omits the field entirely (old machines
+        // ignore unknown fields; new machines default to None).
+        let start = HubToMachine::AgentSessionStart {
+            session_id: "s-1".to_string(),
+            agent_kind: AgentKind::Grok,
+            cwd: "/work".to_string(),
+            auto_run: false,
+            resume_acp_session_id: None,
+            model_id: None,
+        };
+        assert!(!serde_json::to_string(&start).unwrap().contains("model_id"));
+
+        // An update with only a model change leaves the other fields out;
+        // the browser-facing info tolerates missing model fields.
+        let update = serde_json::from_str::<MachineToHub>(
+            r#"{"type":"agent_session_update","session_id":"s-1","current_model_id":"grok-4.5"}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            update,
+            MachineToHub::AgentSessionUpdate {
+                status: None,
+                available_models: None,
+                current_model_id: Some(id),
+                ..
+            } if id == "grok-4.5"
+        ));
+
+        let info = serde_json::from_str::<AgentSessionInfo>(
+            r#"{"id":"s-1","machine_id":"m","agent_kind":"grok","cwd":"/work","title":"work",
+               "status":"idle","auto_run":true,"last_event_seq":0,"created_at_ms":1}"#,
+        )
+        .unwrap();
+        assert!(info.available_models.is_empty());
+        assert_eq!(info.current_model_id, None);
+
+        let model = AgentModelInfo {
+            model_id: "grok-4.6".to_string(),
+            name: "Grok 4.6".to_string(),
+            description: None,
+        };
+        assert_eq!(
+            serde_json::from_str::<AgentModelInfo>(
+                &serde_json::to_string(&model).unwrap()
+            )
+            .unwrap(),
+            model
+        );
     }
 
     #[test]
