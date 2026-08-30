@@ -14,6 +14,7 @@ import {
   flattenWorkspacePanes,
   getMobileWorkspaceTabs,
   isWorkspaceGroupFull,
+  mountedWorkspaceGroupIds,
   planNewTerminalPlacement,
   reconcileTerminalWorkspace,
   rotateWorkspaceLayout,
@@ -22,7 +23,31 @@ import {
   swapWorkspacePanes,
   workspacePaneOrder,
 } from "./terminalWorkspaceLayout";
-import type { WorkspacePaneNode } from "./terminalWorkspaceLayout";
+import type {
+  TerminalWorkspace,
+  WorkspacePaneNode,
+} from "./terminalWorkspaceLayout";
+
+// Bare workspace shell for mountedWorkspaceGroupIds: group contents are
+// irrelevant there, only which ids exist and which is active.
+function workspaceWithGroups(
+  groupIds: string[],
+  activeGroupId: string,
+): TerminalWorkspace {
+  return {
+    groups: groupIds.map((id) => ({
+      id,
+      label: id,
+      cwd: "/",
+      workspaceGroupId: null,
+      persistent: false,
+      root: null,
+      paneCount: 0,
+    })),
+    activeGroupId,
+    activeTerminalId: null,
+  };
+}
 
 function terminal(id: string, cwd: string): TerminalInfo {
   return {
@@ -812,6 +837,40 @@ describe("terminalWorkspaceLayout", () => {
 
     expect(next.activeGroupId).toBe("cwd:/home/chareice/projects/zhuyang");
     expect(next.activeTerminalId).toBe("api-1");
+  });
+
+  it("keeps the active and previously active groups mounted, active first", () => {
+    const workspace = workspaceWithGroups(["a", "b", "c"], "b");
+
+    expect(mountedWorkspaceGroupIds(workspace, "a", false)).toEqual(["b", "a"]);
+  });
+
+  it("dedupes when the previous active group is still active", () => {
+    const workspace = workspaceWithGroups(["a", "b"], "a");
+
+    expect(mountedWorkspaceGroupIds(workspace, "a", false)).toEqual(["a"]);
+  });
+
+  it("drops mounted groups that no longer exist (deleted group)", () => {
+    const workspace = workspaceWithGroups(["b", "c"], "c");
+
+    expect(mountedWorkspaceGroupIds(workspace, "a", false)).toEqual(["c"]);
+  });
+
+  it("mounts nothing when the active group id is not in the workspace", () => {
+    const workspace: TerminalWorkspace = {
+      groups: [],
+      activeGroupId: "gone",
+      activeTerminalId: null,
+    };
+
+    expect(mountedWorkspaceGroupIds(workspace, null, false)).toEqual([]);
+  });
+
+  it("keeps only the active group mounted on touch devices", () => {
+    const workspace = workspaceWithGroups(["a", "b", "c"], "b");
+
+    expect(mountedWorkspaceGroupIds(workspace, "a", true)).toEqual(["b"]);
   });
 
   it("finds adjacent panes by visual direction", () => {

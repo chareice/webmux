@@ -139,7 +139,11 @@ test("a tab caps at four panes and new terminals overflow into a new tab", async
   // a fifth pane in the full one.
   await pressPrefixKey(page, "c");
   await expect.poll(async () => (await listTerminals(page)).length).toBe(5);
-  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(1);
+  // Keep-alive: the full tab stays mounted but hidden, so only count the
+  // visible panes of the fresh tab.
+  await expect(
+    page.locator("[data-testid^='workspace-pane-']:visible"),
+  ).toHaveCount(1);
   const groups = await listWorkspaceGroupsViaApi(page);
   expect(groups).toHaveLength(2);
   // Four panes in the first tab, the fifth terminal alone in the second.
