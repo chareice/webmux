@@ -1,6 +1,6 @@
 # Terminal Handoff Sizing
 
-1. **action:** In a desktop browser session, open the app, click the sidebar's "viewing" pill to take control, and open a new terminal via the sidebar's ＋ button (new-session dialog → terminal), `⌃B c`, or the empty-state "Start terminal" button.
+1. **action:** In a desktop browser session, open the app, click the sidebar's "viewing" pill to take control, and open a new terminal via the sidebar's ＋ button (new-session panel → terminal), `⌃B c`, or the empty-state "Start terminal" button.
    **eval:** One terminal pane appears in the workspace. The terminal exists on the server with its initial `cols` and `rows`.
 
 2. **action:** Focus the terminal in the desktop workspace (click its pane)

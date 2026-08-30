@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import {
   createAgentSessionViaApi,
+  createTerminalViaApi,
+  listWorkspaceGroupsViaApi,
   openApp,
   resetMachineState,
   takeControlFromHeader,
@@ -13,20 +15,22 @@ import {
 // (completed, "tool output"), then turn_ended. With FAKE_ACP_ASK=1 (set on
 // the node container) a session created with auto_run=false additionally
 // parks on a permission request ("fake tool", options Allow once / Allow
-// always / Deny) until answered.
+// always / Deny) until answered. It also advertises two models
+// (fake-model-a current, fake-model-b) and answers session/set_model.
 
-test("new-session dialog creates a kimi session and the chat view streams a reply", async ({
+test("new-session panel creates a kimi session and the chat view streams a reply", async ({
   page,
 }) => {
   await openApp(page);
   await resetMachineState(page);
   await takeControlFromHeader(page);
 
-  // Sidebar ＋ opens the new-session dialog.
+  // Sidebar ＋ opens the new-session panel. With a single online machine the
+  // machine picker is hidden; the directory is the only required input.
   await page.getByTestId("sidebar-new-tab").click();
   await expect(page.getByTestId("new-session-dialog")).toBeVisible();
+  await expect(page.getByTestId("new-session-machine-e2e-node")).toHaveCount(0);
   await page.getByTestId("new-session-agent-kimi").click();
-  await page.getByTestId("new-session-machine-e2e-node").click();
   await page.getByTestId("new-session-cwd-input").fill("/tmp");
   await page.getByTestId("new-session-submit").click();
 
@@ -38,6 +42,13 @@ test("new-session dialog creates a kimi session and the chat view streams a repl
   const sidebarRow = page.locator("[data-testid^='sidebar-agent-row-']");
   await expect(sidebarRow).toHaveCount(1);
   await expect(sidebarRow).toContainText("tmp");
+
+  // The fake agent advertises two models: the header picker shows the
+  // current one and switching relays through the hub to the agent.
+  const modelSelect = page.getByTestId("agent-chat-model-select");
+  await expect(modelSelect).toHaveValue("fake-model-a");
+  await modelSelect.selectOption("fake-model-b");
+  await expect(modelSelect).toHaveValue("fake-model-b");
 
   // Send a prompt; the fake agent echoes it back.
   await page.getByTestId("agent-chat-input").fill("hello from e2e");
@@ -57,6 +68,32 @@ test("new-session dialog creates a kimi session and the chat view streams a repl
   // The turn ends: status returns to idle and a turn divider renders.
   await expect(page.getByTestId("agent-chat-status")).toContainText("idle");
   await expect(page.getByTestId("agent-turn-divider")).toHaveCount(1);
+});
+
+test("the sidebar section ＋ creates an agent chat in one click", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  // A terminal gives the sidebar a project section to create from.
+  await createTerminalViaApi(page, { cwd: "/tmp" });
+  const group = (await listWorkspaceGroupsViaApi(page))[0];
+  const section = page.getByTestId(`sidebar-section-${group.id}`);
+  await expect(section).toBeVisible();
+
+  // Hover reveals the ＋; its menu offers an instant agent chat.
+  await section.hover();
+  await page.getByTestId(`sidebar-section-new-${group.id}`).click();
+  await page.getByRole("button", { name: "New agent chat" }).click();
+
+  // No dialog: the chat view opens straight away in the section's cwd.
+  await expect(page.getByTestId("new-session-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("agent-chat-view")).toBeVisible();
+  const sidebarRow = page.locator("[data-testid^='sidebar-agent-row-']");
+  await expect(sidebarRow).toHaveCount(1);
+  await expect(sidebarRow).toContainText("tmp");
 });
 
 test("auto-run off surfaces an ask-card that an option click resolves", async ({
