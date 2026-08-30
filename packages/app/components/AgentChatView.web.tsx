@@ -32,6 +32,7 @@ import { ArrowUp, ChevronDown, ChevronRight, Square, X } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
 import { putAgentSessionSeen } from "@/lib/api";
 import { useAgentSessionFeed } from "@/lib/agentSessionFeed";
+import { COLD_START_HINT, useStartingElapsedSec } from "@/lib/agentStarting";
 import type { TranscriptBlock } from "@/lib/agentTranscript";
 import {
   AgentBadge,
@@ -43,20 +44,17 @@ import { ConfirmDialog } from "./ConfirmDialog";
 
 const SEEN_DEBOUNCE_MS = 1000;
 
-// The npx-wrapped adapters boot a full agent CLI under npx; their cold start
-// is slow enough (~1 min measured for claude) that a bare "starting" pill
-// reads as broken.
-const COLD_START_HINT: Partial<Record<AgentSessionInfo["agent_kind"], string>> = {
-  claude: "claude 冷启动约 1 分钟",
-  codex: "codex 冷启动约 1 分钟",
-};
-
 export interface AgentChatViewProps {
   session: AgentSessionInfo;
   machineName: string;
   /** Same gating as terminal input: this device holds the machine's control
    *  lease (or view-only isn't locked). */
   canType: boolean;
+  /** Compact (phone) layout: the in-view header is dropped (the mobile
+   *  title bar carries badge/title/status/kill), the stream goes full-width,
+   *  ask-card options become 52px touch targets and the composer a 44px row
+   *  that rides above the soft keyboard via the root visualViewport height. */
+  compact?: boolean;
   onTakeControl: () => void;
   /** Send free text. When an ask-card is unresolved the canvas routes this
    *  as answer(text) + prompt(text) — ACP has no free-form answer channel. */
@@ -74,6 +72,7 @@ export function AgentChatView({
   session,
   machineName,
   canType,
+  compact = false,
   onTakeControl,
   onSend,
   onStop,
@@ -164,22 +163,7 @@ export function AgentChatView({
 
   // ---- starting-state honesty: named agent + elapsed seconds ----
   const starting = status === "starting";
-  const startingSinceRef = useRef<number | null>(null);
-  if (starting && startingSinceRef.current === null) {
-    startingSinceRef.current = Date.now();
-  } else if (!starting) {
-    startingSinceRef.current = null;
-  }
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!starting) return;
-    const timer = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [starting]);
-  const startingElapsedSec =
-    starting && startingSinceRef.current !== null
-      ? Math.max(0, Math.floor((nowMs - startingSinceRef.current) / 1000))
-      : 0;
+  const startingElapsedSec = useStartingElapsedSec(starting);
 
   const send = useCallback(() => {
     const text = input.trim();
@@ -200,6 +184,9 @@ export function AgentChatView({
 
   const kindMeta = SESSION_KIND_META[session.agent_kind];
   const resumable = status === "disconnected" || status === "error";
+  const hasModelControl =
+    (session.available_models?.length ?? 0) > 0 ||
+    session.current_model_id != null;
 
   return (
     <div
@@ -213,7 +200,8 @@ export function AgentChatView({
         background: colors.bg0,
       }}
     >
-      {/* header */}
+      {/* header (desktop only — the mobile title bar covers this) */}
+      {!compact && (
       <div
         data-testid="agent-chat-header"
         style={{
@@ -265,51 +253,13 @@ export function AgentChatView({
             )}
             {/* model picker: a dropdown when the agent reported models, a
                 static label when only the current model is known, nothing
-                when the agent has no model support at all. Disabled mid-turn
-                (ACP switches between turns). */}
-            {session.available_models && session.available_models.length > 0 ? (
-              <select
-                data-testid="agent-chat-model-select"
-                value={session.current_model_id ?? ""}
-                disabled={working || !canType}
-                onChange={(event) => {
-                  if (event.target.value) onSelectModel(event.target.value);
-                }}
-                title="Model"
-                aria-label="Model"
-                style={{
-                  ...headerChipStyle,
-                  background: colors.bg2,
-                  color: colors.fg2,
-                  height: 20,
-                  cursor: working || !canType ? "not-allowed" : "pointer",
-                }}
-              >
-                {session.current_model_id == null && (
-                  <option value="">model</option>
-                )}
-                {session.available_models.map((model) => (
-                  <option key={model.model_id} value={model.model_id}>
-                    {model.name || model.model_id}
-                  </option>
-                ))}
-                {session.current_model_id != null &&
-                  !session.available_models.some(
-                    (model) => model.model_id === session.current_model_id,
-                  ) && (
-                    <option value={session.current_model_id}>
-                      {session.current_model_id}
-                    </option>
-                  )}
-              </select>
-            ) : session.current_model_id ? (
-              <span
-                data-testid="agent-chat-model-label"
-                style={{ ...headerChipStyle, background: colors.bg2 }}
-              >
-                {session.current_model_id}
-              </span>
-            ) : null}
+                when the agent has no model support at all. */}
+            <ModelPicker
+              session={session}
+              working={working}
+              canType={canType}
+              onSelectModel={onSelectModel}
+            />
           </div>
           <div
             style={{
@@ -434,6 +384,7 @@ export function AgentChatView({
           <X size={15} />
         </button>
       </div>
+      )}
 
       {/* message stream */}
       <div style={{ position: "relative", flexGrow: 1, minHeight: 0 }}>
@@ -445,9 +396,9 @@ export function AgentChatView({
         >
           <div
             style={{
-              maxWidth: 820,
+              maxWidth: compact ? undefined : 820,
               margin: "0 auto",
-              padding: "12px 24px 12px",
+              padding: compact ? "12px 14px" : "12px 24px 12px",
               display: "flex",
               flexDirection: "column",
               gap: 12,
@@ -466,6 +417,7 @@ export function AgentChatView({
                 key={block.id}
                 block={block}
                 agentLabel={kindMeta.label}
+                compact={compact}
                 onAnswerOption={onAnswerOption}
               />
             ))}
@@ -498,8 +450,55 @@ export function AgentChatView({
       </div>
 
       {/* composer */}
-      <div style={{ flexShrink: 0, padding: "0 24px 16px" }}>
-        <div style={{ maxWidth: 820, margin: "0 auto" }}>
+      <div
+        style={{
+          flexShrink: 0,
+          padding: compact
+            ? "10px 12px calc(10px + env(safe-area-inset-bottom))"
+            : "0 24px 16px",
+        }}
+      >
+        <div style={{ maxWidth: compact ? undefined : 820, margin: "0 auto" }}>
+          {compact && (hasModelControl || resumable) && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                marginBottom: 6,
+              }}
+            >
+              {/* The compact header lives in the mobile title bar; the model
+                  picker rides above the composer instead. */}
+              <ModelPicker
+                session={session}
+                working={working}
+                canType={canType}
+                onSelectModel={onSelectModel}
+              />
+              {resumable && (
+                <button
+                  type="button"
+                  data-testid="agent-chat-resume"
+                  onClick={onResume}
+                  style={{
+                    height: 32,
+                    padding: "0 16px",
+                    borderRadius: 999,
+                    border: `1px solid ${colorAlpha.accentLine}`,
+                    background: colorAlpha.accentLight12,
+                    color: colors.accent,
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Resume session
+                </button>
+              )}
+            </div>
+          )}
           {status === "starting" && (
             <div
               data-testid="agent-chat-starting-note"
@@ -511,6 +510,9 @@ export function AgentChatView({
               }}
             >
               starting… messages send as soon as the agent is ready
+              {compact && COLD_START_HINT[session.agent_kind]
+                ? ` · ${COLD_START_HINT[session.agent_kind]}`
+                : ""}
             </div>
           )}
           {!canType ? (
@@ -565,6 +567,7 @@ export function AgentChatView({
                 alignItems: "flex-end",
                 gap: 8,
                 padding: "10px 10px 10px 14px",
+                minHeight: compact ? 44 : undefined,
                 opacity: live ? 1 : 0.6,
               }}
             >
@@ -596,16 +599,18 @@ export function AgentChatView({
                   maxHeight: 160,
                 }}
               />
-              <span
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 10,
-                  color: colors.fg3,
-                  flexShrink: 0,
-                }}
-              >
-                ↵ send · ⇧↵ newline
-              </span>
+              {!compact && (
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    color: colors.fg3,
+                    flexShrink: 0,
+                  }}
+                >
+                  ↵ send · ⇧↵ newline
+                </span>
+              )}
               {working ? (
                 <button
                   type="button"
@@ -613,7 +618,12 @@ export function AgentChatView({
                   onClick={onStop}
                   title="Stop"
                   aria-label="Stop"
-                  style={{ ...sendButtonStyle, background: colors.bg3, color: colors.fg1 }}
+                  style={{
+                    ...sendButtonStyle,
+                    ...(compact ? compactSendButtonSize : null),
+                    background: colors.bg3,
+                    color: colors.fg1,
+                  }}
                 >
                   <Square size={12} />
                 </button>
@@ -627,6 +637,7 @@ export function AgentChatView({
                   aria-label="Send"
                   style={{
                     ...sendButtonStyle,
+                    ...(compact ? compactSendButtonSize : null),
                     opacity: !inputEnabled || input.trim() === "" ? 0.45 : 1,
                     cursor:
                       !inputEnabled || input.trim() === "" ? "not-allowed" : "pointer",
@@ -658,13 +669,80 @@ export function AgentChatView({
 
 /* ---------- transcript blocks ---------- */
 
+/** The header model picker: a dropdown when the agent reported models, a
+ *  static label when only the current model is known, nothing when the agent
+ *  has no model support at all. Disabled mid-turn (ACP switches between
+ *  turns) and while another device holds control. Shared by the desktop
+ *  header and the compact composer's top row. */
+function ModelPicker({
+  session,
+  working,
+  canType,
+  onSelectModel,
+}: {
+  session: AgentSessionInfo;
+  working: boolean;
+  canType: boolean;
+  onSelectModel: (modelId: string) => void;
+}) {
+  if (session.available_models && session.available_models.length > 0) {
+    return (
+      <select
+        data-testid="agent-chat-model-select"
+        value={session.current_model_id ?? ""}
+        disabled={working || !canType}
+        onChange={(event) => {
+          if (event.target.value) onSelectModel(event.target.value);
+        }}
+        title="Model"
+        aria-label="Model"
+        style={{
+          ...headerChipStyle,
+          background: colors.bg2,
+          color: colors.fg2,
+          height: 20,
+          cursor: working || !canType ? "not-allowed" : "pointer",
+        }}
+      >
+        {session.current_model_id == null && <option value="">model</option>}
+        {session.available_models.map((model) => (
+          <option key={model.model_id} value={model.model_id}>
+            {model.name || model.model_id}
+          </option>
+        ))}
+        {session.current_model_id != null &&
+          !session.available_models.some(
+            (model) => model.model_id === session.current_model_id,
+          ) && (
+            <option value={session.current_model_id}>
+              {session.current_model_id}
+            </option>
+          )}
+      </select>
+    );
+  }
+  if (session.current_model_id) {
+    return (
+      <span
+        data-testid="agent-chat-model-label"
+        style={{ ...headerChipStyle, background: colors.bg2 }}
+      >
+        {session.current_model_id}
+      </span>
+    );
+  }
+  return null;
+}
+
 function TranscriptBlockView({
   block,
   agentLabel,
+  compact = false,
   onAnswerOption,
 }: {
   block: TranscriptBlock;
   agentLabel: string;
+  compact?: boolean;
   onAnswerOption: (requestId: string, optionId: string) => void;
 }) {
   switch (block.kind) {
@@ -720,7 +798,7 @@ function TranscriptBlockView({
     case "tool_call":
       return <ToolCallBlock block={block} />;
     case "question":
-      return <QuestionBlock block={block} agentLabel={agentLabel} onAnswerOption={onAnswerOption} />;
+      return <QuestionBlock block={block} agentLabel={agentLabel} compact={compact} onAnswerOption={onAnswerOption} />;
     case "plan":
       return <PlanBlock block={block} />;
     case "error":
@@ -945,10 +1023,12 @@ function ToolCallBlock({ block }: { block: Extract<TranscriptBlock, { kind: "too
 function QuestionBlock({
   block,
   agentLabel,
+  compact = false,
   onAnswerOption,
 }: {
   block: Extract<TranscriptBlock, { kind: "question" }>;
   agentLabel: string;
+  compact?: boolean;
   onAnswerOption: (requestId: string, optionId: string) => void;
 }) {
   const resolved = block.resolved;
@@ -1006,6 +1086,7 @@ function QuestionBlock({
                 alignItems: "flex-start",
                 gap: 10,
                 padding: "10px 11px",
+                minHeight: compact ? 52 : undefined,
                 borderRadius: 8,
                 border: `1px solid ${colors.bg3}`,
                 background: colors.bg3,
@@ -1138,4 +1219,11 @@ const sendButtonStyle: CSSProperties = {
   padding: 0,
   cursor: "pointer",
   flexShrink: 0,
+};
+
+// 44px touch target for the compact composer (MobileChat.dc.html).
+const compactSendButtonSize: CSSProperties = {
+  width: 44,
+  height: 44,
+  borderRadius: 8,
 };

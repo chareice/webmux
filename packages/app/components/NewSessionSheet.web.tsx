@@ -1,18 +1,15 @@
-// New-session panel (docs/design/next-ia/NewSession.dc.html): opened from the
-// sidebar brand-row ＋. One compact panel, everything visible, prefilled from
-// the remembered defaults (last-used agent/model/auto-run, per-machine last
-// cwd) so plain Enter creates immediately — the panel only exists for
-// overrides; the project-level ＋ menu creates without it.
-//
-// Rows: agent chips (claude/codex/grok/kimi/terminal), a model dropdown for
-// agent kinds (populated from that agent's last-seen available_models; empty
-// → hidden with a hint), the working directory (recent cwds, then bookmarks,
-// then free text), and a single-line auto-run toggle. The machine picker only
-// renders when more than one machine is online. Choosing `terminal` routes to
-// the existing create-terminal flow and hides the model/auto-run rows.
+// Mobile new-session sheet (docs/design/next-ia/MobileNew.dc.html): the
+// bottom-sheet variant of the desktop new-session panel, opened from the
+// mobile title-bar ＋. Same one-screen prefilled flow — agent chips with the
+// remembered kind preselected, a model dropdown per agent kind (live
+// sessions, else the persisted cache; empty → hint), the working directory
+// (recent cwds, bookmarks, free text; machine picker only when >1 machine is
+// online), and a single-line auto-run toggle. All state/validation comes
+// from useNewSessionState, shared with NewSessionDialog. The terminal chip
+// hides the model/auto-run rows and routes to the mobile create-terminal
+// flow (current group's placement, overflow-into-new-tab) in the canvas.
 
-import { useCallback, useEffect, useRef } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect } from "react";
 import type {
   AgentSessionInfo,
   MachineInfo,
@@ -27,28 +24,20 @@ import {
   type NewSessionRequest,
 } from "./newSessionState";
 
-// Re-exported so existing imports from this module keep working.
-export type { NewSessionRequest } from "./newSessionState";
-
-export interface NewSessionDialogProps {
+export interface NewSessionSheetProps {
   machines: MachineInfo[];
-  /** machineId → online (has stats or a reachable terminal). */
   machineOnline: Record<string, boolean>;
-  /** machineId → live session count (terminals + agent sessions). */
   sessionCounts: Record<string, number>;
   isControllerFor: (machineId: string) => boolean;
-  /** Machine preselected when the panel opens (the active machine). */
   initialMachineId: string | null;
   initialCwd: string | null;
-  /** Existing sessions/terminals feed the recent-cwd row and, for agent
-   *  kinds, the model dropdown (newest sessions carry the freshest list). */
   agentSessions: AgentSessionInfo[];
   terminals: TerminalInfo[];
   onClose: () => void;
   onCreate: (request: NewSessionRequest) => void;
 }
 
-export function NewSessionDialog({
+export function NewSessionSheet({
   machines,
   machineOnline,
   sessionCounts,
@@ -59,7 +48,7 @@ export function NewSessionDialog({
   terminals,
   onClose,
   onCreate,
-}: NewSessionDialogProps) {
+}: NewSessionSheetProps) {
   const {
     kind,
     selectKind,
@@ -89,92 +78,93 @@ export function NewSessionDialog({
     terminals,
     onCreate,
   });
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
-  const handleKeyDown = useCallback(
-    (event: ReactKeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== "Enter") return;
-      // Buttons and the model select keep their own Enter behavior.
-      const target = event.target as HTMLElement;
-      if (target.tagName === "BUTTON" || target.tagName === "SELECT") return;
-      if (event.metaKey || event.ctrlKey || !event.shiftKey) {
-        // Plain Enter (and ⌘↵) creates: everything is prefilled.
-        event.preventDefault();
-        submit();
-      }
-    },
-    [onClose, submit],
-  );
+  const summary = `${SESSION_KIND_META[kind].label} · ${machine?.name ?? "—"} · ${cwd.trim() || "—"}`;
 
   return (
     <div
+      data-testid="mobile-new-session-sheet"
+      onClick={onClose}
       style={{
         position: "fixed",
         inset: 0,
         zIndex: 900,
         background: colorAlpha.overlay,
         display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        paddingTop: 118,
+        alignItems: "flex-end",
+        animation: "webmuxFadeIn 120ms ease-out",
       }}
-      onClick={onClose}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="New session"
-        data-testid="new-session-dialog"
         onClick={(event) => event.stopPropagation()}
-        onKeyDown={handleKeyDown}
         style={{
-          width: 560,
-          maxWidth: "calc(100vw - 48px)",
-          maxHeight: "calc(100vh - 160px)",
-          overflowY: "auto",
+          width: "100%",
+          maxHeight: "85%",
+          display: "flex",
+          flexDirection: "column",
           background: colors.bg2,
-          border: `1px solid ${colors.line}`,
-          borderRadius: 12,
-          boxShadow: "0 14px 40px rgb(0 0 0 / 0.5)",
+          borderTop: `1px solid ${colors.line}`,
+          borderTopLeftRadius: 13,
+          borderTopRightRadius: 13,
+          boxShadow: "0 -14px 40px rgb(0 0 0 / 0.5)",
           color: colors.fg1,
+          animation: "webmuxSlideUp 200ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
-        {/* header */}
         <div
           style={{
+            height: 20,
+            flexShrink: 0,
             display: "flex",
             alignItems: "center",
-            gap: 10,
-            height: 46,
-            padding: "0 12px 0 16px",
+            justifyContent: "center",
+          }}
+        >
+          <span
+            style={{
+              width: 36,
+              height: 4,
+              borderRadius: 999,
+              background: colors.line,
+            }}
+          />
+        </div>
+        <div
+          style={{
+            height: 44,
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            padding: "0 6px 0 16px",
             borderBottom: `1px solid ${colors.lineSoft}`,
           }}
         >
-          <div style={{ flexGrow: 1, fontSize: 13.5, fontWeight: 600, color: colors.fg0 }}>
+          <div style={{ flexGrow: 1, fontSize: 15, fontWeight: 600, color: colors.fg0 }}>
             New session
           </div>
           <button
             type="button"
-            data-testid="new-session-close"
+            data-testid="mobile-new-session-close"
             onClick={onClose}
             title="Close"
             aria-label="Close"
             style={{
-              width: 24,
-              height: 24,
+              width: 44,
+              height: 44,
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              borderRadius: 6,
               border: "none",
               background: "transparent",
               color: colors.fg2,
@@ -182,76 +172,92 @@ export function NewSessionDialog({
               cursor: "pointer",
             }}
           >
-            <X size={13} />
+            <X size={18} />
           </button>
         </div>
 
-        <div style={{ padding: "14px 16px 0", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div
+          style={{
+            flexGrow: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            padding: "14px 0 4px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
           {/* agent chips */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            <RowLabel label="AGENT" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <SheetLabel label="AGENT" />
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-                gap: 6,
+                display: "flex",
+                gap: 7,
+                padding: "0 16px",
+                overflowX: "auto",
               }}
             >
-              {([...NEW_SESSION_AGENT_KINDS, "terminal"] as SessionKind[]).map((candidate) => {
-                const selected = candidate === kind;
-                const meta = SESSION_KIND_META[candidate];
-                return (
-                  <button
-                    key={candidate}
-                    type="button"
-                    data-testid={`new-session-agent-${candidate}`}
-                    onClick={() => selectKind(candidate)}
-                    style={{
-                      padding: "7px 8px",
-                      borderRadius: 8,
-                      border: `1px solid ${selected ? colorAlpha.accentLine : colors.line}`,
-                      background: selected ? colorAlpha.accentSubtle : colors.bg1,
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                  >
-                    <AgentBadge kind={candidate} />
-                    <div
+              {([...NEW_SESSION_AGENT_KINDS, "terminal"] as SessionKind[]).map(
+                (candidate) => {
+                  const selected = candidate === kind;
+                  const meta = SESSION_KIND_META[candidate];
+                  return (
+                    <button
+                      key={candidate}
+                      type="button"
+                      data-testid={`mobile-new-session-agent-${candidate}`}
+                      onClick={() => selectKind(candidate)}
                       style={{
-                        fontSize: 12,
-                        fontWeight: selected ? 600 : 400,
-                        color: selected ? colors.fg0 : colors.fg1,
-                        marginTop: 5,
+                        width: 84,
+                        flexShrink: 0,
+                        padding: "9px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${selected ? colorAlpha.accentLine : colors.line}`,
+                        background: selected ? colorAlpha.accentSubtle : colors.bg1,
+                        cursor: "pointer",
+                        textAlign: "left",
                       }}
                     >
-                      {meta.label}
-                    </div>
-                  </button>
-                );
-              })}
+                      <AgentBadge kind={candidate} />
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: selected ? 600 : 400,
+                          color: selected ? colors.fg0 : colors.fg1,
+                          marginTop: 7,
+                        }}
+                      >
+                        {meta.label}
+                      </div>
+                    </button>
+                  );
+                },
+              )}
             </div>
           </div>
 
           {/* model (agent sessions only) */}
           {isAgent && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              <RowLabel label="MODEL" />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <SheetLabel label="MODEL" />
               {modelOptions.length > 0 ? (
                 <select
-                  data-testid="new-session-model-select"
+                  data-testid="mobile-new-session-model-select"
                   value={modelId ?? ""}
                   onChange={(event) =>
                     setModelId(event.target.value === "" ? null : event.target.value)
                   }
                   style={{
-                    height: 32,
-                    padding: "0 9px",
-                    borderRadius: 6,
+                    height: 44,
+                    margin: "0 16px",
+                    padding: "0 11px",
+                    borderRadius: 8,
                     background: colors.bg0,
                     border: `1px solid ${colors.line}`,
                     outline: "none",
                     color: colors.fg0,
-                    fontSize: 12.5,
+                    fontSize: 13,
                   }}
                 >
                   <option value="">Agent default</option>
@@ -260,8 +266,6 @@ export function NewSessionDialog({
                       {model.name || model.model_id}
                     </option>
                   ))}
-                  {/* A remembered model the agent no longer lists stays
-                      selectable (and visible) rather than silently dropping. */}
                   {modelId !== null &&
                     !modelOptions.some((model) => model.model_id === modelId) && (
                       <option value={modelId}>{modelId}</option>
@@ -269,8 +273,8 @@ export function NewSessionDialog({
                 </select>
               ) : (
                 <div
-                  data-testid="new-session-model-hint"
-                  style={{ fontSize: 11.5, color: colors.fg3 }}
+                  data-testid="mobile-new-session-model-hint"
+                  style={{ padding: "0 16px", fontSize: 11.5, color: colors.fg3 }}
                 >
                   模型在会话内可切换
                 </div>
@@ -278,37 +282,44 @@ export function NewSessionDialog({
             </div>
           )}
 
-          {/* directory + machine */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            <RowLabel
+          {/* directory */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <SheetLabel
               label="DIRECTORY"
               suffix={machine ? `on ${machine.name}` : undefined}
             />
             <input
-              ref={inputRef}
-              data-testid="new-session-cwd-input"
+              data-testid="mobile-new-session-cwd-input"
               value={cwd}
               onChange={(event) => setCwd(event.target.value)}
               placeholder={machine?.home_dir || "~"}
               spellCheck={false}
               style={{
-                height: 34,
-                padding: "0 11px",
-                borderRadius: 6,
+                height: 44,
+                margin: "0 16px",
+                padding: "0 12px",
+                borderRadius: 8,
                 background: colors.bg0,
                 border: `1px solid ${colors.line}`,
                 outline: "none",
                 color: colors.fg0,
                 fontFamily: "var(--font-mono)",
-                fontSize: 12.5,
+                fontSize: 13,
               }}
             />
             {recentCwds.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
+                  padding: "0 16px",
+                }}
+              >
                 {recentCwds.map((path, index) => (
-                  <CwdRowButton
+                  <CwdRow
                     key={path}
-                    testId={`new-session-cwd-recent-${index}`}
+                    testId={`mobile-new-session-cwd-recent-${index}`}
                     path={path}
                     selected={false}
                     onPick={() => setCwd(path)}
@@ -317,11 +328,18 @@ export function NewSessionDialog({
               </div>
             )}
             {visibleBookmarks.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
+                  padding: "0 16px",
+                }}
+              >
                 {visibleBookmarks.map((bookmark) => (
-                  <CwdRowButton
+                  <CwdRow
                     key={bookmark.id}
-                    testId={`new-session-cwd-bookmark-${bookmark.id}`}
+                    testId={`mobile-new-session-cwd-bookmark-${bookmark.id}`}
                     path={bookmark.path}
                     badge={bookmark.label}
                     selected={cwd.trim() === bookmark.path}
@@ -330,15 +348,18 @@ export function NewSessionDialog({
                 ))}
               </div>
             )}
+          </div>
 
-            {/* machine picker — only when a choice actually exists */}
-            {onlineMachines.length > 1 && (
+          {/* machine picker — only when a choice actually exists */}
+          {onlineMachines.length > 1 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <SheetLabel label="MACHINE" />
               <div
                 style={{
                   display: "flex",
                   flexDirection: "column",
-                  gap: 3,
-                  marginTop: 4,
+                  gap: 4,
+                  padding: "0 16px",
                 }}
               >
                 {machines.map((item) => {
@@ -348,16 +369,16 @@ export function NewSessionDialog({
                     <button
                       key={item.id}
                       type="button"
-                      data-testid={`new-session-machine-${item.id}`}
+                      data-testid={`mobile-new-session-machine-${item.id}`}
                       disabled={!itemOnline}
                       onClick={() => selectMachine(item.id)}
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 9,
-                        minHeight: 30,
-                        padding: "3px 10px",
-                        borderRadius: 6,
+                        gap: 10,
+                        minHeight: 44,
+                        padding: "4px 12px",
+                        borderRadius: 8,
                         border: `1px solid ${
                           selected
                             ? item.production
@@ -384,55 +405,56 @@ export function NewSessionDialog({
                           flexShrink: 0,
                         }}
                       />
-                      <span
-                        style={{
-                          width: 120,
-                          flexShrink: 0,
-                          fontSize: 12.5,
-                          fontWeight: selected ? 500 : 400,
-                          color: itemOnline
-                            ? selected
-                              ? colors.fg0
-                              : colors.fg1
-                            : colors.fg3,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {item.name}
-                      </span>
-                      {item.production && (
+                      <span style={{ flexGrow: 1, minWidth: 0 }}>
                         <span
-                          data-testid={`new-session-machine-${item.id}-prod`}
                           style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: 9,
-                            fontWeight: 700,
-                            letterSpacing: 0.4,
-                            color: colors.warn,
-                            border: "1px solid rgb(var(--color-warn) / 0.4)",
-                            background: "rgb(var(--color-warn) / 0.1)",
-                            borderRadius: 4,
-                            padding: "0 4px",
-                            flexShrink: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            fontSize: 13,
+                            fontWeight: selected ? 600 : 400,
+                            color: itemOnline
+                              ? selected
+                                ? colors.fg0
+                                : colors.fg1
+                              : colors.fg3,
                           }}
                         >
-                          PROD
+                          {item.name}
+                          {item.production && (
+                            <span
+                              data-testid={`mobile-new-session-machine-${item.id}-prod`}
+                              style={{
+                                fontFamily: "var(--font-mono)",
+                                fontSize: 9,
+                                fontWeight: 700,
+                                letterSpacing: 0.4,
+                                color: colors.warn,
+                                border: "1px solid rgb(var(--color-warn) / 0.4)",
+                                background: "rgb(var(--color-warn) / 0.1)",
+                                borderRadius: 4,
+                                padding: "0 4px",
+                                flexShrink: 0,
+                              }}
+                            >
+                              PROD
+                            </span>
+                          )}
                         </span>
-                      )}
-                      <span
-                        style={{
-                          flexGrow: 1,
-                          fontSize: 11,
-                          color: colors.fg2,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          minWidth: 0,
-                        }}
-                      >
-                        {itemOnline ? "" : "offline"}
+                        <span
+                          style={{
+                            display: "block",
+                            marginTop: 2,
+                            fontSize: 10,
+                            color: item.production ? colors.warn : colors.fg3,
+                          }}
+                        >
+                          {item.production
+                            ? "auto-run off by default"
+                            : itemOnline
+                              ? ""
+                              : "offline"}
+                        </span>
                       </span>
                       <span
                         style={{
@@ -448,8 +470,8 @@ export function NewSessionDialog({
                   );
                 })}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* auto-run, one line (agent sessions only) */}
           {isAgent && (
@@ -458,6 +480,8 @@ export function NewSessionDialog({
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
+                minHeight: 44,
+                margin: "0 16px",
                 padding: "6px 11px",
                 borderRadius: 8,
                 border: `1px solid ${colors.line}`,
@@ -468,11 +492,11 @@ export function NewSessionDialog({
                 type="button"
                 role="switch"
                 aria-checked={effectiveAutoRun}
-                data-testid="new-session-autorun"
+                data-testid="mobile-new-session-autorun"
                 onClick={() => setAutoRun(!effectiveAutoRun)}
                 style={{
-                  width: 28,
-                  height: 16,
+                  width: 30,
+                  height: 18,
                   flexShrink: 0,
                   borderRadius: 999,
                   border: "none",
@@ -486,14 +510,14 @@ export function NewSessionDialog({
               >
                 <span
                   style={{
-                    width: 12,
-                    height: 12,
+                    width: 14,
+                    height: 14,
                     borderRadius: 999,
                     background: effectiveAutoRun ? colors.accent : colors.fg3,
                   }}
                 />
               </button>
-              <div style={{ fontSize: 12, fontWeight: 500, color: colors.fg0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 500, color: colors.fg0 }}>
                 Auto-run tools
               </div>
               {machine?.production && (
@@ -508,66 +532,83 @@ export function NewSessionDialog({
         {/* footer */}
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            height: 54,
-            marginTop: 14,
-            padding: "0 14px 0 16px",
+            flexShrink: 0,
+            padding: `10px 16px calc(10px + env(safe-area-inset-bottom))`,
             borderTop: `1px solid ${colors.lineSoft}`,
             background: colors.bg1,
           }}
         >
-          <div style={{ flexGrow: 1, minWidth: 0 }}>
-            {machineId !== null && !isControllerFor(machineId) && (
-              <div
-                data-testid="new-session-not-controller"
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 10,
-                  color: colors.fg3,
-                }}
-              >
-                viewing — take control to create
-              </div>
-            )}
-          </div>
+          {machineId !== null && !isControllerFor(machineId) && (
+            <div
+              data-testid="mobile-new-session-not-controller"
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: colors.fg3,
+                textAlign: "center",
+                marginBottom: 8,
+              }}
+            >
+              viewing — take control to create
+            </div>
+          )}
           <button
             type="button"
-            data-testid="new-session-submit"
+            data-testid="mobile-new-session-submit"
             onClick={submit}
             disabled={!canCreate}
             style={{
-              display: "inline-flex",
+              display: "flex",
               alignItems: "center",
-              gap: 7,
-              height: 30,
-              padding: "0 14px",
-              borderRadius: 6,
+              justifyContent: "center",
+              gap: 8,
+              width: "100%",
+              height: 48,
+              borderRadius: 10,
               border: "none",
               background: colors.accent,
               color: colors.bg0,
-              flexShrink: 0,
+              fontSize: 14,
+              fontWeight: 600,
               cursor: canCreate ? "pointer" : "not-allowed",
               opacity: canCreate ? 1 : 0.45,
             }}
           >
-            <span style={{ fontSize: 12.5, fontWeight: 600 }}>
-              {kind === "terminal" ? "Create terminal" : "Create session"}
-            </span>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, opacity: 0.55 }}>
-              ↵
-            </span>
+            {kind === "terminal" ? "Create terminal" : "Create session"}
           </button>
+          <div
+            data-testid="mobile-new-session-summary"
+            style={{
+              height: 30,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10.5,
+              color: colors.fg3,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {summary}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function RowLabel({ label, suffix }: { label: string; suffix?: string }) {
+function SheetLabel({ label, suffix }: { label: string; suffix?: string }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "0 16px",
+      }}
+    >
       <span
         style={{
           fontFamily: "var(--font-mono)",
@@ -580,7 +621,13 @@ function RowLabel({ label, suffix }: { label: string; suffix?: string }) {
         {label}
       </span>
       {suffix && (
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: colors.fg3 }}>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: colors.fg3,
+          }}
+        >
           {suffix}
         </span>
       )}
@@ -588,7 +635,7 @@ function RowLabel({ label, suffix }: { label: string; suffix?: string }) {
   );
 }
 
-function CwdRowButton({
+function CwdRow({
   testId,
   path,
   badge,
@@ -609,10 +656,10 @@ function CwdRowButton({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 9,
-        height: 28,
-        padding: "0 10px",
-        borderRadius: 6,
+        gap: 10,
+        height: 44,
+        padding: "0 12px",
+        borderRadius: 8,
         border: "none",
         background: selected ? colors.bg3 : "transparent",
         cursor: "pointer",

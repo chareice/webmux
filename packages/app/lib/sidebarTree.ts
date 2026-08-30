@@ -19,6 +19,7 @@ import { displayTerminalTitle } from "./displayTerminalTitle";
 import {
   createTerminalWorkspace,
   groupPaneTerminalIds,
+  labelFromCwd,
   type WorkspaceGroup,
 } from "./terminalWorkspaceLayout";
 
@@ -257,12 +258,4 @@ export function buildSidebarTree(input: SidebarTreeInput): SidebarTree {
     }));
 
   return { machines: machineModels, visibleSections, askedSessions };
-}
-
-// Mirrors labelFromCwd in terminalWorkspaceLayout (private there): synthetic
-// agent sections must be indistinguishable from terminal cwd-fallback tabs.
-function labelFromCwd(cwd: string): string {
-  const cleaned = cwd.replace(/\/+$/, "");
-  const tail = cleaned.split("/").filter(Boolean).at(-1);
-  return tail || cwd || "workspace";
 }
