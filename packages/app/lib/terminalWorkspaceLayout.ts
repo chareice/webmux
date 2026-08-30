@@ -385,6 +385,30 @@ export function getActiveWorkspaceGroup(
   );
 }
 
+// Group ids whose pane trees stay mounted, most-recently-active first.
+// At most one inactive group is kept alive (the previously active one —
+// covers the dominant A↔B flip): each live pane holds a WebGL context and
+// browsers cap contexts at ~8-16, so active(≤4) + one hidden group(≤4)
+// stays ≤8 with no gpu-suspend machinery. Touch devices get no keep-alive
+// (mobile WebView memory). Ids that no longer exist in the workspace (e.g.
+// a deleted group) are filtered out, so deletion paths need no
+// special-casing.
+export function mountedWorkspaceGroupIds(
+  workspace: TerminalWorkspace,
+  previousActiveGroupId: string | null,
+  isTouch: boolean,
+): string[] {
+  const cap = isTouch ? 1 : 2;
+  const existing = new Set(workspace.groups.map((group) => group.id));
+  const ids: string[] = [];
+  for (const id of [workspace.activeGroupId, previousActiveGroupId]) {
+    if (ids.length >= cap) break;
+    if (id === null || !existing.has(id) || ids.includes(id)) continue;
+    ids.push(id);
+  }
+  return ids;
+}
+
 export function getMobileWorkspaceTabs(
   workspace: TerminalWorkspace,
 ): MobileWorkspaceTab[] {

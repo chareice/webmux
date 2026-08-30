@@ -523,8 +523,9 @@ test("clicking a sidebar section switches to that group", async ({ page }) => {
   await page.getByTestId(`sidebar-section-${secondGroup.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
     .toBeVisible();
+  // Keep-alive: the switched-away group stays mounted but hidden.
   await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
-    .toHaveCount(0);
+    .toBeHidden();
 });
 
 test("hovering a workspace pane activates that terminal", async ({ page }) => {
@@ -598,8 +599,9 @@ test("prefix bindings switch groups with a custom second key", async ({
   await pressPrefixKey(page, "g");
   await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
     .toBeVisible();
+  // Keep-alive: the switched-away group stays mounted but hidden.
   await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
-    .toHaveCount(0);
+    .toBeHidden();
 
   await pressPrefixKey(page, "f");
   await expect(page.getByTestId(`workspace-pane-${firstTerminalId}`))
