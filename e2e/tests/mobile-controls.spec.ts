@@ -9,6 +9,7 @@ import {
   listTerminals,
   listWorkspaceGroupsViaApi,
   longPressTitleBar,
+  mobileCreateTerminalViaSheet,
   mobileOpenHostSheet,
   mobileTakeControl,
   openApp,
@@ -32,11 +33,11 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await expect(page.getByTestId("mobile-workbench")).toBeVisible();
   await expect(page.getByTestId("mobile-title-bar")).toBeVisible();
   await expect(page.getByTestId("mobile-title-bar-dot")).toBeVisible();
-  await expect(page.getByTestId("mobile-bar-new-terminal")).toHaveCSS(
+  await expect(page.getByTestId("mobile-bar-new-session")).toHaveCSS(
     "width",
     "34px",
   );
-  await expect(page.getByTestId("mobile-bar-new-terminal")).toHaveCSS(
+  await expect(page.getByTestId("mobile-bar-new-session")).toHaveCSS(
     "height",
     "34px",
   );
@@ -68,7 +69,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   );
   await page.getByTestId("mobile-control-toggle").click();
   await expect(page.getByTitle("Show keyboard")).toHaveCount(0);
-  await expect(page.getByTestId("mobile-bar-new-terminal")).toBeDisabled();
+  await expect(page.getByTestId("mobile-bar-new-session")).toBeDisabled();
 
   // Unlock without claiming; the existing Take control flow remains explicit.
   await mobileOpenHostSheet(page);
@@ -79,7 +80,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
 
   // Take control back.
   await mobileTakeControl(page);
-  await expect(page.getByTestId("mobile-bar-new-terminal")).toBeEnabled();
+  await expect(page.getByTestId("mobile-bar-new-session")).toBeEnabled();
 
   // Destroy via API → the shell returns to the empty state.
   const deviceId = await page.evaluate(() => sessionStorage.getItem("tc-device-id"));
@@ -418,7 +419,7 @@ test("mobile title bar and grouped switcher expose titles, host stats, and creat
     page.getByTestId(`mobile-session-group-${secondGroup.id}`),
   ).toContainText(`${secondGroup.name} · 1 pane`);
   await expect(
-    page.getByTestId("mobile-session-switcher-new-terminal"),
+    page.getByTestId("mobile-session-switcher-new-session"),
   ).toBeVisible();
   await expect(
     page.getByTestId(`mobile-session-row-${firstTerminalId}`),
@@ -447,7 +448,9 @@ test("mobile title bar and grouped switcher expose titles, host stats, and creat
 
   await page.getByTestId(`mobile-session-row-${firstTerminalId}`).click();
   const beforeIds = (await listTerminals(page)).map((terminal) => terminal.id);
-  await page.getByTestId("mobile-bar-new-terminal").click();
+  // The title-bar ＋ now opens the new-session sheet; the terminal chip keeps
+  // the old direct-create behavior (active group's cwd + placement).
+  await mobileCreateTerminalViaSheet(page);
   await expect.poll(async () => (await listTerminals(page)).length).toBe(3);
   const created = (await listTerminals(page)).find(
     (terminal) => !beforeIds.includes(terminal.id),
@@ -492,7 +495,7 @@ test("mobile + overflows a full tab into a new tab instead of a fifth pane", asy
   );
 
   const beforeIds = (await listTerminals(page)).map((terminal) => terminal.id);
-  await page.getByTestId("mobile-bar-new-terminal").click();
+  await mobileCreateTerminalViaSheet(page);
 
   // Creating still succeeds — the terminal just lands in a fresh tab.
   await expect.poll(async () => (await listTerminals(page)).length).toBe(5);

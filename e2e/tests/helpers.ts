@@ -498,6 +498,22 @@ export async function mobileReleaseControl(page: Page): Promise<void> {
 }
 
 /**
+ * Mobile-specific: the title-bar ＋ opens the new-session sheet (agent chips,
+ * model, directory, auto-run). Drive it to create a plain terminal: pick the
+ * terminal chip and submit. The sheet prefills the current group's cwd and
+ * the create follows the active group's placement (overflow-into-new-tab).
+ */
+export async function mobileCreateTerminalViaSheet(page: Page): Promise<void> {
+  await page.getByTestId("mobile-bar-new-session").click();
+  await expect(page.getByTestId("mobile-new-session-sheet")).toBeVisible();
+  await page.getByTestId("mobile-new-session-agent-terminal").click();
+  const submit = page.getByTestId("mobile-new-session-submit");
+  await expect(submit).toBeEnabled();
+  await submit.click();
+  await expect(page.getByTestId("mobile-new-session-sheet")).toHaveCount(0);
+}
+
+/**
  * Mobile-specific: long-press the title bar (touch held for 600ms)
  * to open its action sheet (Close terminal / New terminal here).
  */
