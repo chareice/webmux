@@ -1,4 +1,4 @@
-package com.webmux.desktop
+package dev.offdesk.desktop
 
 import android.graphics.Color
 import android.os.Bundle

@@ -4,7 +4,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, Connection};
 use serde::Deserialize;
-use tc_protocol::{WorkspaceLayoutNode, WorkspaceSplitDirection};
+use offdesk_protocol::{WorkspaceLayoutNode, WorkspaceSplitDirection};
 
 pub mod agent_sessions;
 pub mod bookmarks;

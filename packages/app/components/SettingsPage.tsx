@@ -25,11 +25,11 @@ import {
 import { ArrowLeft } from "lucide-react";
 
 // Frontend build id stamped into index.html by the Docker build
-// (window.__WEBMUX_BUILD__). "dev" when running unstamped (local dev).
+// (window.__OFFDESK_BUILD__). "dev" when running unstamped (local dev).
 function getFrontendBuildId(): string {
   if (typeof window === "undefined") return "dev";
-  const id = (window as unknown as { __WEBMUX_BUILD__?: string })
-    .__WEBMUX_BUILD__;
+  const id = (window as unknown as { __OFFDESK_BUILD__?: string })
+    .__OFFDESK_BUILD__;
   return id || "dev";
 }
 
@@ -272,18 +272,18 @@ function formatTokenDate(ms: number | null): string {
 export function SettingsPage({ onClose }: SettingsPageProps) {
   // Terminal font settings
   const [terminalFont, setTerminalFont] = useState(
-    () => localStorage.getItem("webmux:terminal-font-family") || "",
+    () => localStorage.getItem("offdesk:terminal-font-family") || "",
   );
   const [terminalFontSize, setTerminalFontSize] = useState(
-    () => localStorage.getItem("webmux:terminal-font-size") || "",
+    () => localStorage.getItem("offdesk:terminal-font-size") || "",
   );
 
   // UI font settings
   const [uiFont, setUiFont] = useState(
-    () => localStorage.getItem("webmux:ui-font-family") || "",
+    () => localStorage.getItem("offdesk:ui-font-family") || "",
   );
   const [uiFontSize, setUiFontSize] = useState(
-    () => localStorage.getItem("webmux:ui-font-size") || "",
+    () => localStorage.getItem("offdesk:ui-font-size") || "",
   );
 
   // Quick commands
@@ -383,9 +383,9 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const handleTerminalFontChange = useCallback((value: string) => {
     setTerminalFont(value);
     if (value) {
-      localStorage.setItem("webmux:terminal-font-family", value);
+      localStorage.setItem("offdesk:terminal-font-family", value);
     } else {
-      localStorage.removeItem("webmux:terminal-font-family");
+      localStorage.removeItem("offdesk:terminal-font-family");
     }
   }, []);
 
@@ -395,9 +395,9 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
       setTerminalFontSize(v);
       const size = parseInt(v, 10);
       if (size >= 10 && size <= 24) {
-        localStorage.setItem("webmux:terminal-font-size", String(size));
+        localStorage.setItem("offdesk:terminal-font-size", String(size));
       } else if (!v) {
-        localStorage.removeItem("webmux:terminal-font-size");
+        localStorage.removeItem("offdesk:terminal-font-size");
       }
     },
     [],
@@ -407,9 +407,9 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   const handleUiFontChange = useCallback((value: string) => {
     setUiFont(value);
     if (value) {
-      localStorage.setItem("webmux:ui-font-family", value);
+      localStorage.setItem("offdesk:ui-font-family", value);
     } else {
-      localStorage.removeItem("webmux:ui-font-family");
+      localStorage.removeItem("offdesk:ui-font-family");
     }
   }, []);
 
@@ -419,10 +419,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
       setUiFontSize(v);
       const size = parseInt(v, 10);
       if (size >= 10 && size <= 20) {
-        localStorage.setItem("webmux:ui-font-size", String(size));
+        localStorage.setItem("offdesk:ui-font-size", String(size));
         document.documentElement.style.fontSize = `${size}px`;
       } else if (!v) {
-        localStorage.removeItem("webmux:ui-font-size");
+        localStorage.removeItem("offdesk:ui-font-size");
         document.documentElement.style.fontSize = "";
       }
     },
@@ -972,7 +972,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               marginBottom: 12,
             }}
           >
-            Tokens (wmx_…) used to authenticate the webmux CLI
+            Tokens (odk_…) used to authenticate the offdesk CLI
           </div>
 
           {/* Create */}

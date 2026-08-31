@@ -4,7 +4,7 @@
 // (the brand accent) is reserved for the `asked` state on agent sessions;
 // terminal rows never show amber.
 
-import type { AgentKind, AgentSessionStatus } from "@webmux/shared";
+import type { AgentKind, AgentSessionStatus } from "@offdesk/shared";
 import { colors } from "@/lib/colors";
 
 export type SessionKind = AgentKind | "terminal";
@@ -88,7 +88,7 @@ export function AgentStatusDot({ status }: { status: AgentSessionStatus }) {
         strokeWidth={3}
         strokeLinecap="round"
         aria-hidden
-        style={{ flexShrink: 0, animation: "webmuxSpin 1.6s linear infinite" }}
+        style={{ flexShrink: 0, animation: "offdeskSpin 1.6s linear infinite" }}
       >
         <circle cx={12} cy={12} r={9} opacity={0.25} />
         <path d="M12 3a9 9 0 0 1 9 9" />
@@ -125,7 +125,7 @@ export function AgentStatusDot({ status }: { status: AgentSessionStatus }) {
           borderRadius: 999,
           background: colors.fg3,
           flexShrink: 0,
-          animation: "webmuxBlink 1.2s step-start infinite",
+          animation: "offdeskBlink 1.2s step-start infinite",
         }}
       />
     );

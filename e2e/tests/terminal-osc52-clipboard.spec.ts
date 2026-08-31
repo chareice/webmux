@@ -13,8 +13,8 @@ test("OSC 52 clipboard writes use the Tauri clipboard bridge when available", as
 }) => {
   await page.addInitScript(() => {
     const writes: string[] = [];
-    (window as unknown as { __webmuxTauriClipboardWrites: string[] })
-      .__webmuxTauriClipboardWrites = writes;
+    (window as unknown as { __offdeskTauriClipboardWrites: string[] })
+      .__offdeskTauriClipboardWrites = writes;
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
@@ -30,8 +30,8 @@ test("OSC 52 clipboard writes use the Tauri clipboard bridge when available", as
   await takeControlFromHeader(page);
   await page.evaluate(() => {
     const writes = (
-      window as unknown as { __webmuxTauriClipboardWrites: string[] }
-    ).__webmuxTauriClipboardWrites;
+      window as unknown as { __offdeskTauriClipboardWrites: string[] }
+    ).__offdeskTauriClipboardWrites;
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       value: {
@@ -55,9 +55,9 @@ test("OSC 52 clipboard writes use the Tauri clipboard bridge when available", as
     (id) =>
       (
         window as unknown as {
-          __webmuxTerminals?: Map<string, unknown>;
+          __offdeskTerminals?: Map<string, unknown>;
         }
-      ).__webmuxTerminals?.has(id),
+      ).__offdeskTerminals?.has(id),
     terminalId,
   );
 
@@ -66,10 +66,10 @@ test("OSC 52 clipboard writes use the Tauri clipboard bridge when available", as
     ({ id, text }) => {
       const term = (
         window as unknown as {
-          __webmuxTerminals?: Map<string, { write: (data: string) => void }>;
+          __offdeskTerminals?: Map<string, { write: (data: string) => void }>;
         }
-      ).__webmuxTerminals?.get(id);
-      if (!term) throw new Error("terminal not found in __webmuxTerminals");
+      ).__offdeskTerminals?.get(id);
+      if (!term) throw new Error("terminal not found in __offdeskTerminals");
       term.write(`\x1b]52;c;${btoa(text)}\x07`);
     },
     { id: terminalId, text: marker },
@@ -82,9 +82,9 @@ test("OSC 52 clipboard writes use the Tauri clipboard bridge when available", as
           () =>
             (
               window as unknown as {
-                __webmuxTauriClipboardWrites: string[];
+                __offdeskTauriClipboardWrites: string[];
               }
-            ).__webmuxTauriClipboardWrites.join("\n"),
+            ).__offdeskTauriClipboardWrites.join("\n"),
         ),
       { timeout: 5_000 },
     )

@@ -144,14 +144,20 @@ pub fn hash_token(token: &str) -> String {
 // Unified bearer token verification (JWT or API token)
 // ---------------------------------------------------------------------------
 
-/// Verify a bearer token — either an API token (wmx_ prefix) or a JWT.
+/// Prefix on every API token this hub mints.
+pub const API_TOKEN_PREFIX: &str = "odk_";
+/// Prefix webmux used. Tokens issued before the rename still authenticate;
+/// the hub never mints new ones with it.
+const API_TOKEN_PREFIX_LEGACY: &str = "wmx_";
+
+/// Verify a bearer token — either an API token or a JWT.
 /// Returns the user_id on success.
 pub fn verify_bearer_token(
     token: &str,
     db: &db::DbPool,
     jwt_secret: &str,
 ) -> Result<String, AuthError> {
-    if token.starts_with("wmx_") {
+    if token.starts_with(API_TOKEN_PREFIX) || token.starts_with(API_TOKEN_PREFIX_LEGACY) {
         // API token path
         let token_hash = hash_token(token);
         let conn = db
@@ -265,7 +271,7 @@ pub async fn exchange_github_code(
         .get("https://api.github.com/user")
         .header("Authorization", format!("Bearer {access_token}"))
         .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "webmux-server")
+        .header("User-Agent", "offdesk-hub")
         .send()
         .await
         .map_err(|e| AuthError::Internal(e.to_string()))?
@@ -398,7 +404,7 @@ pub fn google_oauth_url(client_id: &str, base_url: &str, state: Option<&str>) ->
 }
 
 const MOBILE_OAUTH_STATE_PREFIX: &str = "mobile:";
-const MOBILE_AUTH_CALLBACK_URL: &str = "webmux://auth";
+const MOBILE_AUTH_CALLBACK_URL: &str = "offdesk://auth";
 
 fn is_valid_mobile_callback(callback: &str) -> bool {
     callback == MOBILE_AUTH_CALLBACK_URL
@@ -436,12 +442,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mobile_oauth_state_round_trips_the_webmux_callback() {
-        let state = mobile_oauth_state("webmux://auth").expect("callback should be accepted");
+    fn mobile_oauth_state_round_trips_the_offdesk_callback() {
+        let state = mobile_oauth_state("offdesk://auth").expect("callback should be accepted");
 
         assert_eq!(
             mobile_callback_from_oauth_state(Some(&state)).as_deref(),
-            Some("webmux://auth")
+            Some("offdesk://auth")
         );
     }
 
@@ -454,20 +460,20 @@ mod tests {
     fn google_oauth_url_includes_state_when_present() {
         let url = google_oauth_url(
             "client id",
-            "https://webmux.example",
-            Some("mobile:webmux%3A%2F%2Fauth"),
+            "https://offdesk.example",
+            Some("mobile:offdesk%3A%2F%2Fauth"),
         );
 
-        assert!(url.contains("state=mobile%3Awebmux%253A%252F%252Fauth"));
+        assert!(url.contains("state=mobile%3Aoffdesk%253A%252F%252Fauth"));
     }
 
     #[test]
     fn oauth_success_redirect_url_uses_mobile_callback_when_state_is_valid() {
-        let state = mobile_oauth_state("webmux://auth").expect("callback should be accepted");
+        let state = mobile_oauth_state("offdesk://auth").expect("callback should be accepted");
 
         assert_eq!(
-            oauth_success_redirect_url("https://webmux.example", "jwt.token", Some(&state)),
-            "webmux://auth?token=jwt.token"
+            oauth_success_redirect_url("https://offdesk.example", "jwt.token", Some(&state)),
+            "offdesk://auth?token=jwt.token"
         );
     }
 }

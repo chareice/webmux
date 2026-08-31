@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 function makeTempDir() {
-  return mkdtempSync(join(tmpdir(), "webmux-install-test-"));
+  return mkdtempSync(join(tmpdir(), "offdesk-install-test-"));
 }
 
 function writeExecutable(path, contents) {
@@ -46,7 +46,7 @@ fi
   writeExecutable(
     join(binDir, "curl"),
     `#!/bin/sh
-if [ "$1" = "-sSL" ] && [ "$2" = "https://api.github.com/repos/zalify/webmux/releases" ]; then
+if [ "$1" = "-sSL" ] && [ "$2" = "https://api.github.com/repos/zalify/offdesk/releases" ]; then
   printf '%s' '[{"tag_name":"v9.9.9"}]'
   exit 0
 fi
@@ -70,7 +70,7 @@ exit 1
     writeExecutable(
       join(binDir, "systemctl"),
       `#!/bin/sh
-if [ "$1" = "--user" ] && [ "$2" = "is-active" ] && [ "$3" = "webmux-node" ]; then
+if [ "$1" = "--user" ] && [ "$2" = "is-active" ] && [ "$3" = "offdesk-node" ]; then
   exit 0
 fi
 exit 1
@@ -82,7 +82,7 @@ exit 1
     writeExecutable(
       join(binDir, "launchctl"),
       `#!/bin/sh
-if [ "$1" = "list" ] && [ "$2" = "com.webmux.node" ]; then
+if [ "$1" = "list" ] && [ "$2" = "dev.offdesk.node" ]; then
   exit 0
 fi
 exit 1
@@ -96,12 +96,12 @@ exit 1
       ...process.env,
       HOME: tempDir,
       PATH: `${binDir}:${process.env.PATH}`,
-      WEBMUX_INSTALL_DIR: installDir,
+      OFFDESK_INSTALL_DIR: installDir,
     },
     encoding: "utf8",
   });
 
-  const installedBinaryPath = join(installDir, "webmux-node");
+  const installedBinaryPath = join(installDir, "offdesk-node");
   const installedBinary =
     result.status === 0 ? readFileSync(installedBinaryPath, "utf8") : null;
 
@@ -118,7 +118,7 @@ test("install script selects the darwin arm64 binary", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       installedBinary,
-      "https://github.com/zalify/webmux/releases/download/v9.9.9/webmux-node-darwin-arm64",
+      "https://github.com/zalify/offdesk/releases/download/v9.9.9/offdesk-node-darwin-arm64",
     );
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
@@ -154,9 +154,9 @@ test("install script prints a restart note on darwin when the launchd service is
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout,
-      /NOTE: webmux-node launchd service is running\. Restart to pick up the new binary:/,
+      /NOTE: offdesk-node launchd service is running\. Restart to pick up the new binary:/,
     );
-    assert.match(result.stdout, /webmux-node service restart/);
+    assert.match(result.stdout, /offdesk-node service restart/);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -170,7 +170,7 @@ test("install script prints no restart note on darwin when the launchd service i
 
   try {
     assert.equal(result.status, 0, result.stderr);
-    assert.doesNotMatch(result.stdout, /NOTE: webmux-node .* service is running/);
+    assert.doesNotMatch(result.stdout, /NOTE: offdesk-node .* service is running/);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -187,9 +187,9 @@ test("install script prints a restart note on linux when the systemd service is 
     assert.equal(result.status, 0, result.stderr);
     assert.match(
       result.stdout,
-      /NOTE: webmux-node systemd service is running\. Restart to pick up the new binary:/,
+      /NOTE: offdesk-node systemd service is running\. Restart to pick up the new binary:/,
     );
-    assert.match(result.stdout, /webmux-node service restart/);
+    assert.match(result.stdout, /offdesk-node service restart/);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

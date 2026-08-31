@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentSessionInfo, TerminalInfo } from "@webmux/shared";
+import type { AgentSessionInfo, TerminalInfo } from "@offdesk/shared";
 
 import { buildMobileSessionGroups } from "./mobileSessionSwitcher";
 import type { WorkspaceGroup } from "./terminalWorkspaceLayout";
@@ -124,20 +124,20 @@ describe("buildMobileSessionGroups", () => {
         // cwd matches group alpha's cwd → joins that section.
         agentSession("s-cwd", "/groups/alpha"),
         // No match → synthetic cwd-fallback section, appended last.
-        agentSession("s-new", "/projects/webmux"),
+        agentSession("s-new", "/projects/offdesk"),
       ],
     );
 
     expect(result.map((entry) => entry.group.id)).toEqual([
       "alpha",
-      "cwd:/projects/webmux",
+      "cwd:/projects/offdesk",
     ]);
     expect(result[0].rows.map((row) => row.kind)).toEqual([
       "terminal",
       "agent",
     ]);
     const synthetic = result[1];
-    expect(synthetic.group.label).toBe("webmux");
+    expect(synthetic.group.label).toBe("offdesk");
     expect(synthetic.group.persistent).toBe(false);
     expect(synthetic.rows).toHaveLength(1);
     expect(synthetic.rows[0].kind).toBe("agent");

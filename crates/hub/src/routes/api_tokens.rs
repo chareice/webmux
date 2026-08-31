@@ -70,9 +70,10 @@ async fn create_token(
     auth_user: AuthUser,
     Json(req): Json<CreateApiTokenRequest>,
 ) -> Result<Json<CreateApiTokenResponse>, (StatusCode, Json<serde_json::Value>)> {
-    // Generate wmx_ + 2 UUIDs
+    // Generate odk_ + 2 UUIDs
     let raw_token = format!(
-        "wmx_{}{}",
+        "{}{}{}",
+        auth::API_TOKEN_PREFIX,
         uuid::Uuid::new_v4().as_simple(),
         uuid::Uuid::new_v4().as_simple()
     );

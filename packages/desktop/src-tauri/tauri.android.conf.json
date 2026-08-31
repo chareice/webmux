@@ -1,6 +1,6 @@
 {
   "$schema": "../gen/schemas/android-schema.json",
-  "productName": "webmux",
+  "productName": "offdesk",
   "build": {
     "beforeBuildCommand": "",
     "beforeDevCommand": ""
@@ -9,7 +9,7 @@
     "windows": [
       {
         "label": "main",
-        "url": "https://webmux.nas.chareice.site"
+        "url": "https://offdesk.nas.chareice.site"
       }
     ],
     "security": {

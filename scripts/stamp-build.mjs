@@ -5,7 +5,7 @@
 //
 // What it does:
 // 1. index.html: append ?v=<id> to every /_expo/static script src (top-level
-//    entry chunks) and inject window.__WEBMUX_BUILD__ = "<id>".
+//    entry chunks) and inject window.__OFFDESK_BUILD__ = "<id>".
 // 2. Every .js chunk: append ?v=<id> to every nested "/_expo/static/js/web/…
 //    .js" reference. Metro emits async-chunk path maps whose FILENAMES are
 //    stable across builds while their contents change (e.g. a lazy wrapper
@@ -38,7 +38,7 @@ if (stampedHtml === html) {
 }
 const withBuildGlobal = stampedHtml.replace(
   /<script/,
-  `<script>window.__WEBMUX_BUILD__=${JSON.stringify(buildId)};</script><script`,
+  `<script>window.__OFFDESK_BUILD__=${JSON.stringify(buildId)};</script><script`,
 );
 if (withBuildGlobal === stampedHtml) {
   throw new Error("No <script> tag found in index.html to anchor build global");

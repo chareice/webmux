@@ -3,7 +3,7 @@ use reqwest::{Response, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tc_protocol::{MachineInfo, TerminalInfo, WorkspaceGroupInfo};
+use offdesk_protocol::{MachineInfo, TerminalInfo, WorkspaceGroupInfo};
 
 use crate::config::ResolvedConfig;
 use crate::CliError;

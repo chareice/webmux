@@ -191,7 +191,7 @@ export function OnboardingView({
             lineHeight: 1.5,
           }}
         >
-          Install webmux-node on the machine you want to manage,
+          Install offdesk-node on the machine you want to manage,
           then register it with the commands below.
         </p>
 
@@ -275,7 +275,7 @@ export function OnboardingView({
           <div>
             {/* Step 1: Install */}
             <CodeBlock
-              label="1. Install webmux-node"
+              label="1. Install offdesk-node"
               code={installCmd}
             />
 

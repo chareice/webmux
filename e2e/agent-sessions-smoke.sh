@@ -9,9 +9,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PORT="${WEBMUX_SMOKE_PORT:-4399}"
+PORT="${OFFDESK_SMOKE_PORT:-4399}"
 BASE="http://127.0.0.1:$PORT"
-WORK="$(mktemp -d /tmp/webmux-agent-smoke.XXXXXX)"
+WORK="$(mktemp -d /tmp/offdesk-agent-smoke.XXXXXX)"
 HUB_LOG="$WORK/hub.log"
 NODE_LOG="$WORK/node.log"
 HUB_PID=""
@@ -28,12 +28,12 @@ trap cleanup EXIT
 json_get() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
 
 echo "==> building hub and node"
-cargo build -q -p tc-hub -p tc-machine --manifest-path "$ROOT/Cargo.toml"
-HUB_BIN="$ROOT/target/debug/webmux-server"
-NODE_BIN="$ROOT/target/debug/webmux-node"
+cargo build -q -p offdesk-hub -p offdesk-machine --manifest-path "$ROOT/Cargo.toml"
+HUB_BIN="$ROOT/target/debug/offdesk-hub"
+NODE_BIN="$ROOT/target/debug/offdesk-node"
 
 echo "==> starting dev-mode hub on $BASE (db: $WORK/hub.db)"
-WEBMUX_DEV_MODE=true "$HUB_BIN" --listen "127.0.0.1:$PORT" --database "$WORK/hub.db" \
+OFFDESK_DEV_MODE=true "$HUB_BIN" --listen "127.0.0.1:$PORT" --database "$WORK/hub.db" \
     >"$HUB_LOG" 2>&1 &
 HUB_PID=$!
 for _ in $(seq 1 50); do
@@ -52,7 +52,7 @@ XDG_CONFIG_HOME="$WORK/xdg" "$NODE_BIN" register --hub-url "$BASE" --token "$REG
 
 # Point every agent kind at the fake ACP agent.
 FAKE_AGENT="$ROOT/e2e/fake-acp-agent.py"
-python3 - "$WORK/xdg/webmux/machine.json" "$FAKE_AGENT" <<'EOF'
+python3 - "$WORK/xdg/offdesk/machine.json" "$FAKE_AGENT" <<'EOF'
 import json, sys
 path, agent = sys.argv[1], sys.argv[2]
 config = json.load(open(path))

@@ -92,8 +92,8 @@ test("single browser image paste injects one image path into the terminal", asyn
 async function focusTerminal(page: Page, terminalId: string): Promise<void> {
   await page.evaluate((tid) => {
     const map = (
-      window as unknown as { __webmuxTerminals?: Map<string, { focus: () => void }> }
-    ).__webmuxTerminals;
+      window as unknown as { __offdeskTerminals?: Map<string, { focus: () => void }> }
+    ).__offdeskTerminals;
     map?.get(tid)?.focus();
   }, terminalId);
   await expect
@@ -122,7 +122,7 @@ async function dispatchClipboardImagePaste(page: Page): Promise<void> {
 
     const data = new DataTransfer();
     data.items.add(
-      new File(["webmux-image-paste"], "paste.png", { type: "image/png" }),
+      new File(["offdesk-image-paste"], "paste.png", { type: "image/png" }),
     );
     target.dispatchEvent(
       new ClipboardEvent("paste", {

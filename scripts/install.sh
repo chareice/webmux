@@ -1,12 +1,12 @@
 #!/bin/sh
-# webmux-node installer — detects OS/arch and downloads the correct binary.
-# Usage: curl -sSL https://raw.githubusercontent.com/zalify/webmux/main/scripts/install.sh | sh
+# offdesk-node installer — detects OS/arch and downloads the correct binary.
+# Usage: curl -sSL https://raw.githubusercontent.com/zalify/offdesk/main/scripts/install.sh | sh
 
 set -e
 
-REPO="zalify/webmux"
-BINARY="webmux-node"
-INSTALL_DIR="${WEBMUX_INSTALL_DIR:-$HOME/.local/bin}"
+REPO="zalify/offdesk"
+BINARY="offdesk-node"
+INSTALL_DIR="${OFFDESK_INSTALL_DIR:-$HOME/.local/bin}"
 
 main() {
     require_tmux
@@ -39,18 +39,18 @@ main() {
     echo ""
     echo "Installed ${BINARY} to ${INSTALL_DIR}/${BINARY}"
     if [ "$OS" = "linux" ]; then
-        if systemctl --user is-active webmux-node >/dev/null 2>&1; then
+        if systemctl --user is-active offdesk-node >/dev/null 2>&1; then
             echo ""
-            echo "NOTE: webmux-node systemd service is running. Restart to pick up the new binary:"
-            echo "  webmux-node service restart"
-            echo "(raw equivalent: systemctl --user restart webmux-node)"
+            echo "NOTE: offdesk-node systemd service is running. Restart to pick up the new binary:"
+            echo "  offdesk-node service restart"
+            echo "(raw equivalent: systemctl --user restart offdesk-node)"
         fi
     elif [ "$OS" = "darwin" ]; then
-        if launchctl list com.webmux.node >/dev/null 2>&1; then
+        if launchctl list dev.offdesk.node >/dev/null 2>&1; then
             echo ""
-            echo "NOTE: webmux-node launchd service is running. Restart to pick up the new binary:"
-            echo "  webmux-node service restart"
-            echo "(raw equivalent: launchctl kickstart -k gui/$(id -u)/com.webmux.node)"
+            echo "NOTE: offdesk-node launchd service is running. Restart to pick up the new binary:"
+            echo "  offdesk-node service restart"
+            echo "(raw equivalent: launchctl kickstart -k gui/$(id -u)/dev.offdesk.node)"
         fi
     fi
 
@@ -78,7 +78,7 @@ require_tmux() {
         return
     fi
     cat <<'EOF' >&2
-error: tmux is required by webmux but is not installed.
+error: tmux is required by offdesk but is not installed.
 
 Please install tmux first:
 

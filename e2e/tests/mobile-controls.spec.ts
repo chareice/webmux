@@ -84,7 +84,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
 
   // Destroy via API → the shell returns to the empty state.
   const deviceId = await page.evaluate(() => sessionStorage.getItem("tc-device-id"));
-  const token = await page.evaluate(() => localStorage.getItem("webmux:token"));
+  const token = await page.evaluate(() => localStorage.getItem("offdesk:token"));
   const resp = await page.request.delete(
     `/api/machines/${terminal.machine_id}/terminals/${terminal.id}?device_id=${encodeURIComponent(deviceId ?? "")}`,
     { headers: { Authorization: `Bearer ${token}` } },
@@ -658,9 +658,9 @@ async function hasXtermInstance(
   return page.evaluate((tid) => {
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, unknown>;
+        __offdeskTerminals?: Map<string, unknown>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     return map?.has(tid) ?? false;
   }, terminalId);
 }
@@ -669,9 +669,9 @@ async function getMountedXtermIds(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, unknown>;
+        __offdeskTerminals?: Map<string, unknown>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     return [...(map?.keys() ?? [])];
   });
 }
@@ -683,9 +683,9 @@ async function getXtermSize(
   return page.evaluate((tid) => {
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, { cols: number; rows: number }>;
+        __offdeskTerminals?: Map<string, { cols: number; rows: number }>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     const term = map?.get(tid);
     return { cols: term?.cols ?? 0, rows: term?.rows ?? 0 };
   }, terminalId);
@@ -698,7 +698,7 @@ async function getXtermViewportState(
   return page.evaluate((tid) => {
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<
+        __offdeskTerminals?: Map<
           string,
           {
             rows: number;
@@ -712,7 +712,7 @@ async function getXtermViewportState(
           }
         >;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     const term = map?.get(tid);
     if (!term) return { rows: 0, cursorVisible: false };
     const buffer = term.buffer.active;

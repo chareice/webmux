@@ -5,7 +5,7 @@
 // Pure logic, no DOM — see
 // docs/superpowers/specs/2026-07-18-raw-terminal-ux-redesign-design.md §6.
 
-export const PREFIX_BINDINGS_STORAGE_KEY = "webmux:prefix-bindings";
+export const PREFIX_BINDINGS_STORAGE_KEY = "offdesk:prefix-bindings";
 
 export type PrefixActionId =
   | "newTerminal"

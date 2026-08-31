@@ -565,7 +565,7 @@ test("prefix bindings switch groups with a custom second key", async ({
   });
   await context.addInitScript(() => {
     localStorage.setItem(
-      "webmux:prefix-bindings",
+      "offdesk:prefix-bindings",
       JSON.stringify({
         nextTab: "g",
         prevTab: "f",
@@ -620,7 +620,7 @@ test("settings can record prefix bindings", async ({ page }) => {
 
   await expect(recorder).toHaveText("⌃B g");
   const stored = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("webmux:prefix-bindings") ?? "{}"),
+    JSON.parse(localStorage.getItem("offdesk:prefix-bindings") ?? "{}"),
   );
   expect(stored.nextTab).toBe("g");
 });
@@ -637,7 +637,7 @@ test("settings reject duplicate prefix bindings", async ({ page }) => {
     .toContainText("Focus pane left");
   await expect(recorder).toHaveText("⌃B + key...");
   const stored = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("webmux:prefix-bindings") ?? "{}"),
+    JSON.parse(localStorage.getItem("offdesk:prefix-bindings") ?? "{}"),
   );
   expect(stored.nextTab).toBeUndefined();
 });

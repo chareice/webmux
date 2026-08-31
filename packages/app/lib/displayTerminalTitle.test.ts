@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TerminalInfo } from "@webmux/shared";
+import type { TerminalInfo } from "@offdesk/shared";
 
 import { displayTerminalTitle } from "./displayTerminalTitle";
 

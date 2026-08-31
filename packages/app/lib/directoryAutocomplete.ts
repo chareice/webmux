@@ -1,4 +1,4 @@
-import type { DirEntry } from "@webmux/shared";
+import type { DirEntry } from "@offdesk/shared";
 
 export const AUTOCOMPLETE_CACHE_TTL_MS = 30_000;
 

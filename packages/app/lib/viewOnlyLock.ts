@@ -1,4 +1,4 @@
-const VIEW_ONLY_LOCK_KEY = "webmux:view-only-lock";
+const VIEW_ONLY_LOCK_KEY = "offdesk:view-only-lock";
 
 export interface ViewOnlyLockStorage {
   getItem(key: string): string | null;

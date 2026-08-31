@@ -1,4 +1,4 @@
-import type { TerminalInfo } from "@webmux/shared";
+import type { TerminalInfo } from "@offdesk/shared";
 
 const LEGACY_TERMINAL_TITLE = /^Terminal [0-9a-f]{8}$/;
 

@@ -54,7 +54,7 @@ test("tapping a terminal hyperlink on touch opens it", async ({ page }) => {
     const screenRect = screen.getBoundingClientRect();
     const terminals = (
       window as unknown as {
-        __webmuxTerminals?: Map<
+        __offdeskTerminals?: Map<
           string,
           {
             cols: number;
@@ -70,7 +70,7 @@ test("tapping a terminal hyperlink on touch opens it", async ({ page }) => {
           }
         >;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     const term = terminals?.values().next().value;
     if (!term) return null;
     const cellWidth = screenRect.width / term.cols;

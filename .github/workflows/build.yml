@@ -40,19 +40,19 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            artifact: webmux-node-linux-x64
+            artifact: offdesk-node-linux-x64
             use-cross: true
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-            artifact: webmux-node-linux-arm64
+            artifact: offdesk-node-linux-arm64
             use-cross: true
           - target: x86_64-apple-darwin
             os: macos-latest
-            artifact: webmux-node-darwin-x64
+            artifact: offdesk-node-darwin-x64
             use-cross: false
           - target: aarch64-apple-darwin
             os: macos-latest
-            artifact: webmux-node-darwin-arm64
+            artifact: offdesk-node-darwin-arm64
             use-cross: false
 
     runs-on: ${{ matrix.os }}
@@ -74,16 +74,16 @@ jobs:
         if: matrix.use-cross
         uses: taiki-e/install-action@cross
 
-      - name: Build webmux-node
+      - name: Build offdesk-node
         run: |
           if [ "${{ matrix.use-cross }}" = "true" ]; then
-            cross build --release --bin webmux-node --target ${{ matrix.target }}
+            cross build --release --bin offdesk-node --target ${{ matrix.target }}
           else
-            cargo build --release --bin webmux-node --target ${{ matrix.target }}
+            cargo build --release --bin offdesk-node --target ${{ matrix.target }}
           fi
 
       - name: Rename binary
-        run: cp target/${{ matrix.target }}/release/webmux-node ${{ matrix.artifact }}
+        run: cp target/${{ matrix.target }}/release/offdesk-node ${{ matrix.artifact }}
 
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')

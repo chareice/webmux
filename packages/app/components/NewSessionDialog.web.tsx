@@ -17,7 +17,7 @@ import type {
   AgentSessionInfo,
   MachineInfo,
   TerminalInfo,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 import { X } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
 import { AgentBadge, SESSION_KIND_META, type SessionKind } from "./AgentBadge.web";

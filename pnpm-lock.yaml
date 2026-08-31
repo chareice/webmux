@@ -20,12 +20,12 @@ importers:
 
   packages/app:
     dependencies:
+      '@offdesk/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@tauri-apps/plugin-opener':
         specifier: ^2.5.4
         version: 2.5.4
-      '@webmux/shared':
-        specifier: workspace:*
-        version: link:../shared
       '@xterm/addon-clipboard':
         specifier: 0.3.0-beta.302
         version: 0.3.0-beta.302(@xterm/xterm@6.1.0-beta.303)

@@ -127,22 +127,22 @@ body {
   -ms-overflow-style: none;
 }
 
-@keyframes webmuxFadeIn {
+@keyframes offdeskFadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-@keyframes webmuxSlideUp {
+@keyframes offdeskSlideUp {
   from { transform: translateY(16px); opacity: 0; }
   to   { transform: translateY(0);    opacity: 1; }
 }
-@keyframes webmuxBlink {
+@keyframes offdeskBlink {
   0%, 50%       { opacity: 1; }
   50.01%, 100%  { opacity: 0; }
 }
-@keyframes webmuxSpin {
+@keyframes offdeskSpin {
   to { transform: rotate(360deg); }
 }
-@keyframes webmuxReconnect {
+@keyframes offdeskReconnect {
   from { transform: translateX(-100%); }
   to   { transform: translateX(265%); }
 }

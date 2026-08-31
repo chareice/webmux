@@ -72,7 +72,7 @@ async function readBufferLine(
     ({ tid, rowIndex }) => {
       const map = (
         window as unknown as {
-          __webmuxTerminals?: Map<
+          __offdeskTerminals?: Map<
             string,
             {
               buffer: {
@@ -87,7 +87,7 @@ async function readBufferLine(
             }
           >;
         }
-      ).__webmuxTerminals;
+      ).__offdeskTerminals;
       return (
         map
           ?.get(tid)
@@ -106,9 +106,9 @@ async function readSelection(
   return page.evaluate((tid) => {
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, { getSelection: () => string }>;
+        __offdeskTerminals?: Map<string, { getSelection: () => string }>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     return map?.get(tid)?.getSelection() ?? "";
   }, terminalId);
 }
@@ -121,9 +121,9 @@ async function readScaledTerminalLayout(page: Page): Promise<ScaledLayout> {
     const screen = root?.querySelector(".xterm-screen") as HTMLElement | null;
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, { cols: number; rows: number }>;
+        __offdeskTerminals?: Map<string, { cols: number; rows: number }>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     const terminal = Array.from(map?.values() ?? [])[0];
     const rect = screen?.getBoundingClientRect();
     if (!root || !screen || !terminal || !rect) {

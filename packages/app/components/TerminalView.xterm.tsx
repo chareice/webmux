@@ -396,7 +396,7 @@ function formatErr(err: unknown): string {
 // was never registered. Tapping the toast copies the URL.
 function showLinkDiagnostic(url: string, errors: string[]): void {
   if (typeof document === "undefined") return;
-  const id = "webmux-link-diagnostic";
+  const id = "offdesk-link-diagnostic";
   document.getElementById(id)?.remove();
   const div = document.createElement("div");
   div.id = id;
@@ -420,7 +420,7 @@ function showLinkDiagnostic(url: string, errors: string[]): void {
 // devtools (production Tauri builds). Auto-removes after 8 seconds.
 function showCopyDiagnostic(message: string): void {
   if (typeof document === "undefined") return;
-  const id = "webmux-copy-diagnostic";
+  const id = "offdesk-copy-diagnostic";
   const existing = document.getElementById(id);
   existing?.remove();
   const div = document.createElement("div");
@@ -467,7 +467,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       useRef<ImagePasteDedupeRecord | null>(null);
     const inputBatcherRef = useRef<InputBatcher | null>(null);
     // Stamped with the send time of each input batch when the echo-latency
-    // probe is enabled (localStorage webmux:echo-probe=1); the live socket
+    // probe is enabled (localStorage offdesk:echo-probe=1); the live socket
     // turns the first output after it into a round-trip sample.
     const echoProbeSentAtRef = useRef<number | null>(null);
     const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
@@ -560,7 +560,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           } catch (err) {
             tauriError = err;
             // eslint-disable-next-line no-console
-            console.warn("[webmux] tauri clipboard invoke failed", err);
+            console.warn("[offdesk] tauri clipboard invoke failed", err);
           }
         } else {
           showCopyDiagnostic("__TAURI_INTERNALS__ not available");
@@ -574,7 +574,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           : "Browser clipboard failed";
         showCopyDiagnostic(`${prefix}: ${formatErr(err)}`);
         // eslint-disable-next-line no-console
-        console.warn("[webmux] navigator.clipboard.writeText failed", err);
+        console.warn("[offdesk] navigator.clipboard.writeText failed", err);
         throw err;
       }
     }, []);
@@ -597,7 +597,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             return typeof text === "string" ? text : "";
           } catch (err) {
             // eslint-disable-next-line no-console
-            console.warn("[webmux] tauri clipboard read failed", err);
+            console.warn("[offdesk] tauri clipboard read failed", err);
           }
         }
       }
@@ -746,8 +746,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const container = containerRef.current;
       if (!container) return;
 
-      const userFont = localStorage.getItem("webmux:terminal-font-family");
-      const userFontSize = localStorage.getItem("webmux:terminal-font-size");
+      const userFont = localStorage.getItem("offdesk:terminal-font-family");
+      const userFontSize = localStorage.getItem("offdesk:terminal-font-size");
       const fontFamily = resolveTerminalFontFamily(userFont);
       const fontSize = userFontSize ? Math.max(10, Math.min(24, parseInt(userFontSize, 10) || 14)) : 14;
 
@@ -853,20 +853,20 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // Expose the Terminal instance for Playwright E2E tests. Renderer DOM
       // shape is not stable across xterm versions, so tests read content via
       // `term.buffer.active.getLine(i).translateToString` through this map.
-      // Gated behind localStorage("webmux:e2e")==="1" so production builds
+      // Gated behind localStorage("offdesk:e2e")==="1" so production builds
       // never expose live xterm internals on window.
       if (
         typeof window !== "undefined" &&
         typeof localStorage !== "undefined" &&
-        localStorage.getItem("webmux:e2e") === "1"
+        localStorage.getItem("offdesk:e2e") === "1"
       ) {
         const winAny = window as unknown as {
-          __webmuxTerminals?: Map<string, Terminal>;
+          __offdeskTerminals?: Map<string, Terminal>;
         };
-        if (!winAny.__webmuxTerminals) {
-          winAny.__webmuxTerminals = new Map();
+        if (!winAny.__offdeskTerminals) {
+          winAny.__offdeskTerminals = new Map();
         }
-        winAny.__webmuxTerminals.set(terminalId, term);
+        winAny.__offdeskTerminals.set(terminalId, term);
       }
 
       // Forward terminal input to the current WebSocket: xterm's hidden
@@ -880,7 +880,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       // time inside the send callback. Command/image sends flush first so
       // cross-type message ordering is preserved.
       const echoProbeEnabled =
-        localStorage.getItem("webmux:echo-probe") === "1";
+        localStorage.getItem("offdesk:echo-probe") === "1";
       const batcher = createInputBatcher((data) => {
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN && canTypeRef.current) {
@@ -955,7 +955,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
               term.clearSelection();
             }).catch((err) => {
               // eslint-disable-next-line no-console
-              console.warn("[webmux] Cmd/Ctrl+C clipboard write failed", err);
+              console.warn("[offdesk] Cmd/Ctrl+C clipboard write failed", err);
             });
             return false;
           }
@@ -1017,7 +1017,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           if (file.size > MAX_DROP_BYTES) {
             // eslint-disable-next-line no-console
             console.warn(
-              `[webmux] skipping ${file.name}: ${file.size} bytes exceeds ${MAX_DROP_BYTES}`,
+              `[offdesk] skipping ${file.name}: ${file.size} bytes exceeds ${MAX_DROP_BYTES}`,
             );
             continue;
           }
@@ -1063,7 +1063,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         writeText: clipboardWrite,
         onError: (err) => {
           // eslint-disable-next-line no-console
-          console.warn("[webmux] copy-on-select clipboard write failed", err);
+          console.warn("[offdesk] copy-on-select clipboard write failed", err);
         },
       });
       const selectionChangeDisposable = term.onSelectionChange(() => {
@@ -1277,11 +1277,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         container.removeEventListener("touchend", onTouchEnd);
         if (typeof window !== "undefined") {
           const winAny = window as unknown as {
-            __webmuxTerminals?: Map<string, Terminal>;
+            __offdeskTerminals?: Map<string, Terminal>;
           };
           // Map only exists when the test-hook flag was set; delete is a no-op
           // otherwise because the map itself was never created.
-          winAny.__webmuxTerminals?.delete(terminalId);
+          winAny.__offdeskTerminals?.delete(terminalId);
         }
         restoreMouseCoordinates();
         restoreCompositionHelper();

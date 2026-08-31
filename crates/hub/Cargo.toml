@@ -1,14 +1,14 @@
 [package]
-name = "tc-hub"
+name = "offdesk-hub"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "webmux-server"
+name = "offdesk-hub"
 path = "src/main.rs"
 
 [dependencies]
-tc-protocol = { path = "../protocol" }
+offdesk-protocol = { path = "../protocol" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -12,7 +12,7 @@ import type {
   Bookmark,
   MachineInfo,
   TerminalInfo,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 import { listBookmarks } from "@/lib/api";
 import {
   modelsForAgentKind,

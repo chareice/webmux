@@ -24,7 +24,7 @@ import {
   useState,
 } from "react";
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
-import type { ResourceStats } from "@webmux/shared";
+import type { ResourceStats } from "@offdesk/shared";
 import { ChevronDown, Lock, LogOut, MessageCircle, Plus, Settings } from "lucide-react";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { colors, colorAlpha } from "@/lib/colors";
@@ -373,7 +373,7 @@ function SidebarComponent({
             color: colors.fg2,
           }}
         >
-          WEBMUX
+          offdesk
         </div>
         <button
           type="button"

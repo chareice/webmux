@@ -61,7 +61,7 @@ async function readTerminalLine(
     ({ tid, rowIndex }) => {
       const map = (
         window as unknown as {
-          __webmuxTerminals?: Map<
+          __offdeskTerminals?: Map<
             string,
             {
               buffer: {
@@ -76,7 +76,7 @@ async function readTerminalLine(
             }
           >;
         }
-      ).__webmuxTerminals;
+      ).__offdeskTerminals;
       return (
         map
           ?.get(tid)

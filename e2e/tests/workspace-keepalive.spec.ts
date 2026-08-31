@@ -21,7 +21,7 @@ import {
 // /ws/terminal/ URL (a re-attach means a re-mount), and __wsInputByUrl logs
 // every {type:"input"} payload per socket URL (same wrapping pattern as
 // mobile-ime-composition.spec.ts, but keyed per socket). Buffer reads go
-// through the __webmuxTerminals xterm instances (translateToString).
+// through the __offdeskTerminals xterm instances (translateToString).
 
 test.use({ viewport: { width: 1440, height: 960 } });
 
@@ -105,9 +105,9 @@ async function focusTerminal(page: Page, terminalId: string): Promise<void> {
   await page.evaluate((tid) => {
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, { focus(): void }>;
+        __offdeskTerminals?: Map<string, { focus(): void }>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     map?.get(tid)?.focus();
   }, terminalId);
   const focused = await page.evaluate(() =>

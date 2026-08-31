@@ -1,4 +1,4 @@
-import type { DiskInfo, ResourceStats } from "@webmux/shared";
+import type { DiskInfo, ResourceStats } from "@offdesk/shared";
 
 export interface DiskUsage {
   mountPoint: string;

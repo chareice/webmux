@@ -14,7 +14,7 @@ import type {
   AgentSessionInfo,
   MachineInfo,
   TerminalInfo,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 import { X } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
 import { AgentBadge, SESSION_KIND_META, type SessionKind } from "./AgentBadge.web";
@@ -100,7 +100,7 @@ export function NewSessionSheet({
         background: colorAlpha.overlay,
         display: "flex",
         alignItems: "flex-end",
-        animation: "webmuxFadeIn 120ms ease-out",
+        animation: "offdeskFadeIn 120ms ease-out",
       }}
     >
       <div
@@ -119,7 +119,7 @@ export function NewSessionSheet({
           borderTopRightRadius: 13,
           boxShadow: "0 -14px 40px rgb(0 0 0 / 0.5)",
           color: colors.fg1,
-          animation: "webmuxSlideUp 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+          animation: "offdeskSlideUp 200ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
         <div

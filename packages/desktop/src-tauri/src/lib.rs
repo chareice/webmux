@@ -6,15 +6,15 @@ mod tray;
 #[cfg(any(desktop, mobile))]
 use tauri::Manager;
 
-// On mobile we wrap a remote URL (webmux mobile-web). This ensures the
+// On mobile we wrap a remote URL (offdesk mobile-web). This ensures the
 // Android client always tracks production features instead of needing a
 // parallel native UI tree. The URL is whatever the user has configured;
 // for now we hard-code the production hub but read an override at compile
 // time to ease internal dogfooding.
 #[cfg(mobile)]
-const MOBILE_HUB_URL: &str = match option_env!("WEBMUX_MOBILE_HUB_URL") {
+const MOBILE_HUB_URL: &str = match option_env!("OFFDESK_MOBILE_HUB_URL") {
     Some(value) => value,
-    None => "https://webmux.nas.chareice.site",
+    None => "https://offdesk.nas.chareice.site",
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -102,7 +102,7 @@ fn setup_mobile(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(window) = app.get_webview_window("main") {
         let url = MOBILE_HUB_URL
             .parse::<tauri::Url>()
-            .map_err(|e| format!("invalid WEBMUX_MOBILE_HUB_URL {MOBILE_HUB_URL}: {e}"))?;
+            .map_err(|e| format!("invalid OFFDESK_MOBILE_HUB_URL {MOBILE_HUB_URL}: {e}"))?;
         window.navigate(url)?;
     }
     Ok(())

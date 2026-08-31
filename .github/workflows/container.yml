@@ -12,7 +12,7 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/webmux-server
+  IMAGE_NAME: ${{ github.repository_owner }}/offdesk-hub
 
 jobs:
   publish:
@@ -35,7 +35,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Smoke-test container runtime
-        run: ./scripts/verify-container-runtime.sh webmux-runtime-smoke-ci
+        run: ./scripts/verify-container-runtime.sh offdesk-runtime-smoke-ci
 
       - id: meta
         uses: docker/metadata-action@v6

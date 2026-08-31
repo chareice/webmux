@@ -14,7 +14,7 @@ import type {
   TerminalInfo,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 import { displayTerminalTitle } from "./displayTerminalTitle";
 import {
   createTerminalWorkspace,

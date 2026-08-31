@@ -27,7 +27,7 @@ import {
   useState,
 } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { AgentSessionInfo } from "@webmux/shared";
+import type { AgentSessionInfo } from "@offdesk/shared";
 import { ArrowUp, ChevronDown, ChevronRight, Square, X } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
 import { putAgentSessionSeen } from "@/lib/api";
@@ -921,7 +921,7 @@ function toolStatusIcon(status: string) {
       strokeWidth={3}
       strokeLinecap="round"
       aria-hidden
-      style={{ animation: "webmuxSpin 1.6s linear infinite" }}
+      style={{ animation: "offdeskSpin 1.6s linear infinite" }}
     >
       <circle cx={12} cy={12} r={9} opacity={0.25} />
       <path d="M12 3a9 9 0 0 1 9 9" />

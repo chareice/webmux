@@ -1,5 +1,5 @@
 use axum::{extract::State, response::Json, routing::get, Router};
-use tc_protocol::BrowserStateSnapshot;
+use offdesk_protocol::BrowserStateSnapshot;
 
 use crate::{auth::AuthUser, AppState};
 

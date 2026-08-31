@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rusqlite::{params, Connection};
-use tc_protocol::{AgentKind, AgentModelInfo, AgentSessionInfo, AgentSessionStatus};
+use offdesk_protocol::{AgentKind, AgentModelInfo, AgentSessionInfo, AgentSessionStatus};
 
 use super::now_ms;
 use super::types::AgentSessionRow;

@@ -16,18 +16,18 @@ describe("mainLayoutReducer", () => {
   it("SELECT_WORKPATH sets workpath and clears zoom", () => {
     const next = mainLayoutReducer(
       { ...initial, zoomedTerminalId: "t1" },
-      { type: "SELECT_WORKPATH", workpathId: "wp-webmux" },
+      { type: "SELECT_WORKPATH", workpathId: "wp-offdesk" },
     );
-    expect(next.selectedWorkpathId).toBe("wp-webmux");
+    expect(next.selectedWorkpathId).toBe("wp-offdesk");
     expect(next.zoomedTerminalId).toBeNull();
   });
 
   it("ZOOM_TERMINAL sets zoomed terminal without touching workpath", () => {
     const next = mainLayoutReducer(
-      { ...initial, selectedWorkpathId: "wp-webmux" },
+      { ...initial, selectedWorkpathId: "wp-offdesk" },
       { type: "ZOOM_TERMINAL", terminalId: "t1" },
     );
-    expect(next.selectedWorkpathId).toBe("wp-webmux");
+    expect(next.selectedWorkpathId).toBe("wp-offdesk");
     expect(next.zoomedTerminalId).toBe("t1");
   });
 
@@ -67,18 +67,18 @@ describe("mainLayoutReducer", () => {
 
   it("WORKPATH_DELETED falls back to All if the deleted one was selected", () => {
     const next = mainLayoutReducer(
-      { ...initial, selectedWorkpathId: "wp-webmux" },
-      { type: "WORKPATH_DELETED", workpathId: "wp-webmux" },
+      { ...initial, selectedWorkpathId: "wp-offdesk" },
+      { type: "WORKPATH_DELETED", workpathId: "wp-offdesk" },
     );
     expect(next.selectedWorkpathId).toBe("all");
   });
 
   it("WORKPATH_DELETED leaves selection alone if a different workpath was deleted", () => {
     const next = mainLayoutReducer(
-      { ...initial, selectedWorkpathId: "wp-webmux" },
+      { ...initial, selectedWorkpathId: "wp-offdesk" },
       { type: "WORKPATH_DELETED", workpathId: "wp-z1" },
     );
-    expect(next.selectedWorkpathId).toBe("wp-webmux");
+    expect(next.selectedWorkpathId).toBe("wp-offdesk");
   });
 
   it("TOGGLE_PANEL flips panelOpen", () => {

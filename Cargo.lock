@@ -1225,6 +1225,97 @@ dependencies = [
 ]
 
 [[package]]
+name = "offdesk-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "dirs",
+ "futures",
+ "offdesk-protocol",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "vt100",
+]
+
+[[package]]
+name = "offdesk-hub"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bcrypt",
+ "bytes",
+ "chrono",
+ "clap",
+ "futures",
+ "hex",
+ "http",
+ "jsonwebtoken",
+ "offdesk-protocol",
+ "portable-pty",
+ "r2d2",
+ "r2d2_sqlite",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "urlencoding",
+ "uuid",
+ "vt100",
+]
+
+[[package]]
+name = "offdesk-machine"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "clap",
+ "dirs",
+ "futures",
+ "hostname",
+ "offdesk-protocol",
+ "portable-pty",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "vt100",
+]
+
+[[package]]
+name = "offdesk-protocol"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "dirs",
+ "flate2",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1960,96 +2051,6 @@ dependencies = [
  "ntapi",
  "rayon",
  "windows",
-]
-
-[[package]]
-name = "tc-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "dirs",
- "futures",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "tc-protocol",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "toml",
- "tracing",
- "tracing-subscriber",
- "vt100",
-]
-
-[[package]]
-name = "tc-hub"
-version = "0.1.0"
-dependencies = [
- "axum",
- "bcrypt",
- "bytes",
- "chrono",
- "clap",
- "futures",
- "hex",
- "http",
- "jsonwebtoken",
- "portable-pty",
- "r2d2",
- "r2d2_sqlite",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tc-protocol",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
- "uuid",
- "vt100",
-]
-
-[[package]]
-name = "tc-machine"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "clap",
- "dirs",
- "futures",
- "hostname",
- "portable-pty",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "sysinfo",
- "tc-protocol",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
- "vt100",
-]
-
-[[package]]
-name = "tc-protocol"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "flate2",
- "serde",
- "serde_json",
 ]
 
 [[package]]

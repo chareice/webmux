@@ -12,14 +12,14 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 use serde::Serialize;
-use tc_protocol::TerminalInfo;
+use offdesk_protocol::TerminalInfo;
 
 use crate::client::HubClient;
 use crate::resolve::{resolve_prefix, short_id};
 use crate::CliError;
 
 /// Print one line to stdout. Rust ignores SIGPIPE, so a closed reader
-/// (`webmux ls | head -1`) would otherwise panic on EPIPE; exit 0 like a
+/// (`offdesk ls | head -1`) would otherwise panic on EPIPE; exit 0 like a
 /// well-behaved Unix tool instead. All user-visible output goes through here.
 pub fn out_line(line: &str) {
     let mut stdout = std::io::stdout().lock();
@@ -91,7 +91,7 @@ pub fn group_label(terminal: &TerminalInfo, names: &HashMap<String, String>) -> 
 mod tests {
     use super::group_label;
     use std::collections::HashMap;
-    use tc_protocol::TerminalInfo;
+    use offdesk_protocol::TerminalInfo;
 
     fn terminal(group_id: Option<&str>) -> TerminalInfo {
         TerminalInfo {

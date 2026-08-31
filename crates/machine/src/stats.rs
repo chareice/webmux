@@ -1,5 +1,5 @@
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
-use tc_protocol::{DiskInfo, ResourceStats};
+use offdesk_protocol::{DiskInfo, ResourceStats};
 
 pub const MAX_SILENT_STATS_INTERVALS: u8 = 6;
 
@@ -102,7 +102,7 @@ fn stats_changed_enough(previous: &ResourceStats, next: &ResourceStats) -> bool 
 #[cfg(test)]
 mod tests {
     use super::{should_emit_stats, MAX_SILENT_STATS_INTERVALS};
-    use tc_protocol::{DiskInfo, ResourceStats};
+    use offdesk_protocol::{DiskInfo, ResourceStats};
 
     fn stats(cpu_percent: f32, memory_used: u64, disk_used: u64) -> ResourceStats {
         ResourceStats {

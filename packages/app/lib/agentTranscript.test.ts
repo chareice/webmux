@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentEvent } from "@webmux/shared";
+import type { AgentEvent } from "@offdesk/shared";
 
 import { createAgentTranscript, type TranscriptBlock } from "./agentTranscript";
 

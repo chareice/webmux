@@ -21,7 +21,7 @@ import type {
   MachineInfo,
   ResourceStats,
   TerminalInfo,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 import {
   ChevronRight,
   CircuitBoard,
@@ -1434,7 +1434,7 @@ function Sheet({
         background: "rgba(0, 0, 0, 0.5)",
         display: "flex",
         alignItems: "flex-end",
-        animation: "webmuxFadeIn 120ms ease-out",
+        animation: "offdeskFadeIn 120ms ease-out",
       }}
     >
       <div
@@ -1449,7 +1449,7 @@ function Sheet({
           display: "flex",
           flexDirection: "column",
           paddingBottom: "max(10px, env(safe-area-inset-bottom))",
-          animation: "webmuxSlideUp 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+          animation: "offdeskSlideUp 200ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
         <div

@@ -4,7 +4,7 @@ import type {
   MachineInfo,
   TerminalInfo,
   WorkspaceGroupInfo,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 import {
   SIDEBAR_SHORTCUT_COUNT,
   buildSidebarTree,

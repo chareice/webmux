@@ -29,7 +29,7 @@ test.use({
 const SCROLLBACK_LINES = 300;
 
 interface TouchCapableWindow {
-  __webmuxTerminals?: Map<
+  __offdeskTerminals?: Map<
     string,
     {
       rows: number;
@@ -51,7 +51,7 @@ async function readPxPerLine(page: Page, terminalId: string): Promise<number> {
   const pxPerLine = await page.evaluate((tid) => {
     const term = (
       window as unknown as TouchCapableWindow
-    ).__webmuxTerminals?.get(tid);
+    ).__offdeskTerminals?.get(tid);
     if (!term) return null;
     return (
       term._core?._renderService?.dimensions?.css?.cell?.height ??

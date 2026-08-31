@@ -52,7 +52,7 @@ describe("api request", () => {
           JSON.stringify({
             id: "tok-1",
             name: "cli",
-            token: "wmx_abc",
+            token: "odk_abc",
             created_at: 123,
           }),
           { status: 200 },
@@ -61,7 +61,7 @@ describe("api request", () => {
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     await expect(createApiToken("cli")).resolves.toMatchObject({
-      token: "wmx_abc",
+      token: "odk_abc",
     });
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,

@@ -18,16 +18,16 @@ FROM rust:bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
-RUN cargo build --release --bin webmux-server
+RUN cargo build --release --bin offdesk-hub
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/webmux-server /usr/local/bin/
+COPY --from=builder /app/target/release/offdesk-hub /usr/local/bin/
 COPY --from=frontend /app/packages/app/dist /app/web
 RUN mkdir -p /app/data
 
-ENV WEBMUX_STATIC_DIR=/app/web
-ENV DATABASE_PATH=/app/data/tc.db
+ENV OFFDESK_STATIC_DIR=/app/web
+ENV DATABASE_PATH=/app/data/offdesk.db
 EXPOSE 4317
 
-CMD ["webmux-server"]
+CMD ["offdesk-hub"]

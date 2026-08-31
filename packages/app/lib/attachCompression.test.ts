@@ -31,7 +31,7 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 
 const MESSAGES = [
   new TextEncoder().encode("\x1b[38;5;246mdrwxr-xr-x 2 user user dir\x1b[0m\r\n"),
-  new TextEncoder().encode("\x1b[2K\rbuilding crate webmux ... 128/256\r\n"),
+  new TextEncoder().encode("\x1b[2K\rbuilding crate offdesk ... 128/256\r\n"),
   new TextEncoder().encode("\x1b[38;5;246mdrwxr-xr-x 2 user user dir\x1b[0m\r\n"),
 ];
 

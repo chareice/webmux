@@ -1,49 +1,49 @@
-# webmux
+# offdesk
 
-Web-based control plane for terminals and AI coding agents. Run shells, editors, and TUI agents (Claude Code, Codex, Grok, …) on any machine, reach them from any browser or phone — and drive them programmatically from other agents via the `webmux` CLI.
+Web-based control plane for terminals and AI coding agents. Run shells, editors, and TUI agents (Claude Code, Codex, Grok, …) on any machine, reach them from any browser or phone — and drive them programmatically from other agents via the `offdesk` CLI.
 
 ## Architecture
 
-- `crates/hub` — Rust server (Axum + WebSocket + SQLite). Serves the web UI as an SPA, brokers terminal I/O between browsers/CLI and machines, owns auth (GitHub/Google OAuth + `wmx_` API tokens) and the per-machine control lease (single controller, last-writer-wins).
-- `crates/machine` — Rust machine agent (`webmux-node`). Registers with a hub, hosts terminals as tmux sessions (one `tmux attach` per client — multi-client views, no shared scroll state), reports stats.
-- `crates/cli` — Rust CLI (`webmux`). Remote `tmux send-keys` + `capture-pane` through the hub; the agent-to-agent interface (see below).
+- `crates/hub` — Rust server (Axum + WebSocket + SQLite). Serves the web UI as an SPA, brokers terminal I/O between browsers/CLI and machines, owns auth (GitHub/Google OAuth + `odk_` API tokens) and the per-machine control lease (single controller, last-writer-wins).
+- `crates/machine` — Rust machine agent (`offdesk-node`). Registers with a hub, hosts terminals as tmux sessions (one `tmux attach` per client — multi-client views, no shared scroll state), reports stats.
+- `crates/cli` — Rust CLI (`offdesk`). Remote `tmux send-keys` + `capture-pane` through the hub; the agent-to-agent interface (see below).
 - `packages/app` — the only frontend: Expo Router + React Native Web + xterm.js 6. Built with `expo export --platform web`, served by the hub, wrapped by Tauri for desktop (`packages/desktop`) and Android.
-- `crates/protocol` (`tc-protocol`) — shared wire types between hub, machine, and CLI.
+- `crates/protocol` (`offdesk-protocol`) — shared wire types between hub, machine, and CLI.
 
-## The `webmux` CLI (for humans and agents)
+## The `offdesk` CLI (for humans and agents)
 
 The CLI lets anything that can run a shell command — a human, a script, or another AI agent — list, open, read, write to, and wait on terminals on any machine registered to a hub.
 
 ### Install & authenticate
 
 ```bash
-cargo build --release -p tc-cli          # binary: target/release/webmux
+cargo build --release -p offdesk-cli          # binary: target/release/offdesk
 ```
 
 Create an API token in the web UI (**⌃B k → Settings → API Tokens → Create**), then either:
 
 ```bash
-# ~/.config/webmux/config.toml  (chmod 600)
+# ~/.config/offdesk/config.toml  (chmod 600)
 url   = "https://your-hub.example.com"
-token = "wmx_..."
+token = "odk_..."
 ```
 
-or export `WEBMUX_URL` + `WEBMUX_TOKEN` (flags `--url/--token` override both).
+or export `OFFDESK_URL` + `OFFDESK_TOKEN` (flags `--url/--token` override both).
 
 ### Commands
 
 ```
-webmux machines [--all] [--json]               # list machines (default: online; --all includes offline)
-webmux machines rm <id|name> [--yes]           # forget a registered machine
-webmux ls [--machine <id>] [--json]            # list terminals: id, title, group, cwd, size, reachable
-webmux open <machine> --cwd <dir> [--cmd <shell command>] [--group <name>] [--json]
-webmux read <term> [--lines N] [--json]        # capture the current screen as text
-webmux read --all [--machine <id>] [--lines N] [--json] [--concurrency N] [--include-unreachable]
+offdesk machines [--all] [--json]               # list machines (default: online; --all includes offline)
+offdesk machines rm <id|name> [--yes]           # forget a registered machine
+offdesk ls [--machine <id>] [--json]            # list terminals: id, title, group, cwd, size, reachable
+offdesk open <machine> --cwd <dir> [--cmd <shell command>] [--group <name>] [--json]
+offdesk read <term> [--lines N] [--json]        # capture the current screen as text
+offdesk read --all [--machine <id>] [--lines N] [--json] [--concurrency N] [--include-unreachable]
                                                # batch-capture every terminal's screen in one call
-webmux send <term> <text...> [--no-enter]      # type text (Enter appended by default)
-webmux key  <term> <KEY>...                    # Enter Esc Tab BTab Up Down Left Right C-c C-d F1-F12 ...
-webmux wait <term> [--pattern <regex>] [--silence <ms>] [--timeout <sec>]
-webmux kill <term> [--yes]
+offdesk send <term> <text...> [--no-enter]      # type text (Enter appended by default)
+offdesk key  <term> <KEY>...                    # Enter Esc Tab BTab Up Down Left Right C-c C-d F1-F12 ...
+offdesk wait <term> [--pattern <regex>] [--silence <ms>] [--timeout <sec>]
+offdesk kill <term> [--yes]
 ```
 
 - Machines and terminals are addressed by **id prefix** (first column of `ls`); ambiguous prefixes list candidates.
@@ -56,11 +56,11 @@ webmux kill <term> [--yes]
 ### Orchestrating an agent inside a terminal
 
 ```bash
-T=$(webmux open nas --cwd ~/projects/foo --cmd claude --json | jq -r .id)
-webmux send $T "fix the type errors in src/auth.ts; stop when tests pass"
-webmux wait $T --silence 5000 --timeout 600     # or --pattern '❯' to await a prompt
-webmux read $T --lines 80                        # collect the result
-webmux kill $T --yes
+T=$(offdesk open nas --cwd ~/projects/foo --cmd claude --json | jq -r .id)
+offdesk send $T "fix the type errors in src/auth.ts; stop when tests pass"
+offdesk wait $T --silence 5000 --timeout 600     # or --pattern '❯' to await a prompt
+offdesk read $T --lines 80                        # collect the result
+offdesk kill $T --yes
 ```
 
 ### Semantics you must know
@@ -77,15 +77,15 @@ webmux kill $T --yes
 
 ```bash
 # hub (serves API + the exported web build on :4317)
-WEBMUX_DEV_MODE=true cargo run -p tc-hub
+OFFDESK_DEV_MODE=true cargo run -p offdesk-hub
 
 # machine agent (registers on first run)
-webmux-node register --hub-url http://127.0.0.1:4317 --token <register-token>
-webmux-node start
+offdesk-node register --hub-url http://127.0.0.1:4317 --token <register-token>
+offdesk-node start
 
 # web app (Expo dev server; proxy.mjs forwards /api and /ws to the hub)
 pnpm install && pnpm --filter app dev:web
 node proxy.mjs
 ```
 
-`WEBMUX_DEV_MODE=true` enables `/api/auth/dev` for token-less local logins. See `AGENTS.md` for the E2E browser rules, and `docs/plans/` for design specs (notably `2026-08-03-webmux-cli.md` for the CLI protocol details and `2026-08-03-api-tokens-ui.md`).
+`OFFDESK_DEV_MODE=true` enables `/api/auth/dev` for token-less local logins. See `AGENTS.md` for the E2E browser rules, and `docs/plans/` for design specs (notably `2026-08-03-offdesk-cli.md` for the CLI protocol details and `2026-08-03-api-tokens-ui.md`).

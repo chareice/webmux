@@ -14,12 +14,11 @@ pub struct MachineConfig {
     pub acp_agents: HashMap<String, Vec<String>>,
 }
 
-/// Get the config file path: ~/.config/webmux/machine.json
+/// Get the config file path, e.g. `~/.config/offdesk/machine.json` on
+/// Linux. See `offdesk_protocol::config_dir` for the macOS location and
+/// the one-time move from the old `webmux` directory.
 pub fn config_path() -> PathBuf {
-    let config_dir = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("webmux");
-    config_dir.join("machine.json")
+    offdesk_protocol::config_dir().join("machine.json")
 }
 
 pub fn load_config() -> Result<MachineConfig, String> {

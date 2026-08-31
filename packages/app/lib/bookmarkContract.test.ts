@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Bookmark } from "@webmux/shared";
+import type { Bookmark } from "@offdesk/shared";
 
 // Pins the wire shape of `GET /api/machines/{id}/bookmarks` against the TS
 // type. The Rust handler (crates/hub/src/routes/bookmarks.rs) returns

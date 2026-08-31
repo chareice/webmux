@@ -1,13 +1,13 @@
 // Dev proxy for local development.
 // Proxies /api/* and /ws/* to the Rust hub server, everything else to Expo dev server.
-// Usage: WEBMUX_PROXY_TARGET=http://127.0.0.1:4317 node proxy.mjs
+// Usage: OFFDESK_PROXY_TARGET=http://127.0.0.1:4317 node proxy.mjs
 
 import http from 'node:http'
 import { URL } from 'node:url'
 
 const EXPO_PORT = 8081
 const PROXY_PORT = parseInt(process.env.PROXY_PORT || '4000', 10)
-const BACKEND = process.env.WEBMUX_PROXY_TARGET || 'http://127.0.0.1:4317'
+const BACKEND = process.env.OFFDESK_PROXY_TARGET || 'http://127.0.0.1:4317'
 const backendUrl = new URL(BACKEND)
 
 function proxyRequest(req, res, target) {

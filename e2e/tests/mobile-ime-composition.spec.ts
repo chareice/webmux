@@ -77,9 +77,9 @@ async function focusTerminal(page: Page, terminalId: string): Promise<void> {
   await page.evaluate((tid) => {
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, { focus(): void }>;
+        __offdeskTerminals?: Map<string, { focus(): void }>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     map?.get(tid)?.focus();
   }, terminalId);
   const focused = await page.evaluate(() =>

@@ -1,5 +1,5 @@
 use rusqlite::{params, Connection};
-use tc_protocol::TerminalTitleSource;
+use offdesk_protocol::TerminalTitleSource;
 
 use super::now_ms;
 use super::types::TerminalSessionRow;
@@ -227,7 +227,7 @@ pub fn find_all_active(conn: &Connection) -> rusqlite::Result<Vec<TerminalSessio
 #[cfg(test)]
 mod tests {
     use rusqlite::{params, Connection};
-    use tc_protocol::TerminalTitleSource;
+    use offdesk_protocol::TerminalTitleSource;
 
     use super::{
         apply_cwd_update, apply_title_update, find_active_by_machine, find_all_active,

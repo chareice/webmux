@@ -6,7 +6,7 @@
 // as broken.
 
 import { useEffect, useRef, useState } from "react";
-import type { AgentKind } from "@webmux/shared";
+import type { AgentKind } from "@offdesk/shared";
 
 export const COLD_START_HINT: Partial<Record<AgentKind, string>> = {
   claude: "claude 冷启动约 1 分钟",
