@@ -1,0 +1,15 @@
+{
+  "name": "offdesk-site",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.23.0",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "devDependencies": {
+    "astro": "^5.16.2"
+  }
+}

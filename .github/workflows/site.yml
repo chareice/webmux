@@ -1,0 +1,69 @@
+name: Site
+
+# Builds site/ and deploys it to Cloudflare Pages.
+#
+# Secrets to set once, at Settings → Secrets and variables → Actions →
+# New repository secret:
+#
+#   CLOUDFLARE_ACCOUNT_ID  Cloudflare dashboard → Workers & Pages. The account
+#                          ID is in the right-hand sidebar.
+#   CLOUDFLARE_API_TOKEN   Cloudflare dashboard → My Profile → API Tokens →
+#                          Create Token → "Edit Cloudflare Workers" template,
+#                          or a custom token with the Account permission
+#                          "Cloudflare Pages: Edit".
+#
+# The Pages project itself must exist and be named `offdesk` — create it once
+# in the dashboard (Workers & Pages → Create → Pages → Direct Upload), then
+# this workflow uploads every build to it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # site/ is its own pnpm root (site/pnpm-workspace.yaml) so the app
+      # workspace never has to install Astro.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: site/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+
+      - name: Install
+        working-directory: site
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        working-directory: site
+        run: pnpm build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: >-
+            pages deploy site/dist
+            --project-name=offdesk
+            --branch=${{ github.ref_name }}

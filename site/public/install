@@ -1,0 +1,298 @@
+#!/bin/sh
+# offdesk installer.
+#   curl -fsSL https://offdesk.dev/install | sh
+#
+# Installs the offdesk CLI and the offdesk-node machine agent from the latest
+# GitHub release. Defaults to ~/.local/bin. Pass --system to install to
+# /usr/local/bin instead; that path re-runs the install step under sudo and
+# tells you before it does. Nothing is ever piped into sudo.
+#
+# Flags:
+#   --system            install to /usr/local/bin (asks sudo for that step)
+#   --prefix <dir>      install to <dir>
+#   --version <vX.Y.Z>  install a specific release instead of the latest
+#   --cli-only          skip offdesk-node
+#   --node-only         skip the offdesk CLI
+
+set -eu
+
+REPO="zalify/offdesk"
+RELEASES="https://github.com/${REPO}/releases"
+API="https://api.github.com/repos/${REPO}/releases"
+PREFIX="${OFFDESK_INSTALL_DIR:-$HOME/.local/bin}"
+VERSION=""
+USE_SUDO=no
+WANT_CLI=yes
+WANT_NODE=yes
+
+main() {
+    parse_args "$@"
+    detect_platform
+    require_download_tool
+    [ "$WANT_NODE" = yes ] && require_tmux
+
+    if [ -z "$VERSION" ]; then
+        VERSION=$(latest_version)
+    fi
+
+    say "Installing offdesk ${VERSION} (${OS}/${ARCH}) to ${PREFIX}"
+
+    TMPDIR_="$(mktemp -d)"
+    trap 'rm -rf "${TMPDIR_}"' EXIT HUP INT TERM
+
+    installed=""
+    [ "$WANT_CLI" = yes ] && fetch_binary offdesk && installed="${installed} offdesk"
+    [ "$WANT_NODE" = yes ] && fetch_binary offdesk-node && installed="${installed} offdesk-node"
+
+    ensure_prefix
+    for name in $installed; do
+        place "$name"
+    done
+
+    say ""
+    for name in $installed; do
+        say "Installed ${PREFIX}/${name}"
+    done
+    report_path
+    report_next_steps
+}
+
+# ── arguments ────────────────────────────────────────────────────────
+
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --system)
+                PREFIX="/usr/local/bin"
+                USE_SUDO=yes
+                ;;
+            --prefix)
+                shift
+                [ $# -gt 0 ] || die "--prefix needs a directory"
+                PREFIX="$1"
+                ;;
+            --version)
+                shift
+                [ $# -gt 0 ] || die "--version needs a tag, e.g. v0.4.0"
+                VERSION="$1"
+                ;;
+            --cli-only) WANT_NODE=no ;;
+            --node-only) WANT_CLI=no ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *) die "unknown option: $1" ;;
+        esac
+        shift
+    done
+
+    if [ "$WANT_CLI" = no ] && [ "$WANT_NODE" = no ]; then
+        die "--cli-only and --node-only cannot be combined"
+    fi
+}
+
+usage() {
+    cat <<'EOF'
+offdesk installer.
+  curl -fsSL https://offdesk.dev/install | sh
+
+Installs the offdesk CLI and the offdesk-node machine agent from the latest
+GitHub release. Defaults to ~/.local/bin.
+
+  --system            install to /usr/local/bin (asks sudo for that step)
+  --prefix <dir>      install to <dir>
+  --version <vX.Y.Z>  install a specific release instead of the latest
+  --cli-only          skip offdesk-node
+  --node-only         skip the offdesk CLI
+
+Nothing is ever piped into sudo.
+EOF
+}
+
+# ── environment ──────────────────────────────────────────────────────
+
+detect_platform() {
+    os_raw=$(uname -s)
+    arch_raw=$(uname -m)
+
+    case "$os_raw" in
+        Linux) OS="linux" ;;
+        Darwin) OS="darwin" ;;
+        *) die "unsupported OS: ${os_raw}. offdesk builds for Linux and macOS; \
+build from source with: cargo build --release" ;;
+    esac
+
+    case "$arch_raw" in
+        x86_64|amd64) ARCH="x64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+        *) die "unsupported architecture: ${arch_raw}. Build from source with: \
+cargo build --release" ;;
+    esac
+}
+
+require_download_tool() {
+    if command -v curl >/dev/null 2>&1; then
+        DL=curl
+    elif command -v wget >/dev/null 2>&1; then
+        DL=wget
+    else
+        die "curl or wget is required"
+    fi
+}
+
+require_tmux() {
+    command -v tmux >/dev/null 2>&1 && return 0
+    cat >&2 <<'EOF'
+error: offdesk-node needs tmux, and tmux is not installed.
+
+  Debian / Ubuntu:  sudo apt install tmux
+  macOS (Homebrew): brew install tmux
+  Arch:             sudo pacman -S tmux
+
+Install it and run this again, or pass --cli-only to install just the CLI.
+EOF
+    exit 1
+}
+
+# ── release lookup ───────────────────────────────────────────────────
+
+fetch() {
+    # fetch <url> -> stdout; non-zero on any HTTP error
+    if [ "$DL" = curl ]; then
+        curl -fsSL "$1" 2>/dev/null
+    else
+        wget -qO- "$1" 2>/dev/null
+    fi
+}
+
+fetch_to() {
+    # fetch_to <url> <dest>; non-zero on any HTTP error
+    if [ "$DL" = curl ]; then
+        curl -fsSL -o "$2" "$1" 2>/dev/null
+    else
+        wget -qO "$2" "$1" 2>/dev/null
+    fi
+}
+
+latest_version() {
+    # Newest vX.Y.Z tag. desktop-v* and app-v* ship the desktop and Android
+    # apps and carry no CLI or node binaries, so they are skipped.
+    body=$(fetch "$API" 2>/dev/null) || no_release "could not reach ${API}"
+    version=$(printf '%s' "$body" \
+        | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"v[0-9]+\.[0-9]+\.[0-9]+"' \
+        | sed -E 's/.*"(v[0-9]+\.[0-9]+\.[0-9]+)"/\1/' \
+        | sort -V \
+        | tail -n 1)
+    [ -n "$version" ] || no_release "no vX.Y.Z release exists yet"
+    printf '%s' "$version"
+}
+
+fetch_binary() {
+    name="$1"
+    artifact="${name}-${OS}-${ARCH}"
+    url="${RELEASES}/download/${VERSION}/${artifact}"
+    if ! fetch_to "$url" "${TMPDIR_}/${name}"; then
+        no_release "release ${VERSION} has no ${artifact}"
+    fi
+    chmod +x "${TMPDIR_}/${name}"
+}
+
+no_release() {
+    cat >&2 <<EOF
+error: $1
+
+offdesk may not have published binaries for ${OS}/${ARCH} yet. Build from
+source instead — it needs a Rust toolchain and takes a minute:
+
+  git clone https://github.com/${REPO} && cd ${REPO#*/}
+  cargo build --release --bin offdesk --bin offdesk-node
+  cp target/release/offdesk target/release/offdesk-node ${PREFIX}/
+
+Releases: ${RELEASES}
+EOF
+    exit 1
+}
+
+# ── install ──────────────────────────────────────────────────────────
+
+ensure_prefix() {
+    [ -d "$PREFIX" ] && return 0
+    if [ "$USE_SUDO" = yes ]; then
+        say "Creating ${PREFIX} (needs sudo)"
+        sudo mkdir -p "$PREFIX"
+    else
+        mkdir -p "$PREFIX"
+    fi
+}
+
+place() {
+    name="$1"
+    src="${TMPDIR_}/${name}"
+    dest="${PREFIX}/${name}"
+
+    # Move rather than copy over the destination: `mv` swaps the directory
+    # entry, so replacing a binary that a running service still has open does
+    # not fail with "text file busy".
+    if [ "$USE_SUDO" = yes ]; then
+        say "Writing ${dest} (needs sudo)"
+        sudo mv -f "$src" "$dest"
+    else
+        if [ -e "$dest" ] && [ ! -w "$dest" ]; then
+            die "${dest} is not writable. Re-run with --system to use sudo, \
+or with --prefix <dir> to install somewhere you own."
+        fi
+        mv -f "$src" "$dest"
+    fi
+}
+
+# ── reporting ────────────────────────────────────────────────────────
+
+report_path() {
+    case ":${PATH}:" in
+        *":${PREFIX}:"*) return 0 ;;
+    esac
+    say ""
+    say "${PREFIX} is not on your PATH. Add it:"
+    case "$(basename "${SHELL:-sh}")" in
+        fish) say "  fish_add_path ${PREFIX}" ;;
+        zsh) say "  echo 'export PATH=\"${PREFIX}:\$PATH\"' >> ~/.zshrc" ;;
+        *) say "  echo 'export PATH=\"${PREFIX}:\$PATH\"' >> ~/.bashrc" ;;
+    esac
+}
+
+report_next_steps() {
+    say ""
+    case " ${installed} " in
+        *" offdesk-node "*)
+            say "Next: register this machine with your hub."
+            say "  offdesk-node register --hub-url https://your-hub.example.com --token <token>"
+            say "  offdesk-node start"
+            say ""
+            say "Create the token in the hub's Settings. It is single-use and"
+            say "expires after 24 hours."
+            ;;
+    esac
+    case " ${installed} " in
+        *" offdesk "*)
+            say ""
+            say "For the CLI, set OFFDESK_URL and OFFDESK_TOKEN, or write"
+            say "~/.config/offdesk/config.toml. See ${RELEASES%/releases}#readme"
+            ;;
+    esac
+
+    if [ "$OS" = linux ] && systemctl --user is-active offdesk-node >/dev/null 2>&1; then
+        say ""
+        say "The offdesk-node service is running an older binary. Restart it:"
+        say "  offdesk-node service restart"
+    elif [ "$OS" = darwin ] && launchctl list dev.offdesk.node >/dev/null 2>&1; then
+        say ""
+        say "The offdesk-node service is running an older binary. Restart it:"
+        say "  offdesk-node service restart"
+    fi
+}
+
+say() { printf '%s\n' "$1"; }
+die() { printf 'error: %s\n' "$1" >&2; exit 1; }
+
+main "$@"
