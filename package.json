@@ -1,6 +1,7 @@
 {
   "name": "offdesk",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.23.0",
   "scripts": {

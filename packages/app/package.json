@@ -2,6 +2,7 @@
   "name": "@offdesk/app",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "main": "expo-router/entry",
   "scripts": {
     "dev:web": "expo start --web",
