@@ -46,7 +46,7 @@ fi
   writeExecutable(
     join(binDir, "curl"),
     `#!/bin/sh
-if [ "$1" = "-sSL" ] && [ "$2" = "https://api.github.com/repos/chareice/webmux/releases" ]; then
+if [ "$1" = "-sSL" ] && [ "$2" = "https://api.github.com/repos/zalify/webmux/releases" ]; then
   printf '%s' '[{"tag_name":"v9.9.9"}]'
   exit 0
 fi
@@ -118,7 +118,7 @@ test("install script selects the darwin arm64 binary", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       installedBinary,
-      "https://github.com/chareice/webmux/releases/download/v9.9.9/webmux-node-darwin-arm64",
+      "https://github.com/zalify/webmux/releases/download/v9.9.9/webmux-node-darwin-arm64",
     );
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

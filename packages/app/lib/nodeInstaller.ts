@@ -1,5 +1,5 @@
 export const INSTALL_SCRIPT_URL =
-  "https://raw.githubusercontent.com/chareice/webmux/main/scripts/install.sh";
+  "https://raw.githubusercontent.com/zalify/webmux/main/scripts/install.sh";
 
 export function getInstallCommand(): string {
   return `curl -sSL ${INSTALL_SCRIPT_URL} | sh`;
