@@ -1,6 +1,6 @@
 services:
   server:
-    image: ghcr.io/chareice/webmux-server:main
+    image: ghcr.io/zalify/webmux-server:main
     build: .
     restart: unless-stopped
     ports:

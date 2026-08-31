@@ -1,10 +1,10 @@
 #!/bin/sh
 # webmux-node installer — detects OS/arch and downloads the correct binary.
-# Usage: curl -sSL https://raw.githubusercontent.com/chareice/webmux/main/scripts/install.sh | sh
+# Usage: curl -sSL https://raw.githubusercontent.com/zalify/webmux/main/scripts/install.sh | sh
 
 set -e
 
-REPO="chareice/webmux"
+REPO="zalify/webmux"
 BINARY="webmux-node"
 INSTALL_DIR="${WEBMUX_INSTALL_DIR:-$HOME/.local/bin}"
 

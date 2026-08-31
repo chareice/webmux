@@ -12,7 +12,7 @@ Operational reference for webmux (terminal-canvas).
 
 | Service | Image / Binary | Port | Notes |
 |---------|---------------|------|-------|
-| webmux-server | `ghcr.io/chareice/webmux-server:main` | 4317 | Axum server + static frontend (Docker) |
+| webmux-server | `ghcr.io/zalify/webmux-server:main` | 4317 | Axum server + static frontend (Docker) |
 | webmux-node | GitHub Release binary | — | Machine agent, systemd/launchd service on each machine |
 | caddy | — | 443/80 | Reverse proxy, TLS termination |
 
@@ -49,7 +49,7 @@ ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; dock
 git push origin main
     → GitHub Actions (.github/workflows/container.yml)
     → Build Docker image (linux/amd64)
-    → Push to ghcr.io/chareice/webmux-server:main
+    → Push to ghcr.io/zalify/webmux-server:main
     → Manual pull & restart on NAS
 ```
 
@@ -59,8 +59,8 @@ ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /
 
 **CI check:**
 ```bash
-gh run list --repo chareice/webmux --limit 5
-gh run view <run-id> --repo chareice/webmux
+gh run list --repo zalify/webmux --limit 5
+gh run view <run-id> --repo zalify/webmux
 ```
 
 ## Update Machine Nodes (webmux-node)
@@ -77,14 +77,14 @@ git tag v<VERSION> && git push origin v<VERSION>
 
 Wait for `Build & Release` workflow to complete:
 ```bash
-gh run list --repo chareice/webmux --workflow build.yml --limit 3
+gh run list --repo zalify/webmux --workflow build.yml --limit 3
 ```
 
 ### Update node on a machine
 
 SSH to the machine and re-run the install script:
 ```bash
-curl -sSL https://raw.githubusercontent.com/chareice/webmux/main/scripts/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/zalify/webmux/main/scripts/install.sh | sh
 ```
 
 Then restart the service:
@@ -146,10 +146,10 @@ Roll back to a specific image SHA:
 gh api /user/packages/container/webmux-server/versions --jq '.[0:5] | .[] | "\(.metadata.container.tags | join(", ")) — \(.created_at)"'
 
 # 2. Update compose to pin the sha- tag
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && sed -i 's|image:.*|image: ghcr.io/chareice/webmux-server:sha-<COMMIT>|' docker-compose.yml && docker compose pull && docker compose up -d"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && sed -i 's|image:.*|image: ghcr.io/zalify/webmux-server:sha-<COMMIT>|' docker-compose.yml && docker compose pull && docker compose up -d"
 
 # 3. After fix is deployed, restore to :main tag
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && sed -i 's|image:.*|image: ghcr.io/chareice/webmux-server:main|' docker-compose.yml && docker compose pull && docker compose up -d"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && sed -i 's|image:.*|image: ghcr.io/zalify/webmux-server:main|' docker-compose.yml && docker compose pull && docker compose up -d"
 ```
 
 ### Stop
