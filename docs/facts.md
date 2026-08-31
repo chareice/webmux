@@ -112,7 +112,18 @@ url or token exits 2 (`crates/cli/src/config.rs::resolve`).
   - GitHub: `<base_url>/api/auth/github/callback`, scope `read:user`
   - Google: `<base_url>/api/auth/google/callback`, scope `openid email profile`
 - `GET /api/auth/dev` returns 404 unless `WEBMUX_DEV_MODE=true`
-  (`crates/hub/src/routes/auth.rs:177`).
+  (`crates/hub/src/routes/auth.rs`). When it is enabled it finds-or-creates a
+  single shared user with provider `dev` / provider_id `dev-user`, named
+  "Dev User", and returns a signed JWT. The first user created on a hub gets
+  role `admin`.
+- **The web client calls it automatically.** `packages/app/lib/auth.tsx`
+  restores a session in three steps: `?token=` from an OAuth redirect, then a
+  stored token, then — on web — an unprompted `devLogin()`. So a hub running
+  with dev mode on logs in *anyone who opens the URL*, as the same user, with
+  no prompt. That is the fastest way to get running on a LAN and it is not
+  safe to expose.
+- The login screen itself only offers GitHub and Google
+  (`packages/app/app/login.tsx`); dev mode never appears as a button.
 - Session JWT: HS256, expiry **180 days** (`JWT_EXPIRY_DAYS`,
   `crates/hub/src/auth.rs`). Delivered to the browser as `?token=<jwt>` on the
   post-OAuth redirect.
