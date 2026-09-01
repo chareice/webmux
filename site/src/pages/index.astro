@@ -153,6 +153,8 @@ offdesk kill $T --yes`;
     <meta name="description" content={description} />
     <link rel="canonical" href="https://offdesk.dev/" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/brand/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/brand/favicon-16.png" sizes="16x16" type="image/png" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0b0c0f" />
 
@@ -160,16 +162,25 @@ offdesk kill $T --yes`;
     <meta property="og:url" content="https://offdesk.dev/" />
     <meta property="og:title" content="offdesk" />
     <meta property="og:description" content={description} />
-    <meta property="og:image" content="https://offdesk.dev/media/hero.gif" />
+    <meta property="og:image" content="https://offdesk.dev/brand/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="offdesk" />
     <meta name="twitter:description" content={description} />
-    <meta name="twitter:image" content="https://offdesk.dev/media/hero.gif" />
+    <meta name="twitter:image" content="https://offdesk.dev/brand/og.png" />
   </head>
 
   <body>
     <main>
       <header class="hero">
+        <img
+          class="wordmark"
+          src="/brand/logo-dark.svg"
+          alt="offdesk"
+          width="348"
+          height="133"
+        />
         <h1>Vibe code from your phone, on the terminal running at home.</h1>
         <p class="sub">
           One self-hosted hub, all your machines, any agent that runs in tmux.
@@ -406,7 +417,13 @@ offdesk kill $T --yes`;
         --fg: #f7f8fb;
         --fg-1: #b9bcc1;
         --fg-2: #82868b;
-        --accent: #fb9d59;
+        /* Brand blue from the logo. At 3.58:1 on the canvas it clears WCAG AA
+           for large text and UI, but not for body text — so it fills buttons,
+           where cream on it is 5.46:1, and never sets small text itself. */
+        --brand: #1a5fe8;
+        /* Lightened for links and small accents on dark: 5.74:1. */
+        --accent: #4c86ff;
+        --cream: #fafaf5;
         --term-bg: #05060a;
         --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
           "Liberation Mono", monospace;
@@ -560,9 +577,9 @@ offdesk kill $T --yes`;
       }
 
       .btn.primary {
-        background: var(--accent);
-        border-color: var(--accent);
-        color: #16100a;
+        background: var(--brand);
+        border-color: var(--brand);
+        color: var(--cream);
         font-weight: 600;
       }
 
@@ -574,6 +591,13 @@ offdesk kill $T --yes`;
         max-width: 34rem;
         margin: 1.75rem 0 0;
         color: var(--fg-1);
+      }
+
+      .wordmark {
+        display: block;
+        width: 8.5rem;
+        height: auto;
+        margin: 0 0 1.75rem;
       }
 
       .shot {
@@ -765,6 +789,10 @@ offdesk kill $T --yes`;
 
         h1 {
           font-size: 2.9rem;
+        }
+
+        .wordmark {
+          width: 10.5rem;
         }
 
         .sub {
