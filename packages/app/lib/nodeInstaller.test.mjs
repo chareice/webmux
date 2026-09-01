@@ -6,11 +6,17 @@ import {
   getInstallCommand,
 } from "./nodeInstaller.ts";
 
-test("getInstallCommand uses the shared install script", () => {
+test("getInstallCommand uses the installer the site serves", () => {
+  assert.equal(INSTALL_SCRIPT_URL, "https://offdesk.dev/install");
   assert.equal(
-    INSTALL_SCRIPT_URL,
-    "https://raw.githubusercontent.com/zalify/offdesk/main/scripts/install.sh",
+    getInstallCommand(),
+    "curl -fsSL https://offdesk.dev/install | sh -s -- --node-only",
   );
-  assert.equal(getInstallCommand(), `curl -sSL ${INSTALL_SCRIPT_URL} | sh`);
+});
+
+test("onboarding asks for the machine agent alone, not the CLI", () => {
+  // The onboarding flow registers a machine. Installing the CLI as a side
+  // effect would put a second, unconfigured tool on the box.
+  assert.match(getInstallCommand(), /--node-only/);
   assert.doesNotMatch(getInstallCommand(), /offdesk-node-(linux|darwin)-(x64|arm64)/);
 });
