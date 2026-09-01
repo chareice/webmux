@@ -11,7 +11,7 @@ project, domain, volume, or database.
 
 | Concern | Authoritative value | State |
 |---|---|---|
-| GitHub repository | `zalify/offdesk.dev` | renamed |
+| GitHub repository | `zalify/offdesk` | renamed |
 | Hub image | `ghcr.io/zalify/offdesk-hub` | renamed |
 | Hub binary | `offdesk-hub` | renamed |
 | Machine binary | `offdesk-node` | renamed for new releases |
@@ -100,7 +100,7 @@ The live NAS Compose file currently contains inline JWT and OAuth credentials.
 
 ## Release pipeline
 
-Pushing or merging to `main` in `zalify/offdesk.dev` triggers
+Pushing or merging to `main` in `zalify/offdesk` triggers
 `.github/workflows/container.yml`:
 
 ```text
@@ -125,7 +125,7 @@ Confirm the PR, exact commit, CI, current production health, running image, and
 mount before changing state:
 
 ```bash
-gh pr view <pr-number> --repo zalify/offdesk.dev \
+gh pr view <pr-number> --repo zalify/offdesk \
   --json state,mergeable,headRefOid,statusCheckRollup,url
 
 ssh chareice@nas.chareice.site -p 10220 \
@@ -155,12 +155,12 @@ Expected before the first compatibility cutover:
 Merge only after explicit production confirmation:
 
 ```bash
-gh pr merge <pr-number> --repo zalify/offdesk.dev --merge
+gh pr merge <pr-number> --repo zalify/offdesk --merge
 
-OFFDESK_DEPLOY_SHA="$(gh api repos/zalify/offdesk.dev/commits/main --jq .sha)"
+OFFDESK_DEPLOY_SHA="$(gh api repos/zalify/offdesk/commits/main --jq .sha)"
 OFFDESK_IMAGE_TAG="sha-${OFFDESK_DEPLOY_SHA:0:7}"
 
-gh run list --repo zalify/offdesk.dev \
+gh run list --repo zalify/offdesk \
   --workflow container.yml \
   --commit "$OFFDESK_DEPLOY_SHA" \
   --json databaseId,headSha,status,conclusion,url
@@ -170,7 +170,7 @@ Watch the matching run and require success:
 
 ```bash
 OFFDESK_RUN_ID=<matching-run-id>
-gh run watch "$OFFDESK_RUN_ID" --repo zalify/offdesk.dev --exit-status
+gh run watch "$OFFDESK_RUN_ID" --repo zalify/offdesk --exit-status
 docker manifest inspect \
   "ghcr.io/zalify/offdesk-hub:${OFFDESK_IMAGE_TAG}" >/dev/null
 ```
@@ -373,15 +373,13 @@ Tagging a release triggers `.github/workflows/build.yml`:
 ```bash
 git tag v<VERSION>
 git push origin v<VERSION>
-gh run list --repo zalify/offdesk.dev --workflow build.yml --limit 3
+gh run list --repo zalify/offdesk --workflow build.yml --limit 3
 ```
 
 Install or update a node from the renamed repository:
 
 ```bash
-curl -sSL \
-  https://raw.githubusercontent.com/zalify/offdesk.dev/main/scripts/install.sh \
-  | sh
+curl -fsSL https://offdesk.dev/install | sh -s -- --node-only
 ```
 
 Restart the node after installation:
