@@ -749,13 +749,13 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
   // The terminal already sits in the tab the hub opened for it.
   const cwdTab = (await listWorkspaceGroupsViaApi(page))[0];
 
-  // Right-click that tab → New tab creates a second one.
+  // Right-click that tab → New workspace creates a second one.
   await page.locator("[data-testid^='workspace-tab-']").first().click({
     button: "right",
   });
   await page
     .getByTestId("context-menu")
-    .getByRole("button", { name: "New tab" })
+    .getByRole("button", { name: "New workspace" })
     .click();
   await expect
     .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
@@ -764,7 +764,7 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
     (group) => group.id !== cwdTab.id,
   )!;
 
-  // New tab deterministically becomes the active (empty) group; switch back
+  // The new workspace deterministically becomes the active empty group; switch back
   // to the terminal's tab so the pane is mounted again before opening its menu.
   await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
   await page.getByTestId(`workspace-group-${cwdTab.id}`).click();
@@ -784,10 +784,12 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
   await page
     .locator(`[data-testid='workspace-tab-${created.id}']`)
     .click({ button: "right" });
-  await page.getByRole("button", { name: `Delete tab "${created.name}"` }).click();
   await page
-    .getByRole("dialog", { name: "Delete tab?" })
-    .getByRole("button", { name: "Delete tab" })
+    .getByRole("button", { name: `Delete workspace "${created.name}"` })
+    .click();
+  await page
+    .getByRole("dialog", { name: "Delete workspace?" })
+    .getByRole("button", { name: "Delete workspace" })
     .click();
 
   // Group row is gone server-side; the terminal survives in its cwd tab.
@@ -810,18 +812,18 @@ test("tab context menu renames a workspace tab", async ({ page }) => {
   const group = await createWorkspaceGroupViaApi(page, `Rename ${Date.now()}`);
   await expect(workspaceGroup(page, group.name)).toBeVisible();
 
-  // Right-click the tab → Rename tab opens the rename dialog.
+  // Right-click the tab → Rename workspace opens the rename dialog.
   await page
     .locator(`[data-testid='workspace-tab-${group.id}']`)
     .click({ button: "right" });
   await page
     .getByTestId("context-menu")
-    .getByRole("button", { name: "Rename tab" })
+    .getByRole("button", { name: "Rename workspace" })
     .click();
 
   const renamed = `Renamed ${Date.now()}`;
-  const dialog = page.getByRole("dialog", { name: "Rename tab" });
-  await dialog.getByRole("textbox", { name: "Tab name" }).fill(renamed);
+  const dialog = page.getByRole("dialog", { name: "Rename workspace" });
+  await dialog.getByRole("textbox", { name: "Workspace name" }).fill(renamed);
   await dialog.getByRole("button", { name: "Rename", exact: true }).click();
 
   // Tab label updates and the new name is persisted server-side.
@@ -834,4 +836,72 @@ test("tab context menu renames a workspace tab", async ({ page }) => {
         )?.name,
     )
     .toBe(renamed);
+});
+
+test("workspace manager organizes, renames, moves, reorders, and deletes", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const first = await createWorkspaceGroupViaApi(
+    page,
+    `Manager A ${Date.now()}`,
+  );
+  const second = await createWorkspaceGroupViaApi(
+    page,
+    `Manager B ${Date.now()}`,
+  );
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: first.id,
+  });
+  await expandTerminalById(page, terminalId);
+
+  await page.getByTestId("desktop-workspace-manager-button").click();
+  const manager = page.getByTestId("workspace-manager");
+  await expect(manager).toBeVisible();
+  await expect(manager).toHaveAttribute("data-placement", "drawer");
+  await expect(
+    manager.getByTestId(`workspace-manager-group-${first.id}`),
+  ).toContainText("1");
+
+  await manager.getByTestId(`workspace-manager-rename-${second.id}`).click();
+  const renamed = `Manager renamed ${Date.now()}`;
+  const renameDialog = page.getByRole("dialog", { name: "Rename workspace" });
+  await renameDialog
+    .getByRole("textbox", { name: "Workspace name" })
+    .fill(renamed);
+  await renameDialog.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(
+    manager.getByTestId(`workspace-manager-group-${second.id}`),
+  ).toContainText(renamed);
+
+  await manager
+    .getByTestId(`workspace-manager-move-${terminalId}`)
+    .selectOption(second.id);
+  await expect
+    .poll(async () =>
+      (await listTerminals(page)).find((terminal) => terminal.id === terminalId)
+        ?.workspace_group_id,
+    )
+    .toBe(second.id);
+
+  await manager.getByTestId(`workspace-manager-up-${second.id}`).click();
+  await expect
+    .poll(async () => (await listWorkspaceGroupsViaApi(page))[0]?.id)
+    .toBe(second.id);
+
+  await manager.getByTestId(`workspace-manager-delete-${first.id}`).click();
+  await expect
+    .poll(async () =>
+      (await listWorkspaceGroupsViaApi(page)).some(
+        (group) => group.id === first.id,
+      ),
+    )
+    .toBe(false);
+  expect((await listTerminals(page)).map((terminal) => terminal.id)).toContain(
+    terminalId,
+  );
 });

@@ -91,7 +91,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   expect(resp.ok()).toBeTruthy();
   await expect(page.getByText(/No terminals yet/)).toBeVisible();
   await expect(page.getByTestId("mobile-title-bar-label")).toContainText(
-    "No session",
+    "No terminal",
   );
 });
 
@@ -459,6 +459,78 @@ test("mobile title bar and grouped switcher expose titles, host stats, and creat
   await expect
     .poll(() => getMountedXtermIds(page))
     .toEqual([created!.id]);
+});
+
+test("mobile workspace manager provides full workspace controls", async ({ page }) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await mobileTakeControl(page);
+
+  const first = await createWorkspaceGroupViaApi(
+    page,
+    `Mobile manager A ${Date.now()}`,
+  );
+  const second = await createWorkspaceGroupViaApi(
+    page,
+    `Mobile manager B ${Date.now()}`,
+  );
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: first.id,
+  });
+  await expandTerminalById(page, terminalId);
+
+  await page.getByTestId("mobile-title-bar").click();
+  await page.getByTestId("mobile-workspace-manager-button").click();
+  const manager = page.getByTestId("workspace-manager");
+  await expect(manager).toBeVisible();
+  await expect(manager).toHaveAttribute("data-placement", "sheet");
+  await expect(
+    manager.getByTestId(`workspace-manager-group-${first.id}`),
+  ).toBeVisible();
+  await expect(
+    manager.getByTestId(`workspace-manager-group-${second.id}`),
+  ).toBeVisible();
+
+  await manager.getByTestId(`workspace-manager-rename-${second.id}`).click();
+  const renamed = `Mobile renamed ${Date.now()}`;
+  const renameDialog = page.getByRole("dialog", { name: "Rename workspace" });
+  await renameDialog
+    .getByRole("textbox", { name: "Workspace name" })
+    .fill(renamed);
+  await renameDialog.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(
+    manager.getByTestId(`workspace-manager-group-${second.id}`),
+  ).toContainText(renamed);
+
+  await manager
+    .getByTestId(`workspace-manager-move-${terminalId}`)
+    .selectOption(second.id);
+  await expect
+    .poll(async () =>
+      (await listTerminals(page)).find((terminal) => terminal.id === terminalId)
+        ?.workspace_group_id,
+    )
+    .toBe(second.id);
+
+  await manager.getByTestId(`workspace-manager-up-${second.id}`).click();
+  await expect
+    .poll(async () => (await listWorkspaceGroupsViaApi(page))[0]?.id)
+    .toBe(second.id);
+
+  await manager.getByTestId(`workspace-manager-delete-${first.id}`).click();
+  await expect
+    .poll(async () =>
+      (await listWorkspaceGroupsViaApi(page)).some(
+        (group) => group.id === first.id,
+      ),
+    )
+    .toBe(false);
+
+  await manager.getByTestId("workspace-manager-new").click();
+  await expect
+    .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
+    .toBe(2);
 });
 
 test("mobile + overflows a full tab into a new tab instead of a fifth pane", async ({

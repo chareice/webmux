@@ -24,6 +24,7 @@ import type {
 import {
   ChevronRight,
   CircuitBoard,
+  FolderTree,
   Lock,
   LockOpen,
   Plus,
@@ -40,6 +41,7 @@ import {
   type MobileSessionPane,
 } from "@/lib/mobileSessionSwitcher";
 import type { WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
+import { WorkspaceManager } from "./WorkspaceManager.web";
 
 interface MobileWorkbenchProps {
   machines: MachineInfo[];
@@ -57,9 +59,19 @@ interface MobileWorkbenchProps {
   activeTerminalId: string | null;
   canCreateTerminal: boolean;
   onPickTerminal: (id: string) => void;
+  onSelectGroup: (groupId: string) => void;
   // null group = machine home directory (empty state / no active group).
   onNewTerminal: (group: WorkspaceGroup | null) => void;
   onCloseTerminal: (terminal: TerminalInfo) => void;
+  onNewGroup: () => void;
+  onRenameGroup: (group: WorkspaceGroup) => void;
+  onDeleteGroup: (group: WorkspaceGroup) => void;
+  onReorderGroups: (
+    sourceGroupId: string,
+    targetGroupId: string,
+    placement: "before" | "after",
+  ) => void;
+  onMoveTerminal: (terminal: TerminalInfo, targetGroup: WorkspaceGroup) => void;
   onSelectMachine: (id: string) => void;
   onAddMachine: () => void;
   onRemoveHost: (machineId: string) => void;
@@ -85,8 +97,14 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     activeTerminalId,
     canCreateTerminal,
     onPickTerminal,
+    onSelectGroup,
     onNewTerminal,
     onCloseTerminal,
+    onNewGroup,
+    onRenameGroup,
+    onDeleteGroup,
+    onReorderGroups,
+    onMoveTerminal,
     onSelectMachine,
     onAddMachine,
     onRemoveHost,
@@ -100,6 +118,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
 
   const [hostSheetOpen, setHostSheetOpen] = useState(false);
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
+  const [workspaceManagerOpen, setWorkspaceManagerOpen] = useState(false);
   const [chipSheet, setChipSheet] = useState<MobileSessionPane | null>(null);
 
   // Center the active terminal's row when the switcher opens: with a dozen
@@ -129,6 +148,10 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     if (!activeMachine) return [];
     return terminals.filter((t) => t.machine_id === activeMachine.id);
   }, [terminals, activeMachine]);
+  const scopedTerminalsById = useMemo(
+    () => new Map(scopedTerminals.map((terminal) => [terminal.id, terminal])),
+    [scopedTerminals],
+  );
 
   const sessionGroups = useMemo(
     () => buildMobileSessionGroups(groups, terminals),
@@ -326,7 +349,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         data-testid="mobile-title-bar"
         role="button"
         tabIndex={0}
-        aria-label="Open session switcher"
+        aria-label="Open terminal switcher"
         onTouchStart={handleTitleBarTouchStart}
         onTouchMove={handleTitleBarTouchMove}
         onTouchEnd={handleTitleBarTouchEnd}
@@ -410,7 +433,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             <span
               style={{ color: colors.fg2, fontSize: 12, overflow: "hidden" }}
             >
-              No session
+              No terminal
             </span>
           )}
         </div>
@@ -546,6 +569,15 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           onClose={() => setSessionSwitcherOpen(false)}
         >
           <MenuRow
+            icon={<FolderTree size={17} />}
+            label="Manage workspaces"
+            testid="mobile-workspace-manager-button"
+            onClick={() => {
+              setSessionSwitcherOpen(false);
+              setWorkspaceManagerOpen(true);
+            }}
+          />
+          <MenuRow
             icon={<Plus size={17} />}
             label="New terminal"
             disabled={!canCreateTerminal}
@@ -663,6 +695,27 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           ))}
         </Sheet>
       )}
+
+      <WorkspaceManager
+        open={workspaceManagerOpen}
+        placement="sheet"
+        machineName={activeMachine?.name ?? ""}
+        groups={groups}
+        terminalsById={scopedTerminalsById}
+        activeGroupId={activeGroup?.id ?? null}
+        activeTerminalId={activeTerminalId}
+        canManage={isController}
+        onClose={() => setWorkspaceManagerOpen(false)}
+        onSelectGroup={onSelectGroup}
+        onSelectTerminal={onPickTerminal}
+        onNewGroup={onNewGroup}
+        onNewTerminal={onNewTerminal}
+        onRenameGroup={onRenameGroup}
+        onDeleteGroup={onDeleteGroup}
+        onReorderGroups={onReorderGroups}
+        onMoveTerminal={onMoveTerminal}
+        onCloseTerminal={onCloseTerminal}
+      />
 
       {/* Host sheet */}
       {hostSheetOpen && (
@@ -807,7 +860,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             ))}
           <MenuRow
             icon={<RefreshCw size={17} />}
-            label="Reconnect session"
+            label="Reconnect"
             onClick={() => window.location.reload()}
           />
           <MenuRow

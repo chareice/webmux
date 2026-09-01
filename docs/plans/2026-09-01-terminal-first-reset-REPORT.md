@@ -13,10 +13,19 @@ agent chats competed inside one session navigation model. The terminal remains
 the primary object: hosts contain tabs, tabs contain up to four terminal panes,
 and the command palette/prefix bindings operate on that hierarchy.
 
+Workspace management remains explicit without restoring permanent sidebar
+chrome. A shared Workspace Manager opens as a desktop drawer or mobile bottom
+sheet and presents the active host's `workspace → terminal` tree. It supports
+creating, renaming, deleting, and reordering workspaces; selecting, moving,
+creating, and closing terminals; and preserves view-only/controller rules.
+
 ## Frontend changes
 
 - Restored `TabBar.web.tsx` and `HostSwitcher.web.tsx` for desktop navigation,
   host status, control handoff, tab creation/reorder, settings, and sign-out.
+- Added `WorkspaceManager.web.tsx` as the shared desktop/mobile management
+  module. The top tab strip remains the fast switching path; the manager is the
+  complete, on-demand organization path and does not contain agent sessions.
 - Restored the terminal-only `MobileWorkbench.web.tsx`: the title-bar plus
   action creates a terminal directly and the switcher contains terminal rows
   only.
@@ -47,5 +56,6 @@ sheet with the existing confirmation flow.
 - `pnpm typecheck`
 - `pnpm test` — 38 files, 292 tests passed
 - `pnpm build`
-- `pnpm e2e:test` — 82 tests passed in the Docker Hub/machine/browser stack
+- `pnpm e2e:test` — 84 tests passed in the Docker Hub/machine/browser stack,
+  including desktop and mobile Workspace Manager coverage
 - `git diff --check`

@@ -26,7 +26,7 @@ import type {
   ResourceStats,
   TerminalInfo,
 } from "@offdesk/shared";
-import { Lock, Plus } from "lucide-react";
+import { FolderTree, Lock, Plus } from "lucide-react";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
@@ -34,6 +34,7 @@ import { diskPercent, diskTooltip } from "@/lib/resourceStats";
 import { collectPaneTerminalIds, type WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
 import { HostSwitcher } from "./HostSwitcher.web";
 import { useLongPress } from "@/lib/longPress";
+import { WorkspaceManager } from "./WorkspaceManager.web";
 
 export type TabDropPlacement = "before" | "after";
 
@@ -43,6 +44,7 @@ const TAB_DRAG_THRESHOLD_PX = 4;
 interface TabBarProps {
   groups: WorkspaceGroup[];
   activeGroupId: string | null;
+  activeTerminalId: string | null;
   terminalsById: Map<string, TerminalInfo>;
   // All terminals across machines (HostSwitcher shows per-machine counts).
   terminals: TerminalInfo[];
@@ -57,7 +59,11 @@ interface TabBarProps {
   isTouch?: boolean;
   viewOnlyLocked: boolean;
   onSelectGroup: (groupId: string) => void;
+  onSelectTerminal: (terminalId: string) => void;
   onNewGroup: () => void;
+  onNewTerminal: (group: WorkspaceGroup) => void;
+  onCloseTerminal: (terminal: TerminalInfo) => void;
+  onMoveTerminal: (terminal: TerminalInfo, targetGroup: WorkspaceGroup) => void;
   onRenameGroup: (group: WorkspaceGroup) => void;
   onDeleteGroup: (group: WorkspaceGroup) => void;
   onReorderGroups: (
@@ -76,6 +82,7 @@ interface TabBarProps {
 function TabBarComponent({
   groups,
   activeGroupId,
+  activeTerminalId,
   terminalsById,
   terminals,
   machines,
@@ -89,7 +96,11 @@ function TabBarComponent({
   isTouch = false,
   viewOnlyLocked,
   onSelectGroup,
+  onSelectTerminal,
   onNewGroup,
+  onNewTerminal,
+  onCloseTerminal,
+  onMoveTerminal,
   onRenameGroup,
   onDeleteGroup,
   onReorderGroups,
@@ -100,6 +111,7 @@ function TabBarComponent({
   onEngageViewOnly,
   onDisengageViewOnly,
 }: TabBarProps) {
+  const [workspaceManagerOpen, setWorkspaceManagerOpen] = useState(false);
   // ---- tab drag-to-reorder ----
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null);
   const groupDragRef = useRef<{ sourceGroupId: string } | null>(null);
@@ -251,12 +263,12 @@ function TabBarComponent({
       tabMenu
         ? [
             {
-              label: "New tab",
+              label: "New workspace",
               disabled: !isController,
               onClick: onNewGroup,
             },
             {
-              label: "Rename tab",
+              label: "Rename workspace",
               // Same gate as delete: cwd fallback groups have no persisted
               // row to rename, and only the controller may mutate tabs.
               disabled: !tabMenu.group.persistent || !isController,
@@ -264,7 +276,7 @@ function TabBarComponent({
             },
             { type: "separator" },
             {
-              label: `Delete tab "${tabMenu.group.label}"`,
+              label: `Delete workspace "${tabMenu.group.label}"`,
               // cwd fallback groups only exist while their panes do — there
               // is nothing to delete; persistent groups are user-owned rows.
               disabled: !tabMenu.group.persistent || !isController,
@@ -298,6 +310,31 @@ function TabBarComponent({
       }}
     >
       {/* Left: group tabs + new-group button */}
+      <button
+        type="button"
+        data-testid="desktop-workspace-manager-button"
+        aria-label="Manage workspaces"
+        title="Manage workspaces"
+        onClick={() => setWorkspaceManagerOpen(true)}
+        style={{
+          alignSelf: "center",
+          width: isTouch ? 40 : 30,
+          height: isTouch ? 40 : 30,
+          marginLeft: 4,
+          flexShrink: 0,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 0,
+          border: "none",
+          borderRadius: 6,
+          background: workspaceManagerOpen ? colors.bg2 : "transparent",
+          color: colors.fg2,
+          cursor: "pointer",
+        }}
+      >
+        <FolderTree size={15} />
+      </button>
       <div
         style={{
           display: "flex",
@@ -425,8 +462,8 @@ function TabBarComponent({
           data-testid="tab-bar-new-group"
           onClick={onNewGroup}
           disabled={!isController}
-          title="New tab"
-          aria-label="New tab"
+          title="New workspace"
+          aria-label="New workspace"
           style={{
             alignSelf: "center",
             width: isTouch ? 40 : 26,
@@ -456,6 +493,29 @@ function TabBarComponent({
           onClose={closeTabMenu}
         />
       )}
+
+      <WorkspaceManager
+        open={workspaceManagerOpen}
+        placement="drawer"
+        machineName={
+          machines.find((machine) => machine.id === activeMachineId)?.name ?? ""
+        }
+        groups={groups}
+        terminalsById={terminalsById}
+        activeGroupId={activeGroupId}
+        activeTerminalId={activeTerminalId}
+        canManage={isController}
+        onClose={() => setWorkspaceManagerOpen(false)}
+        onSelectGroup={onSelectGroup}
+        onSelectTerminal={onSelectTerminal}
+        onNewGroup={onNewGroup}
+        onNewTerminal={onNewTerminal}
+        onRenameGroup={onRenameGroup}
+        onDeleteGroup={onDeleteGroup}
+        onReorderGroups={onReorderGroups}
+        onMoveTerminal={onMoveTerminal}
+        onCloseTerminal={onCloseTerminal}
+      />
 
       {/* Right: host meta */}
       <div

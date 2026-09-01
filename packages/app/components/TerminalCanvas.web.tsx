@@ -73,6 +73,7 @@ import { useAuth } from "@/lib/auth";
 import { showWorkspaceToast } from "@/lib/workspaceToast";
 import {
   MAX_PANES_PER_TAB,
+  buildReorderPersistentGroupIds,
   collectGroupPaneTerminalIds,
   createTerminalWorkspace,
   planNewTerminalPlacement,
@@ -1094,6 +1095,32 @@ function TerminalCanvasInner() {
     [],
   );
 
+  const handleRequestWorkspaceGroupReorder = useCallback(
+    (
+      sourceGroupId: string,
+      targetGroupId: string,
+      placement: "before" | "after",
+    ) => {
+      const workspaceHandler = workspaceCommandsRef.current.reorderGroups;
+      if (workspaceHandler) {
+        workspaceHandler(sourceGroupId, targetGroupId, placement);
+        return;
+      }
+      // With no mounted TerminalWorkspace every visible group is an empty,
+      // persistent row, so the manager can still reorder them directly.
+      if (!activeMachineId) return;
+      const groupIds = buildReorderPersistentGroupIds(
+        tabGroups,
+        sourceGroupId,
+        targetGroupId,
+        placement,
+      );
+      if (!groupIds) return;
+      void handleReorderWorkspaceGroups(activeMachineId, groupIds);
+    },
+    [activeMachineId, handleReorderWorkspaceGroups, tabGroups],
+  );
+
   const handleSaveWorkspaceLayout = useCallback(
     async (
       machineId: string,
@@ -1150,6 +1177,14 @@ function TerminalCanvasInner() {
       }
     },
     [],
+  );
+
+  const handleMoveTerminalToWorkspace = useCallback(
+    (terminal: TerminalInfo, targetGroup: WorkspaceGroup) => {
+      if (!targetGroup.workspaceGroupId) return;
+      void handleAssignWorkspaceGroup(terminal, targetGroup.workspaceGroupId);
+    },
+    [handleAssignWorkspaceGroup],
   );
 
   // Promote a cwd fallback tab to a persistent group: create the
@@ -1368,7 +1403,7 @@ function TerminalCanvasInner() {
       {
         id: "new-tab",
         section: "actions",
-        label: "New tab",
+        label: "New workspace",
         keywords: "group workspace",
         disabled: !isActiveController,
         action: () => void handleNewGroup(),
@@ -1430,7 +1465,7 @@ function TerminalCanvasInner() {
       {
         id: "reconnect",
         section: "actions",
-        label: "Reconnect session",
+        label: "Reconnect",
         action: () => window.location.reload(),
       },
       {
@@ -1501,8 +1536,16 @@ function TerminalCanvasInner() {
               activeTerminalId={workspaceTerminal?.id ?? null}
               canCreateTerminal={isActiveController}
               onPickTerminal={handleZoomTerminal}
+              onSelectGroup={(groupId) =>
+                workspaceCommandsRef.current.selectGroup?.(groupId)
+              }
               onNewTerminal={handleMobileNewTerminal}
               onCloseTerminal={handleMobileCloseTerminal}
+              onNewGroup={handleNewGroupClick}
+              onRenameGroup={handleRenameGroup}
+              onDeleteGroup={handleDeleteGroup}
+              onReorderGroups={handleRequestWorkspaceGroupReorder}
+              onMoveTerminal={handleMoveTerminalToWorkspace}
               onSelectMachine={setActiveMachineId}
               onAddMachine={() => setAddMachineOpen(true)}
               onRemoveHost={handleRemoveHost}
@@ -1534,6 +1577,8 @@ function TerminalCanvasInner() {
                   onPromoteGroup={handlePromoteWorkspaceGroup}
                   onRequestControl={handleRequestControl}
                   onReleaseControl={handleReleaseControl}
+                  commandsRef={workspaceCommandsRef}
+                  onActiveGroupChange={setActiveGroupId}
                 />
               ) : null}
             </MobileWorkbench>
@@ -1551,6 +1596,7 @@ function TerminalCanvasInner() {
               <TabBar
                 groups={tabGroups}
                 activeGroupId={activeGroupId}
+                activeTerminalId={workspaceTerminal?.id ?? null}
                 terminalsById={scopedTerminalsById}
                 terminals={terminals}
                 machines={machines}
@@ -1566,16 +1612,14 @@ function TerminalCanvasInner() {
                 onSelectGroup={(groupId) =>
                   workspaceCommandsRef.current.selectGroup?.(groupId)
                 }
+                onSelectTerminal={handleZoomTerminal}
                 onNewGroup={handleNewGroupClick}
+                onNewTerminal={handleMobileNewTerminal}
+                onCloseTerminal={handleMobileCloseTerminal}
+                onMoveTerminal={handleMoveTerminalToWorkspace}
                 onRenameGroup={handleRenameGroup}
                 onDeleteGroup={handleDeleteGroup}
-                onReorderGroups={(sourceGroupId, targetGroupId, placement) =>
-                  workspaceCommandsRef.current.reorderGroups?.(
-                    sourceGroupId,
-                    targetGroupId,
-                    placement,
-                  )
-                }
+                onReorderGroups={handleRequestWorkspaceGroupReorder}
                 onSelectMachine={setActiveMachineId}
                 onAddMachine={() => setAddMachineOpen(true)}
                 onRemoveHost={handleRemoveHost}
@@ -1708,9 +1752,9 @@ function TerminalCanvasInner() {
           <Suspense fallback={<LazyLoadingFallback />}>
             <ConfirmDialog
               open
-              title="Delete tab?"
+              title="Delete workspace?"
               message={`"${groupDeleteConfirmation.label}" has ${groupDeleteConfirmation.paneCount} pane(s). They will move back to their directory tabs; no terminal is closed.`}
-              confirmLabel="Delete tab"
+              confirmLabel="Delete workspace"
               variant="danger"
               onConfirm={() => {
                 const group = groupDeleteConfirmation;
