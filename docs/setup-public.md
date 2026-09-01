@@ -125,10 +125,13 @@ docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 On each machine you want to reach — tmux required:
 
 ```bash
-cargo build --release --bin offdesk-node
-./target/release/offdesk-node register --hub-url https://offdesk.example.com --token <token>
-./target/release/offdesk-node service install
+curl -fsSL https://offdesk.dev/install | sh -s -- --node-only
+offdesk-node register --hub-url https://offdesk.example.com --token <token>
+offdesk-node service install
 ```
+
+The installer puts `offdesk-node` in `~/.local/bin`. To build it instead:
+`cargo build --release --bin offdesk-node`.
 
 Create `<token>` in the hub's Settings. It is single-use and expires after 24
 hours. The machine agent dials out to the hub over WebSocket, so it needs no
