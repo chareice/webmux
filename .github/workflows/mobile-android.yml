@@ -61,14 +61,24 @@ jobs:
         with:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0 cmake;3.22.1 ndk;27.1.12297006"
 
-      # The Tauri CLI is already a devDependency of @offdesk/desktop and
-      # ships as a prebuilt binary, so `cargo install tauri-cli` was
-      # compiling from source on every run for nothing — 3.8 of the 10
-      # minutes this workflow took.
       - name: Install Rust toolchain + Android targets
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ steps.abi.outputs.rust }}
+
+      # Gradle's own rust task shells out to `cargo tauri` for every ABI
+      # (gen/android/buildSrc BuildTask.kt hardcodes it), so cargo-tauri has
+      # to be on PATH no matter what invokes the outer build. It just does
+      # not have to be compiled from source every run, which is what
+      # `cargo install tauri-cli` was doing for 3.8 of this workflow's 10
+      # minutes. binstall fetches the release binary; the fallback is there
+      # because a slow build beats a broken one.
+      - uses: cargo-bins/cargo-binstall@main
+
+      - name: Install the Tauri CLI
+        run: |
+          cargo binstall -y tauri-cli --version "^2.0" \
+            || cargo install tauri-cli --version "^2.0" --locked
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -196,7 +206,7 @@ jobs:
           # 0.3.14 whatever it was tagged. --config merges into tauri.conf.json
           # before that happens, and the CLI derives versionCode from it
           # (0.4.0 -> 4000), so upgrades stay monotonic.
-          pnpm exec tauri android build --apk \
+          cargo tauri android build --apk \
             ${{ steps.abi.outputs.tauri }} \
             --config "{\"version\": \"${{ steps.version.outputs.version }}\"}"
 
