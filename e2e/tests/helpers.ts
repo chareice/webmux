@@ -212,6 +212,13 @@ export async function releaseControlFromHeader(page: Page): Promise<void> {
  */
 export async function pressPrefixKey(page: Page, key: string): Promise<void> {
   await page.keyboard.press("Control+b");
+  // Wait for the prefix to actually arm before sending the second key.
+  // Arming is React state; on a loaded CI runner the second press can land
+  // before the state lands, and the shortcut is dropped with no trace — the
+  // pane count stays correct, so the only symptom is a missing side effect
+  // several assertions later. The app already renders this indicator
+  // whenever the prefix is armed; nothing was using it.
+  await expect(page.getByTestId("prefix-armed-indicator")).toBeVisible();
   await page.keyboard.press(key);
 }
 
