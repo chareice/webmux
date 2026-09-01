@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { colors } from "@/lib/colors";
+import { MobileAppPanel } from "./MobileAppPanel.web";
 import { isTauri, isTauriMobile } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import {
@@ -935,6 +936,13 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             + Add command
           </button>
         </section>
+
+        {!isTauriMobile() && (
+          <section style={{ marginBottom: 32 }}>
+            <SectionTitle>Mobile app</SectionTitle>
+            <MobileAppPanel />
+          </section>
+        )}
 
         {/* Which hub the mobile app opens — mobile app only */}
         {isTauriMobile() && (
