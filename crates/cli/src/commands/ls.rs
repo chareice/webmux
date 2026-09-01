@@ -1,5 +1,5 @@
 use crate::client::HubClient;
-use crate::resolve::{resolve_prefix, short_id};
+use crate::resolve::{resolve_machine, short_id};
 use crate::CliError;
 
 /// List terminals, optionally filtered to one machine.
@@ -7,7 +7,7 @@ pub async fn run(client: &HubClient, machine: Option<String>, json: bool) -> Res
     let mut terminals = client.terminals().await?;
     if let Some(query) = &machine {
         let machines = client.machines().await?;
-        let resolved = resolve_prefix(query, &machines, |m| m.id.as_str())?;
+        let resolved = resolve_machine(query, &machines)?;
         terminals.retain(|terminal| terminal.machine_id == resolved.id);
     }
 

@@ -47,9 +47,19 @@ impl HubClient {
             })?;
         value.set_sensitive(true);
         headers.insert(AUTHORIZATION, value);
-        let http = reqwest::Client::builder()
+        // A hub on this network is reached directly: the WebSocket transport
+        // used by `read` and `wait` ignores proxy variables, so letting an
+        // HTTP_PROXY intercept the REST half only produces a 502 from the
+        // proxy. See `offdesk_protocol::local_host`.
+        let mut builder = reqwest::Client::builder()
             .default_headers(headers)
-            .connect_timeout(CONNECT_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT);
+        if offdesk_protocol::local_host::host_of(&config.url)
+            .is_some_and(offdesk_protocol::local_host::is_local_host)
+        {
+            builder = builder.no_proxy();
+        }
+        let http = builder
             .build()
             .map_err(|error| CliError::Network(format!("failed to build HTTP client: {error}")))?;
         Ok(Self {

@@ -1,3 +1,5 @@
+use offdesk_protocol::MachineInfo;
+
 use crate::CliError;
 
 /// Resolve a user-supplied id or id prefix against a live list.
@@ -28,6 +30,42 @@ where
         }
     }
 }
+
+/// Resolve a machine the way a person refers to one: its id, a unique id
+/// prefix, or its name. `offdesk open nas` is the documented shape, and it
+/// only ever worked for `machines rm` — every other command took ids alone.
+pub fn resolve_machine<'a>(
+    query: &str,
+    machines: &'a [MachineInfo],
+) -> Result<&'a MachineInfo, CliError> {
+    match resolve_prefix(query, machines, |machine| machine.id.as_str()) {
+        Ok(machine) => return Ok(machine),
+        Err(CliError::Usage(message)) if message.contains("ambiguous") => {
+            return Err(CliError::Usage(message));
+        }
+        Err(_) => {}
+    }
+
+    let matches: Vec<&MachineInfo> = machines
+        .iter()
+        .filter(|machine| machine.name.eq_ignore_ascii_case(query))
+        .collect();
+    match matches.len() {
+        1 => Ok(matches[0]),
+        0 => Err(CliError::Usage(format!("no machine matching '{query}'"))),
+        _ => {
+            let candidates = matches
+                .iter()
+                .map(|machine| format!("  {}  {}", machine.id, machine.name))
+                .collect::<Vec<_>>()
+                .join("\n");
+            Err(CliError::Usage(format!(
+                "'{query}' is ambiguous — candidates:\n{candidates}"
+            )))
+        }
+    }
+}
+
 
 /// First-8 short form used in table output.
 pub fn short_id(id: &str) -> &str {

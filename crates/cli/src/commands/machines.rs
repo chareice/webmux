@@ -4,7 +4,7 @@ use std::io::{IsTerminal, Write};
 use offdesk_protocol::MachineInfo;
 
 use crate::client::HubClient;
-use crate::resolve::{resolve_prefix, short_id};
+use crate::resolve::{resolve_machine, short_id};
 use crate::CliError;
 
 /// List machines. Default is online-only (the hub's /api/machines).
@@ -82,38 +82,6 @@ pub async fn rm(client: &HubClient, query: &str, yes: bool) -> Result<(), CliErr
     Ok(())
 }
 
-fn resolve_machine<'a>(
-    query: &str,
-    machines: &'a [MachineInfo],
-) -> Result<&'a MachineInfo, CliError> {
-    match resolve_prefix(query, machines, |machine| machine.id.as_str()) {
-        Ok(machine) => return Ok(machine),
-        Err(CliError::Usage(message)) if message.contains("ambiguous") => {
-            return Err(CliError::Usage(message));
-        }
-        Err(_) => {}
-    }
-
-    let matches: Vec<&MachineInfo> = machines
-        .iter()
-        .filter(|machine| machine.name.eq_ignore_ascii_case(query))
-        .collect();
-    match matches.len() {
-        1 => Ok(matches[0]),
-        0 => Err(CliError::Usage(format!("no machine matching '{query}'"))),
-        _ => {
-            let candidates = matches
-                .iter()
-                .map(|machine| format!("  {}  {}", machine.id, machine.name))
-                .collect::<Vec<_>>()
-                .join("\n");
-            Err(CliError::Usage(format!(
-                "'{query}' is ambiguous — candidates:\n{candidates}"
-            )))
-        }
-    }
-}
-
 fn confirm(machine: &MachineInfo) -> Result<bool, CliError> {
     eprint!(
         "Remove machine {} ({})? [y/N] ",
@@ -133,7 +101,7 @@ fn confirm(machine: &MachineInfo) -> Result<bool, CliError> {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_machine;
+    use crate::resolve::resolve_machine;
     use offdesk_protocol::MachineInfo;
 
     fn machine(id: &str, name: &str) -> MachineInfo {
