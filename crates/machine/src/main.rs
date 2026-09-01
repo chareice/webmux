@@ -123,6 +123,21 @@ fn install_tls_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
+/// A hub on this network is reached directly. See
+/// `offdesk_protocol::local_host` for why: the WebSocket transport this same
+/// agent uses ignores proxy variables, so honouring them here only breaks
+/// registration against a LAN hub.
+fn build_register_client(http_base: &str) -> Result<reqwest::Client, reqwest::Error> {
+    let local = offdesk_protocol::local_host::host_of(http_base)
+        .is_some_and(offdesk_protocol::local_host::is_local_host);
+    let builder = reqwest::Client::builder();
+    if local {
+        builder.no_proxy().build()
+    } else {
+        builder.build()
+    }
+}
+
 async fn run_register(hub_url: String, token: String, name: Option<String>) {
     let machine_name = name.unwrap_or_else(|| {
         hostname::get()
@@ -157,7 +172,13 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
         "name": machine_name,
     });
 
-    let client = reqwest::Client::new();
+    let client = match build_register_client(&http_base) {
+        Ok(client) => client,
+        Err(e) => {
+            eprintln!("Failed to build HTTP client: {e}");
+            std::process::exit(1);
+        }
+    };
     let resp = match client.post(&register_url).json(&body).send().await {
         Ok(r) => r,
         Err(e) => {

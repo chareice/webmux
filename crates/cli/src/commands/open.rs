@@ -1,5 +1,5 @@
 use crate::client::{CreateTerminalRequest, HubClient};
-use crate::resolve::resolve_prefix;
+use crate::resolve::resolve_machine;
 use crate::CliError;
 
 /// Options for the `open` command, mirroring the clap flags.
@@ -19,7 +19,7 @@ pub async fn run(
     options: OpenOptions,
 ) -> Result<(), CliError> {
     let machines = client.machines().await?;
-    let machine = resolve_prefix(machine_query, &machines, |m| m.id.as_str())?;
+    let machine = resolve_machine(machine_query, &machines)?;
 
     // Creating a terminal is gated on the control lease; claim it first.
     client.claim_control(&machine.id).await?;

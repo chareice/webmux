@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod compression;
+pub mod local_host;
 
 // ── Shared data types ──
 
