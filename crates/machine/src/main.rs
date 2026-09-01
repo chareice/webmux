@@ -13,7 +13,7 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "offdesk-node", about = "offdesk node daemon")]
+#[command(name = "offdesk-node", about = "offdesk node daemon", version)]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,

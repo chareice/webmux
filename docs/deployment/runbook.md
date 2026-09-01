@@ -347,7 +347,12 @@ container name, and database section be changed to Offdesk-native identifiers.
 
 ## Machine node releases
 
-Tagging a release triggers `.github/workflows/build.yml`:
+Bump `[workspace.package] version` in the root `Cargo.toml` first — that is
+what `offdesk --version` and `offdesk-node --version` report, and a release
+whose binaries disagree with its tag is worse than no version at all.
+
+Tagging then triggers `.github/workflows/build.yml`, which builds `offdesk` and
+`offdesk-node` for linux and darwin on x64 and arm64 and uploads all eight:
 
 ```bash
 git tag v<VERSION>
