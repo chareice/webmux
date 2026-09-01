@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
 <rect width="1200" height="630" fill="#0A0A0A"/>
-<g transform="translate(280.00,188.90) scale(0.640000)" fill="#FAFAF5">
+<g transform="translate(380.00,188.75) scale(0.440000)" fill="#FAFAF5">
 <g transform="scale(0.310057) translate(-542.7895,-1513.0000)"><metadata>
 Created by potrace 1.16, written by Peter Selinger 2001-2019
 </metadata>
@@ -554,6 +554,6 @@ m484 -1150 c80 -4 126 -11 131 -19 4 -7 32 -15 62 -18 30 -3 66 -15 81 -25 15
 -123 14 -140 21 -35 15 -459 22 -542 9z"/>
 </g></g>
 </g>
-<text x="600.0" y="441.1" text-anchor="middle" fill="#9A9CA1"
-      font-family="Helvetica Neue, Helvetica, Arial" font-size="30">Vibe code from your phone, on the terminal running at home.</text>
+<text text-anchor="middle" fill="#9A9CA1" font-family="Helvetica Neue, Helvetica, Arial"
+      font-size="27" y="386.9"><tspan x="600.0" dy="0">Vibe code from your phone,</tspan><tspan x="600.0" dy="38">on the terminal running at home.</tspan></text>
 </svg>
