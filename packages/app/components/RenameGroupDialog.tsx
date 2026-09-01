@@ -85,13 +85,13 @@ export function RenameGroupDialog({
             color: colors.foreground,
           }}
         >
-          Rename tab
+            Rename workspace
         </div>
         <input
           ref={inputRef}
           type="text"
           value={name}
-          aria-label="Tab name"
+          aria-label="Workspace name"
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {

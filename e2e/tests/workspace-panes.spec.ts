@@ -263,7 +263,7 @@ test("workspace remains mounted when terminal events are delayed", async ({
   await page.routeWebSocket(/\/ws\/events/, () => {});
   await page.reload({ waitUntil: "commit" });
   await page
-    .getByTestId("sidebar")
+    .getByTestId("tab-bar")
     .waitFor({ state: "visible", timeout: 20_000 });
   await selectHomeWorkpath(page);
 
@@ -347,7 +347,7 @@ test("desktop workspace restores pane layout after reload", async ({ page }) => 
 
   await page.reload();
   await page
-    .getByTestId("sidebar")
+    .getByTestId("tab-bar")
     .waitFor({ state: "visible", timeout: 20_000 });
   await expect(getExpandedOverlay(page)).toBeVisible();
   await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(3);

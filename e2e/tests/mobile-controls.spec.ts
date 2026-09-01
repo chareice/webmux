@@ -9,7 +9,6 @@ import {
   listTerminals,
   listWorkspaceGroupsViaApi,
   longPressTitleBar,
-  mobileCreateTerminalViaSheet,
   mobileOpenHostSheet,
   mobileTakeControl,
   openApp,
@@ -33,11 +32,11 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await expect(page.getByTestId("mobile-workbench")).toBeVisible();
   await expect(page.getByTestId("mobile-title-bar")).toBeVisible();
   await expect(page.getByTestId("mobile-title-bar-dot")).toBeVisible();
-  await expect(page.getByTestId("mobile-bar-new-session")).toHaveCSS(
+  await expect(page.getByTestId("mobile-bar-new-terminal")).toHaveCSS(
     "width",
     "34px",
   );
-  await expect(page.getByTestId("mobile-bar-new-session")).toHaveCSS(
+  await expect(page.getByTestId("mobile-bar-new-terminal")).toHaveCSS(
     "height",
     "34px",
   );
@@ -69,7 +68,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   );
   await page.getByTestId("mobile-control-toggle").click();
   await expect(page.getByTitle("Show keyboard")).toHaveCount(0);
-  await expect(page.getByTestId("mobile-bar-new-session")).toBeDisabled();
+  await expect(page.getByTestId("mobile-bar-new-terminal")).toBeDisabled();
 
   // Unlock without claiming; the existing Take control flow remains explicit.
   await mobileOpenHostSheet(page);
@@ -80,7 +79,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
 
   // Take control back.
   await mobileTakeControl(page);
-  await expect(page.getByTestId("mobile-bar-new-session")).toBeEnabled();
+  await expect(page.getByTestId("mobile-bar-new-terminal")).toBeEnabled();
 
   // Destroy via API → the shell returns to the empty state.
   const deviceId = await page.evaluate(() => sessionStorage.getItem("tc-device-id"));
@@ -92,7 +91,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   expect(resp.ok()).toBeTruthy();
   await expect(page.getByText(/No terminals yet/)).toBeVisible();
   await expect(page.getByTestId("mobile-title-bar-label")).toContainText(
-    "No session",
+    "No terminal",
   );
 });
 
@@ -252,9 +251,9 @@ test("mobile touch drag sends terminal scroll input", async ({ page }) => {
   // a real height rather than assuming.
   await expect.poll(() => terminalScreenHeight(page)).toBeGreaterThan(200);
 
+  const terminalSize = await waitForStableXtermSize(page, terminalId);
   inputFrames.length = 0;
   await dispatchTerminalTouchDrag(page);
-  const terminalSize = await getXtermSize(page, terminalId);
   const expectedCol = Math.round(terminalSize.cols / 2);
   const expectedRow = Math.round(terminalSize.rows / 2);
 
@@ -429,7 +428,7 @@ test("mobile title bar and grouped switcher expose titles, host stats, and creat
     page.getByTestId(`mobile-session-group-${secondGroup.id}`),
   ).toContainText(`${secondGroup.name} · 1 pane`);
   await expect(
-    page.getByTestId("mobile-session-switcher-new-session"),
+    page.getByTestId("mobile-session-switcher-new-terminal"),
   ).toBeVisible();
   await expect(
     page.getByTestId(`mobile-session-row-${firstTerminalId}`),
@@ -458,9 +457,7 @@ test("mobile title bar and grouped switcher expose titles, host stats, and creat
 
   await page.getByTestId(`mobile-session-row-${firstTerminalId}`).click();
   const beforeIds = (await listTerminals(page)).map((terminal) => terminal.id);
-  // The title-bar ＋ now opens the new-session sheet; the terminal chip keeps
-  // the old direct-create behavior (active group's cwd + placement).
-  await mobileCreateTerminalViaSheet(page);
+  await page.getByTestId("mobile-bar-new-terminal").click();
   await expect.poll(async () => (await listTerminals(page)).length).toBe(3);
   const created = (await listTerminals(page)).find(
     (terminal) => !beforeIds.includes(terminal.id),
@@ -472,6 +469,78 @@ test("mobile title bar and grouped switcher expose titles, host stats, and creat
   await expect
     .poll(() => getMountedXtermIds(page))
     .toEqual([created!.id]);
+});
+
+test("mobile workspace manager provides full workspace controls", async ({ page }) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await mobileTakeControl(page);
+
+  const first = await createWorkspaceGroupViaApi(
+    page,
+    `Mobile manager A ${Date.now()}`,
+  );
+  const second = await createWorkspaceGroupViaApi(
+    page,
+    `Mobile manager B ${Date.now()}`,
+  );
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: first.id,
+  });
+  await expandTerminalById(page, terminalId);
+
+  await page.getByTestId("mobile-title-bar").click();
+  await page.getByTestId("mobile-workspace-manager-button").click();
+  const manager = page.getByTestId("workspace-manager");
+  await expect(manager).toBeVisible();
+  await expect(manager).toHaveAttribute("data-placement", "sheet");
+  await expect(
+    manager.getByTestId(`workspace-manager-group-${first.id}`),
+  ).toBeVisible();
+  await expect(
+    manager.getByTestId(`workspace-manager-group-${second.id}`),
+  ).toBeVisible();
+
+  await manager.getByTestId(`workspace-manager-rename-${second.id}`).click();
+  const renamed = `Mobile renamed ${Date.now()}`;
+  const renameDialog = page.getByRole("dialog", { name: "Rename workspace" });
+  await renameDialog
+    .getByRole("textbox", { name: "Workspace name" })
+    .fill(renamed);
+  await renameDialog.getByRole("button", { name: "Rename", exact: true }).click();
+  await expect(
+    manager.getByTestId(`workspace-manager-group-${second.id}`),
+  ).toContainText(renamed);
+
+  await manager
+    .getByTestId(`workspace-manager-move-${terminalId}`)
+    .selectOption(second.id);
+  await expect
+    .poll(async () =>
+      (await listTerminals(page)).find((terminal) => terminal.id === terminalId)
+        ?.workspace_group_id,
+    )
+    .toBe(second.id);
+
+  await manager.getByTestId(`workspace-manager-up-${second.id}`).click();
+  await expect
+    .poll(async () => (await listWorkspaceGroupsViaApi(page))[0]?.id)
+    .toBe(second.id);
+
+  await manager.getByTestId(`workspace-manager-delete-${first.id}`).click();
+  await expect
+    .poll(async () =>
+      (await listWorkspaceGroupsViaApi(page)).some(
+        (group) => group.id === first.id,
+      ),
+    )
+    .toBe(false);
+
+  await manager.getByTestId("workspace-manager-new").click();
+  await expect
+    .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
+    .toBe(2);
 });
 
 test("mobile + overflows a full tab into a new tab instead of a fifth pane", async ({
@@ -505,7 +574,7 @@ test("mobile + overflows a full tab into a new tab instead of a fifth pane", asy
   );
 
   const beforeIds = (await listTerminals(page)).map((terminal) => terminal.id);
-  await mobileCreateTerminalViaSheet(page);
+  await page.getByTestId("mobile-bar-new-terminal").click();
 
   // Creating still succeeds — the terminal just lands in a fresh tab.
   await expect.poll(async () => (await listTerminals(page)).length).toBe(5);
@@ -699,6 +768,29 @@ async function getXtermSize(
     const term = map?.get(tid);
     return { cols: term?.cols ?? 0, rows: term?.rows ?? 0 };
   }, terminalId);
+}
+
+async function waitForStableXtermSize(
+  page: Page,
+  terminalId: string,
+): Promise<{ cols: number; rows: number }> {
+  let previous = "";
+  let repeated = 0;
+  await expect
+    .poll(
+      async () => {
+        const size = await getXtermSize(page, terminalId);
+        const current = `${size.cols}x${size.rows}`;
+        repeated = current === previous && size.cols > 0 && size.rows > 0
+          ? repeated + 1
+          : 0;
+        previous = current;
+        return repeated >= 2;
+      },
+      { timeout: 10_000, intervals: [100, 100, 200, 300] },
+    )
+    .toBe(true);
+  return getXtermSize(page, terminalId);
 }
 
 async function getXtermViewportState(

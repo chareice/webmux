@@ -357,25 +357,6 @@ export function selectWorkspaceGroup(
   };
 }
 
-// Pure focus move behind the sidebar's focusPane command: select the group
-// containing the terminal and make that pane the active one. Returns null
-// when no group holds the terminal yet (the caller keeps the focus pending
-// and retries after the next reconcile).
-export function focusWorkspacePane(
-  workspace: TerminalWorkspace,
-  terminalId: string,
-): TerminalWorkspace | null {
-  const group = workspace.groups.find((candidate) =>
-    groupContainsTerminal(candidate, terminalId),
-  );
-  if (!group) return null;
-  return {
-    ...workspace,
-    activeGroupId: group.id,
-    activeTerminalId: terminalId,
-  };
-}
-
 export function getActiveWorkspaceGroup(
   workspace: TerminalWorkspace,
 ): WorkspaceGroup | null {

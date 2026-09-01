@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type {
-  AgentSessionInfo,
-  BrowserEvent,
-  BrowserEventEnvelope,
-} from "@offdesk/shared";
+import type { BrowserEvent, BrowserEventEnvelope } from "@offdesk/shared";
 import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,
@@ -11,23 +7,6 @@ import {
   shouldResyncForEnvelope,
   type BrowserSessionState,
 } from "./bootstrapState";
-
-function agentSession(
-  id: string,
-  lastEventSeq = 0,
-): AgentSessionInfo {
-  return {
-    id,
-    machine_id: "m1",
-    agent_kind: "kimi",
-    cwd: "/repo",
-    title: "repo",
-    status: "idle",
-    auto_run: true,
-    last_event_seq: lastEventSeq,
-    created_at_ms: 1,
-  };
-}
 
 function stateWithControl(
   machineId: string,
@@ -305,158 +284,6 @@ describe("workspace tab events", () => {
   });
 });
 
-describe("agent sessions", () => {
-  it("maps agent sessions and seen cursors from the snapshot", () => {
-    const state = applyBootstrapSnapshot({
-      snapshot_seq: 5,
-      machines: [],
-      terminals: [],
-      machine_stats: [],
-      control_leases: [],
-      agent_sessions: [agentSession("sess-1", 4)],
-      agent_session_seen: { "sess-1": 2 },
-    });
-
-    expect(state.agentSessions).toEqual([agentSession("sess-1", 4)]);
-    expect(state.agentSessionSeen).toEqual({ "sess-1": 2 });
-  });
-
-  it("defaults agent session fields when the snapshot omits them", () => {
-    const state = applyBootstrapSnapshot({
-      snapshot_seq: 5,
-      machines: [],
-      terminals: [],
-      machine_stats: [],
-      control_leases: [],
-    });
-
-    expect(state.agentSessions).toEqual([]);
-    expect(state.agentSessionSeen).toEqual({});
-  });
-
-  it("upserts sessions on created and updated, preserving order", () => {
-    const created = applyBrowserEventEnvelope(
-      { ...EMPTY_BROWSER_SESSION_STATE, lastSeq: 1 },
-      envelope(2, {
-        type: "agent_session_created",
-        session: agentSession("sess-1"),
-      }),
-    );
-    expect(created.agentSessions.map((session) => session.id)).toEqual([
-      "sess-1",
-    ]);
-
-    const updated = applyBrowserEventEnvelope(
-      {
-        ...created,
-        agentSessions: [agentSession("sess-1"), agentSession("sess-2")],
-      },
-      envelope(3, {
-        type: "agent_session_updated",
-        session: { ...agentSession("sess-2", 7), status: "working" },
-      }),
-    );
-    expect(updated.agentSessions.map((session) => session.id)).toEqual([
-      "sess-1",
-      "sess-2",
-    ]);
-    expect(updated.agentSessions[1]).toMatchObject({
-      status: "working",
-      last_event_seq: 7,
-    });
-  });
-
-  it("removes the session and its seen cursor on destroyed", () => {
-    const state = applyBrowserEventEnvelope(
-      {
-        ...EMPTY_BROWSER_SESSION_STATE,
-        lastSeq: 1,
-        agentSessions: [agentSession("sess-1"), agentSession("sess-2")],
-        agentSessionSeen: { "sess-1": 3, "sess-2": 1 },
-      },
-      envelope(2, { type: "agent_session_destroyed", session_id: "sess-1" }),
-    );
-
-    expect(state.agentSessions.map((session) => session.id)).toEqual([
-      "sess-2",
-    ]);
-    expect(state.agentSessionSeen).toEqual({ "sess-2": 1 });
-  });
-
-  it("bumps last_event_seq only upward on agent_session_event", () => {
-    const initial: BrowserSessionState = {
-      ...EMPTY_BROWSER_SESSION_STATE,
-      lastSeq: 1,
-      agentSessions: [agentSession("sess-1", 4)],
-    };
-    const bumped = applyBrowserEventEnvelope(
-      initial,
-      envelope(2, {
-        type: "agent_session_event",
-        session_id: "sess-1",
-        seq: 6,
-        event: { type: "agent_message_chunk", text: "hi" },
-      }),
-    );
-    expect(bumped.agentSessions[0]?.last_event_seq).toBe(6);
-
-    const stale = applyBrowserEventEnvelope(
-      { ...bumped, lastSeq: 2 },
-      envelope(3, {
-        type: "agent_session_event",
-        session_id: "sess-1",
-        seq: 5,
-        event: { type: "agent_message_chunk", text: "stale" },
-      }),
-    );
-    expect(stale.agentSessions[0]?.last_event_seq).toBe(6);
-  });
-
-  it("ignores agent_session_event for unknown sessions", () => {
-    const initial: BrowserSessionState = {
-      ...EMPTY_BROWSER_SESSION_STATE,
-      lastSeq: 1,
-      agentSessions: [agentSession("sess-1", 4)],
-    };
-    const state = applyBrowserEventEnvelope(
-      initial,
-      envelope(2, {
-        type: "agent_session_event",
-        session_id: "sess-unknown",
-        seq: 9,
-        event: { type: "agent_message_chunk", text: "hi" },
-      }),
-    );
-    expect(state.agentSessions).toBe(initial.agentSessions);
-  });
-
-  it("raises the seen cursor monotonically on agent_session_seen", () => {
-    const raised = applyBrowserEventEnvelope(
-      {
-        ...EMPTY_BROWSER_SESSION_STATE,
-        lastSeq: 1,
-        agentSessionSeen: { "sess-1": 2 },
-      },
-      envelope(2, {
-        type: "agent_session_seen",
-        session_id: "sess-1",
-        last_seen_seq: 5,
-      }),
-    );
-    expect(raised.agentSessionSeen).toEqual({ "sess-1": 5 });
-
-    const regressed = applyBrowserEventEnvelope(
-      { ...raised, lastSeq: 2 },
-      envelope(3, {
-        type: "agent_session_seen",
-        session_id: "sess-1",
-        last_seen_seq: 3,
-      }),
-    );
-    expect(regressed.agentSessionSeen).toEqual({ "sess-1": 5 });
-  });
-});
-
 describe("mode_changed event", () => {
   it("sets control lease when controller_device_id is present", () => {
     const state = applyBrowserEventEnvelope(
@@ -568,8 +395,6 @@ describe("machine_removed event", () => {
         },
       },
       controlLeases: { m1: "d1", m2: "d2" },
-      agentSessions: [agentSession("s1"), { ...agentSession("s2"), machine_id: "m2" }],
-      agentSessionSeen: { s1: 3, s2: 1 },
     };
 
     const state = applyBrowserEventEnvelope(
@@ -583,8 +408,6 @@ describe("machine_removed event", () => {
     expect(state.workspaceLayouts).toEqual([]);
     expect(state.machineStats).toEqual({});
     expect(state.controlLeases).toEqual({ m2: "d2" });
-    expect(state.agentSessions.map((session) => session.id)).toEqual(["s2"]);
-    expect(state.agentSessionSeen).toEqual({ s2: 1 });
     expect(state.lastFocusedTerminalId).toBeNull();
   });
 });
