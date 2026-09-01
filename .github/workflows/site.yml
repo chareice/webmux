@@ -1,20 +1,23 @@
 name: Site
 
-# Builds site/ and deploys it to Cloudflare Pages.
+# Builds site/ and deploys it to Cloudflare Workers static assets.
+#
+# Workers rather than Pages because that is what Cloudflare now recommends for
+# new projects — Pages still works, but the investment goes to Workers:
+# https://developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/
+#
+# Nothing has to exist in the dashboard first. `wrangler deploy` creates the
+# Worker on its first run, named by `name` in site/wrangler.toml.
 #
 # Secrets to set once, at Settings → Secrets and variables → Actions →
 # New repository secret:
 #
-#   CLOUDFLARE_ACCOUNT_ID  Cloudflare dashboard → Workers & Pages. The account
-#                          ID is in the right-hand sidebar.
-#   CLOUDFLARE_API_TOKEN   Cloudflare dashboard → My Profile → API Tokens →
-#                          Create Token → "Edit Cloudflare Workers" template,
-#                          or a custom token with the Account permission
-#                          "Cloudflare Pages: Edit".
-#
-# The Pages project itself must exist and be named `offdesk` — create it once
-# in the dashboard (Workers & Pages → Create → Pages → Direct Upload), then
-# this workflow uploads every build to it.
+#   CLOUDFLARE_ACCOUNT_ID  the 32-hex id in the dashboard URL, right after
+#                          dash.cloudflare.com/ — also in the right-hand
+#                          sidebar of Workers & Pages.
+#   CLOUDFLARE_API_TOKEN   My Profile → API Tokens → Create Token → the
+#                          "Edit Cloudflare Workers" template. A custom token
+#                          needs Account → Workers Scripts → Edit.
 
 on:
   push:
@@ -58,12 +61,10 @@ jobs:
         working-directory: site
         run: pnpm build
 
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: >-
-            pages deploy site/dist
-            --project-name=offdesk
-            --branch=${{ github.ref_name }}
+          workingDirectory: site
+          command: deploy
