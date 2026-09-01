@@ -67,4 +67,9 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           workingDirectory: site
+          # wrangler-action v3 installs 3.90.0 by default, which parses
+          # [assets] without complaint and then ignores it — it uploads a
+          # Worker with no static files and reports success. Static assets
+          # need 4.x.
+          wranglerVersion: "4"
           command: deploy
