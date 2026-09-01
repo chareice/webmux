@@ -88,7 +88,10 @@ it survives logout), or a launchd agent on macOS.
 
 ## 3. Open it on your phone
 
-Browse to `http://<lan-ip>:4317`. Nothing to install. Open a terminal, run
+Browse to `http://<lan-ip>:4317`. Nothing to install.
+
+The Android app takes the same address on its first launch — a bare
+`<lan-ip>:4317` is read as `http`, since a hub at home has no certificate. Open a terminal, run
 `claude`, and it is the same tmux session you would get on the desk.
 
 Leave the desktop browser open on the same terminal if you want to watch. Both

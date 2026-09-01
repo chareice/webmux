@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -35,6 +35,22 @@ export default function LoginScreen() {
   // someone names one. Once it has, it navigates to the hub and this screen
   // is never seen again — the sign-in below is served by the hub itself.
   const needsHub = isTauriMobile() && isBundledOrigin();
+
+  // Reaching this screen with a hub already stored means the app tried it on
+  // launch and could not get there. Offer it back rather than making someone
+  // retype an address on a phone.
+  const [savedHub, setSavedHub] = useState<string | null>(null);
+  useEffect(() => {
+    if (!needsHub) return;
+    void import("@tauri-apps/api/core")
+      .then(({ invoke }) => invoke<string | null>("mobile_hub_url"))
+      .then((url) => {
+        if (!url) return;
+        setSavedHub(url);
+        setServerUrlInput(url);
+      })
+      .catch(() => {});
+  }, [needsHub]);
 
   const handleHubConnect = () => {
     setConnecting(true);
@@ -103,6 +119,11 @@ export default function LoginScreen() {
           {hubError ? (
             <Text className="text-foreground text-xs mb-4 opacity-80">
               {hubError}
+            </Text>
+          ) : savedHub ? (
+            <Text className="text-foreground text-xs mb-4 opacity-60">
+              Could not reach this hub on launch. Check that it is running and
+              that you are on the same network, or enter another address.
             </Text>
           ) : null}
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mobile-hub-url"
+description = "Enables the mobile_hub_url command without any pre-configured scope."
+commands.allow = ["mobile_hub_url"]
+
+[[permission]]
+identifier = "deny-mobile-hub-url"
+description = "Denies the mobile_hub_url command without any pre-configured scope."
+commands.deny = ["mobile_hub_url"]

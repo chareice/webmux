@@ -11,6 +11,7 @@ fn main() {
     // reaches only the origins a capability names.
     let app_manifest = tauri_build::AppManifest::new().commands(&[
         "start_oauth_listener",
+        "mobile_hub_url",
         "set_mobile_hub_url",
         "clear_mobile_hub_url",
     ]);

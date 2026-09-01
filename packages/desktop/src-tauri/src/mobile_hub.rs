@@ -22,6 +22,10 @@ const PRESET_HUB_URL: Option<&str> = option_env!("OFFDESK_MOBILE_HUB_URL");
 
 const STORE_FILE: &str = "hub.json";
 
+/// Long enough for a phone waking its Wi-Fi, short enough that a wrong
+/// address does not look like a hang.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Where the app returns to when it has no hub — the bundled setup screen.
 /// Captured at startup rather than reconstructed, because the local origin
 /// differs by platform (`tauri://localhost`, `http://tauri.localhost`).
@@ -69,11 +73,20 @@ pub fn configured_hub_url<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
     .filter(|url| !url.is_empty())
 }
 
+/// The hub the setup screen should offer to retry. Only ever called from
+/// that screen, and only reached when the hub did not load — a hub that
+/// loads replaces this UI entirely.
+#[tauri::command]
+pub fn mobile_hub_url<R: Runtime>(app: AppHandle<R>) -> Option<String> {
+    configured_hub_url(&app)
+}
+
 /// Grant the hub's origin the plugin access the web UI needs, and only that
 /// origin. Capabilities can be added but never removed, so this is called once
 /// per hub per process — switching hubs goes back through the setup screen.
 pub fn grant_and_load<R: Runtime>(app: &AppHandle<R>, hub_url: &str) -> Result<(), String> {
     let url = hub_url::parse(hub_url)?;
+    reachable(&url)?;
 
     app.add_capability(
         CapabilityBuilder::new("mobile-hub")
@@ -110,6 +123,13 @@ pub fn set_mobile_hub_url<R: Runtime>(app: AppHandle<R>, url: String) -> Result<
     let parsed = hub_url::parse(&url)?;
     let normalized = parsed.as_str().trim_end_matches('/').to_string();
 
+    // Reach it before committing to it. Storing first and navigating second
+    // is how a typo becomes unrecoverable: the WebView shows its own error
+    // page, the setup screen is gone, and the only way back — "switch hub" —
+    // lives in a UI that is not loading. The app has no address bar to save
+    // you.
+    reachable(&parsed)?;
+
     write_store(
         &app,
         &Store {
@@ -118,6 +138,34 @@ pub fn set_mobile_hub_url<R: Runtime>(app: AppHandle<R>, url: String) -> Result<
     )?;
     grant_and_load(&app, &normalized)?;
     Ok(normalized)
+}
+
+/// A TCP connect, which is all this needs to be: it separates "that address
+/// is wrong, still typing" from "the hub answered something odd", and the
+/// second is a problem the hub's own page can explain.
+fn reachable(url: &Url) -> Result<(), String> {
+    use std::net::{TcpStream, ToSocketAddrs};
+
+    let host = url.host_str().ok_or("that address has no host")?;
+    let port = url
+        .port_or_known_default()
+        .ok_or("that address has no port")?;
+
+    let addresses = (host, port)
+        .to_socket_addrs()
+        .map_err(|_| format!("Could not find {host}. Check the address, and that you are on the same network."))?;
+
+    let mut last = None;
+    for address in addresses {
+        match TcpStream::connect_timeout(&address, CONNECT_TIMEOUT) {
+            Ok(_) => return Ok(()),
+            Err(error) => last = Some(error),
+        }
+    }
+    Err(match last {
+        Some(_) => format!("Nothing answered at {host}:{port}. Is the hub running, and are you on the same network?"),
+        None => format!("Could not find {host}."),
+    })
 }
 
 /// Forget the hub and return to the setup screen. The origin we granted keeps

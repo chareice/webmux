@@ -17,7 +17,14 @@ android {
     compileSdk = 36
     namespace = "dev.offdesk.desktop"
     defaultConfig {
-        manifestPlaceholders["usesCleartextTraffic"] = "false"
+        // A hub on a home network is http on a private address — that is
+        // the whole of docs/setup-lan.md — and Android blocks cleartext by
+        // default from targetSdk 28 on, so the release build could reach
+        // nothing but an https hub. Android cannot express "private ranges
+        // only" in a network security config, so this is the only knob
+        // there is. What crosses a LAN in the clear is the user's choice
+        // to make, and the setup guide says so plainly.
+        manifestPlaceholders["usesCleartextTraffic"] = "true"
         applicationId = "dev.offdesk.desktop"
         minSdk = 24
         targetSdk = 36
