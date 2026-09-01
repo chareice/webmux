@@ -6,21 +6,24 @@ One self-hosted hub, all your machines, any agent that runs in tmux.
 <!-- TODO(ryan): record docs/media/hero.gif — see docs/media/README.md -->
 ![Claude Code running on a desk machine, with a phone attached to the same tmux session](docs/media/hero.gif)
 
-- **One hub, every machine.** A Mac at home, a NAS, a VPS — they all register
-  to one hub and you open them from one URL. The other tools that give you a
-  real terminal run one server per machine.
+- **Off the desk, not off the work.** Close the laptop and walk away. The
+  session is still running on the machine at home, and your phone opens the
+  same terminal, mid-scroll — not a summary of it.
 - **It is the real terminal, and it is just tmux.** Anything that runs in tmux
   runs here: Claude Code, Codex, Grok, vim, htop. No agent-specific
   integration, so there is nothing to add when the next agent ships — and
   nothing to be locked into. Uninstall offdesk, ssh in, `tmux attach`, and your
   sessions are still there.
-- **Your hub, your traffic.** Each machine dials out to a server you run. No
-  third-party relay, no vendor account, and no transcript stored anywhere you
-  do not control.
 - **Your phone and your desk on the same session, live.** Whoever typed last
   holds the control lease; everyone else keeps receiving output instead of
   being disconnected. tmux runs `window-size manual`, so a phone attaching
   never resizes the desk.
+- **Every machine you own, in one place.** A Mac at home, a NAS, a VPS — they
+  all register to one hub and open from one URL. The other tools that give you
+  a real terminal run one server per machine.
+- **Your server, your traffic.** Each machine dials out to a hub you run. No
+  third-party relay, no vendor account, and no transcript stored anywhere you
+  do not control.
 - **`offdesk open nas --cwd ~/app --cmd claude`** from a script, or from an
   agent on a different machine, against any machine on the hub.
 - Rust. The hub is one binary plus a SQLite file. The machine agent is one
@@ -103,9 +106,27 @@ token = "odk_..."
 or export `OFFDESK_URL` and `OFFDESK_TOKEN`. `--url` and `--token` override
 both.
 
-### Phone
+### Phone and desktop
 
-Open the hub URL in a browser. There is nothing to install.
+Open the hub URL in a browser. There is nothing to install, and on iPhone this
+is the only client — there is no iOS build.
+
+Two packaged clients also ship, both Tauri:
+
+- **Desktop** — macOS (universal), Windows, and Linux, with an auto-updater.
+  Built from `desktop-v*` tags. Set your hub URL in Settings.
+- **Android** — an APK per ABI plus a universal one, built from `app-v*` tags.
+  Sideload it; it wraps the same web app, with native notifications and
+  clipboard.
+
+<!-- TODO(ryan): the Android APK compiles its hub URL in
+     (OFFDESK_MOBILE_HUB_URL in packages/desktop/src-tauri/src/lib.rs, default
+     https://offdesk.nas.chareice.site), and capabilities/mobile/default.json
+     scopes Tauri API access to that same origin. So a build for someone
+     else's hub needs both changed, and changing only the URL leaves
+     notifications and clipboard denied on the new origin. Until that is
+     parameterised, do not tell other people the APK works against their hub —
+     the browser is the honest answer. -->
 
 ## Two setups
 
@@ -304,8 +325,9 @@ you a genuine terminal. Both run one server per machine: VibeTunnel by design,
 Orca because a Remote Orca Server is tied to a single host and reaches other
 boxes over SSH.
 
-offdesk is the combination — one hub you run, every machine registered to it,
-and a real terminal at the end. Each of the five drops one of those three.
+offdesk is the combination: walk away from any machine you own and pick up the
+real terminal from your phone, through a server you run. Each of the five drops
+one of those three — the agent, the machine, or the server.
 
 That is the only claim this table supports, and it is narrower than "better".
 If you want parallel git worktrees, diff review, and a browser and emulator
