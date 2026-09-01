@@ -166,6 +166,17 @@ fetch() {
     fi
 }
 
+http_status() {
+    # http_status <url> -> the status code, or 000 if the request never
+    # completed. Used only to tell "GitHub said no" apart from "no GitHub",
+    # which are very different things to be told at 2am.
+    if [ "$DL" = curl ]; then
+        curl -sSL -o /dev/null -w '%{http_code}' "$1" 2>/dev/null || printf '000'
+    else
+        printf '000'
+    fi
+}
+
 fetch_to() {
     # fetch_to <url> <dest>; non-zero on any HTTP error
     if [ "$DL" = curl ]; then
@@ -178,7 +189,7 @@ fetch_to() {
 latest_version() {
     # Newest vX.Y.Z tag. desktop-v* and app-v* ship the desktop and Android
     # apps and carry no CLI or node binaries, so they are skipped.
-    body=$(fetch "$API" 2>/dev/null) || no_release "could not reach ${API}"
+    body=$(fetch "$API" 2>/dev/null) || api_unreachable
     version=$(printf '%s' "$body" \
         | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"v[0-9]+\.[0-9]+\.[0-9]+"' \
         | sed -E 's/.*"(v[0-9]+\.[0-9]+\.[0-9]+)"/\1/' \
@@ -186,6 +197,28 @@ latest_version() {
         | tail -n 1)
     [ -n "$version" ] || no_release "no vX.Y.Z release exists yet"
     printf '%s' "$version"
+}
+
+api_unreachable() {
+    status=$(http_status "$API")
+    case "$status" in
+        404)
+            die "${API} returned 404 — the repository is gone or renamed.
+       This installer is out of date; get a current one from
+       https://offdesk.dev/install"
+            ;;
+        403|429)
+            die "GitHub rate-limited this machine (HTTP ${status}).
+       Wait a few minutes, or download a binary by hand from ${RELEASES}"
+            ;;
+        000)
+            die "could not reach ${API}. Check your network or a proxy."
+            ;;
+        *)
+            die "${API} returned HTTP ${status}. Try again, or download a
+       binary by hand from ${RELEASES}"
+            ;;
+    esac
 }
 
 fetch_binary() {

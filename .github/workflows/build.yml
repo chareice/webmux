@@ -24,8 +24,8 @@ jobs:
             echo "Release $tag already exists; skipping create."
           else
             gh release create "$tag" \
-              --title "Node ${tag}" \
-              --notes "Automated release for $tag. See commits since the previous release for details."
+              --title "offdesk ${tag}" \
+              --notes "The offdesk CLI and the offdesk-node machine agent, for linux and darwin on x64 and arm64. Install both with: curl -fsSL https://offdesk.dev/install | sh"
           fi
 
   build:
@@ -40,19 +40,19 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            artifact: offdesk-node-linux-x64
+            platform: linux-x64
             use-cross: true
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-            artifact: offdesk-node-linux-arm64
+            platform: linux-arm64
             use-cross: true
           - target: x86_64-apple-darwin
             os: macos-latest
-            artifact: offdesk-node-darwin-x64
+            platform: darwin-x64
             use-cross: false
           - target: aarch64-apple-darwin
             os: macos-latest
-            artifact: offdesk-node-darwin-arm64
+            platform: darwin-arm64
             use-cross: false
 
     runs-on: ${{ matrix.os }}
@@ -74,25 +74,36 @@ jobs:
         if: matrix.use-cross
         uses: taiki-e/install-action@cross
 
-      - name: Build offdesk-node
+      # Both binaries, or `curl offdesk.dev/install | sh` only half works:
+      # that installer takes the CLI and the machine agent from the same
+      # release, and skipping the CLI leaves it failing on a missing asset.
+      - name: Build offdesk and offdesk-node
         run: |
           if [ "${{ matrix.use-cross }}" = "true" ]; then
-            cross build --release --bin offdesk-node --target ${{ matrix.target }}
+            cross build --release --bin offdesk --bin offdesk-node --target ${{ matrix.target }}
           else
-            cargo build --release --bin offdesk-node --target ${{ matrix.target }}
+            cargo build --release --bin offdesk --bin offdesk-node --target ${{ matrix.target }}
           fi
 
-      - name: Rename binary
-        run: cp target/${{ matrix.target }}/release/offdesk-node ${{ matrix.artifact }}
+      - name: Name the binaries for the release
+        run: |
+          cp target/${{ matrix.target }}/release/offdesk offdesk-${{ matrix.platform }}
+          cp target/${{ matrix.target }}/release/offdesk-node offdesk-node-${{ matrix.platform }}
 
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')
-        run: gh release upload ${{ github.ref_name }} ${{ matrix.artifact }} --clobber
+        run: |
+          gh release upload ${{ github.ref_name }} \
+            offdesk-${{ matrix.platform }} \
+            offdesk-node-${{ matrix.platform }} \
+            --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          name: offdesk-${{ matrix.platform }}
+          path: |
+            offdesk-${{ matrix.platform }}
+            offdesk-node-${{ matrix.platform }}
