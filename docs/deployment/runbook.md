@@ -84,7 +84,7 @@ gh run list --repo zalify/offdesk --workflow build.yml --limit 3
 
 SSH to the machine and re-run the install script:
 ```bash
-curl -sSL https://raw.githubusercontent.com/zalify/offdesk/main/scripts/install.sh | sh
+curl -fsSL https://offdesk.dev/install | sh -s -- --node-only
 ```
 
 Then restart the service:

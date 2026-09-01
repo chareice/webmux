@@ -82,10 +82,11 @@ agent on macOS:
 offdesk-node service install
 ```
 
-<!-- TODO(ryan): scripts/install.sh downloads offdesk-node-{linux,darwin}-{x64,arm64}
-     from GitHub releases. No release carries those names yet — the last ones
-     are webmux-node-*. Tag a v* release, then document
-     `curl -fsSL https://offdesk.dev/install | sh` here. -->
+<!-- TODO(ryan): one thing left before the installer can be documented here:
+     tag a v* release. Every published release predates the rename and carries
+     webmux-node-* names, so `curl -fsSL https://offdesk.dev/install | sh`
+     still has nothing to fetch. build.yml now publishes both binaries under
+     the right names, so the next tag is enough. -->
 
 ### CLI
 
