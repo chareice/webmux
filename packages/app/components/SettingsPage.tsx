@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import * as QRCode from "qrcode";
+
 import { colors } from "@/lib/colors";
 import { isTauri, isTauriMobile } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
@@ -536,6 +538,52 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     window.location.reload();
   }, [serverUrl]);
 
+  // The address the phone should open. Defaults to the one this page came
+  // from, which is right whenever the browser reached the hub the same way a
+  // phone would — and wrong on a laptop looking at localhost, which is why it
+  // stays editable.
+  const [shareUrl, setShareUrl] = useState(() =>
+    typeof window === "undefined" ? "" : window.location.origin,
+  );
+  const [qrSvg, setQrSvg] = useState<string | null>(null);
+  const shareUrlIsLoopback = /^(localhost|127\.0\.0\.1|\[?::1\]?)$/i.test(
+    (() => {
+      try {
+        return new URL(shareUrl).hostname;
+      } catch {
+        return "";
+      }
+    })(),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!shareUrl.trim()) {
+      setQrSvg(null);
+      return;
+    }
+    QRCode.toString(shareUrl.trim(), {
+      type: "svg",
+      margin: 0,
+      errorCorrectionLevel: "M",
+      // Hex only — the theme's colours are `rgb(var(--color-…))`, which the
+      // encoder rejects. Black on white also reads most reliably through a
+      // phone camera, so the code sits on its own white tile rather than
+      // borrowing the page's palette.
+      color: { dark: "#000000", light: "#ffffff" },
+    })
+      .then((svg) => {
+        if (!cancelled) setQrSvg(svg);
+      })
+      .catch((error) => {
+        console.error("[offdesk] could not encode the hub address", error);
+        if (!cancelled) setQrSvg(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shareUrl]);
+
   // The mobile app is pointed at one hub at a time. Letting go of it drops
   // the app back to its own setup screen, where the next address is typed by
   // hand — this page is served by a hub, and a hub does not get to choose the
@@ -935,6 +983,120 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             + Add command
           </button>
         </section>
+
+        {/* Getting the app onto a phone — pointless when you are on the phone */}
+        {!isTauriMobile() && (
+          <section style={{ marginBottom: 32 }}>
+            <SectionTitle>Mobile app</SectionTitle>
+
+            <div
+              style={{
+                fontSize: 11,
+                color: colors.foregroundMuted,
+                marginBottom: 12,
+              }}
+            >
+              The Android app is a window onto this hub. Install it, then scan
+              this code on first launch instead of typing the address. Scanning
+              with the phone's own camera opens the hub in its browser, which
+              works too.
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 20,
+                alignItems: "flex-start",
+                flexWrap: "wrap",
+              }}
+            >
+              <div
+                style={{
+                  width: 168,
+                  height: 168,
+                  padding: 12,
+                  borderRadius: 8,
+                  background: "#ffffff",
+                  border: `1px solid ${colors.border}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+                dangerouslySetInnerHTML={
+                  qrSvg ? { __html: qrSvg } : undefined
+                }
+              >
+                {qrSvg ? undefined : (
+                  <span style={{ fontSize: 11, color: "#77776f" }}>
+                    no address
+                  </span>
+                )}
+              </div>
+
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <SettingRow
+                  label="Address the phone should open"
+                  description="Whatever your phone can reach — a LAN address, a tunnel hostname, a tailnet name."
+                >
+                  <input
+                    type="text"
+                    value={shareUrl}
+                    onChange={(e) => setShareUrl(e.target.value)}
+                    placeholder="http://192.168.1.10:4317"
+                    style={{ ...inputStyle, width: "100%" }}
+                  />
+                </SettingRow>
+
+                {shareUrlIsLoopback && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: colors.foreground,
+                      opacity: 0.8,
+                      marginTop: -8,
+                      marginBottom: 16,
+                    }}
+                  >
+                    This page is open on a loopback address, which no phone can
+                    reach. Put the hub's LAN address or public hostname here
+                    instead.
+                  </div>
+                )}
+
+                <a
+                  href="https://github.com/zalify/offdesk/releases/latest"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: "inline-block",
+                    background: colors.accent,
+                    borderRadius: 6,
+                    color: "#fff",
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    textDecoration: "none",
+                  }}
+                >
+                  Download the APK
+                </a>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: colors.foregroundMuted,
+                    marginTop: 8,
+                  }}
+                >
+                  Take <code>arm64-v8a</code> on a modern phone, or{" "}
+                  <code>universal</code> if you are unsure. Sideloading needs
+                  "install from unknown sources". There is no iOS build yet —
+                  on iPhone, open this hub in Safari.
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Which hub the mobile app opens — mobile app only */}
         {isTauriMobile() && (
