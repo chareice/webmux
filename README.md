@@ -132,8 +132,9 @@ Two packaged clients also ship, both Tauri:
 
 - **At home, off the desk** — hub on your Mac or NAS, phone on the same Wi-Fi.
   → [docs/setup-lan.md](docs/setup-lan.md)
-- **Away from home** — hub on a VPS behind Caddy, or on your tailnet.
-  → [docs/setup-public.md](docs/setup-public.md)
+- **Away from home** — hub on a VPS behind Caddy, at home behind a Cloudflare
+  Tunnel, or on your tailnet. The guide compares them by who ends up able to
+  read your traffic. → [docs/setup-public.md](docs/setup-public.md)
 
 ## How it works
 
