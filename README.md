@@ -117,15 +117,10 @@ Two packaged clients also ship, both Tauri:
   Built from `desktop-v*` tags. Set your hub URL in Settings.
 - **Android** — an APK per ABI plus a universal one, built from `app-v*` tags.
   Sideload it; it wraps the same web app, with native notifications and
-  clipboard. Each APK is compiled for one hub, and the published ones point at
-  the hub this repository releases from, so for your own hub build it yourself.
+  clipboard. It asks for your hub's address on first launch, so one APK works
+  with any hub — nothing about a hub is compiled into it.
 
-#### Building the Android app for your hub
-
-`OFFDESK_MOBILE_HUB_URL` is the URL the app loads *and* the only origin allowed
-to use notifications, the clipboard, and link opening: `build.rs` writes the
-Tauri capability from that same value, so the two cannot drift apart. It has no
-default, and the build stops without it.
+#### Building the Android app yourself
 
 You need a JDK 17, the Android SDK with the NDK, and the Rust Android targets:
 
@@ -136,31 +131,28 @@ export ANDROID_HOME=$HOME/Library/Android/sdk          # ~/Android/Sdk on Linux
 export NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006
 ```
 
-Then build a debug APK — it is signed with the Android debug key, so you can
-install it straight away:
-
 ```bash
-export OFFDESK_MOBILE_HUB_URL=https://your-hub.example.com
 pnpm install
 pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app build
 cd packages/desktop && cargo tauri android build --debug --apk
 ```
 
-The CLI prints the APK path when it finishes, under
-`packages/desktop/src-tauri/gen/android/app/build/outputs/apk/`. Install it with
-`adb install <path>`, or copy it to the phone and allow installs from unknown
-sources. On an emulator, a hub on your own machine is reachable at
-`http://10.0.2.2:<port>` — that origin is always allowed.
+A `--debug` APK is signed with the Android debug key, so `adb install` takes it
+as is; a release APK needs your own keystore, which is what the `Build Android
+APK (Tauri)` workflow uses its `ANDROID_KEYSTORE_*` secrets for. Either way the
+CLI prints the path when it finishes, under
+`packages/desktop/src-tauri/gen/android/app/build/outputs/apk/`.
 
-`cargo tauri android build --apk` (without `--debug`) produces an *unsigned*
-release APK; Android will not install it until you sign it with your own
-keystore. The `Build Android APK (Tauri)` workflow does that part: set the
-`OFFDESK_MOBILE_HUB_URL` repository variable and the `ANDROID_KEYSTORE_BASE64`,
-`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`
-secrets, then push an `app-v*` tag or run the workflow by hand.
+Set `OFFDESK_MOBILE_HUB_URL` at build time to skip the first-launch question in
+your own builds:
 
-Everything else — the UI, new features — comes from the hub at runtime, so the
-APK only needs rebuilding when the hub URL changes.
+```bash
+OFFDESK_MOBILE_HUB_URL=https://your-hub.example.com cargo tauri android build --debug --apk
+```
+
+It is only a preset — whatever the user enters still wins, and the app grants
+notifications, the clipboard, and link opening to that hub's origin alone. On
+an emulator, a hub on your own machine is `http://10.0.2.2:4317`.
 
 ## Two setups
 
