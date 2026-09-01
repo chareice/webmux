@@ -187,6 +187,12 @@ offdesk kill $T --yes`;
           <a class="btn" href={docs}>Read the docs</a>
         </div>
 
+        <p class="promise">
+          Close the laptop and walk away. The session keeps running on the
+          machine at home, and your phone opens the same terminal, mid-scroll
+          — not a summary of it. Anything that runs in tmux runs here.
+        </p>
+
         {
           hasHero && (
             <figure class="shot">
@@ -221,9 +227,10 @@ offdesk kill $T --yes`;
       <section aria-labelledby="how">
         <h2 id="how">How it works</h2>
         <p class="lead">
-          Each machine runs a small agent that opens one outbound WebSocket to
-          your hub and hosts every terminal as a tmux session. Nothing on the
-          machine needs an inbound port.
+          Every terminal is a tmux session on the machine that owns it, so it
+          outlives the app, the network, and you walking away. Each machine
+          keeps one outbound WebSocket open to your hub — nothing on it needs
+          an inbound port, and nothing has to stay awake but the hub.
         </p>
 
         <svg
@@ -305,9 +312,10 @@ offdesk kill $T --yes`;
       <section aria-labelledby="agents">
         <h2 id="agents">For agents</h2>
         <p class="lead">
-          The CLI is the whole interface: anything that can run a shell command
-          can open a terminal on any machine, type into it, wait on it, and
-          read it back.
+          One token, and any script — or any agent, on any machine — can open a
+          terminal on any other machine registered to your hub, type into it,
+          wait on it, and read it back. Not an agent session: a terminal, so
+          whatever you drive is whatever you would have run by hand.
         </p>
         <pre class="block"><code>{orchestration}</code></pre>
       </section>
@@ -316,7 +324,9 @@ offdesk kill $T --yes`;
         <h2 id="compare">How it compares</h2>
         <p class="lead">
           Every cell is from that project's own documentation, checked
-          2026-09-01. Nothing here is a guess.
+          2026-09-01. Nothing here is a guess. The tools that gather several
+          machines into one place hand you an agent session; the ones that
+          hand you a real terminal run one server per machine.
         </p>
         <div class="scroll">
           <table>
@@ -558,6 +568,12 @@ offdesk kill $T --yes`;
 
       .btn.primary:hover {
         filter: brightness(1.08);
+      }
+
+      .promise {
+        max-width: 34rem;
+        margin: 1.75rem 0 0;
+        color: var(--fg-1);
       }
 
       .shot {
