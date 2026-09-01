@@ -1,3 +1,9 @@
+// Pure enough to build and test everywhere, even though only the mobile
+// app has a hub address to parse.
+#[allow(dead_code)]
+mod hub_url;
+#[cfg(mobile)]
+mod mobile_hub;
 #[cfg(desktop)]
 mod oauth;
 #[cfg(desktop)]
@@ -5,17 +11,6 @@ mod tray;
 
 #[cfg(any(desktop, mobile))]
 use tauri::Manager;
-
-// On mobile we wrap a remote URL (offdesk mobile-web). This ensures the
-// Android client always tracks production features instead of needing a
-// parallel native UI tree. The URL is whatever the user has configured;
-// for now we hard-code the production hub but read an override at compile
-// time to ease internal dogfooding.
-#[cfg(mobile)]
-const MOBILE_HUB_URL: &str = match option_env!("OFFDESK_MOBILE_HUB_URL") {
-    Some(value) => value,
-    None => "https://offdesk.nas.chareice.site",
-};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,6 +23,14 @@ pub fn run() {
 
     #[cfg(desktop)]
     let builder = configure_desktop(builder);
+
+    // The mobile app is a WebView on a hub the user picks at runtime; these
+    // are how the setup screen and the hub's own UI change that choice.
+    #[cfg(mobile)]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        mobile_hub::set_mobile_hub_url,
+        mobile_hub::clear_mobile_hub_url
+    ]);
 
     builder
         .setup(|app| {
@@ -95,15 +98,26 @@ fn setup_desktop(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(mobile)]
 fn setup_mobile(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    // Point the WebView at the hub URL instead of the bundled SPA. The
-    // bundled assets are still used by the desktop build; on mobile they
-    // are only needed as a launch shell, replaced immediately. Using
-    // navigate() instead of eval() avoids a JS round-trip.
+    let handle = app.handle();
+
+    // Remember where the bundled setup screen lives before we leave it: the
+    // local origin differs by platform, and "forget this hub" has to come
+    // back here.
     if let Some(window) = app.get_webview_window("main") {
-        let url = MOBILE_HUB_URL
-            .parse::<tauri::Url>()
-            .map_err(|e| format!("invalid OFFDESK_MOBILE_HUB_URL {MOBILE_HUB_URL}: {e}"))?;
-        window.navigate(url)?;
+        if let Ok(url) = window.url() {
+            app.manage(mobile_hub::ShellUrl(url));
+        }
+    }
+
+    // With a hub already chosen, the WebView goes straight there and the
+    // bundled assets are never more than a launch shell. Without one the
+    // shell *is* the app until the user enters an address, so staying put is
+    // the setup screen rather than a failure.
+    let Some(hub_url) = mobile_hub::configured_hub_url(handle) else {
+        return Ok(());
+    };
+    if let Err(error) = mobile_hub::grant_and_load(handle, &hub_url) {
+        eprintln!("could not open the configured hub {hub_url}: {error}");
     }
     Ok(())
 }

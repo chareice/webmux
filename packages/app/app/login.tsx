@@ -8,7 +8,7 @@ import {
   TextInput,
 } from "react-native";
 import { useAuth } from "../lib/auth";
-import { isTauri, isTauriMobile } from "../lib/platform";
+import { isBundledOrigin, isTauri, isTauriMobile } from "../lib/platform";
 import { getServerUrl, setServerUrl } from "../lib/serverUrl";
 
 type OAuthProvider = "github" | "google";
@@ -27,9 +27,29 @@ export default function LoginScreen() {
   const [serverUrlInput, setServerUrlInput] = useState(
     getServerUrl(Platform.OS),
   );
+  const [hubError, setHubError] = useState<string | null>(null);
   // Tauri-on-mobile (Android/iOS WebView) takes the same provider-button
   // path as plain mobile-web; only Tauri desktop uses the loopback flow.
   const isDesktop = isTauri() && !isTauriMobile();
+  // The mobile app boots into its own bundled screens and knows no hub until
+  // someone names one. Once it has, it navigates to the hub and this screen
+  // is never seen again — the sign-in below is served by the hub itself.
+  const needsHub = isTauriMobile() && isBundledOrigin();
+
+  const handleHubConnect = () => {
+    setConnecting(true);
+    setHubError(null);
+    void import("@tauri-apps/api/core")
+      .then(({ invoke }) =>
+        invoke("set_mobile_hub_url", { url: serverUrlInput.trim() }),
+      )
+      // On success the WebView is already loading the hub, so there is
+      // nothing to do here but wait for it.
+      .catch((error: unknown) => {
+        setHubError(String(error));
+        setConnecting(false);
+      });
+  };
 
   const handleDesktopConnect = () => {
     setServerUrl(serverUrlInput.trim());
@@ -51,6 +71,65 @@ export default function LoginScreen() {
         setActiveProvider(null);
       });
   };
+
+  if (needsHub) {
+    return (
+      <View className="flex-1 bg-background items-center justify-center p-6">
+        <View className="w-full max-w-sm bg-surface rounded-2xl p-8">
+          <Text className="text-foreground text-3xl font-bold text-center mb-2">
+            offdesk
+          </Text>
+          <Text className="text-foreground text-center mb-8 opacity-80">
+            Connect to your hub
+          </Text>
+
+          <View className="mb-6">
+            <Text className="text-foreground text-sm mb-2 opacity-60">
+              Hub address
+            </Text>
+            <TextInput
+              value={serverUrlInput}
+              onChangeText={setServerUrlInput}
+              placeholder="https://your-hub.example.com"
+              placeholderTextColor="#999"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              inputMode="url"
+              className="bg-background border border-border rounded-lg px-3 py-2.5 text-foreground text-sm"
+            />
+          </View>
+
+          {hubError ? (
+            <Text className="text-foreground text-xs mb-4 opacity-80">
+              {hubError}
+            </Text>
+          ) : null}
+
+          <Pressable
+            onPress={handleHubConnect}
+            disabled={connecting || !serverUrlInput.trim()}
+            className={`py-3 px-4 rounded-lg items-center active:opacity-80 bg-foreground ${
+              connecting || !serverUrlInput.trim() ? "opacity-50" : ""
+            }`}
+          >
+            {connecting ? (
+              <ActivityIndicator color="#141413" />
+            ) : (
+              <Text className="font-semibold text-base text-background">
+                Connect
+              </Text>
+            )}
+          </Pressable>
+
+          <Text className="text-foreground text-xs text-center mt-4 opacity-40">
+            The address you use to open offdesk in a browser. You sign in on the
+            hub itself, once it loads.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   if (isDesktop) {
     return (

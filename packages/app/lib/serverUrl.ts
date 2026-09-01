@@ -1,13 +1,22 @@
-import { isTauri } from "./platform";
+import { isBundledOrigin, isTauri } from "./platform";
 
 const SERVER_URL_KEY = "offdesk:server_url";
-const DEFAULT_SERVER_URL = "https://offdesk.nas.chareice.site";
+// No built-in hub. A hub is someone's own machine; guessing one here is how
+// the mobile app ended up talking to its author's NAS. Builds that want a
+// preset set OFFDESK_DEFAULT_SERVER_URL.
+const DEFAULT_SERVER_URL = "";
 
 export interface ResolveServerUrlOptions {
   platformOs: string;
   isTauriRuntime: boolean;
   storedUrl: string | null;
   configuredDefaultUrl?: string | null;
+  /**
+   * Whether this page came from the app's bundled assets. Pages a hub served
+   * belong to that hub, whether they are in a browser tab or inside the
+   * mobile app's WebView.
+   */
+  isBundledOrigin?: boolean;
 }
 
 export function resolveServerUrl({
@@ -15,8 +24,9 @@ export function resolveServerUrl({
   isTauriRuntime,
   storedUrl,
   configuredDefaultUrl,
+  isBundledOrigin = true,
 }: ResolveServerUrlOptions): string {
-  if (platformOs === "web" && !isTauriRuntime) {
+  if (platformOs === "web" && (!isTauriRuntime || !isBundledOrigin)) {
     return "";
   }
   return (
@@ -55,6 +65,7 @@ export function getServerUrl(platformOs = getRuntimePlatformOs()): string {
     isTauriRuntime: isTauri(),
     storedUrl,
     configuredDefaultUrl: getConfiguredDefaultServerUrl(),
+    isBundledOrigin: isBundledOrigin(),
   });
 }
 

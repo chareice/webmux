@@ -1,0 +1,818 @@
+---
+import { existsSync } from "node:fs";
+
+// The hero GIF is not committed yet (see docs/media/README.md). Rendering an
+// <img> for a file that does not exist gives every visitor a broken-image
+// box, so the figure only appears once the asset is there.
+const hasHero = existsSync(new URL("../../public/media/hero.gif", import.meta.url));
+
+const repo = "https://github.com/zalify/offdesk";
+const docs = `${repo}#readme`;
+const description =
+  "Vibe code from your phone on the terminal you left at home.";
+const install = "curl -fsSL https://offdesk.dev/install | sh";
+
+const setups = [
+  {
+    title: "At home, off the desk",
+    blurb:
+      "Hub on the Mac or NAS that stays on. Phone on the same Wi-Fi. No TLS, no domain.",
+    commands: [
+      "docker compose up -d --build",
+      "offdesk-node register --hub-url http://192.168.1.10:4317 --token <token>",
+      "offdesk-node start",
+    ],
+    href: `${repo}/blob/main/docs/setup-lan.md`,
+    linkText: "setup-lan.md",
+  },
+  {
+    title: "Away from home",
+    blurb:
+      "Hub on a VPS behind Caddy, or on your tailnet. GitHub or Google sign-in.",
+    commands: [
+      "docker compose up -d --build",
+      "caddy reverse-proxy --from offdesk.example.com --to :4317",
+      "offdesk-node register --hub-url https://offdesk.example.com --token <token>",
+    ],
+    href: `${repo}/blob/main/docs/setup-public.md`,
+    linkText: "setup-public.md",
+  },
+];
+
+// Every cell is from the vendor's own documentation, sourced below and
+// checked 2026-09-01. Nothing here is guessed; where a vendor does not
+// document something, the cell says so.
+//
+// Claude Code Remote Control — https://code.claude.com/docs/en/remote-control
+//   "it registers with the Anthropic API and polls for work ... the server
+//   routes messages between the web or mobile client and your local session";
+//   "the session transcript ... is stored on Anthropic servers". The surface
+//   is a Claude Code conversation, not a terminal. No CLI documented.
+// VibeTunnel — https://github.com/amantus-ai/vibetunnel
+//   "Run any command in the browser", `vt --shell`. One Node server per
+//   machine. Tailscale / ngrok / Cloudflare / Pinggy / Pangolin / LAN. `vt`
+//   launches a session; no send/read/wait verbs. MIT.
+// Happy Coder — https://github.com/slopus/happy
+//   "Start using `happy` instead of `claude` or `codex`". happy-agent has
+//   machines, spawn --machine, create, send, history, wait. Default server
+//   happy-api.slopus.com, E2E encrypted; self-hosting documented at
+//   https://happy.engineering/docs/guides/self-hosting/ . MIT.
+// Omnara — https://docs.omnara.com/api/overview
+//   Scoped to agent sessions, no raw shell documented. "An agent can ... use
+//   several [machines] at once". "Hosted routes live under
+//   https://api.omnara.com/v1"; self-hosted serves the same API. Apache-2.0.
+// Orca — https://github.com/stablyai/orca , https://www.onorca.dev/docs/cli/overview
+//   "anything that runs in a terminal will run inside Orca". SSH worktrees
+//   and `orca serve`. `orca terminal list/read/send/wait/create/split`.
+//   https://www.onorca.dev/docs/mobile — "Prefer Orca Relay for pairing when
+//   it is available". MIT.
+const columns = [
+  "Any terminal program",
+  "Machines per hub",
+  "Traffic goes through",
+  "Agents can drive it via CLI",
+  "Self-hosted",
+];
+const rows = [
+  {
+    name: "offdesk",
+    self: true,
+    cells: [
+      "Anything that runs in tmux",
+      "Any number, one URL",
+      "Your own hub",
+      "open / send / wait / read",
+      "Yes, MIT",
+    ],
+  },
+  {
+    name: "Claude Code Remote Control",
+    cells: [
+      "No \u2014 a Claude Code session, not a terminal",
+      "Sessions from several machines in one list",
+      "Anthropic's servers; transcript stored there",
+      "Not documented",
+      "No",
+    ],
+  },
+  {
+    name: "VibeTunnel",
+    cells: [
+      "Yes \u2014 vt <any command>, vt --shell",
+      "One server per machine",
+      "Your choice: LAN, Tailscale, ngrok, Cloudflare",
+      "Launches commands only",
+      "Yes, MIT",
+    ],
+  },
+  {
+    name: "Happy Coder",
+    cells: [
+      "No \u2014 wraps claude and codex",
+      "Several; spawn --machine",
+      "slopus cloud by default, end-to-end encrypted",
+      "create / send / history / wait",
+      "Optional, MIT",
+    ],
+  },
+  {
+    name: "Omnara",
+    cells: [
+      "Agent sessions; no raw terminal documented",
+      "Several at once per agent",
+      "api.omnara.com by default",
+      "CLI and REST",
+      "Optional, Apache-2.0",
+    ],
+  },
+  {
+    name: "Orca",
+    cells: [
+      "Yes \u2014 real terminal, 30+ CLI agents",
+      "Several, via SSH worktrees and orca serve",
+      "Orca Relay by default, or direct on the LAN",
+      "orca terminal create/send/read/wait",
+      "Yes, MIT",
+    ],
+  },
+];
+
+const orchestration = `T=$(offdesk open nas --cwd ~/app --cmd claude --json | jq -r .id)
+offdesk send $T "fix the type errors in src/auth.ts; stop when tests pass"
+offdesk wait $T --silence 5000 --timeout 600
+offdesk read $T --lines 80
+offdesk kill $T --yes`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>offdesk — vibe code from your phone</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href="https://offdesk.dev/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/brand/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/brand/favicon-16.png" sizes="16x16" type="image/png" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0c0f" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://offdesk.dev/" />
+    <meta property="og:title" content="offdesk" />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content="https://offdesk.dev/brand/og-square.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="offdesk" />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="https://offdesk.dev/brand/og-square.png" />
+  </head>
+
+  <body>
+    <main>
+      <header class="hero">
+        <img
+          class="wordmark"
+          src="/brand/logo-dark.svg"
+          alt="offdesk"
+          width="1000"
+          height="278"
+        />
+        <h1>Vibe code from your phone, on the terminal running at home.</h1>
+        <p class="sub">
+          One self-hosted hub, all your machines, any agent that runs in tmux.
+        </p>
+
+        <div class="cmd">
+          <code id="install-cmd">{install}</code>
+          <button type="button" id="copy" aria-label="Copy install command">
+            Copy
+          </button>
+        </div>
+
+        <div class="actions">
+          <a class="btn primary" href={repo}>GitHub</a>
+          <a class="btn" href={docs}>Read the docs</a>
+        </div>
+
+        <p class="promise">
+          Close the laptop and walk away. The session keeps running on the
+          machine at home, and your phone opens the same terminal, mid-scroll
+          — not a summary of it. Anything that runs in tmux runs here.
+        </p>
+
+        {
+          hasHero && (
+            <figure class="shot">
+              <img
+                src="/media/hero.gif"
+                alt="Claude Code running on a desk machine while a phone is attached to the same tmux session"
+                width="1200"
+                height="750"
+                loading="eager"
+              />
+            </figure>
+          )
+        }
+      </header>
+
+      <section aria-labelledby="setups">
+        <h2 id="setups">Two setups</h2>
+        <div class="cards">
+          {
+            setups.map((setup) => (
+              <article class="card">
+                <h3>{setup.title}</h3>
+                <p>{setup.blurb}</p>
+                <pre><code>{setup.commands.join("\n")}</code></pre>
+                <a href={setup.href}>{setup.linkText}</a>
+              </article>
+            ))
+          }
+        </div>
+      </section>
+
+      <section aria-labelledby="how">
+        <h2 id="how">How it works</h2>
+        <p class="lead">
+          Every terminal is a tmux session on the machine that owns it, so it
+          outlives the app, the network, and you walking away. Each machine
+          keeps one outbound WebSocket open to your hub — nothing on it needs
+          an inbound port, and nothing has to stay awake but the hub.
+        </p>
+
+        <svg
+          class="diagram"
+          viewBox="0 0 400 470"
+          role="img"
+          aria-label="A phone and the offdesk CLI both connect to your hub over WebSocket; the hub connects to each machine's agent, which hosts terminals as tmux sessions"
+        >
+          <defs>
+            <marker
+              id="arrow"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="5"
+              markerHeight="5"
+              orient="auto-start-reverse"
+            >
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor" />
+            </marker>
+          </defs>
+
+          <g class="node">
+            <rect x="24" y="10" width="160" height="66" rx="8" />
+            <text x="104" y="38">phone / browser</text>
+            <text x="104" y="58" class="muted">xterm.js</text>
+          </g>
+          <g class="node">
+            <rect x="216" y="10" width="160" height="66" rx="8" />
+            <text x="296" y="38">offdesk CLI</text>
+            <text x="296" y="58" class="muted">or another agent</text>
+          </g>
+
+          <g class="link">
+            <path d="M104 80 L104 130" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+            <path d="M296 80 L296 130" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+            <text x="200" y="104" class="edge">WebSocket</text>
+          </g>
+
+          <g class="node accent">
+            <rect x="24" y="136" width="352" height="90" rx="8" />
+            <text x="200" y="167" class="strong">your hub</text>
+            <text x="200" y="189" class="muted">offdesk-hub — Axum + SQLite</text>
+            <text x="200" y="209" class="muted">holds the control lease</text>
+          </g>
+
+          <g class="link">
+            <path d="M112 230 L112 286" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+            <path d="M288 230 L288 286" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+            <text x="200" y="262" class="edge">WebSocket, dialled out</text>
+          </g>
+
+          <g class="node">
+            <rect x="24" y="292" width="160" height="164" rx="8" />
+            <text x="104" y="318">laptop</text>
+            <text x="104" y="340" class="muted">offdesk-node</text>
+            <line x1="40" y1="354" x2="168" y2="354" />
+            <text x="104" y="378" class="mono">tmux — claude</text>
+            <text x="104" y="402" class="mono">tmux — vim</text>
+            <text x="104" y="426" class="mono">tmux — htop</text>
+          </g>
+          <g class="node">
+            <rect x="216" y="292" width="160" height="164" rx="8" />
+            <text x="296" y="318">NAS</text>
+            <text x="296" y="340" class="muted">offdesk-node</text>
+            <line x1="232" y1="354" x2="360" y2="354" />
+            <text x="296" y="378" class="mono">tmux — codex</text>
+            <text x="296" y="402" class="mono">tmux — pnpm dev</text>
+          </g>
+        </svg>
+
+        <p class="note">
+          The control lease decides who may type. Sending input claims it —
+          last writer wins, no queue. Everyone else keeps receiving output, so
+          they watch live instead of being disconnected.
+        </p>
+      </section>
+
+      <section aria-labelledby="agents">
+        <h2 id="agents">For agents</h2>
+        <p class="lead">
+          One token, and any script — or any agent, on any machine — can open a
+          terminal on any other machine registered to your hub, type into it,
+          wait on it, and read it back. Not an agent session: a terminal, so
+          whatever you drive is whatever you would have run by hand.
+        </p>
+        <pre class="block"><code>{orchestration}</code></pre>
+      </section>
+
+      <section aria-labelledby="compare">
+        <h2 id="compare">How it compares</h2>
+        <p class="lead">
+          Every cell is from that project's own documentation, checked
+          2026-09-01. Nothing here is a guess. The tools that gather several
+          machines into one place hand you an agent session; the ones that
+          hand you a real terminal run one server per machine.
+        </p>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col"></th>
+                {columns.map((column) => <th scope="col">{column}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {
+                rows.map((row) => (
+                  <tr class={row.self ? "self" : undefined}>
+                    <th scope="row">{row.name}</th>
+                    {row.cells.map((cell) => (
+                      <td
+                        class={
+                          /not documented|Not documented/.test(cell)
+                            ? "unknown"
+                            : undefined
+                        }
+                      >
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section aria-labelledby="security">
+        <h2 id="security">Security</h2>
+        <p class="lead">
+          A token is remote code execution on every registered machine. Mint one
+          per agent, name it, and revoke it on its own when you are done — the
+          hub records when each one was last used. The control lease decides who
+          may type; it is not a security boundary, and it does not stop anyone
+          holding a valid token.
+        </p>
+        <a href={`${repo}/blob/main/SECURITY.md`}>SECURITY.md</a>
+      </section>
+    </main>
+
+    <footer>
+      <span>MIT · Built by Zalify</span>
+      <span class="links">
+        <a href={repo}>GitHub</a>
+        <a href={docs}>Docs</a>
+      </span>
+    </footer>
+
+    <script is:inline>
+      const button = document.getElementById("copy");
+      const command = document.getElementById("install-cmd");
+      button?.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(command.textContent.trim());
+          button.textContent = "Copied";
+        } catch {
+          button.textContent = "Press ⌘C";
+        }
+        setTimeout(() => {
+          button.textContent = "Copy";
+        }, 1600);
+      });
+    </script>
+
+    <style is:global>
+      :root {
+        --bg: #0b0c0f;
+        --bg-1: #111316;
+        --bg-2: #171a1d;
+        --line: #272a2d;
+        --fg: #f7f8fb;
+        --fg-1: #b9bcc1;
+        --fg-2: #82868b;
+        /* Brand blue from the logo. At 3.58:1 on the canvas it clears WCAG AA
+           for large text and UI, but not for body text — so it fills buttons,
+           where cream on it is 5.46:1, and never sets small text itself. */
+        --brand: #1a5fe8;
+        /* Lightened for links and small accents on dark: 5.74:1. */
+        --accent: #4c86ff;
+        --cream: #fafaf5;
+        --term-bg: #05060a;
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          "Liberation Mono", monospace;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg-1);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.6;
+      }
+
+      main {
+        max-width: 62rem;
+        margin: 0 auto;
+        padding: 3rem 1.25rem 0;
+      }
+
+      h1,
+      h2,
+      h3 {
+        color: var(--fg);
+        line-height: 1.2;
+        text-wrap: balance;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 2rem;
+        letter-spacing: -0.02em;
+      }
+
+      h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1.35rem;
+        letter-spacing: -0.01em;
+      }
+
+      h3 {
+        margin: 0 0 0.5rem;
+        font-size: 1.05rem;
+      }
+
+      a {
+        color: var(--accent);
+        text-underline-offset: 3px;
+      }
+
+      section {
+        padding: 3.5rem 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .lead,
+      .note {
+        max-width: 46rem;
+        margin: 0 0 1.5rem;
+      }
+
+      .note {
+        color: var(--fg-2);
+        margin: 1.5rem 0 0;
+      }
+
+      /* hero */
+      .hero {
+        padding-bottom: 3.5rem;
+      }
+
+      .sub {
+        max-width: 34rem;
+        margin: 1rem 0 2rem;
+        font-size: 1.05rem;
+        color: var(--fg-1);
+      }
+
+      .cmd {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+        background: var(--term-bg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.6rem 0.7rem;
+        overflow: hidden;
+      }
+
+      .cmd code {
+        flex: 1;
+        min-width: 0;
+        font-family: var(--mono);
+        /* the install line is the primary call to action — fit it whole at
+           375px rather than making people scroll a one-line command */
+        font-size: clamp(0.68rem, 3.1vw, 0.9rem);
+        color: var(--fg);
+        overflow-x: auto;
+        white-space: nowrap;
+        padding: 0.15rem 0;
+      }
+
+      #copy {
+        flex: none;
+        align-self: flex-start;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--bg-2);
+        color: var(--fg-1);
+        font: inherit;
+        font-size: 0.82rem;
+        padding: 0.45rem 0.8rem;
+        cursor: pointer;
+      }
+
+      #copy:hover {
+        color: var(--fg);
+        border-color: var(--fg-2);
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 1.25rem;
+      }
+
+      .btn {
+        display: inline-block;
+        padding: 0.6rem 1.15rem;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        color: var(--fg);
+        text-decoration: none;
+        font-size: 0.95rem;
+      }
+
+      .btn:hover {
+        border-color: var(--fg-2);
+      }
+
+      .btn.primary {
+        background: var(--brand);
+        border-color: var(--brand);
+        color: var(--cream);
+        font-weight: 600;
+      }
+
+      .btn.primary:hover {
+        filter: brightness(1.08);
+      }
+
+      .promise {
+        max-width: 34rem;
+        margin: 1.75rem 0 0;
+        color: var(--fg-1);
+      }
+
+      .wordmark {
+        display: block;
+        width: 8.5rem;
+        height: auto;
+        margin: 0 0 1.75rem;
+      }
+
+      .shot {
+        margin: 2.5rem 0 0;
+      }
+
+      .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--term-bg);
+      }
+
+      /* cards */
+      .cards {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .card {
+        /* grid items default to min-width:auto, so the wide <pre> inside would
+           stretch the track and scroll the whole page sideways */
+        min-width: 0;
+        background: var(--bg-1);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 1.25rem;
+      }
+
+      .card p {
+        margin: 0 0 1rem;
+        color: var(--fg-2);
+      }
+
+      pre {
+        margin: 0 0 1rem;
+        background: var(--term-bg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.85rem;
+        overflow-x: auto;
+      }
+
+      pre code {
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        line-height: 1.7;
+        color: var(--fg);
+        white-space: pre;
+      }
+
+      pre.block {
+        padding: 1.1rem;
+      }
+
+      pre.block code {
+        font-size: 0.8rem;
+      }
+
+      /* diagram */
+      .diagram {
+        display: block;
+        width: 100%;
+        max-width: 26rem;
+        height: auto;
+        margin: 0 auto;
+        color: var(--fg-2);
+      }
+
+      .diagram .node rect {
+        fill: var(--bg-1);
+        stroke: var(--line);
+      }
+
+      .diagram .node.accent rect {
+        stroke: var(--accent);
+      }
+
+      .diagram line {
+        stroke: var(--line);
+      }
+
+      .diagram text {
+        fill: var(--fg);
+        font-family: var(--sans);
+        font-size: 13px;
+        text-anchor: middle;
+      }
+
+      .diagram .strong {
+        font-weight: 600;
+        font-size: 15px;
+      }
+
+      .diagram .muted,
+      .diagram .edge {
+        fill: var(--fg-2);
+        font-size: 11px;
+      }
+
+      .diagram .mono {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        fill: var(--fg-1);
+      }
+
+      .diagram .link path {
+        stroke: var(--fg-2);
+        fill: none;
+      }
+
+      .diagram .edge {
+        paint-order: stroke;
+        stroke: var(--bg);
+        stroke-width: 6px;
+      }
+
+      /* table */
+      .scroll {
+        overflow-x: auto;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: 44rem;
+        font-size: 0.85rem;
+      }
+
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 0.7rem 0.8rem;
+        border-bottom: 1px solid var(--line);
+      }
+
+      thead th {
+        color: var(--fg-2);
+        font-weight: 500;
+        font-size: 0.78rem;
+      }
+
+      tbody th {
+        color: var(--fg);
+        font-weight: 500;
+        white-space: nowrap;
+      }
+
+      tr.self th,
+      tr.self td {
+        background: var(--bg-1);
+        color: var(--fg);
+      }
+
+      tr.self th {
+        color: var(--accent);
+      }
+
+      td.unknown {
+        color: var(--fg-2);
+      }
+
+      /* footer */
+      footer {
+        max-width: 62rem;
+        margin: 0 auto;
+        padding: 2rem 1.25rem 3rem;
+        border-top: 1px solid var(--line);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1.5rem;
+        justify-content: space-between;
+        color: var(--fg-2);
+        font-size: 0.85rem;
+      }
+
+      .links {
+        display: flex;
+        gap: 1.25rem;
+      }
+
+      @media (min-width: 46rem) {
+        main {
+          padding-top: 5rem;
+        }
+
+        h1 {
+          font-size: 2.9rem;
+        }
+
+        .wordmark {
+          width: 10.5rem;
+        }
+
+        .sub {
+          font-size: 1.15rem;
+        }
+
+        .cards {
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        }
+
+        .cmd {
+          flex-direction: row;
+          align-items: center;
+          padding: 0.3rem 0.3rem 0.3rem 0.9rem;
+        }
+
+        #copy {
+          align-self: auto;
+        }
+      }
+    </style>
+  </body>
+</html>

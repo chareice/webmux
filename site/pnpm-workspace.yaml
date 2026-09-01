@@ -1,0 +1,12 @@
+# site/ is its own pnpm root so `pnpm install` for the app workspace does not
+# have to pull Astro. The workflow in .github/workflows/site.yml installs here.
+packages: []
+
+allowBuilds:
+  esbuild: set this to true or false
+  sharp: set this to true or false
+
+# Astro's bundler ships prebuilt binaries that its install script links.
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

@@ -13,14 +13,26 @@ describe("resolveServerUrl", () => {
     ).toBe("");
   });
 
-  it("uses the default hub URL for native Android builds", () => {
+  it("keeps a page a hub served same-origin, even inside the mobile app", () => {
+    expect(
+      resolveServerUrl({
+        platformOs: "web",
+        isTauriRuntime: true,
+        isBundledOrigin: false,
+        storedUrl: null,
+        configuredDefaultUrl: "https://someone-elses-hub.example",
+      }),
+    ).toBe("");
+  });
+
+  it("has no hub of its own to fall back on", () => {
     expect(
       resolveServerUrl({
         platformOs: "android",
         isTauriRuntime: false,
         storedUrl: null,
       }),
-    ).toBe("https://offdesk.nas.chareice.site");
+    ).toBe("");
   });
 
   it("uses a configured native hub URL before the production fallback", () => {
@@ -32,6 +44,18 @@ describe("resolveServerUrl", () => {
         configuredDefaultUrl: "http://10.0.2.2:4317/",
       }),
     ).toBe("http://10.0.2.2:4317");
+  });
+
+  it("uses the configured default on the app's own bundled screens", () => {
+    expect(
+      resolveServerUrl({
+        platformOs: "web",
+        isTauriRuntime: true,
+        isBundledOrigin: true,
+        storedUrl: null,
+        configuredDefaultUrl: "https://preset.example/",
+      }),
+    ).toBe("https://preset.example");
   });
 
   it("keeps an explicitly saved hub URL above the configured default", () => {

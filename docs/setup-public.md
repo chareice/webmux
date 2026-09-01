@@ -1,11 +1,27 @@
 # Away from home
 
-Two ways to reach your hub from anywhere:
+Three ways to reach your hub from anywhere:
 
 - **[A VPS behind Caddy](#a-vps-behind-caddy)** — a real domain, a real
   certificate, open to the internet. Sign-in is GitHub or Google OAuth.
+- **[A Cloudflare Tunnel](#a-cloudflare-tunnel)** — the hub stays at home and
+  opens no port. Nothing to forward, works behind CGNAT. The trade is that
+  Cloudflare terminates TLS and can see your terminal traffic.
 - **[Tailscale](#tailscale)** — no public exposure at all. The hub is only
   reachable from devices on your tailnet.
+
+Who can read your keystrokes and your agents' output, on each path:
+
+| | Traffic in the clear at |
+|---|---|
+| VPS behind Caddy | your own VPS |
+| Cloudflare Tunnel | **Cloudflare**, then your machine |
+| Tailscale | nobody — WireGuard, end to end |
+
+That is the whole decision. A tunnel is the least work by a wide margin and the
+only one of the three that needs neither a server nor a client app on your
+phone; a tailnet is the only one where the sentence "no third-party server in
+the path" stays literally true.
 
 Either way, do not run with `OFFDESK_DEV_MODE=true`. It makes the web client
 sign in silently as a shared user, with no prompt, for anyone who opens the
@@ -118,6 +134,111 @@ Create `<token>` in the hub's Settings. It is single-use and expires after 24
 hours. The machine agent dials out to the hub over WebSocket, so it needs no
 inbound port and no port forwarding of its own. That is why a laptop behind NAT
 works here.
+
+## A Cloudflare Tunnel
+
+For a hub on a NAS or a desktop at home. `cloudflared` runs next to the hub and
+dials *out* to Cloudflare, which then serves your hostname over HTTPS. No port
+forwarding, no dynamic-DNS, no certificate to renew, and it works behind CGNAT
+where forwarding a port is not even possible.
+
+What you give up: Cloudflare terminates TLS at its edge, so your terminal
+traffic — keystrokes, source, whatever an agent prints — passes through
+Cloudflare in the clear. Their network, their logs, their subpoenas. If that is
+not acceptable for the machines you are registering, use the tailnet below.
+
+You need a domain on a Cloudflare account. The free plan is enough.
+
+### 1. Create the tunnel
+
+Cloudflare Zero Trust dashboard → Networks → Tunnels → Create a tunnel →
+**Cloudflared**. Name it, then copy the token it shows you — it is the long
+string after `--token` in the install command. That token is a credential:
+anyone holding it can serve traffic as your tunnel.
+
+Add a public hostname to the tunnel:
+
+| Field | Value |
+|---|---|
+| Subdomain / domain | `offdesk` / `example.com` |
+| Service type | `HTTP` |
+| URL | `server:4317` |
+
+`server` is the hub's service name in `docker-compose.yml`, which is how
+`cloudflared` reaches it over the compose network. The hop from Cloudflare to
+your machine is inside the tunnel; the hop from `cloudflared` to the hub never
+leaves the Docker network, so plain HTTP there is fine.
+
+### 2. Hub
+
+```bash
+git clone https://github.com/zalify/offdesk && cd offdesk
+```
+
+`.env` next to `docker-compose.yml`:
+
+```
+JWT_SECRET=<output of: openssl rand -hex 32>
+OFFDESK_BASE_URL=https://offdesk.example.com
+TUNNEL_TOKEN=<the token from step 1>
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+```
+
+```bash
+chmod 600 .env
+```
+
+Register the OAuth callback URLs exactly as in [step 2 of the VPS
+path](#2-oauth-callback-urls) — the hub builds them from `OFFDESK_BASE_URL`, and
+nothing about a tunnel changes that. Then:
+
+```bash
+docker compose --profile tunnel up -d --build
+```
+
+The `tunnel` profile is what starts `cloudflared`; without it you get the hub
+alone, still bound to `127.0.0.1:4317`. Check both are up:
+
+```bash
+docker compose --profile tunnel ps
+```
+
+```bash
+curl -sf -o /dev/null -w "%{http_code}\n" https://offdesk.example.com/
+```
+
+### 3. Machines
+
+Exactly as in the VPS path, with the tunnel hostname:
+
+```bash
+offdesk-node register --hub-url https://offdesk.example.com --token <token>
+```
+
+A machine on the same LAN as the hub still goes out to Cloudflare and back. If
+that bothers you, register it with the hub's LAN address instead — the machine
+agent only needs to reach the hub, and it does not care that your phone reaches
+the same hub by a different name.
+
+### Notes
+
+- **Sign-in is open to anyone who finds the URL**, same as the VPS path: any
+  GitHub or Google account can create an account on your hub. There is no
+  allowlist. Cloudflare Access can put a second login in front of the whole
+  hostname, but everything that is not a browser — `offdesk-node`, the CLI, the
+  Android app — then needs an Access service token of its own, and the machine
+  agent has nowhere to put one. Either scope the Access policy to the browser
+  paths, or leave it off and rely on the hub's own sign-in.
+- **Long-lived WebSockets are fine.** Machine agents ping every 30 seconds
+  (`crates/machine/src/hub_conn.rs`) and browsers ping at the application layer,
+  so idle timeouts along the path do not silently drop terminals.
+- **Do not use a quick tunnel** (`cloudflared tunnel --url`, the
+  `*.trycloudflare.com` hostnames) for anything but a demo. The hostname changes
+  every restart, which invalidates your OAuth callback URLs, every registered
+  machine, and any phone that has the old one saved.
 
 ## Tailscale
 

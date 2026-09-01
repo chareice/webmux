@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { colors } from "@/lib/colors";
-import { isTauri } from "@/lib/platform";
+import { isTauri, isTauriMobile } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import {
   getSettings,
@@ -536,6 +536,20 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     window.location.reload();
   }, [serverUrl]);
 
+  // The mobile app is pointed at one hub at a time. Letting go of it drops
+  // the app back to its own setup screen, where the next address is typed by
+  // hand — this page is served by a hub, and a hub does not get to choose the
+  // next one.
+  const handleSwitchHub = useCallback(() => {
+    // Recoverable, but only by retyping an address on a phone keyboard.
+    if (!window.confirm("Disconnect from this hub and enter another address?")) {
+      return;
+    }
+    void import("@tauri-apps/api/core").then(({ invoke }) =>
+      invoke("clear_mobile_hub_url"),
+    );
+  }, []);
+
   const handlePrefixRecordKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLButtonElement>) => {
       if (!recordingAction) return;
@@ -922,8 +936,49 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
           </button>
         </section>
 
-        {/* Connection Section — desktop only */}
-        {isTauri() && (
+        {/* Which hub the mobile app opens — mobile app only */}
+        {isTauriMobile() && (
+          <section style={{ marginBottom: 32 }}>
+            <SectionTitle>Hub</SectionTitle>
+
+            <SettingRow
+              label="Connected hub"
+              description="This app opens one hub. Switching returns to the setup screen."
+            >
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: 13,
+                    color: colors.foreground,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {typeof window !== "undefined" ? window.location.origin : ""}
+                </span>
+                <button
+                  onClick={handleSwitchHub}
+                  style={{
+                    background: "none",
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 6,
+                    color: colors.foreground,
+                    cursor: "pointer",
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Switch hub
+                </button>
+              </div>
+            </SettingRow>
+          </section>
+        )}
+
+        {/* Connection Section — Tauri desktop only */}
+        {isTauri() && !isTauriMobile() && (
           <section style={{ marginBottom: 32 }}>
             <SectionTitle>Connection</SectionTitle>
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-mobile-hub-url"
+description = "Enables the clear_mobile_hub_url command without any pre-configured scope."
+commands.allow = ["clear_mobile_hub_url"]
+
+[[permission]]
+identifier = "deny-clear-mobile-hub-url"
+description = "Denies the clear_mobile_hub_url command without any pre-configured scope."
+commands.deny = ["clear_mobile_hub_url"]

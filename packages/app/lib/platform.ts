@@ -12,6 +12,21 @@ export function isTauriMobile(): boolean {
   return /Android|iPhone|iPad|iPod/i.test(ua);
 }
 
+// True when the page was served from the app's own bundled assets (or the dev
+// server) rather than by a hub. The mobile app starts on a bundled screen and
+// then navigates to whichever hub the user chose, so "am I in Tauri" and "do I
+// know my hub" are different questions.
+export function isBundledOrigin(): boolean {
+  if (typeof window === "undefined") return false;
+  const { protocol, hostname } = window.location;
+  return (
+    protocol === "tauri:" ||
+    hostname === "tauri.localhost" ||
+    hostname === "localhost" ||
+    hostname === "127.0.0.1"
+  );
+}
+
 type OS = "macos" | "windows" | "linux" | "unknown";
 
 export function detectOS(): OS {

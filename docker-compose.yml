@@ -19,5 +19,23 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # Reaches the hub from outside without opening a port, for a hub at home
+  # behind NAT or CGNAT. Off unless you ask for it:
+  #   docker compose --profile tunnel up -d
+  # Create the tunnel in the Cloudflare Zero Trust dashboard, point its public
+  # hostname at http://server:4317, and put its token in .env as TUNNEL_TOKEN.
+  # Note that TLS terminates at Cloudflare: it can see your terminal traffic in
+  # the clear. See docs/setup-public.md for what that means and what the
+  # alternatives are.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${TUNNEL_TOKEN}"
+    depends_on:
+      - server
+
 volumes:
   offdesk-data:

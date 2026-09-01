@@ -6,13 +6,26 @@ One self-hosted hub, all your machines, any agent that runs in tmux.
 <!-- TODO(ryan): record docs/media/hero.gif — see docs/media/README.md -->
 ![Claude Code running on a desk machine, with a phone attached to the same tmux session](docs/media/hero.gif)
 
-- Runs anything that runs in a terminal: Claude Code, Codex, Grok, vim, htop.
-  No agent-specific integration.
-- One hub, any number of machines. Register a Mac, a NAS, a VPS — open them all
-  from one URL.
-- Your traffic goes through your hub. No third-party server in the path.
-- `offdesk open nas --cwd ~/app --cmd claude` works from a script — or from
-  another agent.
+- **Off the desk, not off the work.** Close the laptop and walk away. The
+  session is still running on the machine at home, and your phone opens the
+  same terminal, mid-scroll — not a summary of it.
+- **It is the real terminal, and it is just tmux.** Anything that runs in tmux
+  runs here: Claude Code, Codex, Grok, vim, htop. No agent-specific
+  integration, so there is nothing to add when the next agent ships — and
+  nothing to be locked into. Uninstall offdesk, ssh in, `tmux attach`, and your
+  sessions are still there.
+- **Your phone and your desk on the same session, live.** Whoever typed last
+  holds the control lease; everyone else keeps receiving output instead of
+  being disconnected. tmux runs `window-size manual`, so a phone attaching
+  never resizes the desk.
+- **Every machine you own, in one place.** A Mac at home, a NAS, a VPS — they
+  all register to one hub and open from one URL. The other tools that give you
+  a real terminal run one server per machine.
+- **Your server, your traffic.** Each machine dials out to a hub you run. No
+  third-party relay, no vendor account, and no transcript stored anywhere you
+  do not control.
+- **`offdesk open nas --cwd ~/app --cmd claude`** from a script, or from an
+  agent on a different machine, against any machine on the hub.
 - Rust. The hub is one binary plus a SQLite file. The machine agent is one
   binary.
 
@@ -69,10 +82,11 @@ agent on macOS:
 offdesk-node service install
 ```
 
-<!-- TODO(ryan): scripts/install.sh downloads offdesk-node-{linux,darwin}-{x64,arm64}
-     from GitHub releases. No release carries those names yet — the last ones
-     are webmux-node-*. Tag a v* release, then document
-     `curl -fsSL https://offdesk.dev/install | sh` here. -->
+<!-- TODO(ryan): one thing left before the installer can be documented here:
+     tag a v* release. Every published release predates the rename and carries
+     webmux-node-* names, so `curl -fsSL https://offdesk.dev/install | sh`
+     still has nothing to fetch. build.yml now publishes both binaries under
+     the right names, so the next tag is enough. -->
 
 ### CLI
 
@@ -93,16 +107,61 @@ token = "odk_..."
 or export `OFFDESK_URL` and `OFFDESK_TOKEN`. `--url` and `--token` override
 both.
 
-### Phone
+### Phone and desktop
 
-Open the hub URL in a browser. There is nothing to install.
+Open the hub URL in a browser. There is nothing to install, and on iPhone this
+is the only client — there is no iOS build.
+
+Two packaged clients also ship, both Tauri:
+
+- **Desktop** — macOS (universal), Windows, and Linux, with an auto-updater.
+  Built from `desktop-v*` tags. Set your hub URL in Settings.
+- **Android** — an APK per ABI plus a universal one, built from `app-v*` tags.
+  Sideload it; it wraps the same web app, with native notifications and
+  clipboard. It asks for your hub's address on first launch, so one APK works
+  with any hub — nothing about a hub is compiled into it.
+
+#### Building the Android app yourself
+
+You need a JDK 17, the Android SDK with the NDK, and the Rust Android targets:
+
+```bash
+rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+cargo install tauri-cli --version "^2.0" --locked
+export ANDROID_HOME=$HOME/Library/Android/sdk          # ~/Android/Sdk on Linux
+export NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006
+```
+
+```bash
+pnpm install
+pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app build
+cd packages/desktop && cargo tauri android build --debug --apk
+```
+
+A `--debug` APK is signed with the Android debug key, so `adb install` takes it
+as is; a release APK needs your own keystore, which is what the `Build Android
+APK (Tauri)` workflow uses its `ANDROID_KEYSTORE_*` secrets for. Either way the
+CLI prints the path when it finishes, under
+`packages/desktop/src-tauri/gen/android/app/build/outputs/apk/`.
+
+Set `OFFDESK_MOBILE_HUB_URL` at build time to skip the first-launch question in
+your own builds:
+
+```bash
+OFFDESK_MOBILE_HUB_URL=https://your-hub.example.com cargo tauri android build --debug --apk
+```
+
+It is only a preset — whatever the user enters still wins, and the app grants
+notifications, the clipboard, and link opening to that hub's origin alone. On
+an emulator, a hub on your own machine is `http://10.0.2.2:4317`.
 
 ## Two setups
 
 - **At home, off the desk** — hub on your Mac or NAS, phone on the same Wi-Fi.
   → [docs/setup-lan.md](docs/setup-lan.md)
-- **Away from home** — hub on a VPS behind Caddy, or on your tailnet.
-  → [docs/setup-public.md](docs/setup-public.md)
+- **Away from home** — hub on a VPS behind Caddy, at home behind a Cloudflare
+  Tunnel, or on your tailnet. The guide compares them by who ends up able to
+  read your traffic. → [docs/setup-public.md](docs/setup-public.md)
 
 ## How it works
 
@@ -209,20 +268,101 @@ offdesk kill $T --yes
 
 ## How it compares
 
-offdesk's row is from [docs/facts.md](docs/facts.md). Every other cell is
-unverified — do not treat this table as accurate until the TODOs are filled in.
+Every cell below is from the vendor's own docs, sourced in the comment under
+the table. Checked 2026-09-01; these products move fast, so re-check before
+relying on any row.
 
 | | Any terminal program | Machines per hub | Traffic goes through | Agents can drive it via CLI | Self-hosted |
 |---|---|---|---|---|---|
-| **offdesk** | Yes — anything that runs in tmux | Any number, one URL | Your own hub | Yes — `open` / `send` / `wait` / `read` | Yes |
-| Claude Code Remote Control | TODO | TODO | TODO | TODO | TODO |
-| VibeTunnel | TODO | TODO | TODO | TODO | TODO |
-| Happy Coder | TODO | TODO | TODO | TODO | TODO |
-| Omnara | TODO | TODO | TODO | TODO | TODO |
-| Orca | TODO | TODO | TODO | TODO | TODO |
+| **offdesk** | Anything that runs in tmux | Any number, one URL | Your own hub | `open` / `send` / `wait` / `read` | Yes, MIT |
+| Claude Code Remote Control | No — a Claude Code session, not a terminal | Sessions from several machines in one list | Anthropic's servers; transcript stored there | Not documented | No |
+| VibeTunnel | Yes — `vt <any command>`, `vt --shell` | One server per machine | Your choice: LAN, Tailscale, ngrok, Cloudflare | Launches commands only; no send/read/wait against a running session | Yes, MIT |
+| Happy Coder | No — wraps `claude` and `codex` | Several; `spawn --machine`, `machines` | slopus cloud by default, end-to-end encrypted | `create` / `send` / `history` / `wait` | Optional, MIT |
+| Omnara | Agent sessions; no raw terminal documented | Several at once per agent | `api.omnara.com` by default | CLI and REST: `POST .../inputs`, SSE timeline | Optional, Apache-2.0 |
+| Orca | Yes — real terminal, 30+ CLI agents | One server per machine; SSH worktrees reach out from it | Orca Relay by default, or direct on the LAN | `orca terminal create/send/read/wait` | Yes, MIT |
 
-<!-- TODO(ryan): fill the five competitor rows. Every cell needs a source URL in
-     an HTML comment next to it, or it stays TODO. Do not guess. -->
+<!-- Sources, checked 2026-09-01.
+
+offdesk: docs/facts.md in this repo.
+
+Claude Code Remote Control — https://code.claude.com/docs/en/remote-control
+  Terminal: it connects claude.ai/code and the Claude app to "a Claude Code
+    session running on your machine"; the surface is the conversation.
+  Machines: "Open claude.ai/code or the Claude app and find the session by
+    name in the session list"; auto-generated names are prefixed with the
+    machine hostname.
+  Traffic: "it registers with the Anthropic API and polls for work. When you
+    connect from another device, the server routes messages between the web or
+    mobile client and your local session" and "the session transcript ... is
+    stored on Anthropic servers".
+  CLI: no CLI for driving a Remote Control session is documented.
+
+VibeTunnel — https://github.com/amantus-ai/vibetunnel
+  Terminal: "Run any command in the browser", `vt --shell` for an interactive
+    shell. Machines: one Node server per machine; no multi-machine
+    orchestration documented. Traffic: README lists Tailscale, ngrok,
+    Cloudflare Quick Tunnel, Pinggy, Pangolin, or the local network.
+  CLI: `vt` is "a bash script that internally calls `vibetunnel fwd`" and
+    launches a new session; the only other verbs are `follow`, `unfollow`,
+    `title`. Licence: MIT.
+
+Happy Coder — https://github.com/slopus/happy
+  Terminal: "Start using `happy` instead of `claude` or `codex`".
+  Machines + CLI: happy-agent provides `machines`, `spawn --machine <id>`,
+    `create`, `send`, `history`, `wait` —
+    https://github.com/slopus/happy/tree/main/packages/happy-agent
+  Traffic: default server is happy-api.slopus.com, end-to-end encrypted;
+    self-hosting at https://happy.engineering/docs/guides/self-hosting/
+    Licence: MIT.
+
+Omnara — https://github.com/omnara-ai/omnara and https://docs.omnara.com/api/overview
+  Terminal: the API is scoped to agent sessions; no raw shell access is
+    documented. Machines: "An agent can run with no machines or use several at
+    once. These can be sandboxes, your own machines, or both."
+  Traffic: "Hosted routes live under: https://api.omnara.com/v1", and
+    "Self-hosted deployments serve the same API from their own origin".
+  CLI: "Use Omnara programmatically via the CLI, Typescript CLI, or REST API".
+  Licence: Apache-2.0.
+
+Orca — https://github.com/stablyai/orca and https://www.onorca.dev/docs
+  Terminal: "anything that runs in a terminal will run inside Orca".
+  Machines: https://www.onorca.dev/docs/remote-servers — `orca serve` runs
+    headless and "agents keep running when the client laptop sleeps or
+    disconnects", but "A Remote Orca Server is tied to a single machine ...
+    one server cannot reach or manage other machines"; SSH worktrees are how
+    it reaches out to another box.
+  Traffic: https://www.onorca.dev/docs/mobile — "Prefer Orca Relay for pairing
+    when it is available — sign-in is required for Relay only"; LAN pairing is
+    the alternative.
+  CLI: https://www.onorca.dev/docs/cli/overview — `orca terminal list, read,
+    send, wait, create, split`. Licence: "Orca is free and open source under
+    the MIT License."
+-->
+
+### What the table says
+
+The field splits in two, and the split is not about quality.
+
+**Fan-in, but a conversation.** Claude Code Remote Control, Happy Coder, and
+Omnara all let several machines report to one place. What you get there is an
+agent session, not a terminal — which is the right trade if the agent is all
+you wanted.
+
+**A real terminal, but one server per machine.** VibeTunnel and Orca both give
+you a genuine terminal. Both run one server per machine: VibeTunnel by design,
+Orca because a Remote Orca Server is tied to a single host and reaches other
+boxes over SSH.
+
+offdesk is the combination: walk away from any machine you own and pick up the
+real terminal from your phone, through a server you run. Each of the five drops
+one of those three — the agent, the machine, or the server.
+
+That is the only claim this table supports, and it is narrower than "better".
+If you want parallel git worktrees, diff review, and a browser and emulator
+harness around your agents, **Orca** does far more than offdesk and is also
+MIT. If you want one machine's terminal in a browser with the least possible
+setup, **VibeTunnel** is a smaller thing to run. If you only ever drive Claude
+Code and want zero setup, **Remote Control** is already in your CLI.
 
 ## Security
 

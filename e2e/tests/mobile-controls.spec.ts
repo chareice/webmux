@@ -240,6 +240,16 @@ test("mobile touch drag sends terminal scroll input", async ({ page }) => {
 
   await expect(getImmersiveTerminal(page)).toBeVisible();
   await expect.poll(() => hasXtermInstance(page, terminalId)).toBe(true);
+  // The drag below only emits a wheel report once its pixel travel crosses a
+  // line boundary, and it reports at whichever touchmove crossed first. On a
+  // fitted terminal the first move (0.65h -> 0.5h) clears a line easily and
+  // reports from the middle, which is what this test asserts. Before the fit
+  // lands, .xterm-screen is a few pixels tall, the first move produces
+  // nothing, and the report comes from the second move at 0.35h instead —
+  // roughly a sixth of the screen off, so the assertion misses by more than
+  // its tolerance. hasXtermInstance is true well before the fit, so wait for
+  // a real height rather than assuming.
+  await expect.poll(() => terminalScreenHeight(page)).toBeGreaterThan(200);
 
   const terminalSize = await waitForStableXtermSize(page, terminalId);
   inputFrames.length = 0;
@@ -857,6 +867,13 @@ async function dispatchTerminalTouchDrag(page: Page): Promise<void> {
       dispatch("touchmove", endY);
       dispatch("touchend", endY);
     });
+}
+
+/** Rendered height of the terminal screen, in CSS pixels. */
+async function terminalScreenHeight(page: Page): Promise<number> {
+  return getImmersiveTerminal(page)
+    .locator(".xterm-screen")
+    .evaluate((screen) => screen.getBoundingClientRect().height);
 }
 
 function parseWheelMouseFrame(

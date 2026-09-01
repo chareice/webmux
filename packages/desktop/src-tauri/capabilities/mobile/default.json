@@ -1,18 +1,12 @@
 {
   "identifier": "mobile",
-  "description": "Capabilities for Android/iOS, scoped to the production hub origin since the WebView loads it directly",
+  "description": "What the bundled setup screen may do on Android/iOS, before any hub is known. Local only: the hub itself is granted its own capability at runtime, scoped to its origin, by mobile_hub.rs. `set-mobile-hub-url` is deliberately not reachable from a hub — a hub may hand the app back to this screen, but only a person may type the next address.",
   "platforms": ["android", "iOS"],
+  "local": true,
   "windows": ["main"],
-  "remote": {
-    "urls": ["https://offdesk.nas.chareice.site/*", "http://10.0.2.2:*/*"]
-  },
   "permissions": [
     "core:default",
-    "notification:default",
-    "shell:allow-open",
-    "opener:default",
-    "clipboard-manager:allow-read-text",
-    "clipboard-manager:allow-write-text",
-    "process:default"
+    "allow-set-mobile-hub-url",
+    "allow-clear-mobile-hub-url"
   ]
 }
