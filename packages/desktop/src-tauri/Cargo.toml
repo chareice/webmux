@@ -12,9 +12,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-# build.rs fills in the mobile capability's remote origin from
-# OFFDESK_MOBILE_HUB_URL before handing the files to tauri-build.
-serde_json = "1"
 
 [dependencies]
 tauri = { version = "2", features = [] }

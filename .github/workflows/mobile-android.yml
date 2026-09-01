@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       hub_url:
-        description: "Hub URL to bake into the build (default: the OFFDESK_MOBILE_HUB_URL repository variable)"
+        description: "Optional: preset this hub instead of asking on first launch. Leave empty for a public build."
         required: false
 
 permissions:
@@ -17,21 +17,12 @@ jobs:
   build-apk:
     runs-on: ubuntu-22.04
     env:
-      # The hub the APK loads. There is no default: a fork that inherits this
-      # workflow must point it at its own hub, or the build stops below.
-      OFFDESK_MOBILE_HUB_URL: ${{ github.event.inputs.hub_url || vars.OFFDESK_MOBILE_HUB_URL }}
+      # Empty on purpose for released builds: the app asks for a hub on first
+      # launch, so one APK works for everyone. A dispatch can preset a hub for
+      # a private build.
+      OFFDESK_MOBILE_HUB_URL: ${{ github.event.inputs.hub_url }}
 
     steps:
-      - name: Require a hub URL
-        run: |
-          if [ -z "$OFFDESK_MOBILE_HUB_URL" ]; then
-            echo "OFFDESK_MOBILE_HUB_URL is empty. Set the OFFDESK_MOBILE_HUB_URL repository" >&2
-            echo "variable (Settings -> Secrets and variables -> Actions -> Variables) to the" >&2
-            echo "hub this APK should load, or pass hub_url when dispatching the workflow." >&2
-            exit 1
-          fi
-          echo "Building against $OFFDESK_MOBILE_HUB_URL"
-
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
@@ -236,7 +227,7 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" \
               --title "Mobile ${tag}" \
-              --notes "Tauri-based Android client. Sideload via 'install from unknown sources'. Pick the **arm64-v8a** APK on modern phones; the **universal** APK works on any architecture but is larger. The app loads the configured offdesk URL on launch, so all UI changes ship automatically without a new APK."
+              --notes "Tauri-based Android client. Sideload via 'install from unknown sources'. Pick the **arm64-v8a** APK on modern phones; the **universal** APK works on any architecture but is larger. On first launch the app asks for your hub's address; everything after that — the whole UI — comes from your hub, so new features arrive without a new APK."
           fi
           for apk in artifacts/*.apk; do
             gh release upload "$tag" "$apk" --clobber
