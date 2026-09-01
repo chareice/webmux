@@ -6,13 +6,23 @@ One self-hosted hub, all your machines, any agent that runs in tmux.
 <!-- TODO(ryan): record docs/media/hero.gif — see docs/media/README.md -->
 ![Claude Code running on a desk machine, with a phone attached to the same tmux session](docs/media/hero.gif)
 
-- Runs anything that runs in a terminal: Claude Code, Codex, Grok, vim, htop.
-  No agent-specific integration.
-- One hub, any number of machines. Register a Mac, a NAS, a VPS — open them all
-  from one URL.
-- Your traffic goes through your hub. No third-party server in the path.
-- `offdesk open nas --cwd ~/app --cmd claude` works from a script — or from
-  another agent.
+- **One hub, every machine.** A Mac at home, a NAS, a VPS — they all register
+  to one hub and you open them from one URL. The other tools that give you a
+  real terminal run one server per machine.
+- **It is the real terminal, and it is just tmux.** Anything that runs in tmux
+  runs here: Claude Code, Codex, Grok, vim, htop. No agent-specific
+  integration, so there is nothing to add when the next agent ships — and
+  nothing to be locked into. Uninstall offdesk, ssh in, `tmux attach`, and your
+  sessions are still there.
+- **Your hub, your traffic.** Each machine dials out to a server you run. No
+  third-party relay, no vendor account, and no transcript stored anywhere you
+  do not control.
+- **Your phone and your desk on the same session, live.** Whoever typed last
+  holds the control lease; everyone else keeps receiving output instead of
+  being disconnected. tmux runs `window-size manual`, so a phone attaching
+  never resizes the desk.
+- **`offdesk open nas --cwd ~/app --cmd claude`** from a script, or from an
+  agent on a different machine, against any machine on the hub.
 - Rust. The hub is one binary plus a SQLite file. The machine agent is one
   binary.
 
@@ -220,7 +230,7 @@ relying on any row.
 | VibeTunnel | Yes — `vt <any command>`, `vt --shell` | One server per machine | Your choice: LAN, Tailscale, ngrok, Cloudflare | Launches commands only; no send/read/wait against a running session | Yes, MIT |
 | Happy Coder | No — wraps `claude` and `codex` | Several; `spawn --machine`, `machines` | slopus cloud by default, end-to-end encrypted | `create` / `send` / `history` / `wait` | Optional, MIT |
 | Omnara | Agent sessions; no raw terminal documented | Several at once per agent | `api.omnara.com` by default | CLI and REST: `POST .../inputs`, SSE timeline | Optional, Apache-2.0 |
-| Orca | Yes — real terminal, 30+ CLI agents | Several, via SSH worktrees and `orca serve` | Orca Relay by default, or direct on the LAN | `orca terminal create/send/read/wait` | Yes, MIT |
+| Orca | Yes — real terminal, 30+ CLI agents | One server per machine; SSH worktrees reach out from it | Orca Relay by default, or direct on the LAN | `orca terminal create/send/read/wait` | Yes, MIT |
 
 <!-- Sources, checked 2026-09-01.
 
@@ -267,7 +277,11 @@ Omnara — https://github.com/omnara-ai/omnara and https://docs.omnara.com/api/o
 
 Orca — https://github.com/stablyai/orca and https://www.onorca.dev/docs
   Terminal: "anything that runs in a terminal will run inside Orca".
-  Machines: SSH worktrees and `orca serve` on a headless Linux server.
+  Machines: https://www.onorca.dev/docs/remote-servers — `orca serve` runs
+    headless and "agents keep running when the client laptop sleeps or
+    disconnects", but "A Remote Orca Server is tied to a single machine ...
+    one server cannot reach or manage other machines"; SSH worktrees are how
+    it reaches out to another box.
   Traffic: https://www.onorca.dev/docs/mobile — "Prefer Orca Relay for pairing
     when it is available — sign-in is required for Relay only"; LAN pairing is
     the alternative.
@@ -275,6 +289,30 @@ Orca — https://github.com/stablyai/orca and https://www.onorca.dev/docs
     send, wait, create, split`. Licence: "Orca is free and open source under
     the MIT License."
 -->
+
+### What the table says
+
+The field splits in two, and the split is not about quality.
+
+**Fan-in, but a conversation.** Claude Code Remote Control, Happy Coder, and
+Omnara all let several machines report to one place. What you get there is an
+agent session, not a terminal — which is the right trade if the agent is all
+you wanted.
+
+**A real terminal, but one server per machine.** VibeTunnel and Orca both give
+you a genuine terminal. Both run one server per machine: VibeTunnel by design,
+Orca because a Remote Orca Server is tied to a single host and reaches other
+boxes over SSH.
+
+offdesk is the combination — one hub you run, every machine registered to it,
+and a real terminal at the end. Each of the five drops one of those three.
+
+That is the only claim this table supports, and it is narrower than "better".
+If you want parallel git worktrees, diff review, and a browser and emulator
+harness around your agents, **Orca** does far more than offdesk and is also
+MIT. If you want one machine's terminal in a browser with the least possible
+setup, **VibeTunnel** is a smaller thing to run. If you only ever drive Claude
+Code and want zero setup, **Remote Control** is already in your CLI.
 
 ## Security
 
