@@ -13,6 +13,7 @@ import {
 } from "@/lib/onboardingFlow";
 import { isRegistrationTokenFresh } from "@/lib/tokenExpiry";
 import { colors } from "@/lib/colors";
+import { MobileAppPanel } from "./MobileAppPanel.web";
 
 function getHubUrl(): string {
   const { protocol, host } = window.location;
@@ -343,6 +344,32 @@ export function OnboardingView({
             </p>
           </div>
         ) : null}
+
+        {/* The other half of setting up: the phone. This page is where
+            someone with a fresh hub actually is, so the app belongs here and
+            not only behind Settings. Hidden in the dialog, which is about
+            adding a machine to a hub that already works. */}
+        {!embedded && (
+          <div
+            style={{
+              marginTop: 32,
+              paddingTop: 24,
+              borderTop: `1px solid ${colors.border}`,
+            }}
+          >
+            <h2
+              style={{
+                fontSize: 15,
+                fontWeight: 600,
+                color: colors.foreground,
+                margin: "0 0 4px",
+              }}
+            >
+              And on your phone
+            </h2>
+            <MobileAppPanel />
+          </div>
+        )}
       </div>
     </div>
   );
