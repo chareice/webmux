@@ -139,9 +139,9 @@ test("workspace tabs can be reordered by dragging", async ({ page }) => {
   });
 
   await expandTerminalById(page, terminalId);
-  await expect(page.getByTestId(`sidebar-section-${first.id}`)).toBeVisible();
-  await expect(page.getByTestId(`sidebar-section-${second.id}`)).toBeVisible();
-  await expect(page.getByTestId(`sidebar-section-drag-${second.id}`))
+  await expect(page.getByTestId(`workspace-group-${first.id}`)).toBeVisible();
+  await expect(page.getByTestId(`workspace-group-${second.id}`)).toBeVisible();
+  await expect(page.getByTestId(`workspace-group-drag-${second.id}`))
     .toBeVisible();
 
   await dragWorkspaceGroupBefore(page, second.id, first.id);
@@ -181,7 +181,7 @@ test("workspace tabs can be reordered by dragging", async ({ page }) => {
     .toEqual([first.id, second.id]);
 
   await page.reload();
-  await page.getByTestId("sidebar").waitFor({ state: "visible" });
+  await page.getByTestId("tab-bar").waitFor({ state: "visible" });
   if (!(await page.getByTestId("expanded-terminal").isVisible())) {
     await expandTerminalById(page, terminalId);
   }
@@ -194,18 +194,15 @@ test("workspace tabs can be reordered by dragging", async ({ page }) => {
     .toEqual([first.id, second.id]);
 });
 
-test("sidebar host meters report host cpu, memory, and disk", async ({ page }) => {
+test("tab bar meters report host cpu, memory, and disk", async ({ page }) => {
   await openApp(page);
 
-  // The hosts rail shows one meters row per machine; e2e has a single node.
-  await expect(page.getByTestId("sidebar-host-e2e-node-meters")).toBeVisible();
+  await expect(page.getByTestId("tab-bar-meters")).toBeVisible();
   // Label and value sit in sibling spans with no separator, so "cpu12%".
   // Wait for a real reading rather than the "—" placeholder, so the assertion
   // fails if stats stop reaching the meters.
   for (const label of ["cpu", "mem", "disk"]) {
-    await expect(
-      page.getByTestId(`sidebar-host-e2e-node-meter-${label}`),
-    ).toHaveText(
+    await expect(page.getByTestId(`tab-bar-meter-${label}`)).toHaveText(
       new RegExp(`^${label}\\s*\\d+%$`),
       { timeout: 15_000 },
     );
@@ -233,8 +230,8 @@ test("workspace tabs can be reordered by dragging the tab body", async ({
   });
 
   await expandTerminalById(page, terminalId);
-  await expect(page.getByTestId(`sidebar-section-${first.id}`)).toBeVisible();
-  await expect(page.getByTestId(`sidebar-section-${second.id}`)).toBeVisible();
+  await expect(page.getByTestId(`workspace-group-${first.id}`)).toBeVisible();
+  await expect(page.getByTestId(`workspace-group-${second.id}`)).toBeVisible();
 
   // Drag starting on the tab label button (not the grip handle), past the
   // threshold, releasing over the other tab.
@@ -243,7 +240,7 @@ test("workspace tabs can be reordered by dragging the tab body", async ({
     second.id,
     first.id,
     "before",
-    page.getByTestId(`sidebar-section-${second.id}`),
+    page.getByTestId(`workspace-group-${second.id}`),
   );
 
   await expect
@@ -263,7 +260,7 @@ test("workspace tabs can be reordered by dragging the tab body", async ({
     .toEqual([second.id, first.id]);
 
   // A plain press-and-release on a tab label (no movement) still selects it.
-  const secondTab = page.getByTestId(`sidebar-section-${second.id}`);
+  const secondTab = page.getByTestId(`workspace-group-${second.id}`);
   const secondBox = await secondTab.boundingBox();
   expect(secondBox).toBeTruthy();
   await page.mouse.move(
@@ -299,10 +296,7 @@ test("a new tab lands at the end of the strip, after the hub-created ones", asyn
   await expect(workspaceGroup(page, "root")).toBeVisible();
   await expect(workspaceGroup(page, "tmp")).toBeVisible();
 
-  // The brand-row ＋ now opens the new-session dialog; a bare new tab comes
-  // from the command palette's "New tab" action.
-  await pressPrefixKey(page, "k");
-  await page.getByTestId("command-palette-row-new-tab").click();
+  await page.getByTestId("tab-bar-new-group").click();
 
   await expect.poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
     .toBe(3);
@@ -326,8 +320,8 @@ test("hub-created tabs can be reordered by dragging", async ({ page }) => {
   const tabs = await listWorkspaceGroupsViaApi(page);
   const rootTab = tabs.find((group) => group.name === "root")!;
   const tmpTab = tabs.find((group) => group.name === "tmp")!;
-  await expect(page.getByTestId(`sidebar-section-${rootTab.id}`)).toBeVisible();
-  await expect(page.getByTestId(`sidebar-section-${tmpTab.id}`)).toBeVisible();
+  await expect(page.getByTestId(`workspace-group-${rootTab.id}`)).toBeVisible();
+  await expect(page.getByTestId(`workspace-group-${tmpTab.id}`)).toBeVisible();
 
   await dragWorkspaceGroupBefore(page, tmpTab.id, rootTab.id);
 
@@ -341,10 +335,10 @@ test("hub-created tabs can be reordered by dragging", async ({ page }) => {
     .toEqual([tmpTab.id, rootTab.id]);
 
   // Each tab still shows its own pane.
-  await page.getByTestId(`sidebar-section-${tmpTab.id}`).click();
+  await page.getByTestId(`workspace-group-${tmpTab.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${tmpTerminalId}`))
     .toBeVisible();
-  await page.getByTestId(`sidebar-section-${rootTab.id}`).click();
+  await page.getByTestId(`workspace-group-${rootTab.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${rootTerminalId}`))
     .toBeVisible();
 });
@@ -368,7 +362,7 @@ test("deleting a workspace tab keeps terminals open and clears their group", asy
   await expandTerminalById(page, terminalId);
   await deleteWorkspaceGroupViaApi(page, group.id);
 
-  await expect(page.getByTestId(`sidebar-section-${group.id}`)).toHaveCount(0);
+  await expect(page.getByTestId(`workspace-group-${group.id}`)).toHaveCount(0);
   await expect(page.getByTestId(`workspace-pane-${terminalId}`)).toBeVisible();
 
   const terminals = await listTerminals(page);
@@ -492,7 +486,7 @@ test("confirming close for a busy cwd pane keeps an empty cwd group open", async
   await expect(page.getByText(/No terminals/)).toBeVisible();
 });
 
-test("clicking a sidebar section switches to that group", async ({ page }) => {
+test("hovering a workspace group tab switches to that group", async ({ page }) => {
   await openApp(page);
   await resetMachineState(page);
   await takeControlFromHeader(page);
@@ -520,7 +514,7 @@ test("clicking a sidebar section switches to that group", async ({ page }) => {
   await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
     .toHaveCount(0);
 
-  await page.getByTestId(`sidebar-section-${secondGroup.id}`).click();
+  await page.getByTestId(`workspace-group-${secondGroup.id}`).hover();
   await expect(page.getByTestId(`workspace-pane-${secondTerminalId}`))
     .toBeVisible();
   // Keep-alive: the switched-away group stays mounted but hidden.
@@ -644,8 +638,11 @@ test("settings reject duplicate prefix bindings", async ({ page }) => {
 
 function workspaceGroup(page: import("@playwright/test").Page, label: string) {
   return page
-    .locator("div[data-testid^='sidebar-section-']")
-    .filter({ hasText: label });
+    .locator("[data-testid^='workspace-group-']")
+    .filter({ hasText: label })
+    // Auto-created groups arrive before the terminal update that replaces its
+    // cwd fallback, so the same label can exist for one event-loop turn.
+    .last();
 }
 
 // Move a pane to a persistent tab via the pane's right-click context menu
@@ -680,11 +677,13 @@ async function visibleWorkspaceGroupIds(
   page: import("@playwright/test").Page,
 ): Promise<string[]> {
   return page
-    .locator("div[data-testid^='sidebar-section-']")
-    .evaluateAll((sections) =>
-      sections
-        .map((section) => section.getAttribute("data-testid") ?? "")
-        .map((testId) => testId.replace(/^sidebar-section-/, ""))
+    .locator(
+      "button[data-testid^='workspace-group-']:not([data-testid^='workspace-group-delete-'])",
+    )
+    .evaluateAll((buttons) =>
+      buttons
+        .map((button) => button.getAttribute("data-testid") ?? "")
+        .map((testId) => testId.replace(/^workspace-group-/, ""))
         .filter(Boolean),
     );
 }
@@ -705,8 +704,6 @@ async function dragWorkspaceGroupAfter(
   await dragWorkspaceGroupTo(page, sourceGroupId, targetGroupId, "after");
 }
 
-// Sidebar sections stack vertically: the drop placement comes from the
-// pointer's Y against the target section's midpoint (before = upper half).
 async function dragWorkspaceGroupTo(
   page: import("@playwright/test").Page,
   sourceGroupId: string,
@@ -715,32 +712,32 @@ async function dragWorkspaceGroupTo(
   source?: import("@playwright/test").Locator,
 ): Promise<void> {
   const sourceLocator =
-    source ?? page.getByTestId(`sidebar-section-drag-${sourceGroupId}`);
-  const target = page.getByTestId(`sidebar-section-${targetGroupId}`);
+    source ?? page.getByTestId(`workspace-group-drag-${sourceGroupId}`);
+  const target = page.getByTestId(`workspace-group-${targetGroupId}`);
   await sourceLocator.scrollIntoViewIfNeeded();
   await target.scrollIntoViewIfNeeded();
   const sourceBox = await sourceLocator.boundingBox();
   const targetBox = await target.boundingBox();
   expect(sourceBox).toBeTruthy();
   expect(targetBox).toBeTruthy();
-  const targetY =
+  const targetX =
     placement === "before"
-      ? targetBox!.y + Math.min(6, targetBox!.height / 4)
-      : targetBox!.y + targetBox!.height - Math.min(6, targetBox!.height / 4);
+      ? targetBox!.x + Math.min(8, targetBox!.width / 4)
+      : targetBox!.x + targetBox!.width - Math.min(8, targetBox!.width / 4);
   await page.mouse.move(
     sourceBox!.x + sourceBox!.width / 2,
     sourceBox!.y + sourceBox!.height / 2,
   );
   await page.mouse.down();
   await page.mouse.move(
-    targetBox!.x + targetBox!.width / 2,
-    targetY,
+    targetX,
+    targetBox!.y + targetBox!.height / 2,
     { steps: 10 },
   );
   await page.mouse.up();
 }
 
-test("sidebar creates tabs via the palette and deletes them via the section context menu", async ({ page }) => {
+test("tab context menu creates and deletes workspace tabs", async ({ page }) => {
   await openApp(page);
   await resetMachineState(page);
   await takeControlFromHeader(page);
@@ -752,10 +749,14 @@ test("sidebar creates tabs via the palette and deletes them via the section cont
   // The terminal already sits in the tab the hub opened for it.
   const cwdTab = (await listWorkspaceGroupsViaApi(page))[0];
 
-  // The brand-row ＋ now opens the new-session dialog; a bare second tab
-  // comes from the command palette's "New tab" action.
-  await pressPrefixKey(page, "k");
-  await page.getByTestId("command-palette-row-new-tab").click();
+  // Right-click that tab → New tab creates a second one.
+  await page.locator("[data-testid^='workspace-tab-']").first().click({
+    button: "right",
+  });
+  await page
+    .getByTestId("context-menu")
+    .getByRole("button", { name: "New tab" })
+    .click();
   await expect
     .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
     .toBe(2);
@@ -766,7 +767,7 @@ test("sidebar creates tabs via the palette and deletes them via the section cont
   // New tab deterministically becomes the active (empty) group; switch back
   // to the terminal's tab so the pane is mounted again before opening its menu.
   await expect(page.getByTestId("workspace-empty-group")).toBeVisible();
-  await page.getByTestId(`sidebar-section-${cwdTab.id}`).click();
+  await page.getByTestId(`workspace-group-${cwdTab.id}`).click();
 
   // Move the pane into the new tab, then delete the tab from its context
   // menu — the confirm dialog appears because it holds a pane.
@@ -781,7 +782,7 @@ test("sidebar creates tabs via the palette and deletes them via the section cont
     .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
     .toBe(1);
   await page
-    .getByTestId(`sidebar-section-${created.id}`)
+    .locator(`[data-testid='workspace-tab-${created.id}']`)
     .click({ button: "right" });
   await page.getByRole("button", { name: `Delete tab "${created.name}"` }).click();
   await page
@@ -796,7 +797,7 @@ test("sidebar creates tabs via the palette and deletes them via the section cont
   const terminals = await listTerminals(page);
   expect(terminals.map((t: { id: string }) => t.id)).toContain(terminalId);
   await expect(
-    page.locator("div[data-testid^='sidebar-section-']"),
+    page.locator("[data-testid^='workspace-tab-']"),
   ).toHaveCount(1);
 });
 
@@ -811,7 +812,7 @@ test("tab context menu renames a workspace tab", async ({ page }) => {
 
   // Right-click the tab → Rename tab opens the rename dialog.
   await page
-    .locator(`[data-testid='sidebar-section-${group.id}']`)
+    .locator(`[data-testid='workspace-tab-${group.id}']`)
     .click({ button: "right" });
   await page
     .getByTestId("context-menu")

@@ -159,7 +159,7 @@ test("mobile controller resizes the shared pty on activation (auto-fit)", async 
   // Desktop releases via the API (the new chrome has no release button),
   // mobile takes control via the host sheet.
   await releaseMachineControl(desktopPage);
-  await expect(desktopPage.getByTestId("sidebar-control-pill")).toBeVisible();
+  await expect(desktopPage.getByTestId("workbench-request-control")).toBeVisible();
 
   await mobileTakeControl(mobilePage);
 

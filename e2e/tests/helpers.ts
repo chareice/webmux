@@ -18,14 +18,14 @@ async function authenticate(page: Page): Promise<void> {
 
 /**
  * Open the app, authenticate, and wait for the new workbench shell to be
- * ready. Works for both desktop (Sidebar + workspace) and mobile
+ * ready. Works for both desktop (TabBar + workspace) and mobile
  * (MobileWorkbench) layouts.
  */
 export async function openApp(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto("/");
   await Promise.race([
-    page.getByTestId("sidebar").waitFor({
+    page.getByTestId("tab-bar").waitFor({
       state: "visible",
       timeout: 20_000,
     }),
@@ -117,7 +117,6 @@ export async function destroyAllTerminals(page: Page): Promise<void> {
 export async function resetMachineState(page: Page): Promise<void> {
   await requestMachineControl(page);
   await destroyAllTerminals(page);
-  await destroyAllAgentSessions(page);
   await deleteAllWorkspaceGroups(page);
   await deleteAllWorkspaceLayouts(page);
   await expectTerminalCount(page, 0);
@@ -125,9 +124,9 @@ export async function resetMachineState(page: Page): Promise<void> {
   // control pill). Then wait for the UI to pick up the mode change so
   // follow-up assertions on the viewing pill land reliably.
   await releaseMachineControl(page);
-  const sidebar = page.getByTestId("sidebar");
-  if (await sidebar.isVisible().catch(() => false)) {
-    await expect(page.getByTestId("sidebar-control-pill")).toBeVisible();
+  const tabBar = page.getByTestId("tab-bar");
+  if (await tabBar.isVisible().catch(() => false)) {
+    await expect(page.getByTestId("workbench-request-control")).toBeVisible();
   }
 }
 
@@ -170,37 +169,34 @@ export async function deleteAllWorkspaceGroups(page: Page): Promise<void> {
 }
 
 /**
- * The sidebar's control affordance: a "viewing" pill that exists only while
- * the user is NOT the controller (controlling renders the view-only lock
- * button instead — control is the normal state). Clicking it requests
- * control.
+ * The TabBar control affordance: a "viewing" pill that exists only while the
+ * user is NOT the controller (controlling renders nothing — it's the normal
+ * state). Clicking it requests control.
  */
 export function getControlToggle(page: Page): Locator {
-  return page.getByTestId("sidebar-control-pill");
+  return page.getByTestId("workbench-request-control");
 }
 
 export async function expectControlState(
   page: Page,
   state: "controlling" | "viewing",
 ): Promise<void> {
+  const pill = page.getByTestId("workbench-request-control");
   if (state === "controlling") {
-    // The controller sees the view-only lock button, never the pill.
-    await expect(page.getByTestId("sidebar-control-pill")).toHaveCount(0);
-    await expect(page.getByTestId("sidebar-view-only-lock")).toBeVisible();
+    await expect(pill).toHaveCount(0);
   } else {
-    await expect(page.getByTestId("sidebar-control-pill")).toBeVisible();
+    await expect(pill).toBeVisible();
   }
 }
 
 export async function takeControlFromHeader(page: Page): Promise<void> {
-  await page.getByTestId("sidebar-control-pill").click();
+  await page.getByTestId("workbench-request-control").click();
   await expectControlState(page, "controlling");
 }
 
 export async function releaseControlFromHeader(page: Page): Promise<void> {
-  // The desktop chrome has no release button — controlling renders a
-  // view-only lock, not a release action. Release via the API and wait for
-  // the viewing pill to come back.
+  // The desktop chrome has no release button — controlling renders no pill.
+  // Release via the API and wait for the viewing pill to come back.
   await releaseMachineControl(page);
   await expectControlState(page, "viewing");
 }
@@ -327,66 +323,6 @@ export async function expectTerminalCount(
   await expect.poll(async () => (await listTerminals(page)).length).toBe(count);
 }
 
-/* ---------- agent sessions ---------- */
-
-export interface ListedAgentSession {
-  id: string;
-  machine_id: string;
-  agent_kind: string;
-  cwd: string;
-  title: string;
-  status: string;
-  auto_run: boolean;
-  last_event_seq: number;
-  created_at_ms: number;
-}
-
-export async function listAgentSessions(
-  page: Page,
-): Promise<ListedAgentSession[]> {
-  const response = await page.request.get("/api/bootstrap", {
-    headers: await getAuthHeaders(page),
-  });
-  expect(response.ok()).toBeTruthy();
-  const snapshot = await response.json();
-  return (snapshot.agent_sessions ?? []) as ListedAgentSession[];
-}
-
-export async function createAgentSessionViaApi(
-  page: Page,
-  opts: { agentKind?: string; cwd?: string; autoRun?: boolean } = {},
-): Promise<ListedAgentSession> {
-  const headers = await getAuthHeaders(page);
-  const deviceId = await getDeviceId(page);
-  const response = await page.request.post(
-    `/api/machines/${MACHINE_ID}/agent-sessions`,
-    {
-      headers,
-      data: {
-        agent_kind: opts.agentKind ?? "kimi",
-        cwd: opts.cwd ?? "/tmp",
-        device_id: deviceId,
-        ...(opts.autoRun !== undefined ? { auto_run: opts.autoRun } : {}),
-      },
-    },
-  );
-  expect(response.ok()).toBeTruthy();
-  return response.json();
-}
-
-export async function destroyAllAgentSessions(page: Page): Promise<void> {
-  const headers = await getAuthHeaders(page);
-  const deviceId = await getDeviceId(page);
-  for (const session of await listAgentSessions(page)) {
-    const response = await page.request.delete(
-      `/api/machines/${session.machine_id}/agent-sessions/${session.id}?device_id=${encodeURIComponent(deviceId)}`,
-      { headers },
-    );
-    expect(response.ok()).toBeTruthy();
-  }
-  await expect.poll(async () => (await listAgentSessions(page)).length).toBe(0);
-}
-
 export function getExpandedOverlay(page: Page): Locator {
   return page.getByTestId("expanded-terminal");
 }
@@ -495,22 +431,6 @@ export async function mobileTakeControl(page: Page): Promise<void> {
 export async function mobileReleaseControl(page: Page): Promise<void> {
   await mobileOpenHostSheet(page);
   await page.getByTestId("mobile-control-toggle").click();
-}
-
-/**
- * Mobile-specific: the title-bar ＋ opens the new-session sheet (agent chips,
- * model, directory, auto-run). Drive it to create a plain terminal: pick the
- * terminal chip and submit. The sheet prefills the current group's cwd and
- * the create follows the active group's placement (overflow-into-new-tab).
- */
-export async function mobileCreateTerminalViaSheet(page: Page): Promise<void> {
-  await page.getByTestId("mobile-bar-new-session").click();
-  await expect(page.getByTestId("mobile-new-session-sheet")).toBeVisible();
-  await page.getByTestId("mobile-new-session-agent-terminal").click();
-  const submit = page.getByTestId("mobile-new-session-submit");
-  await expect(submit).toBeEnabled();
-  await submit.click();
-  await expect(page.getByTestId("mobile-new-session-sheet")).toHaveCount(0);
 }
 
 /**

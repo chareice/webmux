@@ -9,9 +9,6 @@ import type {
   WorkspaceLayoutInfo,
   WorkspaceLayoutNode,
   ResourceStats,
-  AgentKind,
-  AgentEvent,
-  AgentSessionInfo,
 } from "@offdesk/shared";
 
 import { generateDeviceId } from "./deviceIdShared";
@@ -279,120 +276,6 @@ export function releaseControlKeepalive(
 // Machine Stats
 export const getMachineStats = (machineId: string) =>
   request<ResourceStats>("GET", `/api/machines/${machineId}/stats`);
-
-// Agent Sessions
-export interface AgentSessionEventsPage {
-  events: { seq: number; event: AgentEvent }[];
-  last_seq: number;
-}
-export const createAgentSession = (
-  machineId: string,
-  args: {
-    agentKind: AgentKind;
-    cwd: string;
-    autoRun?: boolean;
-    workspaceGroupId?: string | null;
-    /** Applied via session/set_model once the session is ready. */
-    modelId?: string | null;
-  },
-  deviceId?: string,
-) =>
-  request<AgentSessionInfo>(
-    "POST",
-    `/api/machines/${machineId}/agent-sessions`,
-    {
-      agent_kind: args.agentKind,
-      cwd: args.cwd,
-      device_id: deviceId,
-      // Omit auto_run when unset so the hub default (!machine.production) applies.
-      ...(args.autoRun !== undefined ? { auto_run: args.autoRun } : {}),
-      ...(args.workspaceGroupId
-        ? { workspace_group_id: args.workspaceGroupId }
-        : {}),
-      ...(args.modelId ? { model_id: args.modelId } : {}),
-    },
-  );
-export const setAgentSessionModel = (
-  machineId: string,
-  sessionId: string,
-  modelId: string,
-  deviceId?: string,
-) =>
-  request<void>(
-    "POST",
-    `/api/machines/${machineId}/agent-sessions/${sessionId}/model`,
-    { model_id: modelId, device_id: deviceId },
-  );
-export const promptAgentSession = (
-  machineId: string,
-  sessionId: string,
-  text: string,
-  deviceId?: string,
-) =>
-  request<void>(
-    "POST",
-    `/api/machines/${machineId}/agent-sessions/${sessionId}/prompt`,
-    { text, device_id: deviceId },
-  );
-export const answerAgentSession = (
-  machineId: string,
-  sessionId: string,
-  args: { requestId: string; optionId?: string; text?: string },
-  deviceId?: string,
-) =>
-  request<void>(
-    "POST",
-    `/api/machines/${machineId}/agent-sessions/${sessionId}/answer`,
-    {
-      request_id: args.requestId,
-      option_id: args.optionId,
-      text: args.text,
-      device_id: deviceId,
-    },
-  );
-export const cancelAgentSession = (
-  machineId: string,
-  sessionId: string,
-  deviceId?: string,
-) =>
-  request<void>(
-    "POST",
-    `/api/machines/${machineId}/agent-sessions/${sessionId}/cancel${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ""}`,
-  );
-export const resumeAgentSession = (
-  machineId: string,
-  sessionId: string,
-  deviceId?: string,
-) =>
-  request<AgentSessionInfo>(
-    "POST",
-    `/api/machines/${machineId}/agent-sessions/${sessionId}/resume${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ""}`,
-  );
-export const destroyAgentSession = (
-  machineId: string,
-  sessionId: string,
-  deviceId?: string,
-) =>
-  request<void>(
-    "DELETE",
-    `/api/machines/${machineId}/agent-sessions/${sessionId}${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ""}`,
-  );
-export const getAgentSessionEvents = (
-  machineId: string,
-  sessionId: string,
-  fromSeq: number,
-  limit?: number,
-) =>
-  request<AgentSessionEventsPage>(
-    "GET",
-    `/api/machines/${machineId}/agent-sessions/${sessionId}/events?from_seq=${fromSeq}${limit !== undefined ? `&limit=${limit}` : ""}`,
-  );
-export const putAgentSessionSeen = (sessionId: string, lastSeenSeq: number) =>
-  request<{ last_seen_seq: number }>(
-    "PUT",
-    `/api/agent-sessions/${sessionId}/seen`,
-    { last_seen_seq: lastSeenSeq },
-  );
 
 // Settings
 export const getSettings = () =>

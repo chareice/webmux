@@ -154,7 +154,7 @@ test("inactive group stays mounted for instant switch-back, capped at one", asyn
   const opensABefore = await wsOpenCount(page, terminalA);
 
   // Switch to B: A stays mounted but hidden.
-  await page.getByTestId(`sidebar-section-${groupB.id}`).click();
+  await page.getByTestId(`workspace-group-${groupB.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${terminalB}`)).toBeVisible();
   await expect(page.getByTestId(`workspace-pane-${terminalA}`)).toBeHidden();
   await expect
@@ -169,7 +169,7 @@ test("inactive group stays mounted for instant switch-back, capped at one", asyn
 
   // Switch back to A: the kept-alive buffer shows the marker immediately
   // (direct read, no poll — a remount would start from an empty buffer).
-  await page.getByTestId(`sidebar-section-${groupA.id}`).click();
+  await page.getByTestId(`workspace-group-${groupA.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${terminalA}`)).toBeVisible();
   expect(await readTerminalBuffer(page, terminalA)).toContain(
     "KEEPALIVE_MARKER_A",
@@ -198,13 +198,13 @@ test("inactive group stays mounted for instant switch-back, capped at one", asyn
     cwd: "/var",
     workspaceGroupId: groupC.id,
   });
-  await page.getByTestId(`sidebar-section-${groupC.id}`).click();
+  await page.getByTestId(`workspace-group-${groupC.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${terminalC}`)).toBeVisible();
-  await page.getByTestId(`sidebar-section-${groupB.id}`).click();
+  await page.getByTestId(`workspace-group-${groupB.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${terminalB}`)).toBeVisible();
   // Evicted: A's pane is fully unmounted, not just hidden.
   await expect(page.getByTestId(`workspace-pane-${terminalA}`)).toHaveCount(0);
-  await page.getByTestId(`sidebar-section-${groupA.id}`).click();
+  await page.getByTestId(`workspace-group-${groupA.id}`).click();
   await expect(page.getByTestId(`workspace-pane-${terminalA}`)).toBeVisible();
   await expect
     .poll(() => wsOpenCount(page, terminalA), { timeout: 15_000 })

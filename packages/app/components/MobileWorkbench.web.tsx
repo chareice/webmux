@@ -17,7 +17,6 @@ import {
   useState,
 } from "react";
 import type {
-  AgentSessionInfo,
   MachineInfo,
   ResourceStats,
   TerminalInfo,
@@ -27,30 +26,20 @@ import {
   CircuitBoard,
   Lock,
   LockOpen,
-  MessageCircle,
   Plus,
   RefreshCw,
   Settings as SettingsIcon,
   Terminal as TerminalIcon,
   X,
 } from "lucide-react";
-import { colors, colorAlpha } from "@/lib/colors";
+import { colors } from "@/lib/colors";
 import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
 import { diskPercent, diskTooltip } from "@/lib/resourceStats";
-import { formatAge } from "@/lib/formatAge";
 import {
   buildMobileSessionGroups,
-  type MobileSessionRow,
+  type MobileSessionPane,
 } from "@/lib/mobileSessionSwitcher";
-import type { SidebarAskedSession } from "@/lib/sidebarTree";
 import type { WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
-import {
-  AgentBadge,
-  AgentStatusDot,
-  AGENT_STATUS_LABEL,
-  SESSION_KIND_META,
-} from "./AgentBadge.web";
-import { useStartingElapsedSec } from "@/lib/agentStarting";
 
 interface MobileWorkbenchProps {
   machines: MachineInfo[];
@@ -71,21 +60,6 @@ interface MobileWorkbenchProps {
   // null group = machine home directory (empty state / no active group).
   onNewTerminal: (group: WorkspaceGroup | null) => void;
   onCloseTerminal: (terminal: TerminalInfo) => void;
-  // Agent sessions across machines (scoped internally, same as `terminals`).
-  agentSessions: AgentSessionInfo[];
-  // session id → last_seen_seq for the current user (unread markers).
-  agentSessionSeen: Record<string, number>;
-  // Sessions with status "asked", oldest first — across ALL machines; the
-  // inbox must surface a blocked session even on another host.
-  askedSessions: SidebarAskedSession[];
-  selectedAgentSessionId: string | null;
-  onPickAgentSession: (machineId: string, sessionId: string) => void;
-  // Kill lives behind the title-bar ✕ while a chat is open (agent rows in
-  // the switcher sheet get no close button, matching the desktop sidebar).
-  onKillAgentSession: (session: AgentSessionInfo) => void;
-  // The title-bar ＋ and the switcher's "New session" row open the
-  // new-session sheet; the active group seeds its directory step.
-  onOpenNewSession: (group: WorkspaceGroup | null) => void;
   onSelectMachine: (id: string) => void;
   onAddMachine: () => void;
   onRemoveHost: (machineId: string) => void;
@@ -94,9 +68,6 @@ interface MobileWorkbenchProps {
   onEngageViewOnly: (machineId: string) => void;
   onDisengageViewOnly: () => void;
   onOpenSettings: () => void;
-  // Full-screen chat for the selected agent session; replaces the terminal
-  // area (including its empty state) while set.
-  chatContent?: React.ReactNode;
   // The inline TerminalWorkspace (null while the machine has no terminals).
   children: React.ReactNode;
 }
@@ -116,13 +87,6 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     onPickTerminal,
     onNewTerminal,
     onCloseTerminal,
-    agentSessions,
-    agentSessionSeen,
-    askedSessions,
-    selectedAgentSessionId,
-    onPickAgentSession,
-    onKillAgentSession,
-    onOpenNewSession,
     onSelectMachine,
     onAddMachine,
     onRemoveHost,
@@ -131,16 +95,12 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     onEngageViewOnly,
     onDisengageViewOnly,
     onOpenSettings,
-    chatContent,
     children,
   } = props;
 
   const [hostSheetOpen, setHostSheetOpen] = useState(false);
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
-  const [chipSheet, setChipSheet] = useState<Extract<
-    MobileSessionRow,
-    { kind: "terminal" }
-  > | null>(null);
+  const [chipSheet, setChipSheet] = useState<MobileSessionPane | null>(null);
 
   // Center the active terminal's row when the switcher opens: with a dozen
   // terminals across several tabs the highlighted row is usually off-screen
@@ -170,81 +130,32 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
     return terminals.filter((t) => t.machine_id === activeMachine.id);
   }, [terminals, activeMachine]);
 
-  const scopedAgentSessions = useMemo(() => {
-    if (!activeMachine) return [];
-    return agentSessions.filter((s) => s.machine_id === activeMachine.id);
-  }, [agentSessions, activeMachine]);
-
   const sessionGroups = useMemo(
-    () =>
-      buildMobileSessionGroups(
-        groups,
-        terminals,
-        scopedAgentSessions,
-        agentSessionSeen,
-        selectedAgentSessionId,
-      ),
-    [
-      groups,
-      terminals,
-      scopedAgentSessions,
-      agentSessionSeen,
-      selectedAgentSessionId,
-    ],
+    () => buildMobileSessionGroups(groups, terminals),
+    [groups, terminals],
   );
-  const rows = useMemo(
-    () => sessionGroups.flatMap((sessionGroup) => sessionGroup.rows),
+  const chips = useMemo(
+    () => sessionGroups.flatMap((sessionGroup) => sessionGroup.panes),
     [sessionGroups],
   );
 
-  // The chat page is machine-agnostic (the canvas can keep a session open
-  // across a host switch), so the selected session comes from the full list.
-  const activeAgentSession = selectedAgentSessionId
-    ? (agentSessions.find((s) => s.id === selectedAgentSessionId) ?? null)
-    : null;
-  const activeTerminalRow =
-    rows.find(
-      (row): row is Extract<MobileSessionRow, { kind: "terminal" }> =>
-        row.kind === "terminal" && row.terminal.id === activeTerminalId,
-    ) ?? null;
-  const activeRow = activeAgentSession
-    ? (rows.find(
-        (row) => row.kind === "agent" && row.session.id === activeAgentSession.id,
-      ) ?? null)
-    : activeTerminalRow;
-  const activeGroup = activeRow?.group ?? activeTerminalRow?.group ?? null;
-  const activePosition = activeRow ? rows.indexOf(activeRow) + 1 : 0;
+  const activeChip =
+    chips.find((chip) => chip.terminal.id === activeTerminalId) ?? null;
+  const activeGroup = activeChip?.group ?? null;
+  const activePosition = activeChip
+    ? chips.findIndex((chip) => chip.terminal.id === activeChip.terminal.id) + 1
+    : 0;
 
-  // Asked sessions other than the open chat drive the cross-session reminder.
-  const otherAskedSessions = activeAgentSession
-    ? askedSessions.filter((entry) => entry.sessionId !== activeAgentSession.id)
-    : [];
-
-  // Starting-state honesty (same rule as the desktop chat header): the pill
-  // names the agent and ticks elapsed seconds instead of a bare "starting…".
-  const activeAgentStarting = activeAgentSession?.status === "starting";
-  const startingElapsedSec = useStartingElapsedSec(activeAgentStarting);
-
-  // Prev/next in strip order (terminals and agent sessions share one order);
-  // no wraparound at either end.
-  const switchSessionByOffset = useCallback(
+  // Prev/next in strip order; no wraparound at either end.
+  const switchTerminalByOffset = useCallback(
     (offset: number) => {
-      const activeId = activeAgentSession?.id ?? activeTerminalId;
-      const index = rows.findIndex((row) =>
-        row.kind === "terminal"
-          ? row.terminal.id === activeId
-          : row.session.id === activeId,
-      );
+      const ids = chips.map((chip) => chip.terminal.id);
+      const index = ids.indexOf(activeTerminalId ?? "");
       if (index === -1) return;
-      const next = rows[index + offset];
-      if (!next) return;
-      if (next.kind === "terminal") {
-        onPickTerminal(next.terminal.id);
-      } else {
-        onPickAgentSession(next.session.machine_id, next.session.id);
-      }
+      const next = ids[index + offset];
+      if (next) onPickTerminal(next);
     },
-    [rows, activeAgentSession, activeTerminalId, onPickTerminal, onPickAgentSession],
+    [chips, activeTerminalId, onPickTerminal],
   );
 
   const titleBarTimerRef = useRef<number | null>(null);
@@ -276,16 +187,14 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
               !event.target.closest("[data-title-bar-swipe='ignore']"),
           }
         : null;
-      // Long-press is a terminal-pane gesture; while a chat is open the
-      // title bar belongs to the agent session (kill has its own button).
-      if (!activeTerminalRow || activeAgentSession) return;
+      if (!activeChip) return;
       titleBarTimerRef.current = window.setTimeout(() => {
         titleBarTimerRef.current = null;
         suppressTitleBarClickRef.current = true;
-        setChipSheet(activeTerminalRow);
+        setChipSheet(activeChip);
       }, 500);
     },
-    [activeTerminalRow, activeAgentSession, cancelTitleBarTimer],
+    [activeChip, cancelTitleBarTimer],
   );
 
   const handleTitleBarTouchMove = useCallback(
@@ -318,10 +227,10 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         Math.abs(dx) > Math.abs(dy)
       ) {
         suppressTitleBarClickRef.current = true;
-        switchSessionByOffset(dx < 0 ? 1 : -1);
+        switchTerminalByOffset(dx < 0 ? 1 : -1);
       }
     },
-    [cancelTitleBarTimer, switchSessionByOffset],
+    [cancelTitleBarTimer, switchTerminalByOffset],
   );
 
   // Edge swipe: a horizontal swipe that STARTS within 24px of the left/right
@@ -364,9 +273,9 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
       // Mostly-vertical gestures are terminal scrolls, not pane switches.
       if (Math.abs(dy) >= Math.abs(dx)) return;
       if (start.edge === "left" && dx >= MIN_SWIPE_PX) {
-        switchSessionByOffset(-1);
+        switchTerminalByOffset(-1);
       } else if (start.edge === "right" && dx <= -MIN_SWIPE_PX) {
-        switchSessionByOffset(1);
+        switchTerminalByOffset(1);
       }
     };
     const onTouchCancel = () => {
@@ -391,7 +300,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
       node.removeEventListener("touchend", onTouchEnd, true);
       node.removeEventListener("touchcancel", onTouchCancel, true);
     };
-  }, [switchSessionByOffset]);
+  }, [switchTerminalByOffset]);
 
   const machineOnline = (machine: MachineInfo) =>
     Boolean(machineStats[machine.id]) ||
@@ -465,52 +374,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             whiteSpace: "nowrap",
           }}
         >
-          {activeAgentSession ? (
-            <>
-              <AgentBadge kind={activeAgentSession.agent_kind} />
-              <span
-                style={{
-                  flex: "1 1 12ch",
-                  minWidth: "8ch",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  color: colors.fg0,
-                  fontSize: 13,
-                  fontWeight: 600,
-                }}
-              >
-                {activeAgentSession.title}
-              </span>
-              <span
-                data-testid="mobile-title-bar-status"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  flexShrink: 0,
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 10,
-                  fontWeight: 600,
-                  ...(activeAgentSession.status === "asked"
-                    ? {
-                        background: colorAlpha.accentLight12,
-                        color: colors.accent,
-                      }
-                    : {
-                        background: colors.bg2,
-                        color: colors.fg2,
-                      }),
-                }}
-              >
-                <AgentStatusDot status={activeAgentSession.status} />
-                {activeAgentStarting
-                  ? `正在启动 ${SESSION_KIND_META[activeAgentSession.agent_kind].label}… ${startingElapsedSec}s`
-                  : AGENT_STATUS_LABEL[activeAgentSession.status]}
-              </span>
-            </>
-          ) : activeTerminalRow ? (
+          {activeChip ? (
             <>
               <span
                 style={{
@@ -523,7 +387,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                   fontSize: 12,
                 }}
               >
-                {activeTerminalRow.group.label}
+                {activeChip.group.label}
               </span>
               <span aria-hidden style={{ color: colors.fg3, flexShrink: 0 }}>
                 ·
@@ -539,7 +403,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                   fontWeight: 600,
                 }}
               >
-                {displayTerminalTitle(activeTerminalRow.terminal)}
+                {displayTerminalTitle(activeChip.terminal)}
               </span>
             </>
           ) : (
@@ -551,41 +415,6 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           )}
         </div>
 
-        {activeAgentSession && (
-          <span
-            onClick={(event) => event.stopPropagation()}
-            onTouchStart={(event) => event.stopPropagation()}
-            onTouchMove={(event) => event.stopPropagation()}
-            onTouchEnd={(event) => event.stopPropagation()}
-            style={{ width: 34, height: 34, flexShrink: 0 }}
-          >
-            <button
-              type="button"
-              data-testid="mobile-agent-kill"
-              disabled={!canCreateTerminal}
-              onClick={() => onKillAgentSession(activeAgentSession)}
-              title="Kill session"
-              aria-label="Kill session"
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 6,
-                border: `1px solid ${colors.lineSoft}`,
-                background: "transparent",
-                color: colors.fg2,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 0,
-                cursor: canCreateTerminal ? "pointer" : "not-allowed",
-                opacity: canCreateTerminal ? 1 : 0.45,
-              }}
-            >
-              <X size={16} />
-            </button>
-          </span>
-        )}
-
         <span
           onClick={(event) => event.stopPropagation()}
           onTouchStart={(event) => event.stopPropagation()}
@@ -595,11 +424,11 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         >
           <button
             type="button"
-            data-testid="mobile-bar-new-session"
+            data-testid="mobile-bar-new-terminal"
             disabled={!canCreateTerminal}
-            onClick={() => onOpenNewSession(activeGroup)}
-            title="New session"
-            aria-label="New session"
+            onClick={() => onNewTerminal(activeGroup)}
+            title="New terminal"
+            aria-label="New terminal"
             style={{
               width: 34,
               height: 34,
@@ -619,19 +448,6 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           </button>
         </span>
 
-        {askedSessions.length > 0 && (
-          <span
-            data-testid="mobile-inbox-dot"
-            title={`${askedSessions.length} waiting on you`}
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 999,
-              background: colors.accent,
-              flexShrink: 0,
-            }}
-          />
-        )}
         <span
           data-testid="mobile-title-bar-badge"
           data-title-bar-swipe="ignore"
@@ -648,7 +464,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             textAlign: "center",
           }}
         >
-          {activePosition}/{rows.length}
+          {activePosition}/{chips.length}
         </span>
         <span data-testid="mobile-title-bar-dot" style={{ display: "flex" }}>
           <HostDot
@@ -658,57 +474,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         </span>
       </div>
 
-      {/* Cross-session reminder: while inside a chat, a DIFFERENT session
-          waiting on an answer surfaces here; tapping jumps to it. */}
-      {otherAskedSessions.length > 0 && (
-        <button
-          type="button"
-          data-testid="mobile-cross-reminder"
-          onClick={() =>
-            onPickAgentSession(
-              otherAskedSessions[0].machineId,
-              otherAskedSessions[0].sessionId,
-            )
-          }
-          style={{
-            height: 40,
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: 9,
-            padding: "0 14px",
-            background: colorAlpha.accentLight12,
-            border: "none",
-            borderBottom: `1px solid ${colorAlpha.accentLine}`,
-            color: colors.accent,
-            cursor: "pointer",
-          }}
-        >
-          <MessageCircle size={13} style={{ flexShrink: 0 }} />
-          <span
-            style={{
-              flexGrow: 1,
-              minWidth: 0,
-              fontSize: 12,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              textAlign: "left",
-            }}
-          >
-            <span style={{ fontWeight: 600 }}>
-              {otherAskedSessions.length} more waiting
-            </span>{" "}
-            <span style={{ color: colors.accentDim }}>
-              · {otherAskedSessions[0].title}
-            </span>
-          </span>
-          <ChevronRight size={14} style={{ flexShrink: 0 }} />
-        </button>
-      )}
-
-      {/* Terminal area (edge swipes switch sessions in strip order); the
-          agent chat page replaces it while a chat is open. */}
+      {/* Terminal area (edge swipes switch terminals in strip order) */}
       <div
         ref={terminalAreaRef}
         data-testid="mobile-terminal-area"
@@ -720,9 +486,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           position: "relative",
         }}
       >
-        {chatContent ? (
-          chatContent
-        ) : scopedTerminals.length === 0 ? (
+        {scopedTerminals.length === 0 ? (
           <div
             style={{
               flex: 1,
@@ -781,68 +545,17 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           testid="mobile-session-switcher"
           onClose={() => setSessionSwitcherOpen(false)}
         >
-          {/* Inbox: sessions waiting on an answer, oldest first. */}
-          {askedSessions.length > 0 && (
-            <button
-              type="button"
-              data-testid="mobile-inbox-banner"
-              onClick={() => {
-                const oldest = askedSessions[0];
-                setSessionSwitcherOpen(false);
-                onPickAgentSession(oldest.machineId, oldest.sessionId);
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                width: "100%",
-                minHeight: 46,
-                padding: "4px 18px",
-                background: colorAlpha.accentLight12,
-                border: "none",
-                borderBottom: `1px solid ${colorAlpha.accentLine}`,
-                cursor: "pointer",
-                textAlign: "left",
-              }}
-            >
-              <MessageCircle size={15} color={colors.accent} style={{ flexShrink: 0 }} />
-              <span style={{ flexGrow: 1, minWidth: 0 }}>
-                <span
-                  style={{
-                    display: "block",
-                    fontSize: 12.5,
-                    fontWeight: 600,
-                    color: colors.accent,
-                  }}
-                >
-                  {askedSessions.length} waiting on you
-                </span>
-                <span
-                  style={{
-                    display: "block",
-                    marginTop: 1,
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10,
-                    color: colors.accentDim,
-                  }}
-                >
-                  oldest {formatAge(askedSessions[0].createdAtMs)}
-                </span>
-              </span>
-              <ChevronRight size={15} color={colors.accent} style={{ flexShrink: 0 }} />
-            </button>
-          )}
           <MenuRow
             icon={<Plus size={17} />}
-            label="New session"
+            label="New terminal"
             disabled={!canCreateTerminal}
-            testid="mobile-session-switcher-new-session"
+            testid="mobile-session-switcher-new-terminal"
             onClick={() => {
               setSessionSwitcherOpen(false);
-              onOpenNewSession(activeGroup);
+              onNewTerminal(activeGroup);
             }}
           />
-          {sessionGroups.map(({ group, rows: groupRows }) => (
+          {sessionGroups.map(({ group, panes }) => (
             <section key={group.id}>
               <div
                 data-testid={`mobile-session-group-${group.id}`}
@@ -855,97 +568,10 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                   textTransform: "uppercase",
                 }}
               >
-                {group.label} · {groupRows.length}{" "}
-                {groupRows.length === 1 ? "pane" : "panes"}
+                {group.label} · {panes.length}{" "}
+                {panes.length === 1 ? "pane" : "panes"}
               </div>
-              {groupRows.map((row) => {
-                if (row.kind === "agent") {
-                  const { session, unread, selected } = row;
-                  return (
-                    // Agent rows get no close ✕ — kill lives in the chat
-                    // title bar, matching the desktop chat header.
-                    <div
-                      key={session.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "stretch",
-                        background: selected ? colors.bg2 : "transparent",
-                        borderLeft: selected
-                          ? `3px solid ${colors.accent}`
-                          : "3px solid transparent",
-                      }}
-                    >
-                      <button
-                        type="button"
-                        data-testid={`mobile-agent-row-${session.id}`}
-                        aria-current={selected ? "true" : undefined}
-                        onClick={() => {
-                          onPickAgentSession(session.machine_id, session.id);
-                          setSessionSwitcherOpen(false);
-                        }}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          flex: 1,
-                          minWidth: 0,
-                          minHeight: 44,
-                          padding: "6px 18px",
-                          color: colors.fg1,
-                          textAlign: "left",
-                          background: "transparent",
-                          border: "none",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <AgentBadge kind={session.agent_kind} />
-                        <span style={{ flex: 1, minWidth: 0 }}>
-                          <span
-                            style={{
-                              display: "block",
-                              color: colors.fg0,
-                              fontSize: 14,
-                              fontWeight: unread || selected ? 700 : 500,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {session.title}
-                          </span>
-                          <span
-                            style={{
-                              display: "block",
-                              marginTop: 3,
-                              color: colors.fg3,
-                              fontFamily: "var(--font-mono)",
-                              fontSize: 11,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {session.cwd}
-                          </span>
-                        </span>
-                        {unread && (
-                          <span
-                            data-testid={`mobile-agent-row-${session.id}-unread`}
-                            style={{
-                              width: 7,
-                              height: 7,
-                              borderRadius: 999,
-                              background: colors.fg0,
-                              flexShrink: 0,
-                            }}
-                          />
-                        )}
-                        <AgentStatusDot status={session.status} />
-                      </button>
-                    </div>
-                  );
-                }
-                const { terminal } = row;
+              {panes.map(({ terminal }) => {
                 const active = terminal.id === activeTerminalId;
                 return (
                   // Row = pick button + its own close button. Long-pressing the

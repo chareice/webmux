@@ -75,7 +75,7 @@ test.describe("Fold inner screen (large + touch)", () => {
     await resetMachineState(page);
 
     await expect(page.getByTestId("mobile-workbench")).toBeVisible();
-    await expect(page.getByTestId("sidebar")).toHaveCount(0);
+    await expect(page.getByTestId("tab-bar")).toHaveCount(0);
 
     await requestMachineControl(page);
     const terminalId = await createTerminalViaApi(page);
@@ -106,7 +106,7 @@ test.describe("Fold inner screen (large + touch)", () => {
       screenHeight: COVER.screen.height,
     });
     await expect(page.getByTestId("mobile-workbench")).toBeVisible();
-    await expect(page.getByTestId("sidebar")).toHaveCount(0);
+    await expect(page.getByTestId("tab-bar")).toHaveCount(0);
     await expect(
       page.getByTestId(`workspace-pane-${terminalId}`),
     ).toBeVisible();
@@ -118,7 +118,7 @@ test.describe("Fold inner screen (large + touch)", () => {
       screenHeight: UNFOLDED.screen.height,
     });
     await expect(page.getByTestId("mobile-workbench")).toBeVisible();
-    await expect(page.getByTestId("sidebar")).toHaveCount(0);
+    await expect(page.getByTestId("tab-bar")).toHaveCount(0);
     await expect(
       page.getByTestId(`workspace-pane-${terminalId}`),
     ).toBeVisible();
@@ -128,10 +128,10 @@ test.describe("Fold inner screen (large + touch)", () => {
 test.describe("Fold cover screen (compact + touch)", () => {
   test.use(COVER);
 
-  test("shows the mobile workbench instead of the desktop sidebar", async ({ page }) => {
+  test("shows the mobile workbench instead of the tab bar", async ({ page }) => {
     await assertCoarsePointer(page);
     await openApp(page);
     await expect(page.getByTestId("mobile-workbench")).toBeVisible();
-    await expect(page.getByTestId("sidebar")).toHaveCount(0);
+    await expect(page.getByTestId("tab-bar")).toHaveCount(0);
   });
 });

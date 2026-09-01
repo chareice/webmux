@@ -10,15 +10,13 @@ import {
 } from "react";
 import type {
   TerminalInfo,
-  AgentKind,
-  AgentSessionInfo,
   Bookmark,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
   WorkspaceLayoutNode,
 } from "@offdesk/shared";
 import { AppTitleBar } from "./AppTitleBar.web";
-import { Sidebar } from "./Sidebar.web";
+import { TabBar } from "./TabBar.web";
 import {
   CommandPalette,
   type PaletteFilter,
@@ -30,14 +28,10 @@ import { HandoffBanner } from "./HandoffBanner";
 import { MachineOnboardingDialog } from "./OnboardingView.web";
 import { Terminal as TerminalIcon } from "lucide-react";
 import {
-  answerAgentSession,
-  cancelAgentSession,
-  createAgentSession,
   createTerminal,
   createWorkspaceGroup,
   deleteMachine,
   deleteWorkspaceGroup,
-  destroyAgentSession,
   destroyTerminal,
   checkForegroundProcess,
   assignTerminalWorkspaceGroup,
@@ -45,15 +39,12 @@ import {
   getBootstrap,
   listBookmarks,
   listWorkspaceGroups,
-  promptAgentSession,
   putFocus,
   requestControl,
   reorderWorkspaceGroups,
   releaseControl,
   renameWorkspaceGroup,
-  resumeAgentSession,
   saveWorkspaceLayout,
-  setAgentSessionModel,
 } from "@/lib/api";
 import {
   estimateInitialTerminalDimensions,
@@ -87,12 +78,6 @@ import {
   planNewTerminalPlacement,
   type WorkspaceGroup,
 } from "@/lib/terminalWorkspaceLayout";
-import { buildSidebarTree } from "@/lib/sidebarTree";
-import {
-  applyLiveAgentSessionEvent,
-  getAgentSessionPendingQuestion,
-  removeAgentSessionFeed,
-} from "@/lib/agentSessionFeed";
 import {
   createInitialMainLayout,
   mainLayoutReducer,
@@ -104,14 +89,8 @@ import {
 import { TerminalPreviewMuxProvider } from "@/lib/terminalPreviewMuxReact";
 import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 import { readViewOnlyLock, writeViewOnlyLock } from "@/lib/viewOnlyLock";
-import {
-  readSessionDefaults,
-  recordSessionModels,
-  writeLastCwd,
-} from "@/lib/sessionDefaults";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import { LazyLoadingFallback } from "./LazyLoadingFallback";
-import type { NewSessionRequest } from "./NewSessionDialog.web";
 
 const OnboardingView = lazy(() =>
   lazyWithReload(() =>
@@ -139,31 +118,9 @@ const RenameGroupDialog = lazy(() =>
     })),
   ),
 );
-const AgentChatView = lazy(() =>
-  lazyWithReload(() =>
-    import("./AgentChatView.web").then((module) => ({
-      default: module.AgentChatView,
-    })),
-  ),
-);
-const NewSessionDialog = lazy(() =>
-  lazyWithReload(() =>
-    import("./NewSessionDialog.web").then((module) => ({
-      default: module.NewSessionDialog,
-    })),
-  ),
-);
-const NewSessionSheet = lazy(() =>
-  lazyWithReload(() =>
-    import("./NewSessionSheet.web").then((module) => ({
-      default: module.NewSessionSheet,
-    })),
-  ),
-);
 
 // Prefix actions owned by TerminalCanvas (workspace-owned actions are
-// registered by TerminalWorkspace). ⌃B 1..9 select the Nth section of the
-// sidebar tree across machines, so they live here where the tree is built.
+// registered by TerminalWorkspace).
 const CANVAS_PREFIX_ACTIONS: PrefixActionId[] = [
   "newTerminal",
   "cheatSheet",
@@ -171,15 +128,6 @@ const CANVAS_PREFIX_ACTIONS: PrefixActionId[] = [
   "switchHost",
   "commandPalette",
   "copyMode",
-  "selectTab1",
-  "selectTab2",
-  "selectTab3",
-  "selectTab4",
-  "selectTab5",
-  "selectTab6",
-  "selectTab7",
-  "selectTab8",
-  "selectTab9",
 ];
 
 interface CreateTerminalOptions {
@@ -306,20 +254,6 @@ function TerminalCanvasInner() {
   const [showHandoffBanner, setShowHandoffBanner] = useState(false);
   const [reconnectGeneration, setReconnectGeneration] = useState(0);
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
-  // Selected agent session (chat view full-area on the right). Mutually
-  // exclusive with terminal group/zoom selection; mirrored in the URL hash
-  // as `#/a/<id>` alongside the terminal zoom's `#/t/<id>`.
-  const [selectedAgentSessionId, setSelectedAgentSessionId] = useState<
-    string | null
-  >(null);
-  const [newSessionOpen, setNewSessionOpen] = useState(false);
-  // Mobile only: the group the title-bar ＋ was pressed from — seeds the
-  // new-session sheet's directory step and the terminal chip's placement.
-  const [mobileNewSessionGroup, setMobileNewSessionGroup] =
-    useState<WorkspaceGroup | null>(null);
-  // Mobile only: agent session awaiting kill confirmation (title-bar ✕).
-  const [agentKillTarget, setAgentKillTarget] =
-    useState<AgentSessionInfo | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [addMachineOpen, setAddMachineOpen] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -338,14 +272,10 @@ function TerminalCanvasInner() {
       }
     | null
   >(null);
-  const [groupDeleteConfirmation, setGroupDeleteConfirmation] = useState<{
-    machineId: string;
-    group: WorkspaceGroup;
-  } | null>(null);
-  const [groupRenameTarget, setGroupRenameTarget] = useState<{
-    machineId: string;
-    group: WorkspaceGroup;
-  } | null>(null);
+  const [groupDeleteConfirmation, setGroupDeleteConfirmation] =
+    useState<WorkspaceGroup | null>(null);
+  const [groupRenameTarget, setGroupRenameTarget] =
+    useState<WorkspaceGroup | null>(null);
   const [hostRemoveTarget, setHostRemoveTarget] = useState<{
     machineId: string;
     name: string;
@@ -354,8 +284,6 @@ function TerminalCanvasInner() {
 
   const machines = browserState.machines;
   const terminals = browserState.terminals;
-  const agentSessions = browserState.agentSessions;
-  const agentSessionSeen = browserState.agentSessionSeen;
   const workspaceGroups = browserState.workspaceGroups;
   const workspaceLayouts = browserState.workspaceLayouts;
   const machineStats = browserState.machineStats;
@@ -385,6 +313,46 @@ function TerminalCanvasInner() {
   const isActiveController = activeMachineId
     ? isMachineController(activeMachineId)
     : false;
+
+  const machineOnline = useMemo(
+    () =>
+      Object.fromEntries(
+        machines.map((machine) => [
+          machine.id,
+          Boolean(machineStats[machine.id]) ||
+            terminals.some((terminal) =>
+              terminal.machine_id === machine.id && terminal.reachable,
+            ),
+        ]),
+      ),
+    [machines, machineStats, terminals],
+  );
+  const handleRemoveHost = useCallback(
+    (machineId: string) => {
+      const machine = machines.find((item) => item.id === machineId);
+      setHostRemoveTarget({
+        machineId,
+        name: machine?.name ?? machineId,
+        online: Boolean(machineOnline[machineId]),
+      });
+    },
+    [machineOnline, machines],
+  );
+  const confirmRemoveHost = useCallback(() => {
+    const target = hostRemoveTarget;
+    setHostRemoveTarget(null);
+    if (!target) return;
+    void (async () => {
+      try {
+        await deleteMachine(target.machineId);
+      } catch (error) {
+        console.error("Failed to remove host", error);
+        showWorkspaceToast(
+          error instanceof Error ? error.message : "Failed to remove host",
+        );
+      }
+    })();
+  }, [hostRemoveTarget]);
 
   // ---- device id, bootstrap, events WS ----
 
@@ -444,31 +412,21 @@ function TerminalCanvasInner() {
     };
   }, [machines, terminals.length]);
 
-  // URL hash <-> zoom/agent-selection sync.
+  // URL hash <-> zoom-state sync.
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.startsWith("#/t/")) {
       const id = hash.slice(4);
       if (id) dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: id });
-    } else if (hash.startsWith("#/a/")) {
-      const id = hash.slice(4);
-      if (id) setSelectedAgentSessionId(id);
     }
   }, []);
   useEffect(() => {
     const onPopState = () => {
       const hash = window.location.hash;
-      if (hash.startsWith("#/a/")) {
-        const id = hash.slice(4);
-        dispatchLayout({ type: "UNZOOM" });
-        setSelectedAgentSessionId(id || null);
+      if (hash.startsWith("#/t/")) {
+        dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: hash.slice(4) });
       } else {
-        setSelectedAgentSessionId(null);
-        if (hash.startsWith("#/t/")) {
-          dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: hash.slice(4) });
-        } else {
-          dispatchLayout({ type: "UNZOOM" });
-        }
+        dispatchLayout({ type: "UNZOOM" });
       }
     };
     window.addEventListener("popstate", onPopState);
@@ -552,113 +510,6 @@ function TerminalCanvasInner() {
     zoomedTerminalIdRef.current = layout.zoomedTerminalId;
   }, [layout.zoomedTerminalId]);
 
-  // Refs the events-WS handler reads (it is registered once per reconnect and
-  // must see the latest values without re-subscribing).
-  const selectedAgentSessionIdRef = useRef<string | null>(selectedAgentSessionId);
-  useEffect(() => {
-    selectedAgentSessionIdRef.current = selectedAgentSessionId;
-  }, [selectedAgentSessionId]);
-  const agentSessionsRef = useRef(agentSessions);
-  useEffect(() => {
-    agentSessionsRef.current = agentSessions;
-  }, [agentSessions]);
-
-  const clearAgentSelection = useCallback(() => {
-    setSelectedAgentSessionId(null);
-    if (window.location.hash.startsWith("#/a/")) {
-      window.history.pushState(null, "", window.location.pathname);
-    }
-  }, []);
-
-  const handleSelectAgentSession = useCallback(
-    (machineId: string, sessionId: string) => {
-      void machineId; // chat view is machine-agnostic; gating uses the session's machine_id
-      if (zoomedTerminalIdRef.current) dispatchLayout({ type: "UNZOOM" });
-      setSelectedAgentSessionId(sessionId);
-      window.history.pushState(null, "", `#/a/${sessionId}`);
-    },
-    [],
-  );
-
-  // A restored `#/a/<id>` whose session no longer exists falls back to the
-  // plain workspace instead of rendering a dead chat view.
-  const bootstrapReadyForAgents = bootstrapReady;
-  useEffect(() => {
-    if (!bootstrapReadyForAgents || !selectedAgentSessionId) return;
-    if (agentSessions.some((session) => session.id === selectedAgentSessionId))
-      return;
-    setSelectedAgentSessionId(null);
-    if (window.location.hash.startsWith("#/a/")) {
-      window.history.replaceState(null, "", window.location.pathname);
-    }
-  }, [bootstrapReadyForAgents, selectedAgentSessionId, agentSessions]);
-
-  // Free text while an ask-card is open: a text-only answer CANCELS the
-  // permission request (ACP request_permission has no free-form channel —
-  // see the backend report's deviation note), so the text is re-sent as a
-  // prompt right after the card resolves.
-  const handleSendAgentMessage = useCallback(
-    async (session: AgentSessionInfo, text: string) => {
-      if (!deviceId) return;
-      const pending = getAgentSessionPendingQuestion(session.id);
-      if (pending) {
-        await answerAgentSession(
-          session.machine_id,
-          session.id,
-          { requestId: pending.requestId, text },
-          deviceId,
-        );
-      }
-      await promptAgentSession(session.machine_id, session.id, text, deviceId);
-    },
-    [deviceId],
-  );
-
-  const handleAnswerAgentOption = useCallback(
-    async (session: AgentSessionInfo, requestId: string, optionId: string) => {
-      if (!deviceId) return;
-      await answerAgentSession(
-        session.machine_id,
-        session.id,
-        { requestId, optionId },
-        deviceId,
-      );
-    },
-    [deviceId],
-  );
-
-  const handleCancelAgentTurn = useCallback(
-    async (session: AgentSessionInfo) => {
-      if (!deviceId) return;
-      await cancelAgentSession(session.machine_id, session.id, deviceId);
-    },
-    [deviceId],
-  );
-
-  const handleResumeAgentSession = useCallback(
-    async (session: AgentSessionInfo) => {
-      if (!deviceId) return;
-      await resumeAgentSession(session.machine_id, session.id, deviceId);
-    },
-    [deviceId],
-  );
-
-  const handleKillAgentSession = useCallback(
-    async (session: AgentSessionInfo) => {
-      if (!deviceId) return;
-      await destroyAgentSession(session.machine_id, session.id, deviceId);
-      // The agent_session_destroyed event clears the selection; close it
-      // locally too so the view doesn't wait on the round trip.
-      if (selectedAgentSessionIdRef.current === session.id) {
-        setSelectedAgentSessionId(null);
-        if (window.location.hash === `#/a/${session.id}`) {
-          window.history.replaceState(null, "", window.location.pathname);
-        }
-      }
-    },
-    [deviceId],
-  );
-
   useEffect(() => {
     if (!bootstrapReady || !deviceId) return;
     const ws = new WebSocket(eventsWsUrl(deviceId, lastSeqRef.current));
@@ -732,30 +583,6 @@ function TerminalCanvasInner() {
           }
           return next;
         });
-        // Agent-session envelopes have a second consumer beyond
-        // bootstrapState: the per-session transcript feed (chat view + inbox
-        // question prompts).
-        const browserEvent = envelope.event;
-        if (browserEvent?.type === "agent_session_event") {
-          const machineId =
-            agentSessionsRef.current.find(
-              (session) => session.id === browserEvent.session_id,
-            )?.machine_id ?? "";
-          applyLiveAgentSessionEvent(
-            machineId,
-            browserEvent.session_id,
-            browserEvent.seq,
-            browserEvent.event,
-          );
-        } else if (browserEvent?.type === "agent_session_destroyed") {
-          removeAgentSessionFeed(browserEvent.session_id);
-          if (selectedAgentSessionIdRef.current === browserEvent.session_id) {
-            setSelectedAgentSessionId(null);
-            if (window.location.hash === `#/a/${browserEvent.session_id}`) {
-              window.history.replaceState(null, "", window.location.pathname);
-            }
-          }
-        }
         if (needsResync) ws.close();
       } catch {
         /* ignore malformed events */
@@ -807,6 +634,7 @@ function TerminalCanvasInner() {
   const activeMachine = activeMachineId
     ? machines.find((m) => m.id === activeMachineId) ?? null
     : machines[0] ?? null;
+  const activeStats = activeMachine ? machineStats[activeMachine.id] : undefined;
 
   const scopeBookmark =
     layout.selectedWorkpathId === "all" || !activeMachine
@@ -846,10 +674,9 @@ function TerminalCanvasInner() {
     );
   }, [workspaceLayouts, activeMachine]);
 
-  // ---- desktop Sidebar / command palette state ----
-  // tabGroups is the ACTIVE machine's grouping (mobile title bar + new-tab
-  // naming); the sidebar builds its own per-machine projection in
-  // sidebarTree below.
+  // ---- desktop TabBar / command palette state (Phase 2) ----
+  // Same grouping the workspace computes (persistent groups + cwd fallback),
+  // derived here so the TabBar can render above the workspace.
   const scopedTerminalsById = useMemo(
     () => new Map(scopedTerminals.map((t) => [t.id, t])),
     [scopedTerminals],
@@ -865,157 +692,7 @@ function TerminalCanvasInner() {
     [scopedTerminals, activeMachineWorkspaceGroups, activeMachineWorkspaceLayouts],
   );
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
-  const [sidebarActiveTerminalId, setSidebarActiveTerminalId] = useState<
-    string | null
-  >(null);
   const workspaceCommandsRef = useRef<WorkspaceCommandChannel>({});
-
-  // Host filter: clicking a host in the sidebar dims the other machines'
-  // tree sections. UI-only, "all visible" by default — it never scopes the
-  // workspace the way the old activeMachineId mode switch did.
-  const [hostFilterId, setHostFilterId] = useState<string | null>(null);
-  useEffect(() => {
-    if (hostFilterId && !machines.some((m) => m.id === hostFilterId)) {
-      setHostFilterId(null);
-    }
-  }, [machines, hostFilterId]);
-  const handleToggleHostFilter = useCallback((machineId: string) => {
-    setHostFilterId((current) => (current === machineId ? null : machineId));
-  }, []);
-
-  const machineOnline = useMemo(
-    () =>
-      Object.fromEntries(
-        machines.map((machine) => [
-          machine.id,
-          Boolean(machineStats[machine.id]) ||
-            terminals.some((t) => t.machine_id === machine.id && t.reachable),
-        ]),
-      ),
-    [machines, machineStats, terminals],
-  );
-  const handleRemoveHost = useCallback(
-    (machineId: string) => {
-      const machine = machines.find((item) => item.id === machineId);
-      setHostRemoveTarget({
-        machineId,
-        name: machine?.name ?? machineId,
-        online: Boolean(machineOnline[machineId]),
-      });
-    },
-    [machineOnline, machines],
-  );
-  const confirmRemoveHost = useCallback(() => {
-    const target = hostRemoveTarget;
-    setHostRemoveTarget(null);
-    if (!target) return;
-    void (async () => {
-      try {
-        await deleteMachine(target.machineId);
-      } catch (error) {
-        console.error("Failed to remove host", error);
-        showWorkspaceToast(
-          error instanceof Error ? error.message : "Failed to remove host",
-        );
-      }
-    })();
-  }, [hostRemoveTarget]);
-  const sidebarTree = useMemo(
-    () =>
-      buildSidebarTree({
-        machines,
-        terminals,
-        workspaceGroups,
-        workspaceLayouts,
-        machineOnline,
-        hostFilterId,
-        activeMachineId,
-        activeGroupId,
-        activeTerminalId: sidebarActiveTerminalId,
-        agentSessions,
-        agentSessionSeen,
-        selectedAgentSessionId,
-      }),
-    [
-      machines,
-      terminals,
-      workspaceGroups,
-      workspaceLayouts,
-      machineOnline,
-      hostFilterId,
-      activeMachineId,
-      activeGroupId,
-      sidebarActiveTerminalId,
-      agentSessions,
-      agentSessionSeen,
-      selectedAgentSessionId,
-    ],
-  );
-
-  // Sidebar selection, robust across machine switches: when the target
-  // section lives on another machine, switch activeMachineId first and park
-  // the selection; the flush effect below replays it once the workspace is
-  // showing that machine (same pending pattern the workspace uses for
-  // groups that have not reconciled yet).
-  const pendingSidebarSelectionRef = useRef<{
-    machineId: string;
-    groupId: string;
-    terminalId: string | null;
-  } | null>(null);
-  const runSidebarTarget = useCallback(
-    (target: { groupId: string; terminalId: string | null }) => {
-      workspaceCommandsRef.current.selectGroup?.(target.groupId);
-      if (target.terminalId) {
-        workspaceCommandsRef.current.focusPane?.(target.terminalId);
-      }
-    },
-    [],
-  );
-  const selectSidebarTarget = useCallback(
-    (target: {
-      machineId: string;
-      groupId: string;
-      terminalId: string | null;
-    }) => {
-      // Terminal selection and agent-session selection are mutually
-      // exclusive; picking any terminal section/row leaves the chat view.
-      if (selectedAgentSessionIdRef.current) {
-        setSelectedAgentSessionId(null);
-        if (window.location.hash.startsWith("#/a/")) {
-          window.history.pushState(null, "", window.location.pathname);
-        }
-      }
-      if (target.machineId === activeMachineId) {
-        pendingSidebarSelectionRef.current = null;
-        runSidebarTarget(target);
-        return;
-      }
-      pendingSidebarSelectionRef.current = target;
-      setActiveMachineId(target.machineId);
-    },
-    [activeMachineId, runSidebarTarget],
-  );
-  useEffect(() => {
-    const pending = pendingSidebarSelectionRef.current;
-    if (!pending || pending.machineId !== activeMachineId) return;
-    pendingSidebarSelectionRef.current = null;
-    runSidebarTarget(pending);
-  }, [activeMachineId, workspaceGroups, runSidebarTarget]);
-
-  // ⌃B 1..9: select the Nth visible sidebar section, across machines
-  // top-to-bottom (the tree's shortcutIndex order).
-  const selectSidebarSectionByIndex = useCallback(
-    (index: number) => {
-      const section = sidebarTree.visibleSections[index];
-      if (!section) return;
-      selectSidebarTarget({
-        machineId: section.machineId,
-        groupId: section.groupId,
-        terminalId: null,
-      });
-    },
-    [sidebarTree, selectSidebarTarget],
-  );
   const [paletteState, setPaletteState] = useState<{
     open: boolean;
     filter: PaletteFilter;
@@ -1045,7 +722,6 @@ function TerminalCanvasInner() {
     handoffLandingHandledRef.current = true;
 
     if (window.location.hash.startsWith("#/t/")) return;
-    if (window.location.hash.startsWith("#/a/")) return;
     const terminalId = browserState.lastFocusedTerminalId;
     if (!terminalId) return;
     const terminal = terminals.find((item) => item.id === terminalId);
@@ -1159,7 +835,6 @@ function TerminalCanvasInner() {
               ?.id ?? layout.selectedWorkpathId,
         });
       }
-      setSelectedAgentSessionId(null);
       window.history.pushState(null, "", `#/t/${newTerminal.id}`);
       return newTerminal;
     },
@@ -1171,110 +846,6 @@ function TerminalCanvasInner() {
       layout.selectedWorkpathId,
       viewportHeight,
     ],
-  );
-
-  // Create an agent session and select it; shared by the new-session panel
-  // and the sidebar section ＋ → "New agent chat" instant path.
-  const createAndSelectAgentSession = useCallback(
-    async (
-      machineId: string,
-      args: {
-        agentKind: AgentKind;
-        cwd: string;
-        autoRun?: boolean;
-        modelId?: string | null;
-      },
-    ) => {
-      if (!deviceId) return;
-      const session = await createAgentSession(machineId, args, deviceId);
-      setBrowserState((prev) => ({
-        ...prev,
-        agentSessions: prev.agentSessions.some((item) => item.id === session.id)
-          ? prev.agentSessions
-          : [...prev.agentSessions, session],
-      }));
-      if (machineId !== activeMachineId) setActiveMachineId(machineId);
-      handleSelectAgentSession(session.machine_id, session.id);
-    },
-    [deviceId, activeMachineId, handleSelectAgentSession],
-  );
-
-  // New-session panel submit: the terminal chip routes to the existing
-  // create-terminal flow; agent kinds create + select an agent session. The
-  // panel itself persists the choices as the remembered defaults.
-  const handleNewSessionRequest = useCallback(
-    (request: NewSessionRequest) => {
-      setNewSessionOpen(false);
-      if (!deviceId || !isMachineController(request.machineId)) return;
-      const kind = request.kind;
-      if (kind === "terminal") {
-        void handleCreateTerminal(request.machineId, request.cwd).catch(
-          (error) => console.error("Failed to create terminal", error),
-        );
-        return;
-      }
-      void createAndSelectAgentSession(request.machineId, {
-        agentKind: kind,
-        cwd: request.cwd,
-        autoRun: request.autoRun,
-        modelId: request.modelId,
-      }).catch((error) => console.error("Failed to create agent session", error));
-    },
-    [
-      deviceId,
-      isMachineController,
-      handleCreateTerminal,
-      createAndSelectAgentSession,
-    ],
-  );
-
-  // Sidebar section ＋ → "New agent chat": zero-dialog create in that
-  // project's cwd with the remembered agent + model (auto-run remembered,
-  // else the machine default).
-  const handleNewAgentChatInSection = useCallback(
-    (machineId: string, group: WorkspaceGroup) => {
-      if (!deviceId || !isMachineController(machineId)) return;
-      const machine = machines.find((m) => m.id === machineId);
-      if (!machine) return;
-      const cwd = group.cwd || machine.home_dir || "~";
-      const defaults = readSessionDefaults(window.localStorage);
-      // "terminal" is not an agent; the instant path falls back to kimi.
-      const agentKind: AgentKind =
-        defaults.agentKind === "terminal" ? "kimi" : defaults.agentKind;
-      writeLastCwd(window.localStorage, machineId, cwd);
-      void createAndSelectAgentSession(machineId, {
-        agentKind,
-        cwd,
-        autoRun: defaults.autoRun ?? !(machine.production ?? false),
-        modelId: defaults.modelId,
-      }).catch((error) => console.error("Failed to create agent session", error));
-    },
-    [
-      deviceId,
-      isMachineController,
-      machines,
-      createAndSelectAgentSession,
-    ],
-  );
-
-  // Feed the per-agent-kind model cache: the create panel's model dropdown
-  // reads it so options exist even before a session is selected.
-  useEffect(() => {
-    for (const session of agentSessions) {
-      recordSessionModels(
-        window.localStorage,
-        session.agent_kind,
-        session.available_models,
-      );
-    }
-  }, [agentSessions]);
-
-  const handleSelectAgentModel = useCallback(
-    async (session: AgentSessionInfo, modelId: string) => {
-      if (!deviceId) return;
-      await setAgentSessionModel(session.machine_id, session.id, modelId, deviceId);
-    },
-    [deviceId],
   );
 
   const handleRequestControl = useCallback(
@@ -1385,7 +956,6 @@ function TerminalCanvasInner() {
   }, [closeConfirmation, deviceId]);
 
   const handleZoomTerminal = useCallback((id: string) => {
-    setSelectedAgentSessionId(null);
     dispatchLayout({ type: "ZOOM_TERMINAL", terminalId: id });
     window.history.pushState(null, "", `#/t/${id}`);
   }, []);
@@ -1469,81 +1039,6 @@ function TerminalCanvasInner() {
       });
     },
     [activeMachine, handleCreateWorkspacePane, resolveNewTerminalGroupId],
-  );
-
-  // Mobile title-bar ＋ / switcher "New session" row: remember which group
-  // the sheet was opened from (it seeds the directory step and the terminal
-  // chip's placement), then open the sheet.
-  const handleOpenMobileNewSession = useCallback(
-    (group: WorkspaceGroup | null) => {
-      setMobileNewSessionGroup(group);
-      setNewSessionOpen(true);
-    },
-    [],
-  );
-
-  // Mobile new-session sheet submit. Agent kinds share the desktop create
-  // path (model + machine switch included); the terminal chip preserves the
-  // old mobile ＋ behavior exactly — placement aimed at the group the sheet
-  // was opened from (on the active machine), overflowing a full tab into a
-  // fresh one.
-  const handleMobileNewSessionRequest = useCallback(
-    (request: NewSessionRequest) => {
-      setNewSessionOpen(false);
-      if (!deviceId || !isMachineController(request.machineId)) return;
-      if (request.kind !== "terminal") {
-        void createAndSelectAgentSession(request.machineId, {
-          agentKind: request.kind,
-          cwd: request.cwd,
-          autoRun: request.autoRun,
-          modelId: request.modelId,
-        }).catch((error) =>
-          console.error("Failed to create agent session", error),
-        );
-        return;
-      }
-      const tabId =
-        mobileNewSessionGroup &&
-        activeMachine &&
-        request.machineId === activeMachine.id
-          ? mobileNewSessionGroup.id
-          : null;
-      void (async () => {
-        const workspaceGroupId = await resolveNewTerminalGroupId(
-          request.machineId,
-          request.cwd,
-          tabId,
-        );
-        await handleCreateWorkspacePane({
-          machineId: request.machineId,
-          cwd: request.cwd,
-          workspaceGroupId,
-        });
-      })().catch((error) => {
-        console.error("Failed to create terminal", error);
-      });
-    },
-    [
-      deviceId,
-      isMachineController,
-      createAndSelectAgentSession,
-      mobileNewSessionGroup,
-      activeMachine,
-      resolveNewTerminalGroupId,
-      handleCreateWorkspacePane,
-    ],
-  );
-
-  // Picking an agent session on mobile (switcher row, inbox banner,
-  // cross-session reminder, swipe): the chat page is machine-agnostic, but
-  // the session model is scoped to the active machine, so follow the pick
-  // across hosts.
-  const handleMobilePickAgentSession = useCallback(
-    (machineId: string, sessionId: string) => {
-      if (machineId !== activeMachineId) setActiveMachineId(machineId);
-      handleSelectAgentSession(machineId, sessionId);
-    },
-    [activeMachineId, handleSelectAgentSession],
   );
 
   const handleMobileCloseTerminal = useCallback(
@@ -1718,83 +1213,46 @@ function TerminalCanvasInner() {
   }, [activeMachineId, createTab, isActiveController]);
 
   const performDeleteGroup = useCallback(
-    async (machineId: string, group: WorkspaceGroup) => {
-      if (!group.workspaceGroupId) return;
-      await deleteWorkspaceGroup(machineId, group.workspaceGroupId);
+    async (group: WorkspaceGroup) => {
+      if (!activeMachineId || !group.workspaceGroupId) return;
+      await deleteWorkspaceGroup(activeMachineId, group.workspaceGroupId);
       // Panes fall back to their cwd groups server-side; nothing to do here.
     },
-    [],
+    [activeMachineId],
   );
 
   const performRenameGroup = useCallback(
-    async (machineId: string, group: WorkspaceGroup, name: string) => {
-      if (!group.workspaceGroupId) return;
-      await renameWorkspaceGroup(machineId, group.workspaceGroupId, name);
+    async (group: WorkspaceGroup, name: string) => {
+      if (!activeMachineId || !group.workspaceGroupId) return;
+      await renameWorkspaceGroup(activeMachineId, group.workspaceGroupId, name);
       // The renamed group arrives via workspace_group_updated; nothing to do
       // here.
     },
-    [],
+    [activeMachineId],
   );
 
+  const handleNewGroupClick = useCallback(() => {
+    void handleNewGroup();
+  }, [handleNewGroup]);
+
   const handleDeleteGroup = useCallback(
-    (machineId: string, group: WorkspaceGroup) => {
-      if (!isMachineController(machineId)) return;
+    (group: WorkspaceGroup) => {
+      if (!isActiveController) return;
       if (group.paneCount > 0) {
-        setGroupDeleteConfirmation({ machineId, group });
+        setGroupDeleteConfirmation(group);
         return;
       }
-      void performDeleteGroup(machineId, group);
+      void performDeleteGroup(group);
     },
-    [isMachineController, performDeleteGroup],
+    [isActiveController, performDeleteGroup],
   );
 
   const handleRenameGroup = useCallback(
-    (machineId: string, group: WorkspaceGroup) => {
-      if (!isMachineController(machineId) || !group.persistent) return;
-      setGroupRenameTarget({ machineId, group });
+    (group: WorkspaceGroup) => {
+      if (!isActiveController || !group.persistent) return;
+      setGroupRenameTarget(group);
     },
-    [isMachineController],
-  );
-
-  // Sidebar section "＋" / "New terminal here": create a terminal in that
-  // section's group, on that section's machine. A full target overflows
-  // into a fresh tab, same as every other creation path.
-  const handleNewTerminalInSection = useCallback(
-    async (machineId: string, group: WorkspaceGroup) => {
-      if (!deviceId) return;
-      if (!isMachineController(machineId)) return;
-      const machine = machines.find((m) => m.id === machineId);
-      if (!machine) return;
-      const cwd = group.cwd || machine.home_dir || "~";
-      const machineGroups =
-        sidebarTree.machines
-          .find((m) => m.machineId === machineId)
-          ?.sections.map((section) => section.group) ?? [];
-      const placement = planNewTerminalPlacement(machineGroups, {
-        tabId: group.id,
-        cwd,
-      });
-      let workspaceGroupId = placement.workspaceGroupId;
-      if (placement.needsNewTab) {
-        const taken = new Set(machineGroups.map((g) => g.label));
-        let n = machineGroups.length + 1;
-        while (taken.has(`tab ${n}`)) n += 1;
-        const created = await createWorkspaceGroup(machineId, `tab ${n}`);
-        workspaceGroupId = created.id;
-      }
-      if (machineId !== activeMachineId) setActiveMachineId(machineId);
-      await handleCreateTerminal(machineId, cwd, undefined, {
-        workspaceGroupId,
-      });
-    },
-    [
-      activeMachineId,
-      deviceId,
-      handleCreateTerminal,
-      isMachineController,
-      machines,
-      sidebarTree,
-    ],
+    [isActiveController],
   );
 
   // ---- prefix-key shortcut engine (⌃B) ----
@@ -1825,15 +1283,6 @@ function TerminalCanvasInner() {
     // TODO(phase 3+): copy mode. Registered as a no-op so armed + key is
     // swallowed, not typed.
     copyMode: () => {},
-    selectTab1: () => selectSidebarSectionByIndex(0),
-    selectTab2: () => selectSidebarSectionByIndex(1),
-    selectTab3: () => selectSidebarSectionByIndex(2),
-    selectTab4: () => selectSidebarSectionByIndex(3),
-    selectTab5: () => selectSidebarSectionByIndex(4),
-    selectTab6: () => selectSidebarSectionByIndex(5),
-    selectTab7: () => selectSidebarSectionByIndex(6),
-    selectTab8: () => selectSidebarSectionByIndex(7),
-    selectTab9: () => selectSidebarSectionByIndex(8),
   };
 
   useEffect(() => {
@@ -1865,24 +1314,6 @@ function TerminalCanvasInner() {
     return () => window.removeEventListener("keydown", onKeydown);
   }, [isCompact]);
 
-  // Esc leaves the selected agent session's chat view (mirrors the unzoom
-  // binding below for terminals). The composer textarea is not inside
-  // `.xterm`, so plain Esc while typing still exits — intended, and the
-  // draft text survives in the view's state until it unmounts.
-  useEffect(() => {
-    if (isCompact || !selectedAgentSessionId) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (
-        e.key === "Escape" &&
-        !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey
-      ) {
-        clearAgentSelection();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isCompact, selectedAgentSessionId, clearAgentSelection]);
-
   // Esc unzooms the expanded view, unless focus is inside xterm (which needs
   // Esc for its own bindings — the expanded overlay handles that case).
   // Compact chrome has no overlay to dismiss.
@@ -1905,21 +1336,6 @@ function TerminalCanvasInner() {
 
   // ---- render ----
 
-  const selectedAgentSession = selectedAgentSessionId
-    ? (agentSessions.find((session) => session.id === selectedAgentSessionId) ??
-      null)
-    : null;
-  const sessionCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const terminal of terminals) {
-      counts[terminal.machine_id] = (counts[terminal.machine_id] ?? 0) + 1;
-    }
-    for (const session of agentSessions) {
-      counts[session.machine_id] = (counts[session.machine_id] ?? 0) + 1;
-    }
-    return counts;
-  }, [terminals, agentSessions]);
-
   const scopeLabel = useMemo(() => {
     if (layout.selectedWorkpathId === "all" || !activeMachine) return "All";
     return (
@@ -1931,13 +1347,14 @@ function TerminalCanvasInner() {
   }, [layout.selectedWorkpathId, activeMachine, bookmarks]);
 
   // Command palette rows, in the spec's fixed order. Workspace-owned actions
-  // (splits) go through the workspace command channel; tab rows mirror the
-  // sidebar tree (all machines, ⌃B N hints follow the tree order); host rows
-  // toggle the sidebar host filter instead of switching a mode.
+  // (splits, tab selection) go through the workspace command channel.
   const paletteRows = useMemo<PaletteRow[]>(() => {
     const bindings = loadPrefixBindings();
-    const machineNameById = new Map(
-      machines.map((machine) => [machine.id, machine.name]),
+    const otherOnlineMachines = machines.filter(
+      (machine) =>
+        machine.id !== activeMachine?.id &&
+        (Boolean(machineStats[machine.id]) ||
+          terminals.some((t) => t.machine_id === machine.id && t.reachable)),
     );
     return [
       {
@@ -1983,39 +1400,25 @@ function TerminalCanvasInner() {
         action: () =>
           workspaceCommandsRef.current.runPrefixAction?.("rotateLayout"),
       },
-      ...sidebarTree.visibleSections.map((section): PaletteRow => {
-        const tabAction =
-          section.shortcutIndex !== null
-            ? (`selectTab${section.shortcutIndex}` as PrefixActionId)
-            : null;
-        const machineName = machineNameById.get(section.machineId) ?? "";
-        const onActiveMachine = section.machineId === activeMachine?.id;
+      ...tabGroups.map((group, index): PaletteRow => {
+        const tabAction = `selectTab${index + 1}` as PrefixActionId;
         return {
-          id: `tab-${section.groupId}`,
+          id: `tab-${group.id}`,
           section: "tabs",
-          label: onActiveMachine
-            ? section.label
-            : `${machineName} · ${section.label}`,
-          keywords: `${section.cwd} ${machineName}`,
-          hint: tabAction ? formatPrefixBinding(tabAction, bindings) : undefined,
-          action: () =>
-            selectSidebarTarget({
-              machineId: section.machineId,
-              groupId: section.groupId,
-              terminalId: null,
-            }),
+          label: group.label,
+          keywords: group.cwd,
+          hint:
+            index < 9 ? formatPrefixBinding(tabAction, bindings) : undefined,
+          action: () => workspaceCommandsRef.current.selectGroup?.(group.id),
         };
       }),
-      ...machines.map(
+      ...otherOnlineMachines.map(
         (machine): PaletteRow => ({
           id: `host-${machine.id}`,
           section: "hosts",
-          label:
-            hostFilterId === machine.id
-              ? `${machine.name} (filtered)`
-              : machine.name,
+          label: machine.name,
           keywords: machine.os,
-          action: () => handleToggleHostFilter(machine.id),
+          action: () => setActiveMachineId(machine.id),
         }),
       ),
       {
@@ -2046,13 +1449,12 @@ function TerminalCanvasInner() {
   }, [
     machines,
     activeMachine,
-    sidebarTree,
-    hostFilterId,
+    machineStats,
+    terminals,
+    tabGroups,
     isActiveController,
     handleNewTerminalFromHeader,
     handleNewGroup,
-    handleToggleHostFilter,
-    selectSidebarTarget,
     logout,
   ]);
 
@@ -2101,13 +1503,6 @@ function TerminalCanvasInner() {
               onPickTerminal={handleZoomTerminal}
               onNewTerminal={handleMobileNewTerminal}
               onCloseTerminal={handleMobileCloseTerminal}
-              agentSessions={agentSessions}
-              agentSessionSeen={agentSessionSeen}
-              askedSessions={sidebarTree.askedSessions}
-              selectedAgentSessionId={selectedAgentSessionId}
-              onPickAgentSession={handleMobilePickAgentSession}
-              onKillAgentSession={setAgentKillTarget}
-              onOpenNewSession={handleOpenMobileNewSession}
               onSelectMachine={setActiveMachineId}
               onAddMachine={() => setAddMachineOpen(true)}
               onRemoveHost={handleRemoveHost}
@@ -2116,64 +1511,6 @@ function TerminalCanvasInner() {
               onEngageViewOnly={handleEngageViewOnly}
               onDisengageViewOnly={handleDisengageViewOnly}
               onOpenSettings={() => setShowSettings(true)}
-              chatContent={
-                selectedAgentSession ? (
-                  <Suspense fallback={<LazyLoadingFallback />}>
-                    <AgentChatView
-                      compact
-                      session={selectedAgentSession}
-                      machineName={
-                        machines.find(
-                          (machine) =>
-                            machine.id === selectedAgentSession.machine_id,
-                        )?.name ?? selectedAgentSession.machine_id
-                      }
-                      canType={canTypeOnMachine(selectedAgentSession.machine_id)}
-                      onTakeControl={() =>
-                        void handleRequestControl(selectedAgentSession.machine_id)
-                      }
-                      onSend={(text) =>
-                        void handleSendAgentMessage(
-                          selectedAgentSession,
-                          text,
-                        ).catch((error) =>
-                          console.error("Failed to send agent message", error),
-                        )
-                      }
-                      onStop={() =>
-                        void handleCancelAgentTurn(selectedAgentSession).catch(
-                          (error) =>
-                            console.error("Failed to cancel agent turn", error),
-                        )
-                      }
-                      onAnswerOption={(requestId, optionId) =>
-                        void handleAnswerAgentOption(
-                          selectedAgentSession,
-                          requestId,
-                          optionId,
-                        ).catch((error) =>
-                          console.error("Failed to answer agent question", error),
-                        )
-                      }
-                      onSelectModel={(modelId) =>
-                        void handleSelectAgentModel(
-                          selectedAgentSession,
-                          modelId,
-                        ).catch((error) =>
-                          console.error("Failed to switch agent model", error),
-                        )
-                      }
-                      onKill={() => setAgentKillTarget(selectedAgentSession)}
-                      onResume={() =>
-                        void handleResumeAgentSession(selectedAgentSession).catch(
-                          (error) =>
-                            console.error("Failed to resume agent session", error),
-                        )
-                      }
-                    />
-                  </Suspense>
-                ) : null
-              }
             >
               {scopedTerminals.length > 0 && workspaceTerminal ? (
                 <TerminalWorkspace
@@ -2202,59 +1539,6 @@ function TerminalCanvasInner() {
             </MobileWorkbench>
           ) : (
             <KeyBarSlotProvider>
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  minWidth: 0,
-                  minHeight: 0,
-                }}
-              >
-              <Sidebar
-                tree={sidebarTree}
-                machineStats={machineStats}
-                rttMs={rttMs}
-                hostFilterId={hostFilterId}
-                activeMachineId={activeMachineId}
-                isControllerFor={isMachineController}
-                isActiveController={isActiveController}
-                viewOnlyLocked={viewOnlyLocked}
-                onToggleHostFilter={handleToggleHostFilter}
-                onAddMachine={() => setAddMachineOpen(true)}
-                onRemoveHost={handleRemoveHost}
-                onSelectSection={(machineId, groupId) =>
-                  selectSidebarTarget({ machineId, groupId, terminalId: null })
-                }
-                onSelectRow={(machineId, groupId, terminalId) =>
-                  selectSidebarTarget({ machineId, groupId, terminalId })
-                }
-                onSelectAgentRow={handleSelectAgentSession}
-                onNewTab={() => setNewSessionOpen(true)}
-                onNewTerminalInSection={(machineId, group) =>
-                  void handleNewTerminalInSection(machineId, group)
-                }
-                onNewAgentChatInSection={(machineId, group) =>
-                  handleNewAgentChatInSection(machineId, group)
-                }
-                onRenameSection={handleRenameGroup}
-                onDeleteSection={handleDeleteGroup}
-                onReorderSections={(sourceGroupId, targetGroupId, placement) =>
-                  workspaceCommandsRef.current.reorderGroups?.(
-                    sourceGroupId,
-                    targetGroupId,
-                    placement,
-                  )
-                }
-                onRequestControl={() => {
-                  if (activeMachine) void handleRequestControl(activeMachine.id);
-                }}
-                onEngageViewOnly={() => {
-                  if (activeMachine) handleEngageViewOnly(activeMachine.id);
-                }}
-                onDisengageViewOnly={handleDisengageViewOnly}
-                onOpenSettings={() => setShowSettings(true)}
-                onSignOut={() => void logout()}
-              />
               <main
                 style={{
                   flex: 1,
@@ -2264,61 +1548,47 @@ function TerminalCanvasInner() {
                   background: colors.bg0,
                 }}
               >
-              {selectedAgentSession ? (
-                <Suspense fallback={<LazyLoadingFallback />}>
-                  <AgentChatView
-                    session={selectedAgentSession}
-                    machineName={
-                      machines.find(
-                        (machine) => machine.id === selectedAgentSession.machine_id,
-                      )?.name ?? selectedAgentSession.machine_id
-                    }
-                    canType={canTypeOnMachine(selectedAgentSession.machine_id)}
-                    onTakeControl={() =>
-                      void handleRequestControl(selectedAgentSession.machine_id)
-                    }
-                    onSend={(text) =>
-                      void handleSendAgentMessage(selectedAgentSession, text).catch(
-                        (error) =>
-                          console.error("Failed to send agent message", error),
-                      )
-                    }
-                    onStop={() =>
-                      void handleCancelAgentTurn(selectedAgentSession).catch(
-                        (error) =>
-                          console.error("Failed to cancel agent turn", error),
-                      )
-                    }
-                    onAnswerOption={(requestId, optionId) =>
-                      void handleAnswerAgentOption(
-                        selectedAgentSession,
-                        requestId,
-                        optionId,
-                      ).catch((error) =>
-                        console.error("Failed to answer agent question", error),
-                      )
-                    }
-                    onKill={() =>
-                      void handleKillAgentSession(selectedAgentSession).catch(
-                        (error) =>
-                          console.error("Failed to kill agent session", error),
-                      )
-                    }
-                    onResume={() =>
-                      void handleResumeAgentSession(selectedAgentSession).catch(
-                        (error) =>
-                          console.error("Failed to resume agent session", error),
-                      )
-                    }
-                    onSelectModel={(modelId) =>
-                      void handleSelectAgentModel(selectedAgentSession, modelId).catch(
-                        (error) =>
-                          console.error("Failed to switch agent model", error),
-                      )
-                    }
-                  />
-                </Suspense>
-              ) : scopedTerminals.length === 0 ? (
+              <TabBar
+                groups={tabGroups}
+                activeGroupId={activeGroupId}
+                terminalsById={scopedTerminalsById}
+                terminals={terminals}
+                machines={machines}
+                activeMachineId={activeMachineId}
+                controlLeases={controlLeases}
+                deviceId={deviceId}
+                machineStats={machineStats}
+                stats={activeStats}
+                rttMs={rttMs}
+                isController={isActiveController}
+                isTouch={isTouch}
+                viewOnlyLocked={viewOnlyLocked}
+                onSelectGroup={(groupId) =>
+                  workspaceCommandsRef.current.selectGroup?.(groupId)
+                }
+                onNewGroup={handleNewGroupClick}
+                onRenameGroup={handleRenameGroup}
+                onDeleteGroup={handleDeleteGroup}
+                onReorderGroups={(sourceGroupId, targetGroupId, placement) =>
+                  workspaceCommandsRef.current.reorderGroups?.(
+                    sourceGroupId,
+                    targetGroupId,
+                    placement,
+                  )
+                }
+                onSelectMachine={setActiveMachineId}
+                onAddMachine={() => setAddMachineOpen(true)}
+                onRemoveHost={handleRemoveHost}
+                onRequestControl={() => {
+                  if (activeMachine) void handleRequestControl(activeMachine.id);
+                }}
+                onEngageViewOnly={() => {
+                  if (activeMachine) handleEngageViewOnly(activeMachine.id);
+                }}
+                onDisengageViewOnly={handleDisengageViewOnly}
+              />
+
+              {scopedTerminals.length === 0 ? (
                 <EmptyState
                   scopeLabel={scopeLabel}
                   canCreate={isActiveController}
@@ -2354,12 +1624,10 @@ function TerminalCanvasInner() {
                   onReleaseControl={handleReleaseControl}
                   commandsRef={workspaceCommandsRef}
                   onActiveGroupChange={setActiveGroupId}
-                  onActiveTerminalChange={setSidebarActiveTerminalId}
                 />
               )}
               <WorkspaceKeyBarSlot />
               </main>
-              </div>
             </KeyBarSlotProvider>
           )}
           {showHandoffBanner && (
@@ -2380,62 +1648,6 @@ function TerminalCanvasInner() {
 
         {addMachineOpen && (
           <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
-        )}
-
-        {!isCompact && newSessionOpen && (
-          <Suspense fallback={<LazyLoadingFallback />}>
-            <NewSessionDialog
-              machines={machines}
-              machineOnline={machineOnline}
-              sessionCounts={sessionCounts}
-              isControllerFor={isMachineController}
-              initialMachineId={activeMachineId}
-              initialCwd={activeMachine?.home_dir ?? null}
-              agentSessions={agentSessions}
-              terminals={terminals}
-              onClose={() => setNewSessionOpen(false)}
-              onCreate={handleNewSessionRequest}
-            />
-          </Suspense>
-        )}
-
-        {isCompact && newSessionOpen && (
-          <Suspense fallback={<LazyLoadingFallback />}>
-            <NewSessionSheet
-              machines={machines}
-              machineOnline={machineOnline}
-              sessionCounts={sessionCounts}
-              isControllerFor={isMachineController}
-              initialMachineId={activeMachineId}
-              initialCwd={
-                mobileNewSessionGroup?.cwd || activeMachine?.home_dir || null
-              }
-              agentSessions={agentSessions}
-              terminals={terminals}
-              onClose={() => setNewSessionOpen(false)}
-              onCreate={handleMobileNewSessionRequest}
-            />
-          </Suspense>
-        )}
-
-        {agentKillTarget && (
-          <Suspense fallback={<LazyLoadingFallback />}>
-            <ConfirmDialog
-              open
-              title={`Kill "${agentKillTarget.title}"?`}
-              message="The agent process is terminated and the session's event log is deleted. This cannot be undone."
-              confirmLabel="Kill session"
-              variant="danger"
-              onConfirm={() => {
-                const target = agentKillTarget;
-                setAgentKillTarget(null);
-                void handleKillAgentSession(target).catch((error) =>
-                  console.error("Failed to kill agent session", error),
-                );
-              }}
-              onCancel={() => setAgentKillTarget(null)}
-            />
-          </Suspense>
         )}
 
         {!isCompact && paletteState.open && (
@@ -2481,8 +1693,8 @@ function TerminalCanvasInner() {
               title={`Remove ${hostRemoveTarget.name}?`}
               message={
                 hostRemoveTarget.online
-                  ? `"${hostRemoveTarget.name}" is connected. Removing it disconnects the host and it will not reconnect until registered again. Tabs and sessions for this host leave offdesk.`
-                  : `"${hostRemoveTarget.name}" is offline. Removing it forgets the host and its tabs and sessions. Re-register to add it back.`
+                  ? `"${hostRemoveTarget.name}" is connected. Removing it disconnects the host and it will not reconnect until registered again. Tabs and terminals for this host leave offdesk.`
+                  : `"${hostRemoveTarget.name}" is offline. Removing it forgets the host and its tabs and terminals. Re-register to add it back.`
               }
               confirmLabel="Remove host"
               variant="danger"
@@ -2497,13 +1709,13 @@ function TerminalCanvasInner() {
             <ConfirmDialog
               open
               title="Delete tab?"
-              message={`"${groupDeleteConfirmation.group.label}" has ${groupDeleteConfirmation.group.paneCount} pane(s). They will move back to their directory tabs; no terminal is closed.`}
+              message={`"${groupDeleteConfirmation.label}" has ${groupDeleteConfirmation.paneCount} pane(s). They will move back to their directory tabs; no terminal is closed.`}
               confirmLabel="Delete tab"
               variant="danger"
               onConfirm={() => {
-                const target = groupDeleteConfirmation;
+                const group = groupDeleteConfirmation;
                 setGroupDeleteConfirmation(null);
-                void performDeleteGroup(target.machineId, target.group);
+                void performDeleteGroup(group);
               }}
               onCancel={() => setGroupDeleteConfirmation(null)}
             />
@@ -2514,11 +1726,11 @@ function TerminalCanvasInner() {
           <Suspense fallback={<LazyLoadingFallback />}>
             <RenameGroupDialog
               open
-              initialName={groupRenameTarget.group.label}
+              initialName={groupRenameTarget.label}
               onSubmit={(name) => {
-                const target = groupRenameTarget;
+                const group = groupRenameTarget;
                 setGroupRenameTarget(null);
-                void performRenameGroup(target.machineId, target.group, name);
+                void performRenameGroup(group, name);
               }}
               onCancel={() => setGroupRenameTarget(null)}
             />

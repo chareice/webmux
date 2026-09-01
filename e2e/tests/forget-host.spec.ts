@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { getAuthHeaders, openApp, resetMachineState } from "./helpers";
 
-test("desktop sidebar can forget a registered host", async ({ browser }) => {
+test("desktop host switcher can forget a registered host", async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 960 },
   });
@@ -27,23 +27,22 @@ test("desktop sidebar can forget a registered host", async ({ browser }) => {
   };
 
   await page.reload();
-  await expect(page.getByTestId("sidebar")).toBeVisible({ timeout: 20_000 });
-  const host = page.getByTestId(`sidebar-host-${machineId}`);
+  await expect(page.getByTestId("tab-bar")).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId("host-switcher-button").click();
+  const host = page.getByTestId(`host-switcher-row-${machineId}`);
   await expect(host).toBeVisible();
 
-  await host.click({ button: "right" });
-  await expect(page.getByTestId("context-menu")).toBeVisible();
-  await page.getByRole("button", { name: "Remove host" }).click();
+  await page.getByTestId(`host-switcher-remove-${machineId}`).click();
 
   const dialog = page.getByTestId("confirm-dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("stale-box");
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toHaveCount(0);
+  await page.getByTestId("host-switcher-button").click();
   await expect(host).toBeVisible();
 
-  await host.click({ button: "right" });
-  await page.getByRole("button", { name: "Remove host" }).click();
+  await page.getByTestId(`host-switcher-remove-${machineId}`).click();
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Remove host" }).click();
   await expect(host).toHaveCount(0);
