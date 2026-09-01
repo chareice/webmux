@@ -5,7 +5,8 @@
 
 use tauri::Url;
 
-/// Accepts what someone would type into a phone. A bare host gets `https://`.
+/// Accepts what someone would type into a phone. A bare address gets a
+/// scheme: `http` for a hub on this network, `https` for anything else.
 pub fn parse(input: &str) -> Result<Url, String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -16,7 +17,15 @@ pub fn parse(input: &str) -> Result<Url, String> {
     let with_scheme = if trimmed.contains("://") {
         trimmed.to_string()
     } else {
-        format!("https://{trimmed}")
+        // Guessing https for `192.168.1.4:4317` fails on a TLS handshake that
+        // was never going to happen: a hub at home is plain http, which is
+        // what docs/setup-lan.md sets up. Parse once with a placeholder
+        // scheme to see the host, then pick.
+        let probe: Url = format!("http://{trimmed}")
+            .parse()
+            .map_err(|_| format!("`{input}` is not a URL"))?;
+        let local = probe.host_str().is_some_and(is_local_address);
+        format!("{}://{trimmed}", if local { "http" } else { "https" })
     };
 
     let url: Url = with_scheme
@@ -29,6 +38,30 @@ pub fn parse(input: &str) -> Result<Url, String> {
         return Err(format!("`{input}` has no host"));
     }
     Ok(url)
+}
+
+/// Loopback, RFC1918, link-local, unique-local, and the `.local` / `.internal`
+/// suffixes — where a self-hosted hub lives.
+///
+/// `offdesk_protocol::local_host` answers the same question for the CLI and
+/// the machine agent. It is twenty lines and this crate is deliberately
+/// outside that workspace, so the mobile app carries its own copy rather than
+/// the protocol crate's whole dependency tree.
+fn is_local_address(host: &str) -> bool {
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return match ip {
+            std::net::IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+            std::net::IpAddr::V6(v6) => {
+                let first = v6.segments()[0];
+                v6.is_loopback() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80
+            }
+        };
+    }
+    let lower = host.to_ascii_lowercase();
+    lower == "localhost"
+        || lower.ends_with(".localhost")
+        || lower.ends_with(".local")
+        || lower.ends_with(".internal")
 }
 
 /// `scheme://host[:port]`. Capabilities are granted per origin, so whatever
@@ -55,6 +88,20 @@ mod tests {
             parse("offdesk.example.com").unwrap().as_str(),
             "https://offdesk.example.com/"
         );
+    }
+
+    #[test]
+    fn a_bare_address_on_this_network_is_http() {
+        for input in ["192.168.1.223:4317", "10.0.2.2:4317", "nas.local", "localhost:4317"] {
+            let url = parse(input).unwrap();
+            assert_eq!(url.scheme(), "http", "{input} should be http");
+        }
+    }
+
+    #[test]
+    fn an_explicit_scheme_still_wins_over_the_guess() {
+        assert_eq!(parse("https://192.168.1.223:4317").unwrap().scheme(), "https");
+        assert_eq!(parse("http://offdesk.example.com").unwrap().scheme(), "http");
     }
 
     #[test]

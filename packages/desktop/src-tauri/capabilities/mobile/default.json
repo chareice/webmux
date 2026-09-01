@@ -6,6 +6,7 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "allow-mobile-hub-url",
     "allow-set-mobile-hub-url",
     "allow-clear-mobile-hub-url"
   ]

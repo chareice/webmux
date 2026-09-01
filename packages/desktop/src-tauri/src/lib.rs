@@ -28,6 +28,7 @@ pub fn run() {
     // are how the setup screen and the hub's own UI change that choice.
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        mobile_hub::mobile_hub_url,
         mobile_hub::set_mobile_hub_url,
         mobile_hub::clear_mobile_hub_url
     ]);
@@ -116,6 +117,10 @@ fn setup_mobile(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let Some(hub_url) = mobile_hub::configured_hub_url(handle) else {
         return Ok(());
     };
+    // Staying on the bundled screen is the recovery path: it prefills the
+    // stored address so the person can retry it or type another one. The
+    // alternative — navigating anyway — is a WebView error page with no way
+    // back to any offdesk UI.
     if let Err(error) = mobile_hub::grant_and_load(handle, &hub_url) {
         eprintln!("could not open the configured hub {hub_url}: {error}");
     }
