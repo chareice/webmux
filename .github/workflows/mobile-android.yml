@@ -7,8 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       hub_url:
-        description: "OFFDESK_MOBILE_HUB_URL baked into the build"
-        default: "https://offdesk.nas.chareice.site"
+        description: "Hub URL to bake into the build (default: the OFFDESK_MOBILE_HUB_URL repository variable)"
         required: false
 
 permissions:
@@ -18,9 +17,21 @@ jobs:
   build-apk:
     runs-on: ubuntu-22.04
     env:
-      OFFDESK_MOBILE_HUB_URL: ${{ github.event.inputs.hub_url || 'https://offdesk.nas.chareice.site' }}
+      # The hub the APK loads. There is no default: a fork that inherits this
+      # workflow must point it at its own hub, or the build stops below.
+      OFFDESK_MOBILE_HUB_URL: ${{ github.event.inputs.hub_url || vars.OFFDESK_MOBILE_HUB_URL }}
 
     steps:
+      - name: Require a hub URL
+        run: |
+          if [ -z "$OFFDESK_MOBILE_HUB_URL" ]; then
+            echo "OFFDESK_MOBILE_HUB_URL is empty. Set the OFFDESK_MOBILE_HUB_URL repository" >&2
+            echo "variable (Settings -> Secrets and variables -> Actions -> Variables) to the" >&2
+            echo "hub this APK should load, or pass hub_url when dispatching the workflow." >&2
+            exit 1
+          fi
+          echo "Building against $OFFDESK_MOBILE_HUB_URL"
+
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4

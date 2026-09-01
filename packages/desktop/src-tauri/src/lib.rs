@@ -7,15 +7,16 @@ mod tray;
 use tauri::Manager;
 
 // On mobile we wrap a remote URL (offdesk mobile-web). This ensures the
-// Android client always tracks production features instead of needing a
-// parallel native UI tree. The URL is whatever the user has configured;
-// for now we hard-code the production hub but read an override at compile
-// time to ease internal dogfooding.
+// Android client always tracks the hub's features instead of needing a
+// parallel native UI tree. The hub is baked in at compile time and has no
+// default: build.rs scopes the mobile capability (notifications, clipboard,
+// shell) to this exact origin, so a build with no hub URL could only produce
+// an app that points at someone else's.
 #[cfg(mobile)]
-const MOBILE_HUB_URL: &str = match option_env!("OFFDESK_MOBILE_HUB_URL") {
-    Some(value) => value,
-    None => "https://offdesk.nas.chareice.site",
-};
+const MOBILE_HUB_URL: &str = env!(
+    "OFFDESK_MOBILE_HUB_URL",
+    "OFFDESK_MOBILE_HUB_URL must be set when building the mobile app -- see README, Install > Phone"
+);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

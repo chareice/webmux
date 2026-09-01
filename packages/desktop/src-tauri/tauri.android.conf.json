@@ -9,7 +9,7 @@
     "windows": [
       {
         "label": "main",
-        "url": "https://offdesk.nas.chareice.site"
+        "url": "index.html"
       }
     ],
     "security": {

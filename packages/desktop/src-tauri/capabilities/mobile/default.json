@@ -1,11 +1,8 @@
 {
   "identifier": "mobile",
-  "description": "Capabilities for Android/iOS, scoped to the production hub origin since the WebView loads it directly",
+  "description": "Capabilities for Android/iOS. The WebView loads the hub directly, so plugin access is scoped to that origin: build.rs fills in `remote.urls` from OFFDESK_MOBILE_HUB_URL (plus the Android emulator's host alias) before tauri-build reads this file. Editing `remote.urls` here has no effect.",
   "platforms": ["android", "iOS"],
   "windows": ["main"],
-  "remote": {
-    "urls": ["https://offdesk.nas.chareice.site/*", "http://10.0.2.2:*/*"]
-  },
   "permissions": [
     "core:default",
     "notification:default",
