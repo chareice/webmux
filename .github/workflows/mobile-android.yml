@@ -25,6 +25,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Decide which ABIs to build
+        id: abi
+        run: |
+          # A tag ships arm64 for phones and x86_64 for emulators. armeabi-v7a
+          # and x86 are 32-bit, each costs a quarter of the Rust build, and
+          # the devices that need them are long gone. A dispatch is somebody
+          # trying something, so it builds arm64 alone and finishes in a third
+          # of the time.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo 'rust=aarch64-linux-android,x86_64-linux-android' >> "$GITHUB_OUTPUT"
+            echo 'tauri=-t aarch64 -t x86_64' >> "$GITHUB_OUTPUT"
+            echo 'gradle="arm64-v8a", "x86_64"' >> "$GITHUB_OUTPUT"
+          else
+            echo 'rust=aarch64-linux-android' >> "$GITHUB_OUTPUT"
+            echo 'tauri=-t aarch64' >> "$GITHUB_OUTPUT"
+            echo 'gradle="arm64-v8a"' >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10.23.0
@@ -43,26 +61,22 @@ jobs:
         with:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0 cmake;3.22.1 ndk;27.1.12297006"
 
-      - name: Cache Cargo registry + git
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-${{ runner.os }}-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
-
-      - name: Cache Rust target dir
-        uses: actions/cache@v4
-        with:
-          path: packages/desktop/src-tauri/target
-          key: cargo-target-android-${{ runner.os }}-${{ hashFiles('packages/desktop/src-tauri/Cargo.lock') }}
-
+      # The Tauri CLI is already a devDependency of @offdesk/desktop and
+      # ships as a prebuilt binary, so `cargo install tauri-cli` was
+      # compiling from source on every run for nothing — 3.8 of the 10
+      # minutes this workflow took.
       - name: Install Rust toolchain + Android targets
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
-          source "$HOME/.cargo/env"
-          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-          cargo install tauri-cli --version "^2.0" --locked
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ steps.abi.outputs.rust }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+          # Keyed on the ABI set: a dispatch build and a tag build compile
+          # different targets and should not evict each other.
+          key: android-${{ steps.abi.outputs.rust }}
 
       - name: Install workspace deps
         run: pnpm install --frozen-lockfile=false
@@ -155,7 +169,7 @@ jobs:
                   abi {
                       isEnable = true
                       reset()
-                      include("arm64-v8a", "armeabi-v7a", "x86_64")
+                      include(${{ steps.abi.outputs.gradle }})
                       isUniversalApk = true
                   }
               }
@@ -168,7 +182,7 @@ jobs:
           print("Patched build.gradle.kts")
           PY
 
-      - name: Build release APKs via cargo tauri
+      - name: Build release APKs
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -176,14 +190,14 @@ jobs:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.1.12297006
         working-directory: packages/desktop
         run: |
-          source "$HOME/.cargo/env"
           # The tag decides the version. Writing gen/android/app/tauri.properties
           # by hand does not work: the CLI regenerates that file from the
           # config on every build, which is why every APK so far has reported
           # 0.3.14 whatever it was tagged. --config merges into tauri.conf.json
           # before that happens, and the CLI derives versionCode from it
           # (0.4.0 -> 4000), so upgrades stay monotonic.
-          cargo tauri android build --apk \
+          pnpm exec tauri android build --apk \
+            ${{ steps.abi.outputs.tauri }} \
             --config "{\"version\": \"${{ steps.version.outputs.version }}\"}"
 
       - name: Collect APKs
