@@ -35,7 +35,7 @@ mobile
 
 ## Checklist for the rename
 
-- [ ] Rename the repository to `offdesk` (Settings → General → Repository
+- [x] Rename the repository to `offdesk` (Settings → General → Repository
       name). GitHub redirects the old URL, so existing clones keep working.
 - [ ] Set the description and topics above.
 - [ ] Set the website to `https://offdesk.dev`.
@@ -43,7 +43,8 @@ mobile
       container image show on the home page.
 - [ ] Create the `offdesk` Cloudflare Pages project and add the two secrets
       listed in `.github/workflows/site.yml`.
-- [ ] Tag a `v*` release so `https://offdesk.dev/install` has binaries to
-      fetch. Until then it exits with a message pointing at `cargo build`.
+- [x] Tag a `v*` release so `https://offdesk.dev/install` has binaries to
+      fetch. Done in v0.16.0, which is also the first release to carry the
+      `offdesk` CLI alongside the agent.
 - [ ] Check the container workflow published `ghcr.io/zalify/offdesk-hub`, and
       make the package public if the old one was.

@@ -67,10 +67,13 @@ Open `http://<lan-ip>:4317` in a browser on the same machine. With
 machine registration token, then:
 
 ```bash
-cargo build --release --bin offdesk-node
-./target/release/offdesk-node register --hub-url http://<lan-ip>:4317 --token <token>
-./target/release/offdesk-node start
+curl -fsSL https://offdesk.dev/install | sh -s -- --node-only
+offdesk-node register --hub-url http://<lan-ip>:4317 --token <token>
+offdesk-node start
 ```
+
+The installer puts `offdesk-node` in `~/.local/bin`. To build it instead:
+`cargo build --release --bin offdesk-node`.
 
 The token is single-use and expires 24 hours after it is issued.
 

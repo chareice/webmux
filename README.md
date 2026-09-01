@@ -67,7 +67,16 @@ On every machine you want to reach. tmux is required — the agent checks for it
 at startup and exits if it is missing.
 
 ```bash
-cargo build --release --bin offdesk-node
+curl -fsSL https://offdesk.dev/install | sh
+```
+
+That installs both binaries — the `offdesk-node` agent and the `offdesk` CLI —
+into `~/.local/bin`, for Linux and macOS on x64 and arm64. `--node-only` skips
+the CLI, `--prefix <dir>` installs elsewhere, and `--system` uses
+`/usr/local/bin` (that step, and only that step, asks for sudo). Or build them
+yourself: `cargo build --release --bin offdesk --bin offdesk-node`.
+
+```bash
 offdesk-node register --hub-url https://your-hub.example.com --token <token>
 offdesk-node start
 ```
@@ -82,13 +91,9 @@ agent on macOS:
 offdesk-node service install
 ```
 
-<!-- TODO(ryan): one thing left before the installer can be documented here:
-     tag a v* release. Every published release predates the rename and carries
-     webmux-node-* names, so `curl -fsSL https://offdesk.dev/install | sh`
-     still has nothing to fetch. build.yml now publishes both binaries under
-     the right names, so the next tag is enough. -->
-
 ### CLI
+
+The installer above already placed it. To build just the CLI:
 
 ```bash
 cargo build --release --bin offdesk    # binary: target/release/offdesk
