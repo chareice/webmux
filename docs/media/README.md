@@ -1,4 +1,36 @@
-# Media to record
+# Media
+
+## Brand assets
+
+These are generated, not hand-kept. `logo-source.png` is the master; the
+vectors come from it via `scripts/logo-to-svg.sh`, which traces with potrace
+and crops the viewBox to the ink.
+
+| File | What it is |
+|---|---|
+| `logo-source.png` | the master bitmap — the only thing to replace when the mark changes |
+| `logo.svg` | wordmark in brand blue `#1A5FE8`, for light backgrounds |
+| `logo-dark.svg` | wordmark in `#FAFAF5`, what the dark site uses |
+| `favicon.svg` + `favicon-16/32.png` | the `o` alone, cream on `#0A0A0A` |
+| `avatar.svg` + `avatar-400.png` | the same mark at avatar size |
+| `og-1200x630.svg` + `.png` | share card: wordmark over the tagline |
+
+To regenerate everything after a new `logo-source.png`:
+
+```bash
+brew install potrace librsvg
+scripts/logo-to-svg.sh docs/media/logo-source.png docs/media/logo.svg '#1A5FE8' 0.71
+```
+
+The trailing `0.71` is potrace's black level, the luma where ink is split from
+ground. Its 0.5 default sits below the midpoint between this blue and the cream
+ground and erodes the glyphs by about 4% of their ink; 0.71 measured closest to
+the source. Re-derive it if the brand colours change.
+
+Then rasterise the icons and card with `rsvg-convert -w <n> -h <n>`, and copy
+`logo.svg`, `logo-dark.svg`, `favicon*` and the card into `site/public/`.
+
+# Screenshots and GIFs to record
 
 Nothing here is committed yet. Each file below is referenced by the README, the
 site, or both, and each will render as a broken image until it exists.
