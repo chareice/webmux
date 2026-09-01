@@ -209,20 +209,72 @@ offdesk kill $T --yes
 
 ## How it compares
 
-offdesk's row is from [docs/facts.md](docs/facts.md). Every other cell is
-unverified — do not treat this table as accurate until the TODOs are filled in.
+Every cell below is from the vendor's own docs, sourced in the comment under
+the table. Checked 2026-09-01; these products move fast, so re-check before
+relying on any row.
 
 | | Any terminal program | Machines per hub | Traffic goes through | Agents can drive it via CLI | Self-hosted |
 |---|---|---|---|---|---|
-| **offdesk** | Yes — anything that runs in tmux | Any number, one URL | Your own hub | Yes — `open` / `send` / `wait` / `read` | Yes |
-| Claude Code Remote Control | TODO | TODO | TODO | TODO | TODO |
-| VibeTunnel | TODO | TODO | TODO | TODO | TODO |
-| Happy Coder | TODO | TODO | TODO | TODO | TODO |
-| Omnara | TODO | TODO | TODO | TODO | TODO |
-| Orca | TODO | TODO | TODO | TODO | TODO |
+| **offdesk** | Anything that runs in tmux | Any number, one URL | Your own hub | `open` / `send` / `wait` / `read` | Yes, MIT |
+| Claude Code Remote Control | No — a Claude Code session, not a terminal | Sessions from several machines in one list | Anthropic's servers; transcript stored there | Not documented | No |
+| VibeTunnel | Yes — `vt <any command>`, `vt --shell` | One server per machine | Your choice: LAN, Tailscale, ngrok, Cloudflare | Launches commands only; no send/read/wait against a running session | Yes, MIT |
+| Happy Coder | No — wraps `claude` and `codex` | Several; `spawn --machine`, `machines` | slopus cloud by default, end-to-end encrypted | `create` / `send` / `history` / `wait` | Optional, MIT |
+| Omnara | Agent sessions; no raw terminal documented | Several at once per agent | `api.omnara.com` by default | CLI and REST: `POST .../inputs`, SSE timeline | Optional, Apache-2.0 |
+| Orca | Yes — real terminal, 30+ CLI agents | Several, via SSH worktrees and `orca serve` | Orca Relay by default, or direct on the LAN | `orca terminal create/send/read/wait` | Yes, MIT |
 
-<!-- TODO(ryan): fill the five competitor rows. Every cell needs a source URL in
-     an HTML comment next to it, or it stays TODO. Do not guess. -->
+<!-- Sources, checked 2026-09-01.
+
+offdesk: docs/facts.md in this repo.
+
+Claude Code Remote Control — https://code.claude.com/docs/en/remote-control
+  Terminal: it connects claude.ai/code and the Claude app to "a Claude Code
+    session running on your machine"; the surface is the conversation.
+  Machines: "Open claude.ai/code or the Claude app and find the session by
+    name in the session list"; auto-generated names are prefixed with the
+    machine hostname.
+  Traffic: "it registers with the Anthropic API and polls for work. When you
+    connect from another device, the server routes messages between the web or
+    mobile client and your local session" and "the session transcript ... is
+    stored on Anthropic servers".
+  CLI: no CLI for driving a Remote Control session is documented.
+
+VibeTunnel — https://github.com/amantus-ai/vibetunnel
+  Terminal: "Run any command in the browser", `vt --shell` for an interactive
+    shell. Machines: one Node server per machine; no multi-machine
+    orchestration documented. Traffic: README lists Tailscale, ngrok,
+    Cloudflare Quick Tunnel, Pinggy, Pangolin, or the local network.
+  CLI: `vt` is "a bash script that internally calls `vibetunnel fwd`" and
+    launches a new session; the only other verbs are `follow`, `unfollow`,
+    `title`. Licence: MIT.
+
+Happy Coder — https://github.com/slopus/happy
+  Terminal: "Start using `happy` instead of `claude` or `codex`".
+  Machines + CLI: happy-agent provides `machines`, `spawn --machine <id>`,
+    `create`, `send`, `history`, `wait` —
+    https://github.com/slopus/happy/tree/main/packages/happy-agent
+  Traffic: default server is happy-api.slopus.com, end-to-end encrypted;
+    self-hosting at https://happy.engineering/docs/guides/self-hosting/
+    Licence: MIT.
+
+Omnara — https://github.com/omnara-ai/omnara and https://docs.omnara.com/api/overview
+  Terminal: the API is scoped to agent sessions; no raw shell access is
+    documented. Machines: "An agent can run with no machines or use several at
+    once. These can be sandboxes, your own machines, or both."
+  Traffic: "Hosted routes live under: https://api.omnara.com/v1", and
+    "Self-hosted deployments serve the same API from their own origin".
+  CLI: "Use Omnara programmatically via the CLI, Typescript CLI, or REST API".
+  Licence: Apache-2.0.
+
+Orca — https://github.com/stablyai/orca and https://www.onorca.dev/docs
+  Terminal: "anything that runs in a terminal will run inside Orca".
+  Machines: SSH worktrees and `orca serve` on a headless Linux server.
+  Traffic: https://www.onorca.dev/docs/mobile — "Prefer Orca Relay for pairing
+    when it is available — sign-in is required for Relay only"; LAN pairing is
+    the alternative.
+  CLI: https://www.onorca.dev/docs/cli/overview — `orca terminal list, read,
+    send, wait, create, split`. Licence: "Orca is free and open source under
+    the MIT License."
+-->
 
 ## Security
 
