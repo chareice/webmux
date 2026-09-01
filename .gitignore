@@ -14,3 +14,4 @@ client/dist/
 .superpowers/
 .claude/
 e2e/.generated-certs/
+.DS_Store
