@@ -82,20 +82,6 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Sync versionCode / versionName into tauri.properties
-        working-directory: packages/desktop/src-tauri/gen/android
-        run: |
-          version="${{ steps.version.outputs.version }}"
-          # Treat the version's numeric components as the versionCode: turn
-          # X.Y.Z into XXYYZZ so monotonic ordering matches semver intent.
-          numeric=$(echo "$version" | awk -F. '{ printf "%d%02d%02d", $1, $2, $3 }')
-          mkdir -p app
-          cat > app/tauri.properties <<EOF
-          tauri.android.versionCode=$numeric
-          tauri.android.versionName=$version
-          EOF
-          cat app/tauri.properties
-
       - name: Decode release keystore
         working-directory: packages/desktop/src-tauri/gen/android/app
         env:
@@ -191,7 +177,14 @@ jobs:
         working-directory: packages/desktop
         run: |
           source "$HOME/.cargo/env"
-          cargo tauri android build --apk
+          # The tag decides the version. Writing gen/android/app/tauri.properties
+          # by hand does not work: the CLI regenerates that file from the
+          # config on every build, which is why every APK so far has reported
+          # 0.3.14 whatever it was tagged. --config merges into tauri.conf.json
+          # before that happens, and the CLI derives versionCode from it
+          # (0.4.0 -> 4000), so upgrades stay monotonic.
+          cargo tauri android build --apk \
+            --config "{\"version\": \"${{ steps.version.outputs.version }}\"}"
 
       - name: Collect APKs
         id: apks
@@ -201,7 +194,11 @@ jobs:
           mkdir -p artifacts
           for src in $(find packages/desktop/src-tauri/gen/android/app/build/outputs/apk -name "*-release*.apk"); do
             base=$(basename "$src" .apk)
-            abi=$(echo "$base" | sed -E 's/^app-//; s/-release.*$//')
+            # Gradle names these app-<flavor>-<abi>-release.apk, and the
+            # flavor is itself called "universal", so the raw strip leaves
+            # "universal-arm64-v8a". Drop the flavor, keep the real ABI —
+            # and leave the genuinely universal APK named "universal".
+            abi=$(echo "$base" | sed -E 's/^app-//; s/-release.*$//; s/^universal-(.+)$/\1/')
             [ -z "$abi" ] && abi="universal"
             cp "$src" "artifacts/offdesk-${version}-${abi}.apk"
           done
