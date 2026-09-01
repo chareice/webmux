@@ -21,7 +21,7 @@ use crate::db::DbPool;
 use crate::machine_manager::MachineManager;
 
 #[derive(Parser)]
-#[command(name = "offdesk-hub", about = "offdesk hub server")]
+#[command(name = "offdesk-hub", about = "offdesk hub server", version)]
 struct Args {
     /// Listen address
     #[arg(long, default_value = "0.0.0.0:4317")]
