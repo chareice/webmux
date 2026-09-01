@@ -14,11 +14,11 @@ services:
       # per session/worktree) don't fight over the host port.
       - "127.0.0.1:${E2E_HUB_HOST_PORT:-4317}:4317"
     environment:
-      DATABASE_PATH: "/app/data/tc.db"
-      WEBMUX_STATIC_DIR: "/app/web"
-      WEBMUX_DEV_MODE: "true"
+      DATABASE_PATH: "/app/data/offdesk.db"
+      OFFDESK_STATIC_DIR: "/app/web"
+      OFFDESK_DEV_MODE: "true"
       JWT_SECRET: "e2e-test-secret"
-      WEBMUX_BASE_URL: "http://localhost:4317"
+      OFFDESK_BASE_URL: "http://localhost:4317"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4317/api/auth/dev || exit 1"]
       interval: 3s
@@ -31,7 +31,7 @@ services:
       context: ..
       dockerfile: e2e/Dockerfile.node
     command:
-      - webmux-node
+      - offdesk-node
       - start
       - --hub-url
       - ws://hub:4317/ws/machine

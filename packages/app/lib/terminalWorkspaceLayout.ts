@@ -1,10 +1,10 @@
-import { MAX_PANES_PER_TAB } from "@webmux/shared";
+import { MAX_PANES_PER_TAB } from "@offdesk/shared";
 import type {
   TerminalInfo,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
   WorkspaceLayoutNode,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 
 export type WorkspaceSplitDirection = "horizontal" | "vertical";
 export type WorkspaceSplitIntent = "right" | "down";

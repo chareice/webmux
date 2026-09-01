@@ -9,7 +9,7 @@
 // Storage is injected (same pattern as viewOnlyLock) to stay testable under
 // the node vitest environment.
 
-import type { AgentKind, AgentModelInfo } from "@webmux/shared";
+import type { AgentKind, AgentModelInfo } from "@offdesk/shared";
 
 export interface KeyValueStorage {
   getItem(key: string): string | null;
@@ -26,9 +26,9 @@ export interface SessionDefaults {
   autoRun: boolean | null;
 }
 
-const SESSION_DEFAULTS_KEY = "webmux:session-defaults";
-const LAST_CWD_PREFIX = "webmux:last-cwd:";
-const MODEL_CACHE_KEY = "webmux:agent-models";
+const SESSION_DEFAULTS_KEY = "offdesk:session-defaults";
+const LAST_CWD_PREFIX = "offdesk:last-cwd:";
+const MODEL_CACHE_KEY = "offdesk:agent-models";
 
 const KNOWN_KINDS: SessionDefaultKind[] = [
   "claude",

@@ -4,7 +4,7 @@
   "platforms": ["android", "iOS"],
   "windows": ["main"],
   "remote": {
-    "urls": ["https://webmux.nas.chareice.site/*", "http://10.0.2.2:*/*"]
+    "urls": ["https://offdesk.nas.chareice.site/*", "http://10.0.2.2:*/*"]
   },
   "permissions": [
     "core:default",

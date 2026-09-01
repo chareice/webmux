@@ -32,7 +32,7 @@ pub struct AgentSessionRow {
     pub auto_run: bool,
     pub acp_session_id: Option<String>,
     pub workspace_group_id: Option<String>,
-    /// JSON array of tc_protocol::AgentModelInfo; "[]" = no model support.
+    /// JSON array of offdesk_protocol::AgentModelInfo; "[]" = no model support.
     pub available_models: String,
     pub current_model_id: Option<String>,
     /// Model requested at create time, applied by the machine after ready.

@@ -290,7 +290,7 @@ export function ExtendedKeyBar({
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   style={{
-                    animation: 'webmuxSpin 800ms linear infinite',
+                    animation: 'offdeskSpin 800ms linear infinite',
                     transformOrigin: 'center',
                   }}
                   data-testid="extended-keybar-attach-spinner"

@@ -16,7 +16,7 @@ import type {
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
   WorkspaceLayoutNode,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 import { AppTitleBar } from "./AppTitleBar.web";
 import { Sidebar } from "./Sidebar.web";
 import {
@@ -194,7 +194,7 @@ interface DestroyTerminalOptions {
 
 type DestroyTerminalRequestResult = "accepted" | "pending";
 
-const LAST_FOCUS_PUT_KEY = "webmux:last-focus-put";
+const LAST_FOCUS_PUT_KEY = "offdesk:last-focus-put";
 const SAME_SESSION_FOCUS_WINDOW_MS = 2 * 60_000;
 
 function recordLastFocusPut(terminalId: string): void {
@@ -2481,7 +2481,7 @@ function TerminalCanvasInner() {
               title={`Remove ${hostRemoveTarget.name}?`}
               message={
                 hostRemoveTarget.online
-                  ? `"${hostRemoveTarget.name}" is connected. Removing it disconnects the host and it will not reconnect until registered again. Tabs and sessions for this host leave webmux.`
+                  ? `"${hostRemoveTarget.name}" is connected. Removing it disconnects the host and it will not reconnect until registered again. Tabs and sessions for this host leave offdesk.`
                   : `"${hostRemoveTarget.name}" is offline. Removing it forgets the host and its tabs and sessions. Re-register to add it back.`
               }
               confirmLabel="Remove host"

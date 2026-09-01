@@ -8,7 +8,7 @@ describe("resolveServerUrl", () => {
       resolveServerUrl({
         platformOs: "web",
         isTauriRuntime: false,
-        storedUrl: "https://webmux.example",
+        storedUrl: "https://offdesk.example",
       }),
     ).toBe("");
   });
@@ -20,7 +20,7 @@ describe("resolveServerUrl", () => {
         isTauriRuntime: false,
         storedUrl: null,
       }),
-    ).toBe("https://webmux.nas.chareice.site");
+    ).toBe("https://offdesk.nas.chareice.site");
   });
 
   it("uses a configured native hub URL before the production fallback", () => {

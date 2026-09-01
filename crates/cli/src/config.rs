@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::CliError;
 
-/// Contents of ~/.config/webmux/config.toml (lowest precedence source).
+/// Contents of ~/.config/offdesk/config.toml (lowest precedence source).
 #[derive(Debug, Default, Deserialize)]
 pub struct ConfigFile {
     pub url: Option<String>,
@@ -18,7 +18,7 @@ pub struct ResolvedConfig {
 }
 
 pub fn config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("webmux").join("config.toml"))
+    Some(offdesk_protocol::config_dir().join("config.toml"))
 }
 
 /// Read the config file if it exists; a missing file is not an error.
@@ -54,8 +54,8 @@ pub fn resolve(
         .or_else(|| file.and_then(|file| file.url.as_deref()))
         .ok_or_else(|| {
             CliError::Config(
-                "hub URL not configured — pass --url, set WEBMUX_URL, or add `url` to \
-                 ~/.config/webmux/config.toml"
+                "hub URL not configured — pass --url, set OFFDESK_URL, or add `url` to \
+                 ~/.config/offdesk/config.toml"
                     .to_string(),
             )
         })?;
@@ -65,7 +65,7 @@ pub fn resolve(
         .ok_or_else(|| {
             CliError::Config(
                 "no API token configured — create an API token in the web UI and set \
-                 WEBMUX_TOKEN (or pass --token)"
+                 OFFDESK_TOKEN (or pass --token)"
                     .to_string(),
             )
         })?;
@@ -169,14 +169,14 @@ mod tests {
     #[test]
     fn missing_url_is_an_error() {
         let error = resolve(None, None, None, Some("token"), None).unwrap_err();
-        assert!(error.to_string().contains("WEBMUX_URL"));
+        assert!(error.to_string().contains("OFFDESK_URL"));
     }
 
     #[test]
     fn missing_token_points_at_web_ui_token() {
         let error = resolve(Some("https://hub"), None, None, None, None).unwrap_err();
         let message = error.to_string();
-        assert!(message.contains("WEBMUX_TOKEN"));
+        assert!(message.contains("OFFDESK_TOKEN"));
         assert!(message.contains("API token"));
     }
 

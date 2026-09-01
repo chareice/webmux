@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-pub const SERVICE_NAME: &str = "webmux-node";
+pub const SERVICE_NAME: &str = "offdesk-node";
 
 // ── Shared helpers ─────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ mod platform {
     fn render_service_unit(name: &str, home_dir: &str, exe_path: &str, path_env: &str) -> String {
         format!(
             r#"[Unit]
-Description=Webmux Node ({name})
+Description=offdesk Node ({name})
 After=network-online.target
 Wants=network-online.target
 
@@ -137,7 +137,7 @@ WantedBy=default.target
 
         if !PathBuf::from(&unit_path).exists() {
             return Err(
-                "service is not installed. Run \"webmux-node service install\" first.".to_string(),
+                "service is not installed. Run \"offdesk-node service install\" first.".to_string(),
             );
         }
 
@@ -170,10 +170,10 @@ WantedBy=default.target
 mod platform {
     use super::*;
 
-    const LABEL: &str = "com.webmux.node";
+    const LABEL: &str = "dev.offdesk.node";
 
     fn render_plist(home_dir: &str, exe_path: &str, path_env: &str) -> String {
-        let log_dir = format!("{home_dir}/Library/Logs/webmux");
+        let log_dir = format!("{home_dir}/Library/Logs/offdesk");
         format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -239,7 +239,7 @@ mod platform {
         let log_dir = PathBuf::from(&home_str)
             .join("Library")
             .join("Logs")
-            .join("webmux");
+            .join("offdesk");
         fs::create_dir_all(&log_dir).map_err(|e| format!("failed to create log directory: {e}"))?;
 
         let plist_file = plist_path(&home_str);
@@ -297,7 +297,7 @@ mod platform {
 
         if !plist_file.exists() {
             return Err(
-                "service is not installed. Run \"webmux-node service install\" first.".to_string(),
+                "service is not installed. Run \"offdesk-node service install\" first.".to_string(),
             );
         }
 

@@ -1,7 +1,7 @@
 // Incremental builder for the agent-session chat transcript.
 //
 // Agent sessions stream normalized ACP events (`AgentEvent` from
-// `@webmux/shared`), each tagged with a per-session monotonic `seq`. The same
+// `@offdesk/shared`), each tagged with a per-session monotonic `seq`. The same
 // builder serves a backfill page (events replayed in seq order) and live
 // continuation, so `apply` dedups: any event with `seq <= last applied seq` is
 // dropped.
@@ -10,7 +10,7 @@
 // are O(1)-ish: the currently open assistant/thought block is tracked by index
 // instead of rescanning the block list.
 
-import type { AgentEvent, AgentQuestionOption } from "@webmux/shared";
+import type { AgentEvent, AgentQuestionOption } from "@offdesk/shared";
 
 export type TranscriptBlock =
   | { kind: "user"; id: string; text: string }

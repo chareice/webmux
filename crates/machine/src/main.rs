@@ -13,7 +13,7 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "webmux-node", about = "webmux node daemon")]
+#[command(name = "offdesk-node", about = "offdesk node daemon")]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,
@@ -21,7 +21,7 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Register this machine with a webmux-server instance
+    /// Register this machine with an offdesk hub
     Register {
         /// Hub base URL (e.g. http://localhost:3000)
         #[arg(long)]
@@ -209,8 +209,8 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
     println!("  Machine ID: {}", register_resp.machine_id);
     println!("  Config saved to: {}", config_path.display());
     println!();
-    println!("Start the daemon with: webmux-node start");
-    println!("Install as service:    webmux-node service install");
+    println!("Start the daemon with: offdesk-node start");
+    println!("Install as service:    offdesk-node service install");
 }
 
 /// Convert any hub URL to its WebSocket machine endpoint.
@@ -242,7 +242,7 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
         eprintln!(
             "error: tmux is not installed or not in PATH.\n\
              \n\
-             webmux-node requires tmux. Install it and re-run:\n\
+             offdesk-node requires tmux. Install it and re-run:\n\
              \n\
              Debian / Ubuntu:  sudo apt install tmux\n\
              macOS (Homebrew): brew install tmux\n\
@@ -266,9 +266,9 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
     } else {
         eprintln!("No config file found. Please register this machine first:");
         eprintln!();
-        eprintln!("  webmux-node register --hub-url <URL> --token <TOKEN>");
+        eprintln!("  offdesk-node register --hub-url <URL> --token <TOKEN>");
         eprintln!();
-        eprintln!("Or run in dev mode with: webmux-node start --id <MACHINE_ID>");
+        eprintln!("Or run in dev mode with: offdesk-node start --id <MACHINE_ID>");
         std::process::exit(1);
     };
 
@@ -279,7 +279,7 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
     });
 
     tracing::info!(
-        "Starting webmux-node: id={}, name={}, hub={}",
+        "Starting offdesk-node: id={}, name={}, hub={}",
         machine_id,
         machine_name,
         ws_url
@@ -347,7 +347,7 @@ fn cmd_service_install(no_auto_upgrade: bool) {
     let config = match config::load_config() {
         Ok(c) => c,
         Err(_) => {
-            eprintln!("Not registered. Run \"webmux-node register\" first.");
+            eprintln!("Not registered. Run \"offdesk-node register\" first.");
             std::process::exit(1);
         }
     };
@@ -364,13 +364,13 @@ fn cmd_service_install(no_auto_upgrade: bool) {
             println!();
             println!("Useful commands:");
             if cfg!(target_os = "macos") {
-                println!("  launchctl list com.webmux.node");
-                println!("  tail -f ~/Library/Logs/webmux/stderr.log");
+                println!("  launchctl list dev.offdesk.node");
+                println!("  tail -f ~/Library/Logs/offdesk/stderr.log");
             } else {
                 println!("  systemctl --user status {}", service::SERVICE_NAME);
                 println!("  journalctl --user -u {} -f", service::SERVICE_NAME);
             }
-            println!("  webmux-node service uninstall");
+            println!("  offdesk-node service uninstall");
         }
         Err(e) => {
             let home = dirs::home_dir()

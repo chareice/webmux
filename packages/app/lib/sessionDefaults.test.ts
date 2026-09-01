@@ -51,12 +51,12 @@ describe("session defaults", () => {
   it("drops unknown kinds and malformed payloads back to the fallback", () => {
     expect(
       readSessionDefaults(
-        fakeStorage({ "webmux:session-defaults": '{"agentKind":"nope"}' }),
+        fakeStorage({ "offdesk:session-defaults": '{"agentKind":"nope"}' }),
       ).agentKind,
     ).toBe("kimi");
     expect(
       readSessionDefaults(
-        fakeStorage({ "webmux:session-defaults": "not json" }),
+        fakeStorage({ "offdesk:session-defaults": "not json" }),
       ),
     ).toEqual(FALLBACK_SESSION_DEFAULTS);
   });
@@ -93,7 +93,7 @@ describe("model cache", () => {
 
   it("drops malformed cache entries", () => {
     const storage = fakeStorage({
-      "webmux:agent-models": JSON.stringify({ grok: [{ nope: 1 }], kimi: models }),
+      "offdesk:agent-models": JSON.stringify({ grok: [{ nope: 1 }], kimi: models }),
     });
     expect(readModelCache(storage).grok).toBeUndefined();
     expect(readModelCache(storage).kimi).toEqual(models);

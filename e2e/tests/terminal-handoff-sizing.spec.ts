@@ -257,9 +257,9 @@ async function getLocalTerminalSize(
   return page.evaluate((tid) => {
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, { cols: number; rows: number }>;
+        __offdeskTerminals?: Map<string, { cols: number; rows: number }>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     const terminal = map?.get(tid);
     if (!terminal) return null;
     return { cols: terminal.cols, rows: terminal.rows };

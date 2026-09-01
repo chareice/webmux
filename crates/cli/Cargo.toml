@@ -1,14 +1,15 @@
 [package]
-name = "tc-cli"
+name = "offdesk-cli"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [[bin]]
-name = "webmux"
+name = "offdesk"
 path = "src/main.rs"
 
 [dependencies]
-tc-protocol = { path = "../protocol" }
+offdesk-protocol = { path = "../protocol" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

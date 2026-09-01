@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{IsTerminal, Write};
 
-use tc_protocol::MachineInfo;
+use offdesk_protocol::MachineInfo;
 
 use crate::client::HubClient;
 use crate::resolve::{resolve_prefix, short_id};
@@ -134,7 +134,7 @@ fn confirm(machine: &MachineInfo) -> Result<bool, CliError> {
 #[cfg(test)]
 mod tests {
     use super::resolve_machine;
-    use tc_protocol::MachineInfo;
+    use offdesk_protocol::MachineInfo;
 
     fn machine(id: &str, name: &str) -> MachineInfo {
         MachineInfo {

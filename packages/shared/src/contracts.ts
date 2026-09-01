@@ -1,4 +1,4 @@
-// ── Shared data types (mirrors tc-protocol Rust types) ──
+// ── Shared data types (mirrors offdesk-protocol Rust types) ──
 
 export interface MachineInfo {
   id: string

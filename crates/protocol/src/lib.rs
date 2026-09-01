@@ -998,3 +998,40 @@ mod tests {
         ));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Config directory
+// ---------------------------------------------------------------------------
+
+/// Directory holding every on-disk file offdesk owns: the CLI's
+/// `config.toml`, the node's `machine.json` and `sessions.json`, and the
+/// generated tmux config. On Linux this is `~/.config/offdesk`; on macOS
+/// `dirs::config_dir()` resolves to `~/Library/Application Support`.
+///
+/// The first call after an upgrade from webmux moves the old `webmux`
+/// directory into place, so a rename does not orphan a registered machine.
+/// The move only happens when the new directory does not exist yet, so it
+/// can never clobber a fresh config.
+pub fn config_dir() -> std::path::PathBuf {
+    let base = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let dir = base.join("offdesk");
+    static MIGRATED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    MIGRATED.get_or_init(|| {
+        let legacy = base.join("webmux");
+        if !dir.exists() && legacy.is_dir() {
+            match std::fs::rename(&legacy, &dir) {
+                Ok(()) => eprintln!(
+                    "offdesk: moved {} to {} (webmux -> offdesk rename)",
+                    legacy.display(),
+                    dir.display()
+                ),
+                Err(error) => eprintln!(
+                    "offdesk: could not move {} to {}: {error}",
+                    legacy.display(),
+                    dir.display()
+                ),
+            }
+        }
+    });
+    dir
+}

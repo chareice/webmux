@@ -1,4 +1,4 @@
-const PREFIX = "webmux:";
+const PREFIX = "offdesk:";
 
 // All shipping clients (mobile-web, desktop-Tauri, Android-Tauri) run in a
 // WebView or browser context, so localStorage is universally available.

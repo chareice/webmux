@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tc_protocol::{
+use offdesk_protocol::{
     AgentSessionInfo, BrowserEvent, BrowserEventEnvelope, BrowserStateSnapshot,
     ControlLeaseSnapshot, DirEntry, HubToMachine, MachineInfo, MachineStatsSnapshot, MachineToHub,
     TerminalInfo, WorkspaceGroupInfo, WorkspaceLayoutInfo, WorkspaceLayoutNode,
@@ -67,7 +67,7 @@ struct MachineConnection {
     /// Terminal IDs hosted on this machine
     pub terminals: HashMap<String, TerminalInfo>,
     /// Latest resource stats from this machine
-    pub latest_stats: Option<tc_protocol::ResourceStats>,
+    pub latest_stats: Option<offdesk_protocol::ResourceStats>,
     /// Capability tokens from the machine's Register (e.g. deflate-raw-v1).
     pub capabilities: Vec<String>,
 }
@@ -1490,7 +1490,7 @@ impl MachineManager {
                 if let Err(e) = crate::db::agent_sessions::set_status(
                     &db_conn,
                     &session_id,
-                    tc_protocol::AgentSessionStatus::Disconnected,
+                    offdesk_protocol::AgentSessionStatus::Disconnected,
                 ) {
                     tracing::warn!("Failed to mark agent session disconnected: {}", e);
                     return;
@@ -1736,7 +1736,7 @@ impl MachineManager {
             .unwrap_or_default()
     }
 
-    pub async fn get_machine_stats(&self, machine_id: &str) -> Option<tc_protocol::ResourceStats> {
+    pub async fn get_machine_stats(&self, machine_id: &str) -> Option<offdesk_protocol::ResourceStats> {
         self.machines
             .lock()
             .await
@@ -2082,12 +2082,12 @@ mod tests {
         }
     }
 
-    fn stats() -> tc_protocol::ResourceStats {
-        tc_protocol::ResourceStats {
+    fn stats() -> offdesk_protocol::ResourceStats {
+        offdesk_protocol::ResourceStats {
             cpu_percent: 12.5,
             memory_total: 1024,
             memory_used: 512,
-            disks: vec![tc_protocol::DiskInfo {
+            disks: vec![offdesk_protocol::DiskInfo {
                 mount_point: "/".to_string(),
                 total_bytes: 2048,
                 used_bytes: 1024,

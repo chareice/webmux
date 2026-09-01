@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentEvent } from "@webmux/shared";
+import type { AgentEvent } from "@offdesk/shared";
 
 vi.mock("./api", () => ({
   getAgentSessionEvents: vi.fn(),

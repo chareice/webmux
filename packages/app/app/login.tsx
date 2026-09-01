@@ -57,7 +57,7 @@ export default function LoginScreen() {
       <View className="flex-1 bg-background items-center justify-center p-6">
         <View className="w-full max-w-sm bg-surface rounded-2xl p-8">
           <Text className="text-foreground text-3xl font-bold text-center mb-2">
-            webmux
+            offdesk
           </Text>
           <Text className="text-foreground text-center mb-8 opacity-80">
             Connect to your server
@@ -106,7 +106,7 @@ export default function LoginScreen() {
     <View className="flex-1 bg-background items-center justify-center p-6">
       <View className="w-full max-w-sm bg-surface rounded-2xl p-8">
         <Text className="text-foreground text-3xl font-bold text-center mb-2">
-          webmux
+          offdesk
         </Text>
         <Text className="text-foreground text-center mb-8 opacity-80">
           Sign in to continue

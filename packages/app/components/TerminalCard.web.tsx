@@ -1,6 +1,6 @@
 import { lazy, memo, Suspense, useRef, useCallback, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import { createPortal } from "react-dom";
-import type { TerminalInfo } from "@webmux/shared";
+import type { TerminalInfo } from "@offdesk/shared";
 import { X } from "lucide-react";
 import type { TerminalViewRef, SelectionSnapshot } from "./TerminalView.types";
 import { ExtendedKeyBar } from "./ExtendedKeyBar";
@@ -200,7 +200,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
       await termViewRef.current?.sendImageFile(file);
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.warn("[webmux] attach file failed", err);
+      console.warn("[offdesk] attach file failed", err);
       // Mobile users can't see console.warn — alert is the only surface
       // we have until there's a toast system. Without it the failure looks
       // identical to a successful upload that produced no terminal echo.
@@ -259,7 +259,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         await navigator.clipboard.writeText(text);
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.warn("[webmux] clipboard write failed", err);
+        console.warn("[offdesk] clipboard write failed", err);
       }
     }
     handleExitSelectMode();
@@ -382,7 +382,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                   width: "38%",
                   height: "100%",
                   background: colors.accent,
-                  animation: "webmuxReconnect 1.1s ease-in-out infinite",
+                  animation: "offdeskReconnect 1.1s ease-in-out infinite",
                 }}
               />
             </div>

@@ -6,7 +6,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use tc_protocol::{AgentKind, AgentSessionInfo, AgentSessionStatus, HubToMachine, MachineInfo};
+use offdesk_protocol::{AgentKind, AgentSessionInfo, AgentSessionStatus, HubToMachine, MachineInfo};
 
 use crate::auth::AuthUser;
 use crate::db::agent_sessions::{self, row_to_info};
@@ -587,7 +587,7 @@ mod tests {
     use r2d2::Pool;
     use r2d2_sqlite::SqliteConnectionManager;
     use serde_json::{json, Value};
-    use tc_protocol::{AgentEvent, HubToMachine, MachineInfo, MachineToHub};
+    use offdesk_protocol::{AgentEvent, HubToMachine, MachineInfo, MachineToHub};
     use tokio::sync::mpsc;
     use tower::ServiceExt;
 
@@ -738,7 +738,7 @@ mod tests {
                 model_id,
             } => {
                 assert_eq!(cmd_session_id, session_id);
-                assert_eq!(agent_kind, tc_protocol::AgentKind::Kimi);
+                assert_eq!(agent_kind, offdesk_protocol::AgentKind::Kimi);
                 assert_eq!(cwd, "/work/repo");
                 assert!(auto_run);
                 assert_eq!(resume_acp_session_id, None);
@@ -753,7 +753,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             broadcast.event,
-            tc_protocol::BrowserEvent::AgentSessionCreated { ref session }
+            offdesk_protocol::BrowserEvent::AgentSessionCreated { ref session }
                 if session.id == session_id
         ));
 
@@ -806,7 +806,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             broadcast.event,
-            tc_protocol::BrowserEvent::MachineRemoved { ref machine_id }
+            offdesk_protocol::BrowserEvent::MachineRemoved { ref machine_id }
                 if machine_id == "machine-a"
         ));
 
@@ -1194,16 +1194,16 @@ mod tests {
                 "machine-a",
                 MachineToHub::AgentSessionUpdate {
                     session_id: session_id.clone(),
-                    status: Some(tc_protocol::AgentSessionStatus::Idle),
+                    status: Some(offdesk_protocol::AgentSessionStatus::Idle),
                     title: None,
                     acp_session_id: Some("acp-1".to_string()),
                     available_models: Some(vec![
-                        tc_protocol::AgentModelInfo {
+                        offdesk_protocol::AgentModelInfo {
                             model_id: "fake-model-a".to_string(),
                             name: "Fake Model A".to_string(),
                             description: None,
                         },
-                        tc_protocol::AgentModelInfo {
+                        offdesk_protocol::AgentModelInfo {
                             model_id: "fake-model-b".to_string(),
                             name: "Fake Model B".to_string(),
                             description: Some("the other one".to_string()),
@@ -1247,6 +1247,6 @@ mod tests {
             .unwrap();
         assert_eq!(session.current_model_id.as_deref(), Some("fake-model-b"));
         assert_eq!(session.available_models.len(), 2, "list untouched by None");
-        assert_eq!(session.status, tc_protocol::AgentSessionStatus::Idle);
+        assert_eq!(session.status, offdesk_protocol::AgentSessionStatus::Idle);
     }
 }

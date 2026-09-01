@@ -11,7 +11,7 @@ import {
 // Regression test for the desktop copy-on-select bug where releasing the
 // mouse OUTSIDE the terminal container left the clipboard untouched. The
 // xterm SelectionService listens on `document` (so dragging out of the
-// viewport still completes the selection); webmux now mirrors that pattern
+// viewport still completes the selection); offdesk now mirrors that pattern
 // by attaching the mouseup listener to `document` from a mousedown inside
 // the terminal — see TerminalView.xterm.tsx.
 //
@@ -30,7 +30,7 @@ test("copy-on-select writes clipboard even when mouse is released outside the te
 }) => {
   await page.addInitScript(() => {
     const writes: string[] = [];
-    (window as unknown as { __webmuxClipboardWrites: string[] }).__webmuxClipboardWrites =
+    (window as unknown as { __offdeskClipboardWrites: string[] }).__offdeskClipboardWrites =
       writes;
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -55,9 +55,9 @@ test("copy-on-select writes clipboard even when mouse is released outside the te
     (id) =>
       (
         window as unknown as {
-          __webmuxTerminals?: Map<string, unknown>;
+          __offdeskTerminals?: Map<string, unknown>;
         }
-      ).__webmuxTerminals?.has(id),
+      ).__offdeskTerminals?.has(id),
     terminalId,
   );
 
@@ -71,10 +71,10 @@ test("copy-on-select writes clipboard even when mouse is released outside the te
     ({ id, text }) => {
       const term = (
         window as unknown as {
-          __webmuxTerminals?: Map<string, Record<string, unknown>>;
+          __offdeskTerminals?: Map<string, Record<string, unknown>>;
         }
-      ).__webmuxTerminals?.get(id);
-      if (!term) throw new Error("terminal not found in __webmuxTerminals");
+      ).__offdeskTerminals?.get(id);
+      if (!term) throw new Error("terminal not found in __offdeskTerminals");
       term.hasSelection = () => true;
       term.getSelection = () => text;
     },
@@ -110,9 +110,9 @@ test("copy-on-select writes clipboard even when mouse is released outside the te
           () =>
             (
               window as unknown as {
-                __webmuxClipboardWrites: string[];
+                __offdeskClipboardWrites: string[];
               }
-            ).__webmuxClipboardWrites.join("\n"),
+            ).__offdeskClipboardWrites.join("\n"),
         ),
       { timeout: 5_000 },
     )
@@ -124,7 +124,7 @@ test("copy-on-select writes after xterm reports the completed selection", async 
 }) => {
   await page.addInitScript(() => {
     const writes: string[] = [];
-    (window as unknown as { __webmuxClipboardWrites: string[] }).__webmuxClipboardWrites =
+    (window as unknown as { __offdeskClipboardWrites: string[] }).__offdeskClipboardWrites =
       writes;
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -149,9 +149,9 @@ test("copy-on-select writes after xterm reports the completed selection", async 
     (id) =>
       (
         window as unknown as {
-          __webmuxTerminals?: Map<string, unknown>;
+          __offdeskTerminals?: Map<string, unknown>;
         }
-      ).__webmuxTerminals?.has(id),
+      ).__offdeskTerminals?.has(id),
     terminalId,
   );
 
@@ -161,7 +161,7 @@ test("copy-on-select writes after xterm reports the completed selection", async 
     ({ id, text }) => {
       const term = (
         window as unknown as {
-          __webmuxTerminals?: Map<
+          __offdeskTerminals?: Map<
             string,
             {
               hasSelection: () => boolean;
@@ -170,8 +170,8 @@ test("copy-on-select writes after xterm reports the completed selection", async 
             }
           >;
         }
-      ).__webmuxTerminals?.get(id);
-      if (!term) throw new Error("terminal not found in __webmuxTerminals");
+      ).__offdeskTerminals?.get(id);
+      if (!term) throw new Error("terminal not found in __offdeskTerminals");
       term.hasSelection = () => true;
       term.getSelection = () => text;
       term.select(0, 0, 1);
@@ -186,9 +186,9 @@ test("copy-on-select writes after xterm reports the completed selection", async 
           () =>
             (
               window as unknown as {
-                __webmuxClipboardWrites: string[];
+                __offdeskClipboardWrites: string[];
               }
-            ).__webmuxClipboardWrites.join("\n"),
+            ).__offdeskClipboardWrites.join("\n"),
         ),
       { timeout: 5_000 },
     )

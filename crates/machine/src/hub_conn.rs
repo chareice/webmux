@@ -2,7 +2,7 @@ use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use std::sync::Arc;
 use std::time::Duration;
-use tc_protocol::{
+use offdesk_protocol::{
     compression::{AttachCompressor, DEFLATE_RAW_V1},
     encode_attach_output_frame, DirEntry, HubToMachine, MachineToHub, TerminalTitleSource,
 };
@@ -226,9 +226,9 @@ impl HubConnection {
         // signal to destroy persisted terminals that no longer exist (e.g.
         // after a reboot killed every tmux session).
         let existing = pty.list_terminals();
-        let terminals: Vec<tc_protocol::TerminalInfo> = existing
+        let terminals: Vec<offdesk_protocol::TerminalInfo> = existing
             .iter()
-            .map(|s| tc_protocol::TerminalInfo {
+            .map(|s| offdesk_protocol::TerminalInfo {
                 id: s.id.clone(),
                 machine_id: self.machine_id.clone(),
                 title: s.title.clone(),
@@ -901,16 +901,16 @@ mod tests {
 
     #[test]
     fn image_paste_returns_bracketed_path_for_single_attach_write() {
-        let filename = format!("webmux-image-paste-test-{}.png", std::process::id());
+        let filename = format!("offdesk-image-paste-test-{}.png", std::process::id());
         let path = std::env::temp_dir().join(&filename);
         let _ = std::fs::remove_file(&path);
 
-        let paste = handle_image_paste("d2VibXV4", "image/png", &filename)
+        let paste = handle_image_paste("b2ZmZGVzaw==", "image/png", &filename)
             .expect("image paste should be prepared");
 
         assert_eq!(
             std::fs::read(&path).expect("image file should exist"),
-            b"webmux"
+            b"offdesk"
         );
         assert_eq!(
             paste,

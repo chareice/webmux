@@ -15,7 +15,7 @@ import type {
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
   WorkspaceLayoutNode,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 import { Plus } from "lucide-react";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { TerminalCard, type TerminalCardRef } from "./TerminalCard.web";

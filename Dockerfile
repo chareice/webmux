@@ -22,16 +22,16 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
-RUN cargo build --release --bin webmux-server
+RUN cargo build --release --bin offdesk-hub
 
 # Stage 3: Production
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/webmux-server /usr/local/bin/
+COPY --from=builder /app/target/release/offdesk-hub /usr/local/bin/
 COPY --from=frontend /app/packages/app/dist /app/web
 
-ENV WEBMUX_STATIC_DIR=/app/web
-ENV DATABASE_PATH=/app/data/tc.db
+ENV OFFDESK_STATIC_DIR=/app/web
+ENV DATABASE_PATH=/app/data/offdesk.db
 EXPOSE 4317
 
-CMD ["webmux-server"]
+CMD ["offdesk-hub"]

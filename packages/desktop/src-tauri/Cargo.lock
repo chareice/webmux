@@ -5478,7 +5478,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "webmux-desktop"
+name = "offdesk-desktop"
 version = "0.1.0"
 dependencies = [
  "axum",

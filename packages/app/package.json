@@ -1,7 +1,8 @@
 {
-  "name": "@webmux/app",
+  "name": "@offdesk/app",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "main": "expo-router/entry",
   "scripts": {
     "dev:web": "expo start --web",
@@ -9,7 +10,7 @@
   },
   "dependencies": {
     "@tauri-apps/plugin-opener": "^2.5.4",
-    "@webmux/shared": "workspace:*",
+    "@offdesk/shared": "workspace:*",
     "@xterm/addon-clipboard": "0.3.0-beta.302",
     "@xterm/addon-fit": "0.12.0-beta.300",
     "@xterm/addon-web-links": "0.13.0-beta.300",

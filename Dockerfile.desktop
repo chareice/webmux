@@ -48,9 +48,9 @@ RUN apt-get update && apt-get install -y \
     fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/packages/desktop/src-tauri/target/release/webmux-desktop /usr/local/bin/
+COPY --from=builder /app/packages/desktop/src-tauri/target/release/offdesk-desktop /usr/local/bin/
 
 ENV DISPLAY=:99
 
 # Start Xvfb, dbus, then the app
-CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x800x24 & sleep 1 && dbus-launch webmux-desktop"]
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x800x24 & sleep 1 && dbus-launch offdesk-desktop"]

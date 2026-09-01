@@ -23,9 +23,9 @@ export function detectOS(): OS {
 }
 
 const DOWNLOAD_FILENAMES: Record<OS, string | null> = {
-  macos: "webmux.dmg",
-  windows: "webmux.msi",
-  linux: "webmux.AppImage",
+  macos: "offdesk.dmg",
+  windows: "offdesk.msi",
+  linux: "offdesk.AppImage",
   unknown: null,
 };
 

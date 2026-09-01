@@ -1,6 +1,6 @@
 use std::io::{IsTerminal, Write};
 
-use tc_protocol::TerminalInfo;
+use offdesk_protocol::TerminalInfo;
 
 use crate::client::HubClient;
 use crate::resolve::short_id;

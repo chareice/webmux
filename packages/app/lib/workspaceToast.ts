@@ -3,7 +3,7 @@
 // yet; a keyboard shortcut that silently does nothing is indistinguishable
 // from one that never registered, which is exactly the confusion the pane cap
 // would otherwise create.
-const TOAST_ID = "webmux-workspace-toast";
+const TOAST_ID = "offdesk-workspace-toast";
 
 export function showWorkspaceToast(message: string, timeoutMs = 3000): void {
   if (typeof document === "undefined") return;

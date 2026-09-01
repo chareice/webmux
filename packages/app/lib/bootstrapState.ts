@@ -8,7 +8,7 @@ import type {
   TerminalInfo,
   WorkspaceGroupInfo,
   WorkspaceLayoutInfo,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 
 export interface BrowserSessionState {
   lastSeq: number;

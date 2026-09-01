@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TerminalInfo, WorkspaceGroupInfo } from "@webmux/shared";
+import type { TerminalInfo, WorkspaceGroupInfo } from "@offdesk/shared";
 import {
   MAX_PANES_PER_TAB,
   appendWorkspacePaneToGroup,
@@ -95,8 +95,8 @@ function leafWidths(root: WorkspacePaneNode | null): Record<string, number> {
 
 describe("terminalWorkspaceLayout", () => {
   const terminals = [
-    terminal("web-1", "/home/chareice/projects/webmux"),
-    terminal("web-2", "/home/chareice/projects/webmux"),
+    terminal("web-1", "/home/chareice/projects/offdesk"),
+    terminal("web-2", "/home/chareice/projects/offdesk"),
     terminal("api-1", "/home/chareice/projects/zhuyang"),
   ];
 
@@ -107,7 +107,7 @@ describe("terminalWorkspaceLayout", () => {
       "cwd:/home/chareice/projects/zhuyang",
     );
     expect(workspace.groups.map((group) => group.label)).toEqual([
-      "webmux",
+      "offdesk",
       "zhuyang",
     ]);
     expect(workspace.groups.map((group) => group.paneCount)).toEqual([2, 1]);
@@ -121,7 +121,7 @@ describe("terminalWorkspaceLayout", () => {
     const firstSnapshot = createTerminalWorkspace(
       [
         terminal("api-1", "/home/chareice/projects/zhuyang"),
-        terminal("web-1", "/home/chareice/projects/webmux"),
+        terminal("web-1", "/home/chareice/projects/offdesk"),
         terminal("ops-1", "/home/chareice/projects/ops"),
       ],
       "api-1",
@@ -129,15 +129,15 @@ describe("terminalWorkspaceLayout", () => {
     const secondSnapshot = createTerminalWorkspace(
       [
         terminal("ops-1", "/home/chareice/projects/ops"),
-        terminal("web-1", "/home/chareice/projects/webmux"),
+        terminal("web-1", "/home/chareice/projects/offdesk"),
         terminal("api-1", "/home/chareice/projects/zhuyang"),
       ],
       "api-1",
     );
 
     expect(firstSnapshot.groups.map((group) => group.label)).toEqual([
+      "offdesk",
       "ops",
-      "webmux",
       "zhuyang",
     ]);
     expect(secondSnapshot.groups.map((group) => group.label)).toEqual(
@@ -350,7 +350,7 @@ describe("terminalWorkspaceLayout", () => {
   it("groups panes by persisted workspace tab before falling back to cwd", () => {
     const workspace = createTerminalWorkspace(
       [
-        groupedTerminal("web-1", "/home/chareice/projects/webmux", "tab-agents"),
+        groupedTerminal("web-1", "/home/chareice/projects/offdesk", "tab-agents"),
         groupedTerminal("api-1", "/home/chareice/projects/zhuyang", "tab-agents"),
         terminal("ops-1", "/home/chareice/projects/ops"),
       ],
@@ -532,7 +532,7 @@ describe("terminalWorkspaceLayout", () => {
     });
     const activeGroup = getActiveWorkspaceGroup(next);
 
-    expect(activeGroup?.label).toBe("webmux");
+    expect(activeGroup?.label).toBe("offdesk");
     expect(activeGroup?.root).toMatchObject({
       type: "split",
       direction: "horizontal",
@@ -782,13 +782,13 @@ describe("terminalWorkspaceLayout", () => {
       {
         id: "web-1",
         label: "Terminal web-1",
-        cwd: "/home/chareice/projects/webmux",
+        cwd: "/home/chareice/projects/offdesk",
         active: false,
       },
       {
         id: "web-2",
         label: "Terminal web-2",
-        cwd: "/home/chareice/projects/webmux",
+        cwd: "/home/chareice/projects/offdesk",
         active: true,
       },
     ]);

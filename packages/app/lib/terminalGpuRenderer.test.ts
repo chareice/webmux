@@ -115,7 +115,7 @@ describe("activateGpuRenderer", () => {
     expect(term.atlasClears).toBe(2);
   });
 
-  it("respects the webmux:renderer=dom escape hatch", () => {
+  it("respects the offdesk:renderer=dom escape hatch", () => {
     const term = makeFakeTerminal();
     const handle = activateGpuRenderer(term, {
       createAddon: () => makeFakeAddon(),

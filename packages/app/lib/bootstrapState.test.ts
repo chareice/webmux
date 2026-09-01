@@ -3,7 +3,7 @@ import type {
   AgentSessionInfo,
   BrowserEvent,
   BrowserEventEnvelope,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 import {
   applyBootstrapSnapshot,
   applyBrowserEventEnvelope,

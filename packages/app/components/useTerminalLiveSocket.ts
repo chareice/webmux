@@ -11,7 +11,7 @@ interface UseTerminalLiveSocketOptions {
   wsUrl?: string;
   terminalId?: string;
   // Echo-latency probe: TerminalView stamps this with the send time of each
-  // input batch when localStorage webmux:echo-probe=1. Stays null otherwise,
+  // input batch when localStorage offdesk:echo-probe=1. Stays null otherwise,
   // which keeps the probe a single null check per output chunk.
   echoProbeSentAtRef?: RefObject<number | null>;
   scheduleMeasure: () => void;
@@ -85,7 +85,7 @@ export function useTerminalLiveSocket({
 
     // Passive echo-latency probe: the first output chunk after an input
     // send approximates the keystroke echo round trip. Samples land on
-    // window.__webmuxEcho[terminalId]; a summary is logged every 20.
+    // window.__offdeskEcho[terminalId]; a summary is logged every 20.
     const recordEchoProbeSample = () => {
       const ref = echoProbeSentAtRef;
       const sentAt = ref?.current;
@@ -94,9 +94,9 @@ export function useTerminalLiveSocket({
       const sample = performance.now() - sentAt;
       if (sample > ECHO_PROBE_WINDOW_MS) return;
       const winAny = window as unknown as {
-        __webmuxEcho?: Record<string, EchoProbeStats>;
+        __offdeskEcho?: Record<string, EchoProbeStats>;
       };
-      const store = (winAny.__webmuxEcho ??= {});
+      const store = (winAny.__offdeskEcho ??= {});
       const prev = store[terminalId];
       const next: EchoProbeStats = prev
         ? {
@@ -109,7 +109,7 @@ export function useTerminalLiveSocket({
       if (next.n % 20 === 0) {
         // eslint-disable-next-line no-console
         console.log(
-          `[webmux] echo probe ${terminalId}: last=${next.last.toFixed(1)}ms ema=${next.ema.toFixed(1)}ms n=${next.n}`,
+          `[offdesk] echo probe ${terminalId}: last=${next.last.toFixed(1)}ms ema=${next.ema.toFixed(1)}ms n=${next.n}`,
         );
       }
     };
@@ -148,16 +148,16 @@ export function useTerminalLiveSocket({
       onAck: () => {
         if (!terminalId) return;
         const winAny = window as unknown as {
-          __webmuxCompression?: Record<string, boolean>;
+          __offdeskCompression?: Record<string, boolean>;
         };
-        (winAny.__webmuxCompression ??= {})[terminalId] = true;
+        (winAny.__offdeskCompression ??= {})[terminalId] = true;
       },
       onError: (error) => {
         // Inflate errors are unrecoverable (the stream context is corrupt):
         // log once and close so the reconnect path re-attaches with a fresh
         // context — renegotiation may also land uncompressed.
         // eslint-disable-next-line no-console
-        console.warn("[webmux] deflate-raw-v1 inflate failed, closing socket", error);
+        console.warn("[offdesk] deflate-raw-v1 inflate failed, closing socket", error);
         ws.close();
       },
     });

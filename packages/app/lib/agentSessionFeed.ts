@@ -19,7 +19,7 @@
 // The store core is DOM-free; only the hook at the bottom touches React.
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import type { AgentEvent } from "@webmux/shared";
+import type { AgentEvent } from "@offdesk/shared";
 
 import { getAgentSessionEvents } from "./api";
 import {

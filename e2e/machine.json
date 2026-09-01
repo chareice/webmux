@@ -3,9 +3,9 @@
   "machine_secret": "",
   "hub_url": "ws://hub:4317/ws/machine",
   "acp_agents": {
-    "claude": ["python3", "/opt/webmux/fake-acp-agent.py"],
-    "codex": ["python3", "/opt/webmux/fake-acp-agent.py"],
-    "grok": ["python3", "/opt/webmux/fake-acp-agent.py"],
-    "kimi": ["python3", "/opt/webmux/fake-acp-agent.py"]
+    "claude": ["python3", "/opt/offdesk/fake-acp-agent.py"],
+    "codex": ["python3", "/opt/offdesk/fake-acp-agent.py"],
+    "grok": ["python3", "/opt/offdesk/fake-acp-agent.py"],
+    "kimi": ["python3", "/opt/offdesk/fake-acp-agent.py"]
   }
 }

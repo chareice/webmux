@@ -7,7 +7,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@webmux/shared": fileURLToPath(new URL("packages/shared/src", import.meta.url)),
+      "@offdesk/shared": fileURLToPath(new URL("packages/shared/src", import.meta.url)),
       "@": fileURLToPath(new URL("packages/app", import.meta.url)),
     },
   },

@@ -1,4 +1,4 @@
-export const PANEL_OPEN_KEY = "webmux:panel-open";
+export const PANEL_OPEN_KEY = "offdesk:panel-open";
 
 // Persists the workpath-panel open/closed state across reloads. Falls back
 // to the caller-supplied default if storage is unavailable (Tauri WebView

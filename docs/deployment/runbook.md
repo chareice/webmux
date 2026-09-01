@@ -1,26 +1,26 @@
 # Deployment Runbook
 
-Operational reference for webmux (terminal-canvas).
+Operational reference for offdesk.
 
 ## Environments
 
 | Environment | Host | SSH | Domains | Health URL |
 |-------------|------|-----|---------|------------|
-| production | NAS (Synology) | `ssh chareice@nas.chareice.site -p 10220` | `webmux.nas.chareice.site` | `https://webmux.nas.chareice.site/` |
+| production | NAS (Synology) | `ssh chareice@nas.chareice.site -p 10220` | `offdesk.nas.chareice.site` | `https://offdesk.nas.chareice.site/` |
 
 ## Services
 
 | Service | Image / Binary | Port | Notes |
 |---------|---------------|------|-------|
-| webmux-server | `ghcr.io/zalify/webmux-server:main` | 4317 | Axum server + static frontend (Docker) |
-| webmux-node | GitHub Release binary | — | Machine agent, systemd/launchd service on each machine |
+| offdesk-hub | `ghcr.io/zalify/offdesk-hub:main` | 4317 | Axum server + static frontend (Docker) |
+| offdesk-node | GitHub Release binary | — | Machine agent, systemd/launchd service on each machine |
 | caddy | — | 443/80 | Reverse proxy, TLS termination |
 
 ## Paths
 
 ```
 NAS:/var/services/homes/chareice/projects/
-├── webmux/
+├── offdesk/
 │   └── docker-compose.yml        # Production compose
 ├── caddy/
 │   └── Caddyfile                 # Reverse proxy config
@@ -31,8 +31,8 @@ NAS:/var/services/homes/chareice/projects/
 Caddy config at `/var/services/homes/chareice/projects/caddy/Caddyfile`:
 
 ```
-webmux.nas.chareice.site {
-    reverse_proxy webmux-server-1:4317
+offdesk.nas.chareice.site {
+    reverse_proxy offdesk-hub-1:4317
 }
 ```
 
@@ -49,21 +49,21 @@ ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; dock
 git push origin main
     → GitHub Actions (.github/workflows/container.yml)
     → Build Docker image (linux/amd64)
-    → Push to ghcr.io/zalify/webmux-server:main
+    → Push to ghcr.io/zalify/offdesk-hub:main
     → Manual pull & restart on NAS
 ```
 
 ```bash
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && docker compose pull && docker compose up -d"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/offdesk && docker compose pull && docker compose up -d"
 ```
 
 **CI check:**
 ```bash
-gh run list --repo zalify/webmux --limit 5
-gh run view <run-id> --repo zalify/webmux
+gh run list --repo zalify/offdesk --limit 5
+gh run view <run-id> --repo zalify/offdesk
 ```
 
-## Update Machine Nodes (webmux-node)
+## Update Machine Nodes (offdesk-node)
 
 Machine nodes are standalone binaries installed on each machine. They connect to the hub via WebSocket.
 
@@ -77,24 +77,24 @@ git tag v<VERSION> && git push origin v<VERSION>
 
 Wait for `Build & Release` workflow to complete:
 ```bash
-gh run list --repo zalify/webmux --workflow build.yml --limit 3
+gh run list --repo zalify/offdesk --workflow build.yml --limit 3
 ```
 
 ### Update node on a machine
 
 SSH to the machine and re-run the install script:
 ```bash
-curl -sSL https://raw.githubusercontent.com/zalify/webmux/main/scripts/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/zalify/offdesk/main/scripts/install.sh | sh
 ```
 
 Then restart the service:
 ```bash
 # Linux (systemd)
-systemctl --user restart webmux-node
+systemctl --user restart offdesk-node
 
 # macOS (launchd)
-launchctl unload ~/Library/LaunchAgents/com.webmux.node.plist
-launchctl load -w ~/Library/LaunchAgents/com.webmux.node.plist
+launchctl unload ~/Library/LaunchAgents/dev.offdesk.node.plist
+launchctl load -w ~/Library/LaunchAgents/dev.offdesk.node.plist
 ```
 
 ### Compatibility
@@ -104,38 +104,38 @@ Hub and node versions don't need to match exactly. Unknown message types are sil
 ## Database
 
 - **Type:** SQLite
-- **Path (in container):** `/app/data/webmux.db`
-- **Volume:** `webmux-data` (Docker named volume, persists across container restarts)
+- **Path (in container):** `/app/data/offdesk.db`
+- **Volume:** `offdesk-data` (Docker named volume, persists across container restarts)
 - **Access:** the server image has no `sqlite3` binary — query through a throwaway container mounting the volume:
 ```bash
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; docker run --rm -v webmux_webmux-data:/data keinos/sqlite3 sqlite3 /data/webmux.db '.tables'"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; docker run --rm -v offdesk_offdesk-data:/data keinos/sqlite3 sqlite3 /data/offdesk.db '.tables'"
 ```
 
 ## Common Operations
 
 ### Status
 ```bash
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && docker compose ps"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/offdesk && docker compose ps"
 ```
 
 ### Logs
 ```bash
 # Recent logs
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && docker compose logs --tail=100"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/offdesk && docker compose logs --tail=100"
 
 # Follow logs
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && docker compose logs -f --tail=50"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/offdesk && docker compose logs -f --tail=50"
 ```
 
 ### Health Check
 ```bash
-curl -sf -o /dev/null -w "%{http_code}" https://webmux.nas.chareice.site/
+curl -sf -o /dev/null -w "%{http_code}" https://offdesk.nas.chareice.site/
 # 200 = OK
 ```
 
 ### Restart
 ```bash
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && docker compose restart"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/offdesk && docker compose restart"
 ```
 
 ### Rollback
@@ -143,16 +143,16 @@ ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /
 Roll back to a specific image SHA:
 ```bash
 # 1. Find recent image tags
-gh api /user/packages/container/webmux-server/versions --jq '.[0:5] | .[] | "\(.metadata.container.tags | join(", ")) — \(.created_at)"'
+gh api /user/packages/container/offdesk-hub/versions --jq '.[0:5] | .[] | "\(.metadata.container.tags | join(", ")) — \(.created_at)"'
 
 # 2. Update compose to pin the sha- tag
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && sed -i 's|image:.*|image: ghcr.io/zalify/webmux-server:sha-<COMMIT>|' docker-compose.yml && docker compose pull && docker compose up -d"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/offdesk && sed -i 's|image:.*|image: ghcr.io/zalify/offdesk-hub:sha-<COMMIT>|' docker-compose.yml && docker compose pull && docker compose up -d"
 
 # 3. After fix is deployed, restore to :main tag
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && sed -i 's|image:.*|image: ghcr.io/zalify/webmux-server:main|' docker-compose.yml && docker compose pull && docker compose up -d"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/offdesk && sed -i 's|image:.*|image: ghcr.io/zalify/offdesk-hub:main|' docker-compose.yml && docker compose pull && docker compose up -d"
 ```
 
 ### Stop
 ```bash
-ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/webmux && docker compose down"
+ssh chareice@nas.chareice.site -p 10220 "export PATH=/usr/local/bin:\$PATH; cd /var/services/homes/chareice/projects/offdesk && docker compose down"
 ```

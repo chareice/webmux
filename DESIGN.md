@@ -1,4 +1,4 @@
-# webmux Design System
+# offdesk Design System
 
 This documents the system the app actually ships. Dark-only, cool-neutral,
 terminal-first. Canonical tokens live in `packages/app/global.css` (CSS custom

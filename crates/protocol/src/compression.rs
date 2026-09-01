@@ -126,7 +126,7 @@ mod tests {
             );
         }
         for _ in 0..4 {
-            messages.push(b"\x1b[2K\rbuilding crate webmux ... 128/256\r\n".to_vec());
+            messages.push(b"\x1b[2K\rbuilding crate offdesk ... 128/256\r\n".to_vec());
         }
         // Full redraw: home + clear + the same screen contents again.
         let mut redraw = b"\x1b[H\x1b[2J".to_vec();

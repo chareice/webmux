@@ -1,17 +1,17 @@
 {
-  "productName": "webmux",
+  "productName": "offdesk",
   "version": "0.3.14",
-  "identifier": "com.webmux.desktop",
+  "identifier": "dev.offdesk.desktop",
   "build": {
     "frontendDist": "../../app/dist",
     "devUrl": "http://localhost:8081",
-    "beforeBuildCommand": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app build",
-    "beforeDevCommand": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app dev:web"
+    "beforeBuildCommand": "pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app build",
+    "beforeDevCommand": "pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app dev:web"
   },
   "app": {
     "windows": [
       {
-        "title": "webmux",
+        "title": "offdesk",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -39,7 +39,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/zalify/webmux/releases/download/desktop-latest/latest.json"
+        "https://github.com/zalify/offdesk/releases/download/desktop-latest/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5RkZERjcwNUQ4MzFDRkIKUldUN0hJTmRjTi8vS2NsTi80WWg0MDJoK2pmT3AxTE5TWFVMOUhvRVdYd2tvR1M1WnNHSExLbTIK"
     }

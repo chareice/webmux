@@ -7,7 +7,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use tc_protocol::{
+use offdesk_protocol::{
     DirEntry, MachineInfo, TerminalInfo, WorkspaceGroupInfo, WorkspaceLayoutInfo,
     WorkspaceLayoutNode,
 };
@@ -70,7 +70,7 @@ fn default_rows() -> u16 {
 /// MAX_PANES_PER_TAB in packages/shared/src/contracts.ts. Only workspace
 /// groups are capped here — the cwd fallback tabs the clients derive from
 /// ungrouped terminals are not a hub concept, and capping them would break
-/// `webmux open` on a busy directory.
+/// `offdesk open` on a busy directory.
 const MAX_PANES_PER_TAB: usize = 4;
 
 /// Terminals already assigned to `group_id`, ignoring `exclude_terminal_id`
@@ -1061,7 +1061,7 @@ mod tests {
     use r2d2::Pool;
     use r2d2_sqlite::SqliteConnectionManager;
     use serde_json::{json, Value};
-    use tc_protocol::{HubToMachine, MachineInfo, MachineToHub, TerminalInfo, WorkspaceLayoutNode};
+    use offdesk_protocol::{HubToMachine, MachineInfo, MachineToHub, TerminalInfo, WorkspaceLayoutNode};
     use tower::ServiceExt;
 
     use super::{

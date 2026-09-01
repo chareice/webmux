@@ -34,7 +34,7 @@ test("WS reconnect rebuilds the attach via a fresh tmux client", async ({
 
   const resp = await page.request.post("/api/machines/e2e-node/terminals", {
     headers: {
-      Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem("webmux:token"))}`,
+      Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem("offdesk:token"))}`,
     },
     data: {
       cwd: "/tmp",
@@ -51,8 +51,8 @@ test("WS reconnect rebuilds the attach via a fresh tmux client", async ({
   const readBuffer = async (): Promise<string> =>
     page.evaluate((id) => {
       const map = (
-        window as unknown as { __webmuxTerminals?: Map<string, unknown> }
-      ).__webmuxTerminals;
+        window as unknown as { __offdeskTerminals?: Map<string, unknown> }
+      ).__offdeskTerminals;
       const term = map?.get(id) as
         | {
             buffer: {

@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { Platform } from "react-native";
 
 import { configure, devLogin, getMe } from "./api";
-import type { User } from "@webmux/shared";
+import type { User } from "@offdesk/shared";
 import { storage } from "./storage";
 import { getServerUrl } from "./serverUrl";
 import { isTauri, isTauriMobile } from "./platform";
@@ -19,7 +19,7 @@ export type { User };
 
 const TOKEN_KEY = "token";
 const GET_ME_TIMEOUT_MS = 10_000;
-const DESKTOP_CALLBACK_KEY = "webmux:desktop_callback";
+const DESKTOP_CALLBACK_KEY = "offdesk:desktop_callback";
 
 export interface AuthContextType {
   user: User | null;

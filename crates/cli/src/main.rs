@@ -34,18 +34,18 @@ impl CliError {
 
 #[derive(Parser)]
 #[command(
-    name = "webmux",
+    name = "offdesk",
     version,
-    about = "webmux CLI — remote `tmux send-keys` + `capture-pane` through the hub"
+    about = "offdesk CLI — remote `tmux send-keys` + `capture-pane` through the hub"
 )]
 struct Cli {
     /// Verbose debug logging to stderr
     #[arg(short, long, global = true)]
     verbose: bool,
-    /// Hub URL (or WEBMUX_URL / url in ~/.config/webmux/config.toml)
+    /// Hub URL (or OFFDESK_URL / url in ~/.config/offdesk/config.toml)
     #[arg(long, global = true)]
     url: Option<String>,
-    /// API token (or WEBMUX_TOKEN / token in ~/.config/webmux/config.toml)
+    /// API token (or OFFDESK_TOKEN / token in ~/.config/offdesk/config.toml)
     #[arg(long, global = true)]
     token: Option<String>,
     #[command(subcommand)]
@@ -206,10 +206,21 @@ async fn main() {
     std::process::exit(code);
 }
 
+/// Read `name`, falling back to the pre-rename `legacy` variable with a
+/// deprecation notice on stderr. Dropped once nobody is on webmux.
+fn env_with_legacy(name: &str, legacy: &str) -> Option<String> {
+    if let Ok(value) = std::env::var(name) {
+        return Some(value);
+    }
+    let value = std::env::var(legacy).ok()?;
+    eprintln!("warning: {legacy} is deprecated, use {name}");
+    Some(value)
+}
+
 async fn run(cli: Cli) -> Result<(), CliError> {
     let file = config::load_config_file()?;
-    let env_url = std::env::var("WEBMUX_URL").ok();
-    let env_token = std::env::var("WEBMUX_TOKEN").ok();
+    let env_url = env_with_legacy("OFFDESK_URL", "WEBMUX_URL");
+    let env_token = env_with_legacy("OFFDESK_TOKEN", "WEBMUX_TOKEN");
     let resolved = config::resolve(
         cli.url.as_deref(),
         cli.token.as_deref(),

@@ -4,8 +4,65 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
-pub const TMUX_SOCKET: &str = "webmux";
-const TMUX_PREFIX: &str = "wmx_";
+/// Socket and session-name prefix this build creates terminals under.
+const TMUX_SOCKET_CURRENT: &str = "offdesk";
+const TMUX_PREFIX_CURRENT: &str = "odk_";
+
+/// What webmux used before the rename. A node upgrading in place would
+/// otherwise stop seeing terminals that are still running, so if the old
+/// tmux server still holds sessions we keep talking to it until they are
+/// all gone. tmux cannot move a session between servers, so adopting the
+/// old socket is the only way to not lose them.
+const TMUX_SOCKET_LEGACY: &str = "webmux";
+const TMUX_PREFIX_LEGACY: &str = "wmx_";
+
+static TMUX_NAMING: OnceLock<(&'static str, &'static str)> = OnceLock::new();
+
+/// Probe both sockets and pin the naming for the rest of the process.
+/// Called once from `PtyManager::new()`. Deliberately explicit rather than
+/// lazy: a lazy probe would make every caller — unit tests included —
+/// depend on whatever tmux servers happen to be running on the box.
+fn resolve_tmux_naming() {
+    let current = (TMUX_SOCKET_CURRENT, TMUX_PREFIX_CURRENT);
+    let resolved = if sessions_on_socket(TMUX_SOCKET_CURRENT)
+        .iter()
+        .any(|name| name.starts_with(TMUX_PREFIX_CURRENT))
+    {
+        current
+    } else if sessions_on_socket(TMUX_SOCKET_LEGACY)
+        .iter()
+        .any(|name| name.starts_with(TMUX_PREFIX_LEGACY))
+    {
+        tracing::warn!(
+            "using the legacy tmux socket '{}': it still has terminals running \
+             from before the offdesk rename, and tmux cannot move a session \
+             between servers. New terminals join it too. Close them all and \
+             restart offdesk-node to move to '{}'.",
+            TMUX_SOCKET_LEGACY,
+            TMUX_SOCKET_CURRENT
+        );
+        (TMUX_SOCKET_LEGACY, TMUX_PREFIX_LEGACY)
+    } else {
+        current
+    };
+    let _ = TMUX_NAMING.set(resolved);
+}
+
+/// Socket and prefix in force. Before `resolve_tmux_naming()` runs — which
+/// is every unit test — this is the current pair.
+fn tmux_naming() -> (&'static str, &'static str) {
+    *TMUX_NAMING
+        .get()
+        .unwrap_or(&(TMUX_SOCKET_CURRENT, TMUX_PREFIX_CURRENT))
+}
+
+pub fn tmux_socket() -> &'static str {
+    tmux_naming().0
+}
+
+fn tmux_prefix() -> &'static str {
+    tmux_naming().1
+}
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
@@ -57,15 +114,16 @@ pub struct PtyManager {
 
 impl PtyManager {
     /// Construct a new PtyManager. Panics if tmux is not available — see
-    /// `webmux-node start` for the user-facing check that fails fast on
+    /// `offdesk-node start` for the user-facing check that fails fast on
     /// missing tmux. tmux is mandatory in this build.
     pub fn new() -> Self {
         if !check_tmux_available() {
             panic!(
-                "tmux not found in PATH. webmux-node requires tmux. \
+                "tmux not found in PATH. offdesk-node requires tmux. \
                  Install tmux via your package manager and try again."
             );
         }
+        resolve_tmux_naming();
         ensure_tmux_config();
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -89,7 +147,7 @@ impl PtyManager {
         tmux_args.extend(
             [
                 "-L",
-                TMUX_SOCKET,
+                tmux_socket(),
                 "new-session",
                 "-d",
                 "-s",
@@ -132,7 +190,7 @@ impl PtyManager {
         let _ = tmux_cmd()
             .args([
                 "-L",
-                TMUX_SOCKET,
+                tmux_socket(),
                 "set-option",
                 "-t",
                 &tmux_name,
@@ -147,7 +205,7 @@ impl PtyManager {
                 let _ = tmux_cmd()
                     .args([
                         "-L",
-                        TMUX_SOCKET,
+                        tmux_socket(),
                         "set-environment",
                         "-t",
                         &tmux_name,
@@ -206,7 +264,7 @@ impl PtyManager {
         if let Some(first) = parts.next() {
             if !first.is_empty() {
                 let status = tmux_cmd()
-                    .args(["-L", TMUX_SOCKET, "send-keys", "-l", "-t", &name, first])
+                    .args(["-L", tmux_socket(), "send-keys", "-l", "-t", &name, first])
                     .status()
                     .map_err(|e| format!("Failed to run tmux send-keys: {}", e))?;
                 if !status.success() {
@@ -217,11 +275,11 @@ impl PtyManager {
         for chunk in parts {
             // Each split boundary represents one '\r' — press Enter.
             let _ = tmux_cmd()
-                .args(["-L", TMUX_SOCKET, "send-keys", "-t", &name, "C-m"])
+                .args(["-L", tmux_socket(), "send-keys", "-t", &name, "C-m"])
                 .status();
             if !chunk.is_empty() {
                 let _ = tmux_cmd()
-                    .args(["-L", TMUX_SOCKET, "send-keys", "-l", "-t", &name, chunk])
+                    .args(["-L", tmux_socket(), "send-keys", "-l", "-t", &name, chunk])
                     .status();
             }
         }
@@ -244,7 +302,7 @@ impl PtyManager {
         let output = tmux_cmd()
             .args([
                 "-L",
-                TMUX_SOCKET,
+                tmux_socket(),
                 "list-panes",
                 "-t",
                 &tmux_name,
@@ -282,7 +340,7 @@ impl PtyManager {
         let output = tmux_cmd()
             .args([
                 "-L",
-                TMUX_SOCKET,
+                tmux_socket(),
                 "list-panes",
                 "-a",
                 "-F",
@@ -306,7 +364,7 @@ impl PtyManager {
             .unwrap_or_default()
     }
 
-    /// Recover existing tmux sessions from a previous webmux-node run.
+    /// Recover existing tmux sessions from a previous offdesk-node run.
     /// Returns recovered SessionInfo list for reporting to the hub. The
     /// per-attach byte streams are established on-demand when browsers
     /// connect, so there is nothing more to wire up here than the metadata.
@@ -407,8 +465,8 @@ fn set_term_env(cmd: &mut std::process::Command) {
 
 /// Build the command that runs `tmux new-session`. On systemd machines
 /// the tmux server is auto-spawned by this call, so it would land inside
-/// webmux-node.service's cgroup; distro tmux builds then stamp every
-/// pane's transient scope with `PartOf=webmux-node.service`, and a node
+/// offdesk-node.service's cgroup; distro tmux builds then stamp every
+/// pane's transient scope with `PartOf=offdesk-node.service`, and a node
 /// stop/restart cascades SIGTERM to every pane — killing all sessions.
 /// Wrapping the spawn in `systemd-run --user --scope` births the server
 /// in its own scope, so the `PartOf` chain points there instead and node
@@ -458,22 +516,20 @@ fn systemd_scope_available() -> bool {
     })
 }
 
-fn webmux_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("webmux")
+fn offdesk_dir() -> PathBuf {
+    offdesk_protocol::config_dir()
 }
 
 fn tmux_config_path() -> PathBuf {
-    webmux_dir().join("tmux.conf")
+    offdesk_dir().join("tmux.conf")
 }
 
 fn user_tmux_config_path() -> PathBuf {
-    webmux_dir().join("tmux.user.conf")
+    offdesk_dir().join("tmux.user.conf")
 }
 
 fn osc52_script_path() -> PathBuf {
-    webmux_dir().join("osc52copy.sh")
+    offdesk_dir().join("osc52copy.sh")
 }
 
 /// Build the tmux config string (extracted for testability).
@@ -537,7 +593,7 @@ const OSC52_SCRIPT: &str =
 
 /// Write a minimal tmux config and the OSC 52 helper script.
 fn ensure_tmux_config() {
-    let dir = webmux_dir();
+    let dir = offdesk_dir();
     let _ = std::fs::create_dir_all(&dir);
 
     let script_path = osc52_script_path();
@@ -561,7 +617,7 @@ fn ensure_tmux_config() {
     let _ = tmux_cmd()
         .args([
             "-L",
-            TMUX_SOCKET,
+            tmux_socket(),
             "source-file",
             config_path.to_str().unwrap_or(""),
         ])
@@ -577,7 +633,7 @@ pub fn check_tmux_available() -> bool {
 }
 
 pub fn tmux_session_name(id: &str) -> String {
-    format!("{}{}", TMUX_PREFIX, id)
+    format!("{}{}", tmux_prefix(), id)
 }
 
 /// Parse `tmux list-panes -a -F
@@ -595,7 +651,7 @@ fn parse_pane_info(output: &str, hostname: &str) -> HashMap<String, PaneInfo> {
         let Some(session_name) = parts.next() else {
             continue;
         };
-        let Some(terminal_id) = session_name.strip_prefix(TMUX_PREFIX) else {
+        let Some(terminal_id) = session_name.strip_prefix(tmux_prefix()) else {
             continue;
         };
         let title = parts
@@ -643,14 +699,11 @@ fn current_hostname() -> String {
 }
 
 fn clear_pane_title_args(tmux_name: &str) -> [&str; 7] {
-    ["-L", TMUX_SOCKET, "select-pane", "-t", tmux_name, "-T", ""]
+    ["-L", tmux_socket(), "select-pane", "-t", tmux_name, "-T", ""]
 }
 
 fn sessions_file_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("webmux")
-        .join("sessions.json")
+    offdesk_dir().join("sessions.json")
 }
 
 fn load_sessions_file() -> HashMap<String, PersistedSession> {
@@ -662,8 +715,14 @@ fn load_sessions_file() -> HashMap<String, PersistedSession> {
 }
 
 pub fn tmux_list_sessions() -> Vec<String> {
+    sessions_on_socket(tmux_socket())
+}
+
+/// List sessions on a named socket without consulting `tmux_naming()` —
+/// this is what `tmux_naming()` itself uses to probe both sockets.
+fn sessions_on_socket(socket: &str) -> Vec<String> {
     tmux_cmd()
-        .args(["-L", TMUX_SOCKET, "list-sessions", "-F", "#{session_name}"])
+        .args(["-L", socket, "list-sessions", "-F", "#{session_name}"])
         .output()
         .ok()
         .and_then(|o| {
@@ -684,7 +743,7 @@ pub fn tmux_list_sessions() -> Vec<String> {
 fn tmux_kill_session(id: &str) {
     let name = tmux_session_name(id);
     let _ = tmux_cmd()
-        .args(["-L", TMUX_SOCKET, "kill-session", "-t", &name])
+        .args(["-L", tmux_socket(), "kill-session", "-t", &name])
         .status();
 }
 
@@ -708,7 +767,7 @@ pub fn spawn_tmux_attach(session_id: &str, cols: u16, rows: u16) -> Result<TmuxA
     let portable_pty::PtyPair { slave, master } = pair;
 
     let mut cmd = CommandBuilder::new("tmux");
-    cmd.args(["-L", TMUX_SOCKET, "attach-session", "-t", &tmux_name]);
+    cmd.args(["-L", tmux_socket(), "attach-session", "-t", &tmux_name]);
     let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
     cmd.env("TERM", term);
 
@@ -744,7 +803,7 @@ pub fn refresh_tmux_client_by_pid(pid: u32) {
     let output = tmux_cmd()
         .args([
             "-L",
-            TMUX_SOCKET,
+            tmux_socket(),
             "list-clients",
             "-F",
             "#{client_pid}\t#{client_tty}",
@@ -762,7 +821,7 @@ pub fn refresh_tmux_client_by_pid(pid: u32) {
         }
         if let Some(tty) = parts.next().map(str::trim).filter(|tty| !tty.is_empty()) {
             let _ = tmux_cmd()
-                .args(["-L", TMUX_SOCKET, "refresh-client", "-t", tty])
+                .args(["-L", tmux_socket(), "refresh-client", "-t", tty])
                 .status();
         }
         return;
@@ -774,7 +833,7 @@ pub fn tmux_resize_window(session_id: &str, cols: u16, rows: u16) {
     let _ = tmux_cmd()
         .args([
             "-L",
-            TMUX_SOCKET,
+            tmux_socket(),
             "resize-window",
             "-t",
             &name,
@@ -957,7 +1016,7 @@ mod tests {
     #[test]
     fn parse_pane_info_maps_sessions_back_to_terminal_ids() {
         let panes = parse_pane_info(
-            "wmx_aaa\tfix the bug\t/home/user\nwmx_bbb\t✳ 了解项目\t/src\n",
+            "odk_aaa\tfix the bug\t/home/user\nodk_bbb\t✳ 了解项目\t/src\n",
             "dev",
         );
         assert_eq!(
@@ -981,7 +1040,7 @@ mod tests {
     #[test]
     fn parse_pane_info_skips_empty_and_hostname_titles() {
         let panes = parse_pane_info(
-            "wmx_aaa\t\t/home/user\nwmx_bbb\tdev\t/dev\nwmx_ccc\treal title\t/tmp\n",
+            "odk_aaa\t\t/home/user\nodk_bbb\tdev\t/dev\nodk_ccc\treal title\t/tmp\n",
             "dev",
         );
         assert_eq!(
@@ -1014,7 +1073,7 @@ mod tests {
 
     #[test]
     fn parse_pane_info_tolerates_crlf() {
-        let panes = parse_pane_info("wmx_aaa\tfix the bug\t/home/user\r\n", "dev");
+        let panes = parse_pane_info("odk_aaa\tfix the bug\t/home/user\r\n", "dev");
         assert_eq!(
             panes.get("aaa"),
             Some(&PaneInfo {
@@ -1027,7 +1086,7 @@ mod tests {
 
     #[test]
     fn parse_pane_info_handles_a_missing_path_column() {
-        let panes = parse_pane_info("wmx_aaa\tfix the bug\n", "dev");
+        let panes = parse_pane_info("odk_aaa\tfix the bug\n", "dev");
         assert_eq!(
             panes.get("aaa"),
             Some(&PaneInfo {
@@ -1040,7 +1099,7 @@ mod tests {
 
     #[test]
     fn parse_pane_info_skips_an_empty_path() {
-        let panes = parse_pane_info("wmx_aaa\tfix the bug\t\n", "dev");
+        let panes = parse_pane_info("odk_aaa\tfix the bug\t\n", "dev");
         assert_eq!(
             panes.get("aaa"),
             Some(&PaneInfo {
@@ -1050,14 +1109,14 @@ mod tests {
             })
         );
         // No title and no path at all → no entry.
-        let panes = parse_pane_info("wmx_aaa\t\t\n", "dev");
+        let panes = parse_pane_info("odk_aaa\t\t\n", "dev");
         assert!(panes.is_empty());
     }
 
     #[test]
     fn parse_pane_info_extracts_a_foreground_command_but_not_a_shell() {
         let panes = parse_pane_info(
-            "wmx_aaa\t\t/home/user\tnvim\nwmx_bbb\t\t/tmp\tfish\nwmx_ccc\t\t\tcargo\n",
+            "odk_aaa\t\t/home/user\tnvim\nodk_bbb\t\t/tmp\tfish\nodk_ccc\t\t\tcargo\n",
             "dev",
         );
         assert_eq!(
@@ -1091,11 +1150,11 @@ mod tests {
     fn new_session_cmd_wraps_in_systemd_scope_when_available() {
         let tmux_args: Vec<String> = [
             "-L",
-            TMUX_SOCKET,
+            tmux_socket(),
             "new-session",
             "-d",
             "-s",
-            "wmx_terminal-a",
+            "odk_terminal-a",
             "-x",
             "80",
             "-y",
@@ -1123,7 +1182,7 @@ mod tests {
 
     #[test]
     fn new_session_cmd_falls_back_to_direct_tmux_spawn() {
-        let tmux_args: Vec<String> = ["-L", TMUX_SOCKET, "new-session", "-d", "-s", "wmx_terminal-a"]
+        let tmux_args: Vec<String> = ["-L", tmux_socket(), "new-session", "-d", "-s", "odk_terminal-a"]
             .into_iter()
             .map(String::from)
             .collect();
@@ -1139,13 +1198,13 @@ mod tests {
     #[test]
     fn clear_pane_title_targets_the_new_sessions_active_pane() {
         assert_eq!(
-            clear_pane_title_args("wmx_terminal-a"),
+            clear_pane_title_args("odk_terminal-a"),
             [
                 "-L",
-                TMUX_SOCKET,
+                tmux_socket(),
                 "select-pane",
                 "-t",
-                "wmx_terminal-a",
+                "odk_terminal-a",
                 "-T",
                 ""
             ]

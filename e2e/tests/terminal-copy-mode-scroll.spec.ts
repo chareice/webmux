@@ -78,9 +78,9 @@ async function hasXtermInstance(
   return page.evaluate((tid) => {
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, unknown>;
+        __offdeskTerminals?: Map<string, unknown>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     return map?.has(tid) ?? false;
   }, terminalId);
 }
@@ -100,9 +100,9 @@ async function readTerminalText(
     };
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, XtermLike>;
+        __offdeskTerminals?: Map<string, XtermLike>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     const term = map?.get(tid);
     if (!term) return "";
     const lines: string[] = [];

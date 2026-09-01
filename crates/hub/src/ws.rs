@@ -12,7 +12,7 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use tc_protocol::{
+use offdesk_protocol::{
     decode_attach_output_frame, encode_terminal_preview_output_frame, BrowserEventEnvelope,
     BrowserEventsClientMessage, BrowserEventsPong, HubToMachine, MachineToHub,
 };
@@ -166,7 +166,7 @@ async fn terminal_ws_handler(
 
     let device_id = params.get("device_id").cloned().unwrap_or_default();
     let compress_requested = params.get("compress").map(String::as_str)
-        == Some(tc_protocol::compression::DEFLATE_RAW_V1);
+        == Some(offdesk_protocol::compression::DEFLATE_RAW_V1);
     ws.on_upgrade(move |socket| {
         handle_terminal_ws(
             socket,
@@ -219,11 +219,11 @@ async fn handle_terminal_ws(
     let compress = compress_requested
         && state
             .manager
-            .machine_supports(&machine_id, tc_protocol::compression::DEFLATE_RAW_V1)
+            .machine_supports(&machine_id, offdesk_protocol::compression::DEFLATE_RAW_V1)
             .await;
     if compress {
         let ack = serde_json::to_string(&ServerMessage::CompressionEnabled {
-            algo: tc_protocol::compression::DEFLATE_RAW_V1.to_string(),
+            algo: offdesk_protocol::compression::DEFLATE_RAW_V1.to_string(),
         })
         .unwrap();
         if sender.send(Message::Text(ack.into())).await.is_err() {
@@ -619,7 +619,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                             .unwrap_or(false);
                     }
 
-                    let info = tc_protocol::MachineInfo {
+                    let info = offdesk_protocol::MachineInfo {
                         id: machine_id.clone(),
                         name,
                         os,
@@ -632,7 +632,7 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                     //
                     // Security: a compressed stream that mixes secrets with
                     // attacker-influenced bytes is a CRIME-class oracle.
-                    // webmux sessions are single-tenant per user today, so
+                    // offdesk sessions are single-tenant per user today, so
                     // the practical risk is low — but if a shared-session /
                     // multi-tenant mode ever appears, compression MUST be
                     // disabled for it (never ack CompressionEnabled there).

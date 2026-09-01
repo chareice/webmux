@@ -21,18 +21,18 @@ use crate::db::DbPool;
 use crate::machine_manager::MachineManager;
 
 #[derive(Parser)]
-#[command(name = "webmux-server", about = "webmux hub server")]
+#[command(name = "offdesk-hub", about = "offdesk hub server")]
 struct Args {
     /// Listen address
     #[arg(long, default_value = "0.0.0.0:4317")]
     listen: String,
 
     /// Path to frontend static files
-    #[arg(long, default_value = "packages/app/dist", env = "WEBMUX_STATIC_DIR")]
+    #[arg(long, default_value = "packages/app/dist", env = "OFFDESK_STATIC_DIR")]
     static_dir: String,
 
     /// Path to SQLite database file
-    #[arg(long, default_value = "./webmux.db", env = "DATABASE_PATH")]
+    #[arg(long, default_value = "./offdesk.db", env = "DATABASE_PATH")]
     database: String,
 }
 
@@ -50,6 +50,23 @@ pub struct AppState {
     pub google_client_secret: Option<String>,
 }
 
+/// Pre-rename environment variables still work. Promote each one into its
+/// offdesk name before anything reads the environment, so both clap's
+/// `env =` attributes and `env_or` below see it. Dropped once nobody is on
+/// webmux.
+fn promote_legacy_env() {
+    for suffix in ["STATIC_DIR", "BASE_URL", "DEV_MODE"] {
+        let new = format!("OFFDESK_{suffix}");
+        let old = format!("WEBMUX_{suffix}");
+        if std::env::var_os(&new).is_none() {
+            if let Some(value) = std::env::var_os(&old) {
+                eprintln!("warning: {old} is deprecated, use {new}");
+                std::env::set_var(&new, value);
+            }
+        }
+    }
+}
+
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
@@ -62,6 +79,7 @@ fn env_opt(key: &str) -> Option<String> {
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    promote_legacy_env();
     let args = Args::parse();
 
     // Initialize database
@@ -77,8 +95,8 @@ async fn main() {
         router: Arc::new(HubRouter::new()),
         db: pool,
         jwt_secret: env_or("JWT_SECRET", "dev-secret-change-me"),
-        base_url: env_or("WEBMUX_BASE_URL", "http://localhost:4317"),
-        dev_mode: env_or("WEBMUX_DEV_MODE", "false") == "true",
+        base_url: env_or("OFFDESK_BASE_URL", "http://localhost:4317"),
+        dev_mode: env_or("OFFDESK_DEV_MODE", "false") == "true",
         github_client_id: env_opt("GITHUB_CLIENT_ID"),
         github_client_secret: env_opt("GITHUB_CLIENT_SECRET"),
         google_client_id: env_opt("GOOGLE_CLIENT_ID"),
@@ -181,7 +199,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system time should be after Unix epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("webmux-hub-static-{unique}"));
+        let dir = std::env::temp_dir().join(format!("offdesk-hub-static-{unique}"));
         fs::create_dir_all(&dir).expect("static fixture directory should be created");
         fs::write(dir.join("index.html"), "<html>app shell</html>")
             .expect("index fixture should be written");

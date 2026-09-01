@@ -2,10 +2,10 @@
 
 ## Architecture
 
-- **Hub** (`webmux-server`): Axum web server on port 4317. Built inside Docker for E2E. Serves REST API, WebSocket endpoints, and static frontend. SQLite database. Runs in `WEBMUX_DEV_MODE=true` for E2E (skip OAuth, allow unauthenticated nodes).
-- **Node** (`webmux-node`): Machine daemon connecting to hub via `ws://hub:4317/ws/machine`. Built inside Docker for E2E. Manages real PTY sessions with bash. Runs with `--id e2e-node` (dev mode, no registration needed). Ships `e2e/machine.json` at `/root/.config/webmux/machine.json` — its `acp_agents` map points every agent kind (claude/codex/grok/kimi) at the fake ACP agent (`/opt/webmux/fake-acp-agent.py`, python3), and `FAKE_ACP_ASK=1` in the container env makes it emit a permission request per prompt (only surfaces as an ask-card when the session's `auto_run` is false).
+- **Hub** (`offdesk-hub`): Axum web server on port 4317. Built inside Docker for E2E. Serves REST API, WebSocket endpoints, and static frontend. SQLite database. Runs in `OFFDESK_DEV_MODE=true` for E2E (skip OAuth, allow unauthenticated nodes).
+- **Node** (`offdesk-node`): Machine daemon connecting to hub via `ws://hub:4317/ws/machine`. Built inside Docker for E2E. Manages real PTY sessions with bash. Runs with `--id e2e-node` (dev mode, no registration needed). Ships `e2e/machine.json` at `/root/.config/offdesk/machine.json` — its `acp_agents` map points every agent kind (claude/codex/grok/kimi) at the fake ACP agent (`/opt/offdesk/fake-acp-agent.py`, python3), and `FAKE_ACP_ASK=1` in the container env makes it emit a permission request per prompt (only surfaces as an ask-card when the session's `auto_run` is false).
 - **Runner** (`playwright`): Playwright test runner based on the official Playwright image with browsers preinstalled. The actual browser process runs inside the `runner` container and talks to `http://hub:4317` on the compose network. Normal E2E verification must use this containerized browser path.
-- **Database:** SQLite at `/app/data/tc.db` (ephemeral per test run, no volume mount)
+- **Database:** SQLite at `/app/data/offdesk.db` (ephemeral per test run, no volume mount)
 
 ## Default Commands
 

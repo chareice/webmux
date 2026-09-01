@@ -10,7 +10,7 @@ import {
 } from "./helpers";
 
 // deflate-raw-v1 is ON by default in the e2e environment (hub, machine, and
-// web all support it, and the localStorage "webmux:compress" escape hatch is
+// web all support it, and the localStorage "offdesk:compress" escape hatch is
 // unset), so the entire suite exercises the compressed path; this spec pins
 // the negotiation and stream integrity explicitly.
 test("terminal output streams through deflate-raw-v1 when negotiated", async ({
@@ -29,11 +29,11 @@ test("terminal output streams through deflate-raw-v1 when negotiated", async ({
   await expandTerminalById(page, tid);
 
   // The hub sends the CompressionEnabled ack before any output byte can
-  // reach the socket; the app exposes it as window.__webmuxCompression.
+  // reach the socket; the app exposes it as window.__offdeskCompression.
   await page.waitForFunction(
     (id) =>
-      (window as unknown as { __webmuxCompression?: Record<string, boolean> })
-        .__webmuxCompression?.[id] === true,
+      (window as unknown as { __offdeskCompression?: Record<string, boolean> })
+        .__offdeskCompression?.[id] === true,
     tid,
     { timeout: 15_000 },
   );

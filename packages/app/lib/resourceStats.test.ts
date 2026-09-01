@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { DiskInfo, ResourceStats } from "@webmux/shared";
+import type { DiskInfo, ResourceStats } from "@offdesk/shared";
 
 import {
   diskPercent,

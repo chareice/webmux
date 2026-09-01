@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use serde_json::{json, Value};
-use tc_protocol::{MachineInfo, TerminalInfo};
+use offdesk_protocol::{MachineInfo, TerminalInfo};
 
 use super::read::ReadOptions;
 use crate::attach;
@@ -274,7 +274,7 @@ mod tests {
         entry_json, json_output, render_text, retain_machine, BatchEntry, Capture, Outcome,
     };
     use serde_json::json;
-    use tc_protocol::{MachineInfo, TerminalInfo, TerminalTitleSource};
+    use offdesk_protocol::{MachineInfo, TerminalInfo, TerminalTitleSource};
 
     fn terminal(id: &str, machine_id: &str, cwd: &str) -> TerminalInfo {
         TerminalInfo {

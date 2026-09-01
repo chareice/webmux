@@ -68,9 +68,9 @@ async function hasXtermInstance(
   return page.evaluate((tid) => {
     const map = (
       window as unknown as {
-        __webmuxTerminals?: Map<string, unknown>;
+        __offdeskTerminals?: Map<string, unknown>;
       }
-    ).__webmuxTerminals;
+    ).__offdeskTerminals;
     return map?.has(tid) ?? false;
   }, terminalId);
 }

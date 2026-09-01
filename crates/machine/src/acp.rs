@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use tc_protocol::{
+use offdesk_protocol::{
     AgentEvent, AgentKind, AgentModelInfo, AgentQuestionOption, AgentSessionStatus, MachineToHub,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};

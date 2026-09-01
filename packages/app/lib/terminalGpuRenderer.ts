@@ -21,12 +21,12 @@
 //      re-rasterization of the visible screen — invisible next to the
 //      corruption it prevents.
 //
-// Escape hatch: localStorage "webmux:renderer" = "dom" skips activation
+// Escape hatch: localStorage "offdesk:renderer" = "dom" skips activation
 // entirely (diagnosis / rollback without a deploy).
 import type { Terminal } from "@xterm/xterm";
 import { WebglAddon } from "@xterm/addon-webgl";
 
-export const RENDERER_STORAGE_KEY = "webmux:renderer";
+export const RENDERER_STORAGE_KEY = "offdesk:renderer";
 export const ATLAS_CLEAR_INTERVAL_MS = 5 * 60_000;
 
 interface WebglAddonLike {
@@ -120,7 +120,7 @@ export function activateGpuRenderer(
     // Silent fallback is the contract, but a construct/load miss has to
     // be visible in e2e/browser consoles or the canvas canary is the
     // only signal that we dropped to the DOM renderer.
-    console.warn("[webmux] WebGL renderer unavailable, using DOM", error);
+    console.warn("[offdesk] WebGL renderer unavailable, using DOM", error);
     return INERT_HANDLE;
   }
 

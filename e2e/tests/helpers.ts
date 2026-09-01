@@ -8,11 +8,11 @@ async function authenticate(page: Page): Promise<void> {
 
   const { token } = await response.json();
   await page.context().addInitScript((value) => {
-    localStorage.setItem("webmux:token", value);
-    // Opt-in to test-only hooks (e.g. the window.__webmuxTerminals map that
+    localStorage.setItem("offdesk:token", value);
+    // Opt-in to test-only hooks (e.g. the window.__offdeskTerminals map that
     // exposes live xterm instances for buffer inspection). Production builds
     // never set this flag and therefore never expose internals globally.
-    localStorage.setItem("webmux:e2e", "1");
+    localStorage.setItem("offdesk:e2e", "1");
   }, token);
 }
 
@@ -37,7 +37,7 @@ export async function openApp(page: Page): Promise<void> {
 }
 
 export async function getAuthHeaders(page: Page): Promise<Record<string, string>> {
-  const token = await page.evaluate(() => localStorage.getItem("webmux:token"));
+  const token = await page.evaluate(() => localStorage.getItem("offdesk:token"));
   expect(token).toBeTruthy();
   return {
     Authorization: `Bearer ${token}`,
@@ -451,8 +451,8 @@ export async function readTerminalBuffer(
 ): Promise<string> {
   return page.evaluate((tid) => {
     const map = (
-      window as unknown as { __webmuxTerminals?: Map<string, unknown> }
-    ).__webmuxTerminals;
+      window as unknown as { __offdeskTerminals?: Map<string, unknown> }
+    ).__offdeskTerminals;
     const term = map?.get(tid) as
       | {
           buffer: {

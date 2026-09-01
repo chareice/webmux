@@ -1,11 +1,12 @@
 {
-  "name": "webmux",
+  "name": "offdesk",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.23.0",
   "scripts": {
-    "dev": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app dev:web",
-    "build": "pnpm --filter @webmux/shared build && pnpm --filter @webmux/app build",
+    "dev": "pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app dev:web",
+    "build": "pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app build",
     "test": "vitest run",
     "typecheck": "tsc -b",
     "e2e:up": "docker compose -f e2e/docker-compose.yml up -d --build hub node",
@@ -13,8 +14,8 @@
     "e2e:test": "./e2e/run-in-docker.sh",
     "e2e:ci": "./e2e/run-in-docker.sh",
     "e2e:test:debug-host": "playwright test",
-    "desktop:dev": "pnpm --filter @webmux/desktop dev",
-    "desktop:build": "pnpm --filter @webmux/desktop build"
+    "desktop:dev": "pnpm --filter @offdesk/desktop dev",
+    "desktop:build": "pnpm --filter @offdesk/desktop build"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

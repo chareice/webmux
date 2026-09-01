@@ -16,9 +16,9 @@ async function waitForRendererReady(
     (id) =>
       (
         window as unknown as {
-          __webmuxTerminals?: Map<string, { write: (data: string) => void }>;
+          __offdeskTerminals?: Map<string, { write: (data: string) => void }>;
         }
-      ).__webmuxTerminals?.has(id),
+      ).__offdeskTerminals?.has(id),
     terminalId,
   );
 }
@@ -30,15 +30,15 @@ test("browser-generated terminal attribute responses are not typed into the shel
     const originalSend = WebSocket.prototype.send;
     (
       window as unknown as {
-        __webmuxInputFrames?: Array<{ data: string; codes: number[] }>;
-        __webmuxRawTerminalData?: Array<{ data: string; codes: number[] }>;
+        __offdeskInputFrames?: Array<{ data: string; codes: number[] }>;
+        __offdeskRawTerminalData?: Array<{ data: string; codes: number[] }>;
       }
-    ).__webmuxInputFrames = [];
+    ).__offdeskInputFrames = [];
     (
       window as unknown as {
-        __webmuxRawTerminalData?: Array<{ data: string; codes: number[] }>;
+        __offdeskRawTerminalData?: Array<{ data: string; codes: number[] }>;
       }
-    ).__webmuxRawTerminalData = [];
+    ).__offdeskRawTerminalData = [];
     WebSocket.prototype.send = function patchedSend(data) {
       try {
         const message = JSON.parse(String(data)) as {
@@ -48,9 +48,9 @@ test("browser-generated terminal attribute responses are not typed into the shel
         if (message.type === "input" && typeof message.data === "string") {
           (
             window as unknown as {
-              __webmuxInputFrames: Array<{ data: string; codes: number[] }>;
+              __offdeskInputFrames: Array<{ data: string; codes: number[] }>;
             }
-          ).__webmuxInputFrames.push({
+          ).__offdeskInputFrames.push({
             data: message.data,
             codes: Array.from(message.data).map((ch) => ch.charCodeAt(0)),
           });
@@ -71,7 +71,7 @@ test("browser-generated terminal attribute responses are not typed into the shel
   await page.evaluate((id) => {
     (
       window as unknown as {
-        __webmuxTerminals?: Map<
+        __offdeskTerminals?: Map<
           string,
           {
             onData: (
@@ -80,17 +80,17 @@ test("browser-generated terminal attribute responses are not typed into the shel
           }
         >;
       }
-    ).__webmuxTerminals
+    ).__offdeskTerminals
       ?.get(id)
       ?.onData((data) => {
         (
           window as unknown as {
-            __webmuxRawTerminalData?: Array<{
+            __offdeskRawTerminalData?: Array<{
               data: string;
               codes: number[];
             }>;
           }
-        ).__webmuxRawTerminalData?.push({
+        ).__offdeskRawTerminalData?.push({
           data,
           codes: Array.from(data).map((ch) => ch.charCodeAt(0)),
         });
@@ -100,31 +100,31 @@ test("browser-generated terminal attribute responses are not typed into the shel
   await page.evaluate(() => {
     (
       window as unknown as {
-        __webmuxInputFrames?: Array<{ data: string; codes: number[] }>;
-        __webmuxRawTerminalData?: Array<{ data: string; codes: number[] }>;
+        __offdeskInputFrames?: Array<{ data: string; codes: number[] }>;
+        __offdeskRawTerminalData?: Array<{ data: string; codes: number[] }>;
       }
-    ).__webmuxInputFrames = [];
+    ).__offdeskInputFrames = [];
     (
       window as unknown as {
-        __webmuxRawTerminalData?: Array<{ data: string; codes: number[] }>;
+        __offdeskRawTerminalData?: Array<{ data: string; codes: number[] }>;
       }
-    ).__webmuxRawTerminalData = [];
+    ).__offdeskRawTerminalData = [];
   });
   await page.evaluate((id) => {
     (
       window as unknown as {
-        __webmuxTerminals?: Map<string, { write: (data: string) => void }>;
+        __offdeskTerminals?: Map<string, { write: (data: string) => void }>;
       }
-    ).__webmuxTerminals?.get(id)?.write("\x1b[>c");
+    ).__offdeskTerminals?.get(id)?.write("\x1b[>c");
   }, terminalId);
   await page.waitForTimeout(100);
 
   const rawTerminalData = await page.evaluate(() =>
     (
       window as unknown as {
-        __webmuxRawTerminalData?: Array<{ data: string; codes: number[] }>;
+        __offdeskRawTerminalData?: Array<{ data: string; codes: number[] }>;
       }
-    ).__webmuxRawTerminalData ?? [],
+    ).__offdeskRawTerminalData ?? [],
   );
   expect(rawTerminalData.map((frame) => frame.data).join("")).toMatch(
     /\x1b\[[?>][0-9;]*c/,
@@ -133,9 +133,9 @@ test("browser-generated terminal attribute responses are not typed into the shel
   const inputFrames = await page.evaluate(() =>
     (
       window as unknown as {
-        __webmuxInputFrames?: Array<{ data: string; codes: number[] }>;
+        __offdeskInputFrames?: Array<{ data: string; codes: number[] }>;
       }
-    ).__webmuxInputFrames ?? [],
+    ).__offdeskInputFrames ?? [],
   );
   expect(inputFrames.map((frame) => frame.data).join("")).not.toMatch(
     /\x1b\[[?>][0-9;]*c/,

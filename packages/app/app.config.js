@@ -10,16 +10,16 @@ const withCleartextTraffic = (config) =>
   });
 
 const plugins = ["expo-router"];
-if (process.env.WEBMUX_ALLOW_CLEARTEXT === "1") {
+if (process.env.OFFDESK_ALLOW_CLEARTEXT === "1") {
   plugins.push(withCleartextTraffic);
 }
 
 module.exports = ({ config }) => ({
   ...config,
-  name: "webmux",
-  slug: "webmux",
-  version: process.env.WEBMUX_APP_VERSION || "0.1.0",
-  scheme: "webmux",
+  name: "offdesk",
+  slug: "offdesk",
+  version: process.env.OFFDESK_APP_VERSION || "0.1.0",
+  scheme: "offdesk",
   userInterfaceStyle: "dark",
   platforms: ["web", "android"],
   web: {
@@ -34,13 +34,13 @@ module.exports = ({ config }) => ({
   },
   plugins,
   android: {
-    package: "com.webmux.app",
+    package: "dev.offdesk.app",
     permissions: ["REQUEST_INSTALL_PACKAGES"],
   },
   extra: {
     defaultServerUrl:
-      process.env.EXPO_PUBLIC_WEBMUX_DEFAULT_SERVER_URL ||
-      process.env.WEBMUX_DEFAULT_SERVER_URL ||
+      process.env.EXPO_PUBLIC_OFFDESK_DEFAULT_SERVER_URL ||
+      process.env.OFFDESK_DEFAULT_SERVER_URL ||
       null,
   },
 });

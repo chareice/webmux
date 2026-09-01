@@ -12,7 +12,7 @@ import type {
   AgentKind,
   AgentEvent,
   AgentSessionInfo,
-} from "@webmux/shared";
+} from "@offdesk/shared";
 
 import { generateDeviceId } from "./deviceIdShared";
 
@@ -412,10 +412,10 @@ export function terminalWsUrl(
   if (deviceId) params.set("device_id", deviceId);
   // deflate-raw-v1 request: the hub acks only if the machine also supports
   // it; old hubs ignore the param and the stream stays uncompressed.
-  // Escape hatch: localStorage "webmux:compress" === "off".
+  // Escape hatch: localStorage "offdesk:compress" === "off".
   if (
     typeof localStorage !== "undefined" &&
-    localStorage.getItem("webmux:compress") !== "off"
+    localStorage.getItem("offdesk:compress") !== "off"
   ) {
     params.set("compress", "deflate-raw-v1");
   }

@@ -1,4 +1,4 @@
-import type { AgentSessionInfo, TerminalInfo } from "@webmux/shared";
+import type { AgentSessionInfo, TerminalInfo } from "@offdesk/shared";
 
 import {
   labelFromCwd,

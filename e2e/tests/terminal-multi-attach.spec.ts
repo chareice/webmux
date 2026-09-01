@@ -34,7 +34,7 @@ test("two simultaneous attaches both render the same terminal content", async ({
 
   const resp = await pageA.request.post("/api/machines/e2e-node/terminals", {
     headers: {
-      Authorization: `Bearer ${await pageA.evaluate(() => localStorage.getItem("webmux:token"))}`,
+      Authorization: `Bearer ${await pageA.evaluate(() => localStorage.getItem("offdesk:token"))}`,
     },
     data: {
       cwd: "/tmp",
@@ -59,8 +59,8 @@ test("two simultaneous attaches both render the same terminal content", async ({
     async (id: string): Promise<string> =>
       page.evaluate((tid) => {
         const map = (
-          window as unknown as { __webmuxTerminals?: Map<string, unknown> }
-        ).__webmuxTerminals;
+          window as unknown as { __offdeskTerminals?: Map<string, unknown> }
+        ).__offdeskTerminals;
         const term = map?.get(tid) as
           | {
               buffer: {

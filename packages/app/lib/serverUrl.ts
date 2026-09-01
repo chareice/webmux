@@ -1,7 +1,7 @@
 import { isTauri } from "./platform";
 
-const SERVER_URL_KEY = "webmux:server_url";
-const DEFAULT_SERVER_URL = "https://webmux.nas.chareice.site";
+const SERVER_URL_KEY = "offdesk:server_url";
+const DEFAULT_SERVER_URL = "https://offdesk.nas.chareice.site";
 
 export interface ResolveServerUrlOptions {
   platformOs: string;
@@ -38,8 +38,8 @@ function getRuntimePlatformOs(): string {
 
 function getConfiguredDefaultServerUrl(): string | null {
   return (
-    process.env.EXPO_PUBLIC_WEBMUX_DEFAULT_SERVER_URL ||
-    process.env.WEBMUX_DEFAULT_SERVER_URL ||
+    process.env.EXPO_PUBLIC_OFFDESK_DEFAULT_SERVER_URL ||
+    process.env.OFFDESK_DEFAULT_SERVER_URL ||
     null
   );
 }

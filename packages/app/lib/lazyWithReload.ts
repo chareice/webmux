@@ -1,4 +1,4 @@
-export const CHUNK_RELOAD_KEY = "webmux:chunk-reload";
+export const CHUNK_RELOAD_KEY = "offdesk:chunk-reload";
 
 export async function lazyWithReload<T>(loader: () => Promise<T>): Promise<T> {
   try {

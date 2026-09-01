@@ -196,7 +196,7 @@ fn workspace_layout_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Worksp
 #[cfg(test)]
 mod tests {
     use rusqlite::Connection;
-    use tc_protocol::{WorkspaceLayoutNode, WorkspaceSplitDirection};
+    use offdesk_protocol::{WorkspaceLayoutNode, WorkspaceSplitDirection};
 
     use super::{find_workspace_layouts_by_machine, upsert_workspace_layout};
 
