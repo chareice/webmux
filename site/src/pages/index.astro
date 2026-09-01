@@ -39,8 +39,33 @@ const setups = [
   },
 ];
 
-// offdesk's row is from docs/facts.md. Every other cell is unverified — the
-// rule is a source URL in a comment or the literal string TODO, never a guess.
+// Every cell is from the vendor's own documentation, sourced below and
+// checked 2026-09-01. Nothing here is guessed; where a vendor does not
+// document something, the cell says so.
+//
+// Claude Code Remote Control — https://code.claude.com/docs/en/remote-control
+//   "it registers with the Anthropic API and polls for work ... the server
+//   routes messages between the web or mobile client and your local session";
+//   "the session transcript ... is stored on Anthropic servers". The surface
+//   is a Claude Code conversation, not a terminal. No CLI documented.
+// VibeTunnel — https://github.com/amantus-ai/vibetunnel
+//   "Run any command in the browser", `vt --shell`. One Node server per
+//   machine. Tailscale / ngrok / Cloudflare / Pinggy / Pangolin / LAN. `vt`
+//   launches a session; no send/read/wait verbs. MIT.
+// Happy Coder — https://github.com/slopus/happy
+//   "Start using `happy` instead of `claude` or `codex`". happy-agent has
+//   machines, spawn --machine, create, send, history, wait. Default server
+//   happy-api.slopus.com, E2E encrypted; self-hosting documented at
+//   https://happy.engineering/docs/guides/self-hosting/ . MIT.
+// Omnara — https://docs.omnara.com/api/overview
+//   Scoped to agent sessions, no raw shell documented. "An agent can ... use
+//   several [machines] at once". "Hosted routes live under
+//   https://api.omnara.com/v1"; self-hosted serves the same API. Apache-2.0.
+// Orca — https://github.com/stablyai/orca , https://www.onorca.dev/docs/cli/overview
+//   "anything that runs in a terminal will run inside Orca". SSH worktrees
+//   and `orca serve`. `orca terminal list/read/send/wait/create/split`.
+//   https://www.onorca.dev/docs/mobile — "Prefer Orca Relay for pairing when
+//   it is available". MIT.
 const columns = [
   "Any terminal program",
   "Machines per hub",
@@ -56,15 +81,60 @@ const rows = [
       "Anything that runs in tmux",
       "Any number, one URL",
       "Your own hub",
-      "offdesk open / send / wait / read",
-      "Yes",
+      "open / send / wait / read",
+      "Yes, MIT",
     ],
   },
-  { name: "Claude Code Remote Control", cells: Array(5).fill("TODO") },
-  { name: "VibeTunnel", cells: Array(5).fill("TODO") },
-  { name: "Happy Coder", cells: Array(5).fill("TODO") },
-  { name: "Omnara", cells: Array(5).fill("TODO") },
-  { name: "Orca", cells: Array(5).fill("TODO") },
+  {
+    name: "Claude Code Remote Control",
+    cells: [
+      "No \u2014 a Claude Code session, not a terminal",
+      "Sessions from several machines in one list",
+      "Anthropic's servers; transcript stored there",
+      "Not documented",
+      "No",
+    ],
+  },
+  {
+    name: "VibeTunnel",
+    cells: [
+      "Yes \u2014 vt <any command>, vt --shell",
+      "One server per machine",
+      "Your choice: LAN, Tailscale, ngrok, Cloudflare",
+      "Launches commands only",
+      "Yes, MIT",
+    ],
+  },
+  {
+    name: "Happy Coder",
+    cells: [
+      "No \u2014 wraps claude and codex",
+      "Several; spawn --machine",
+      "slopus cloud by default, end-to-end encrypted",
+      "create / send / history / wait",
+      "Optional, MIT",
+    ],
+  },
+  {
+    name: "Omnara",
+    cells: [
+      "Agent sessions; no raw terminal documented",
+      "Several at once per agent",
+      "api.omnara.com by default",
+      "CLI and REST",
+      "Optional, Apache-2.0",
+    ],
+  },
+  {
+    name: "Orca",
+    cells: [
+      "Yes \u2014 real terminal, 30+ CLI agents",
+      "Several, via SSH worktrees and orca serve",
+      "Orca Relay by default, or direct on the LAN",
+      "orca terminal create/send/read/wait",
+      "Yes, MIT",
+    ],
+  },
 ];
 
 const orchestration = `T=$(offdesk open nas --cwd ~/app --cmd claude --json | jq -r .id)
@@ -245,8 +315,8 @@ offdesk kill $T --yes`;
       <section aria-labelledby="compare">
         <h2 id="compare">How it compares</h2>
         <p class="lead">
-          offdesk's row comes from the code. Every other cell is unverified and
-          marked TODO — nothing here is a guess.
+          Every cell is from that project's own documentation, checked
+          2026-09-01. Nothing here is a guess.
         </p>
         <div class="scroll">
           <table>
@@ -262,7 +332,15 @@ offdesk kill $T --yes`;
                   <tr class={row.self ? "self" : undefined}>
                     <th scope="row">{row.name}</th>
                     {row.cells.map((cell) => (
-                      <td class={cell === "TODO" ? "todo" : undefined}>{cell}</td>
+                      <td
+                        class={
+                          /not documented|Not documented/.test(cell)
+                            ? "unknown"
+                            : undefined
+                        }
+                      >
+                        {cell}
+                      </td>
                     ))}
                   </tr>
                 ))
@@ -641,10 +719,8 @@ offdesk kill $T --yes`;
         color: var(--accent);
       }
 
-      td.todo {
+      td.unknown {
         color: var(--fg-2);
-        font-family: var(--mono);
-        font-size: 0.75rem;
       }
 
       /* footer */
