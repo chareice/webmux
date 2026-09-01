@@ -28,19 +28,25 @@ a separate migration described below.
 
 ### Last verified production snapshot
 
-Verified read-only on 2026-09-01:
+Verified after production deployment on 2026-09-01:
 
 - `https://webmux.nas.chareice.site/` returned HTTP 200.
 - `webmux-server-1` was running revision
-  `e04694aa08dcd548f8881c330452efc38d4d2bfb` from
-  `ghcr.io/zalify/webmux-server:main`.
+  `8a07b80be58421c8ddd8d216609bb02ab7879bcc` from
+  `ghcr.io/zalify/offdesk-hub:sha-8a07b80` with zero restarts.
 - The only application volume was `webmux_webmux-data`, mounted at
   `/app/data`.
+- The existing tables remained present in `/app/data/webmux.db`, and both
+  known machine nodes reconnected after the container recreation.
+- The HTML build marker and a versioned JavaScript asset matched the deployed
+  revision.
 - Caddy routed `webmux.nas.chareice.site` to `webmux-server-1:4317`.
 - The future `offdesk.nas.chareice.site` endpoint was not serving TLS.
 
-This snapshot is the rollback baseline for the first Offdesk-image cutover.
-Always inspect the live revision again before a later deploy.
+The pre-cutover rollback baseline was revision
+`e04694aa08dcd548f8881c330452efc38d4d2bfb` from
+`ghcr.io/zalify/webmux-server:main`. Always inspect the live revision again
+before a later deploy.
 
 ## Environments
 
@@ -143,10 +149,11 @@ curl -sf -o /dev/null -w '%{http_code}\n' \
   https://webmux.nas.chareice.site/
 ```
 
-Expected before the first compatibility cutover:
+Expected before a routine deploy:
 
 - health is `200`;
 - container is `webmux-server-1`;
+- the current image is an immutable `ghcr.io/zalify/offdesk-hub:sha-*` tag;
 - volume is `webmux_webmux-data -> /app/data`;
 - database remains `/app/data/webmux.db` in the live Compose file.
 
@@ -175,47 +182,44 @@ docker manifest inspect \
   "ghcr.io/zalify/offdesk-hub:${OFFDESK_IMAGE_TAG}" >/dev/null
 ```
 
-### 3. First compatibility cutover to the Offdesk image
-
-This one-time step changes the application image and environment-variable
-names while deliberately retaining the current directory, hostname, volume,
-database file, Compose project, and Caddy target.
+### 3. Back up production
 
 Before editing, create recoverable backups on the NAS:
 
 ```bash
 ssh chareice@nas.chareice.site -p 10220 \
-  'export PATH=/usr/local/bin:$PATH; \
+  'set -e; \
+   export PATH=/usr/local/bin:$PATH; \
    cd /var/services/homes/chareice/projects/webmux && \
    mkdir -p backups && \
    BACKUP_STAMP="$(date +%Y%m%d-%H%M%S)" && \
+   BACKUP_CONTAINER="offdesk-sqlite-backup-${BACKUP_STAMP}" && \
    cp -p docker-compose.yml "backups/docker-compose.${BACKUP_STAMP}.yml" && \
-   docker run --rm \
+   docker create --name "$BACKUP_CONTAINER" --user 0:0 \
      -v webmux_webmux-data:/data \
-     -v "$PWD/backups:/backup" \
-     keinos/sqlite3 sqlite3 /data/webmux.db \
-       ".backup /backup/webmux-${BACKUP_STAMP}.db" && \
-   docker run --rm \
-     -v "$PWD/backups:/backup:ro" \
-     keinos/sqlite3 sqlite3 "/backup/webmux-${BACKUP_STAMP}.db" \
-       "PRAGMA integrity_check;"'
+     keinos/sqlite3 sh -c \
+       "sqlite3 /data/webmux.db \".backup /tmp/webmux.db\" && \
+        sqlite3 /tmp/webmux.db \"PRAGMA integrity_check;\"" >/dev/null && \
+   docker start -a "$BACKUP_CONTAINER" && \
+   docker cp "$BACKUP_CONTAINER:/tmp/webmux.db" \
+     "backups/webmux-${BACKUP_STAMP}.db" && \
+   docker rm "$BACKUP_CONTAINER" >/dev/null && \
+   test -s "backups/webmux-${BACKUP_STAMP}.db" && \
+   printf "backup_stamp=%s\n" "$BACKUP_STAMP"'
 ```
 
 The integrity check must print `ok`. SQLite's online backup command is used so
-the snapshot also includes committed WAL data while the hub is running.
+the snapshot also includes committed WAL data while the hub is running. The
+temporary-container-plus-`docker cp` flow is required because Synology ACLs
+prevent this container image from writing directly to the host `backups/`
+bind mount. If a step fails after container creation, remove the named
+`offdesk-sqlite-backup-<timestamp>` container before retrying.
 
-Then make only these targeted live Compose changes:
+### 4. Pin and deploy the exact image
 
-```text
-image: ghcr.io/zalify/webmux-server:main
-  -> image: ghcr.io/zalify/offdesk-hub:sha-<short-commit>
-
-WEBMUX_BASE_URL: "https://webmux.nas.chareice.site"
-  -> OFFDESK_BASE_URL: "https://webmux.nas.chareice.site"
-
-RUST_LOG: "webmux_server=debug"
-  -> RUST_LOG: "offdesk_hub=debug"
-```
+The first compatibility cutover was completed on 2026-09-01. The live Compose
+file already uses `OFFDESK_BASE_URL` and the `offdesk_hub` log filter. Routine
+deploys change only the immutable Offdesk image tag.
 
 Do not change these compatibility lines:
 
@@ -227,33 +231,7 @@ domain:        webmux.nas.chareice.site
 container:     webmux-server-1
 ```
 
-Apply the exact tag without printing the rest of the Compose file:
-
-```bash
-OFFDESK_IMAGE_TAG=sha-<short-commit>
-
-ssh chareice@nas.chareice.site -p 10220 \
-  "export PATH=/usr/local/bin:\$PATH; \
-   cd /var/services/homes/chareice/projects/webmux && \
-   OFFDESK_IMAGE_TAG='$OFFDESK_IMAGE_TAG' && \
-   sed -i \
-     -e \"s|ghcr.io/zalify/webmux-server:main|ghcr.io/zalify/offdesk-hub:\${OFFDESK_IMAGE_TAG}|\" \
-     -e 's|WEBMUX_BASE_URL:|OFFDESK_BASE_URL:|' \
-     -e 's|webmux_server=debug|offdesk_hub=debug|' \
-     docker-compose.yml && \
-   grep -q 'OFFDESK_BASE_URL:' docker-compose.yml && \
-   ! grep -q 'WEBMUX_BASE_URL:' docker-compose.yml && \
-   docker compose config --quiet && \
-   docker compose config --images | \
-     grep -Fxq "ghcr.io/zalify/offdesk-hub:${OFFDESK_IMAGE_TAG}" && \
-   docker compose pull server && \
-   docker compose up -d server"
-```
-
-### 4. Routine deploys after the compatibility cutover
-
-For later releases, replace only the immutable Offdesk image tag, then pull
-and recreate the hub:
+Replace only the immutable Offdesk image tag, then pull and recreate the hub:
 
 ```bash
 OFFDESK_IMAGE_TAG=sha-<short-commit>
@@ -304,18 +282,19 @@ There is no dedicated `/health` route; `/` is the current HTTP smoke check.
 
 ## Rollback
 
-### First-cutover rollback
+### Legacy-image rollback (temporary)
 
-If the first Offdesk-image cutover fails, restore the timestamped Compose
-backup and recreate the legacy service. Do not restore the SQLite backup unless
-there is evidence of a database problem.
+If a cutover incompatibility is discovered during the observation window,
+restore the verified pre-cutover Compose backup and recreate the legacy
+service. Do not pull the moving legacy tag; the verified legacy image remains
+local. Do not restore the SQLite backup unless there is evidence of a database
+problem.
 
 ```bash
 ssh chareice@nas.chareice.site -p 10220
 export PATH=/usr/local/bin:$PATH
 cd /var/services/homes/chareice/projects/webmux
-ls -1t backups/docker-compose.*.yml | head -5
-cp -p <selected-compose-backup> docker-compose.yml
+cp -p backups/docker-compose.20260901-204233.yml docker-compose.yml
 docker compose up -d server
 docker compose ps
 ```
