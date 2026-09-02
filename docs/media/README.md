@@ -10,7 +10,8 @@ and crops the viewBox to the ink.
 |---|---|
 | `logo-source.png` | the master bitmap — the only thing to replace when the mark changes |
 | `logo.svg` | wordmark in brand blue `#1A5FE8`, for light backgrounds |
-| `logo-dark.svg` | wordmark in `#FAFAF5`, what the dark site uses |
+| `logo-black.svg` | wordmark in ink `#0C0C0C`, what the site's nav uses on its cream ground |
+| `logo-dark.svg` | wordmark in `#FAFAF5`, for dark backgrounds |
 | `favicon.svg` + `favicon-16/32.png` | the `o` alone, cream on `#0A0A0A` |
 | `avatar.svg` + `avatar-400.png` | the same mark at avatar size |
 | `og-1200x630.svg` + `.png` | share card: wordmark over the tagline |
@@ -28,7 +29,7 @@ ground and erodes the glyphs by about 4% of their ink; 0.71 measured closest to
 the source. Re-derive it if the brand colours change.
 
 Then rasterise the icons and card with `rsvg-convert -w <n> -h <n>`, and copy
-`logo.svg`, `logo-dark.svg`, `favicon*` and the card into `site/public/`.
+`logo.svg`, `logo-black.svg`, `logo-dark.svg`, `favicon*` and the card into `site/public/`.
 
 # Screenshots and GIFs to record
 
