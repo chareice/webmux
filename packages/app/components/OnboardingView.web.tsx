@@ -164,15 +164,30 @@ export function OnboardingView({
     <div
       style={{
         display: "flex",
-        alignItems: embedded ? "stretch" : "center",
+        flex: 1,
+        width: "100%",
+        boxSizing: "border-box",
+        alignItems: embedded ? "stretch" : "flex-start",
         justifyContent: "center",
         height: embedded ? "auto" : "100%",
         minHeight: embedded ? "auto" : "100%",
-        padding: embedded ? 0 : 32,
+        overflowY: embedded ? "visible" : "auto",
+        padding: embedded ? 0 : "56px 32px 48px",
         background: embedded ? "transparent" : colors.background,
       }}
     >
       <div style={{ maxWidth: embedded ? "100%" : 600, width: "100%" }}>
+        {!embedded && (
+          // The same wordmark the site uses, served from the bundle — a
+          // fresh hub's first page should say whose it is.
+          <img
+            src="/brand/wordmark.svg"
+            alt="offdesk"
+            width={124}
+            height={35}
+            style={{ display: "block", marginBottom: 36 }}
+          />
+        )}
         {/* Header */}
         <h1
           style={{

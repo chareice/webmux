@@ -8,6 +8,9 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import { Platform } from "react-native";
+// The imperative singleton, not the hook: useRouter() hands back a fresh
+// object per render, and an effect that depends on it re-runs forever.
+import { router } from "expo-router";
 
 import { configure, devLogin, getMe } from "./api";
 import type { User } from "@offdesk/shared";
@@ -41,6 +44,27 @@ export function useAuth(): AuthContextType {
 }
 
 // ── URL & desktop callback helpers ──
+
+// Read once, at module load, and kept in memory for the one render that
+// needs it. It cannot be *removed* from the address bar here: expo-router's
+// entry recorded the initial URL before any of this ran, and writes it back
+// when it mounts — a plain history.replaceState loses that race, which is
+// how a session ended up sitting in the address bar, in browser history, in
+// the next screenshot. The router has to do the removing; see AuthProvider.
+let pendingUrlToken: string | null = (() => {
+  if (Platform.OS !== "web" || typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("token");
+})();
+
+// Hand the token over exactly once. AuthProvider's restore can run more
+/// than once — the router re-renders the tree when the URL changes — and a
+/// token that stays "pending" would send it round again: replace, re-render,
+/// restore, replace.
+function takeUrlToken(): string | null {
+  const token = pendingUrlToken;
+  pendingUrlToken = null;
+  return token;
+}
 
 function getUrlParam(name: string): string | null {
   if (Platform.OS !== "web" || typeof window === "undefined") return null;
@@ -151,10 +175,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const restore = async () => {
       try {
-        // 1. Check URL for OAuth callback token (?token=xxx)
-        const urlToken = getUrlParam("token");
+        // 1. A token that arrived on the URL — an OAuth callback, or the
+        //    hub's own sign-in link. Already off the address bar; see above.
+        const urlToken = takeUrlToken();
         if (urlToken) {
-          removeUrlParams("token");
+          // Through the router, so its own idea of the URL loses the token
+          // too — a plain history.replaceState is overwritten the next time
+          // the router syncs its state to the address bar.
+          if (
+            Platform.OS === "web" &&
+            typeof window !== "undefined" &&
+            new URLSearchParams(window.location.search).has("token")
+          ) {
+            router.replace(window.location.pathname);
+          }
           await storage.set(TOKEN_KEY, urlToken);
           if (!cancelled) {
             configure(currentServerUrl(), urlToken);

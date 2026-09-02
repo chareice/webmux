@@ -39,6 +39,12 @@ struct Args {
     #[arg(long, env = "OFFDESK_ALLOW_IDLE_SLEEP", global = true)]
     allow_idle_sleep: bool,
 
+    /// Print the sign-in link without opening it in a browser. It is only
+    /// opened when a person is at this terminal anyway — never as a service,
+    /// never over SSH.
+    #[arg(long, env = "OFFDESK_NO_OPEN", global = true)]
+    no_open: bool,
+
     /// Path to frontend static files. Without it the binary serves the UI it
     /// was built with, and falls back to ./packages/app/dist when it has none.
     #[arg(long, env = "OFFDESK_STATIC_DIR")]
@@ -264,6 +270,19 @@ async fn main() {
         dev_mode,
     ) {
         println!("{notice}");
+
+        // The link is the whole first step, and the person is right here.
+        if first_run::should_open_browser(args.no_open) {
+            if let Some(link) = first_run::sign_in_link(
+                &pool_for_notice,
+                &jwt_secret,
+                &base_url_for_notice,
+                &args.listen,
+            ) {
+                println!("  Opening it in your browser.\n");
+                first_run::open_in_browser(&link);
+            }
+        }
     }
 
     // Nagle's algorithm batches small TCP segments while ACKs are outstanding,

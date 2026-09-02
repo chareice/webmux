@@ -165,6 +165,52 @@ fn lan_address() -> Option<IpAddr> {
     (!address.is_loopback() && !address.is_unspecified()).then_some(address)
 }
 
+/// Whether to open the sign-in link in a browser, which is only right when a
+/// person is sitting at this machine watching this terminal. Not when output
+/// is a file — that is the service, and it would pop a browser at every
+/// login. Not over SSH — `open` would put a window on the far machine's
+/// screen, not the one in front of the person. Not on a Linux box with no
+/// display to open anything in.
+pub fn should_open_browser(no_open: bool) -> bool {
+    use std::io::IsTerminal;
+
+    if no_open || !std::io::stdout().is_terminal() {
+        return false;
+    }
+    if std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some() {
+        return false;
+    }
+    if cfg!(target_os = "macos") {
+        return true;
+    }
+    std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
+/// Best effort; the link is printed regardless, so a browser that does not
+/// open is an inconvenience rather than a dead end.
+pub fn open_in_browser(url: &str) {
+    let (program, args): (&str, &[&str]) = if cfg!(target_os = "macos") {
+        ("open", &[])
+    } else {
+        ("xdg-open", &[])
+    };
+    let result = std::process::Command::new(program)
+        .args(args)
+        .arg(url)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    if let Err(error) = result {
+        tracing::debug!("could not open a browser with {program}: {error}");
+    }
+}
+
+/// The sign-in link on its own, for opening; `sign_in_notice` prints it.
+pub fn sign_in_link(pool: &DbPool, jwt_secret: &str, base_url: &str, listen: &str) -> Option<String> {
+    let token = owner_session(pool, jwt_secret)?;
+    Some(format!("{}/?token={token}", reachable_base_url(base_url, listen)))
+}
+
 /// What to print on startup. `None` when the hub has a way in already.
 pub fn sign_in_notice(
     pool: &DbPool,
@@ -178,7 +224,7 @@ pub fn sign_in_notice(
     if has_oauth || dev_mode {
         return None;
     }
-    let token = owner_session(pool, jwt_secret)?;
+    let link = sign_in_link(pool, jwt_secret, base_url, listen)?;
     let url = reachable_base_url(base_url, listen);
     let data_dir = Path::new(database_path)
         .parent()
@@ -190,7 +236,7 @@ pub fn sign_in_notice(
         "\n  offdesk is running at {url}\n  \
          data: {data_dir}\n\
          \n  Open this to sign in:\n\
-         \n    {url}/?token={token}\n\
+         \n    {link}\n\
          \n  It signs you in as this hub's owner. Anyone who has the link can do\n  \
          the same, so keep it off shared terminals. Configure GitHub or Google\n  \
          sign-in to stop printing it — see docs/setup-public.md.\n\
@@ -257,6 +303,18 @@ mod tests {
             reachable_base_url("http://localhost:4317", "127.0.0.1:4319"),
             "http://127.0.0.1:4319"
         );
+    }
+
+    #[test]
+    fn a_browser_is_never_opened_when_asked_not_to() {
+        assert!(!should_open_browser(true));
+    }
+
+    #[test]
+    fn a_browser_is_never_opened_over_ssh() {
+        std::env::set_var("SSH_CONNECTION", "1.2.3.4 22 5.6.7.8 22");
+        assert!(!should_open_browser(false));
+        std::env::remove_var("SSH_CONNECTION");
     }
 
     #[test]
