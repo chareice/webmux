@@ -83,6 +83,28 @@ jobs:
           done
           if [ "$missing" -ne 0 ]; then exit 1; fi
 
+      # The Tauri CLI installs the profile under
+      # ~/Library/MobileDevice/Provisioning Profiles, which is where Xcode
+      # looked until 16. Xcode 16 looks in
+      # ~/Library/Developer/Xcode/UserData/Provisioning Profiles, and a
+      # profile it cannot see is "requires a provisioning profile" — so put
+      # it where both look, under the name Xcode expects: its UUID.
+      - name: Install the provisioning profile where Xcode looks
+        env:
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+        run: |
+          profile=$(mktemp)
+          echo "$IOS_MOBILE_PROVISION" | base64 --decode > "$profile"
+          uuid=$(security cms -D -i "$profile" | plutil -extract UUID raw -)
+          name=$(security cms -D -i "$profile" | plutil -extract Name raw -)
+          for dir in ~/Library/MobileDevice/Provisioning\ Profiles \
+                     ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles; do
+            mkdir -p "$dir"
+            cp "$profile" "$dir/$uuid.mobileprovision"
+          done
+          rm -f "$profile"
+          echo "installed \"$name\" ($uuid)"
+
       - name: Build IPA
         working-directory: packages/desktop
         env:
