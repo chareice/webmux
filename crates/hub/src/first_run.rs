@@ -167,7 +167,9 @@ pub fn sign_in_notice(
          \n    {url}/?token={token}\n\
          \n  It signs you in as this hub's owner. Anyone who has the link can do\n  \
          the same, so keep it off shared terminals. Configure GitHub or Google\n  \
-         sign-in to stop printing it — see docs/setup-public.md.\n"
+         sign-in to stop printing it — see docs/setup-public.md.\n\
+         \n  This hub stops when this terminal does. To run it at login instead:\n\
+         \n    offdesk-hub service install\n"
     ))
 }
 

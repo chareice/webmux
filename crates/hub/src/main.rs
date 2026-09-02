@@ -11,7 +11,7 @@ mod ws;
 use axum::body::Body;
 use axum::http::{header, HeaderValue};
 use axum::{http::StatusCode, response::IntoResponse, routing::any, Router};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::path::Path;
 use std::sync::Arc;
 use tower::{service_fn, ServiceBuilder, ServiceExt};
@@ -26,9 +26,18 @@ use crate::machine_manager::MachineManager;
 #[derive(Parser)]
 #[command(name = "offdesk-hub", about = "offdesk hub server", version)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Listen address
-    #[arg(long, default_value = "0.0.0.0:4317")]
+    #[arg(long, default_value = "0.0.0.0:4317", global = true)]
     listen: String,
+
+    /// Let the machine idle-sleep while the hub runs. By default the hub
+    /// keeps its host awake (macOS), because a hub whose host is asleep is a
+    /// hub that is down.
+    #[arg(long, env = "OFFDESK_ALLOW_IDLE_SLEEP", global = true)]
+    allow_idle_sleep: bool,
 
     /// Path to frontend static files. Without it the binary serves the UI it
     /// was built with, and falls back to ./packages/app/dist when it has none.
@@ -38,6 +47,75 @@ struct Args {
     /// Path to SQLite database file
     #[arg(long, default_value = "./offdesk.db", env = "DATABASE_PATH")]
     database: String,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Run the hub at login, restarted if it stops — a launchd agent on macOS,
+    /// a systemd user service on Linux
+    Service {
+        #[command(subcommand)]
+        action: ServiceCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ServiceCommand {
+    /// Install and start the service, with the arguments given to this command
+    Install,
+    /// Stop and remove the service
+    Uninstall,
+    /// Restart the running service, to pick up a new binary
+    Restart,
+    /// Show service status
+    Status,
+}
+
+/// The hub as launchd/systemd sees it. Whatever --listen the person installed
+/// with is baked into the unit, so `service install --listen 0.0.0.0:8080`
+/// means what it looks like.
+fn service_spec(listen: &str, allow_idle_sleep: bool) -> offdesk_protocol::service::ServiceSpec {
+    let mut args = vec!["--listen".to_string(), listen.to_string()];
+    if allow_idle_sleep {
+        args.push("--allow-idle-sleep".to_string());
+    }
+    offdesk_protocol::service::ServiceSpec {
+        name: "offdesk-hub",
+        label: "dev.offdesk.hub",
+        description: "offdesk hub".to_string(),
+        args,
+    }
+}
+
+fn run_service(action: ServiceCommand, listen: &str, allow_idle_sleep: bool) {
+    use offdesk_protocol::service as svc;
+    let spec = service_spec(listen, allow_idle_sleep);
+    let outcome = match action {
+        ServiceCommand::Install => svc::install(&spec).map(|()| {
+            println!("offdesk-hub is installed as a service and running.");
+            println!("It starts at login and restarts if it stops. To see it:");
+            println!("  offdesk-hub service status");
+            if cfg!(target_os = "macos") {
+                println!("Logs: ~/Library/Logs/offdesk/offdesk-hub.stdout.log");
+            } else {
+                println!("Logs: journalctl --user -u offdesk-hub -f");
+            }
+        }),
+        ServiceCommand::Uninstall => svc::uninstall(&spec).map(|()| {
+            println!("offdesk-hub service removed.");
+        }),
+        ServiceCommand::Restart => svc::restart(&spec).map(|()| {
+            println!("offdesk-hub service restarted.");
+        }),
+        ServiceCommand::Status => {
+            svc::status(&spec);
+            return;
+        }
+    };
+    if let Err(error) = outcome {
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    }
 }
 
 #[derive(Clone)]
@@ -85,6 +163,29 @@ async fn main() {
 
     promote_legacy_env();
     let args = Args::parse();
+
+    if let Some(Command::Service { action }) = args.command {
+        run_service(action, &args.listen, args.allow_idle_sleep);
+        return;
+    }
+
+    // Held for the life of main: the machine does not idle-sleep while the
+    // hub is up. `_` alone would drop it immediately.
+    let _keep_awake = if args.allow_idle_sleep {
+        None
+    } else {
+        match offdesk_protocol::keep_awake::prevent_idle_sleep() {
+            Ok((guard, offdesk_protocol::keep_awake::KeepAwake::Held)) => {
+                tracing::info!("keeping this machine awake while the hub runs (--allow-idle-sleep to opt out)");
+                guard
+            }
+            Ok((guard, offdesk_protocol::keep_awake::KeepAwake::Unsupported)) => guard,
+            Err(error) => {
+                tracing::warn!("could not keep the machine awake: {error}");
+                None
+            }
+        }
+    };
 
     // A hub with no configured key generates one and keeps it next to the
     // database, so sessions survive a restart instead of logging everyone out.
