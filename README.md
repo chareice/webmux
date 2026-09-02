@@ -3,8 +3,12 @@
 Vibe code from your phone, on the terminal running at home.
 One self-hosted hub, all your machines, any agent that runs in tmux.
 
-<!-- TODO(ryan): record docs/media/hero.gif — see docs/media/README.md -->
-![Claude Code running on a desk machine, with a phone attached to the same tmux session](docs/media/hero.gif)
+<!-- TODO(ryan): record docs/media/hero.gif — see docs/media/README.md. Until
+     then the phone screenshot below stands in; swap the reference, not the
+     file. -->
+<p align="center">
+  <img src="docs/media/phone-terminal.png" width="300" alt="An offdesk terminal on a phone: vim running on a Mac at home, attached from the phone's browser">
+</p>
 
 - **Off the desk, not off the work.** Close the laptop and walk away. The
   session is still running on the machine at home, and your phone opens the
@@ -73,13 +77,12 @@ if it ever stops — a launchd agent on macOS, a systemd user service on Linux:
 offdesk-hub service install
 ```
 
-On macOS the hub also keeps the machine from idle-sleeping while it runs, since
-a hub whose host is asleep is a hub that is down. `--allow-idle-sleep` turns
-that off; display sleep and closing the lid are unaffected either way.
+On a Mac it also keeps the machine from idle-sleeping while it runs
+(`--allow-idle-sleep` to opt out; the display and the lid are unaffected).
 
-Anyone who has that link can sign in as you, so keep it off shared terminals.
-It stops being printed once you configure GitHub or Google sign-in, which is
-what you want the moment the hub is reachable from outside your network —
+The link signs in whoever has it, so keep it off shared terminals. It stops
+being printed once you configure GitHub or Google sign-in — which you want the
+moment the hub is reachable from outside your network:
 [docs/setup-public.md](docs/setup-public.md).
 
 Or run it in Docker, which is what a NAS usually wants:
@@ -152,51 +155,19 @@ both.
 Open the hub URL in a browser. There is nothing to install, and on iPhone this
 is the only client — there is no iOS build.
 
-Two packaged clients also ship, both Tauri:
+Two packaged clients also ship:
 
 - **Desktop** — macOS (universal), Windows, and Linux, with an auto-updater.
   Built from `desktop-v*` tags. Set your hub URL in Settings.
-- **Android** — an APK per ABI plus a universal one, built from `app-v*` tags.
-  Sideload it; it wraps the same web app, with native notifications and
-  clipboard. It asks for your hub's address on first launch, so one APK works
-  with any hub — nothing about a hub is compiled into it. The hub shows that
-  address as a QR code, on the page a fresh hub opens with and under
-  Settings → Mobile app, so you scan it rather than typing an IP on a phone
-  keyboard.
+- **Android** — an APK from [Releases](https://github.com/zalify/offdesk/releases/latest);
+  take `arm64-v8a` on a modern phone, `universal` if unsure. Sideload it; it
+  wraps the same web app, with native notifications and clipboard. It asks for
+  your hub's address on first launch, so one APK works with any hub — nothing
+  about a hub is compiled into it. The hub shows that address as a QR code, on
+  the page a fresh hub opens with and under Settings → Mobile app, so you scan
+  it rather than typing an IP on a phone keyboard.
 
-#### Building the Android app yourself
-
-You need a JDK 17, the Android SDK with the NDK, and the Rust Android targets:
-
-```bash
-rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-cargo install tauri-cli --version "^2.0" --locked
-export ANDROID_HOME=$HOME/Library/Android/sdk          # ~/Android/Sdk on Linux
-export NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006
-```
-
-```bash
-pnpm install
-pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app build
-cd packages/desktop && cargo tauri android build --debug --apk
-```
-
-A `--debug` APK is signed with the Android debug key, so `adb install` takes it
-as is; a release APK needs your own keystore, which is what the `Build Android
-APK (Tauri)` workflow uses its `ANDROID_KEYSTORE_*` secrets for. Either way the
-CLI prints the path when it finishes, under
-`packages/desktop/src-tauri/gen/android/app/build/outputs/apk/`.
-
-Set `OFFDESK_MOBILE_HUB_URL` at build time to skip the first-launch question in
-your own builds:
-
-```bash
-OFFDESK_MOBILE_HUB_URL=https://your-hub.example.com cargo tauri android build --debug --apk
-```
-
-It is only a preset — whatever the user enters still wins, and the app grants
-notifications, the clipboard, and link opening to that hub's origin alone. On
-an emulator, a hub on your own machine is `http://10.0.2.2:4317`.
+To build the app yourself: [docs/building.md](docs/building.md).
 
 ## Two setups
 

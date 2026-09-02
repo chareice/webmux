@@ -5,13 +5,15 @@ import { existsSync } from "node:fs";
 // <img> for a file that does not exist gives every visitor a broken-image
 // box, so the figure only appears once the asset is there.
 const hasHero = existsSync(new URL("../../public/media/hero.gif", import.meta.url));
+// A real screenshot stands in until the GIF exists; the GIF wins when it does.
+const hasStill = existsSync(new URL("../../public/media/phone-terminal.png", import.meta.url));
 
 const repo = "https://github.com/zalify/offdesk";
 const docs = `${repo}#readme`;
 const description =
   "Vibe code from your phone on the terminal you left at home.";
-const install = "curl -fsSL https://offdesk.dev/install | sh";
-const hubInstall = "offdesk-hub";
+const install =
+  "curl -fsSL https://offdesk.dev/install | sh\noffdesk-hub\noffdesk-hub service install";
 
 const setups = [
   {
@@ -189,29 +191,18 @@ offdesk kill $T --yes`;
           One self-hosted hub, all your machines, any agent that runs in tmux.
         </p>
 
-        <div class="cmd">
-          <code id="install-cmd">{install}</code>
-          <button type="button" id="copy" aria-label="Copy install command">
-            Copy
-          </button>
-        </div>
-
-        <p class="cmd-note">
-          That installs all three: the hub, the <code>offdesk-node</code> agent,
-          and the <code>offdesk</code> CLI. Then, on whichever machine stays on:
-        </p>
-
         <div class="cmd stack">
-          <code id="hub-cmd">{hubInstall}</code>
-          <button type="button" id="copy-hub" aria-label="Copy hub install command">
+          <code id="install-cmd">{install}</code>
+          <button type="button" id="copy" aria-label="Copy install commands">
             Copy
           </button>
         </div>
 
         <p class="cmd-note">
-          <code>offdesk-hub</code> prints a link that signs you in. The web UI
-          is inside the binary; there is nothing else to install and nothing to
-          configure. Docker is the other way — both setups below.
+          On the machine that stays on. The first line installs everything, the
+          second prints a link that signs you in, the third keeps it running
+          after you close the terminal. The web UI is inside the binary — there
+          is nothing else to install and nothing to configure.
         </p>
 
         <div class="actions">
@@ -226,7 +217,7 @@ offdesk kill $T --yes`;
         </p>
 
         {
-          hasHero && (
+          hasHero ? (
             <figure class="shot">
               <img
                 src="/media/hero.gif"
@@ -236,7 +227,17 @@ offdesk kill $T --yes`;
                 loading="eager"
               />
             </figure>
-          )
+          ) : hasStill ? (
+            <figure class="shot still">
+              <img
+                src="/media/phone-terminal.png"
+                alt="An offdesk terminal on a phone: vim on a Mac at home, attached from the phone's browser"
+                width="390"
+                height="844"
+                loading="eager"
+              />
+            </figure>
+          ) : null
         }
       </header>
 
@@ -434,10 +435,7 @@ offdesk kill $T --yes`;
     </footer>
 
     <script is:inline>
-      for (const [buttonId, commandId] of [
-        ["copy", "install-cmd"],
-        ["copy-hub", "hub-cmd"],
-      ]) {
+      for (const [buttonId, commandId] of [["copy", "install-cmd"]]) {
         const button = document.getElementById(buttonId);
         const command = document.getElementById(commandId);
         button?.addEventListener("click", async () => {
@@ -589,8 +587,7 @@ offdesk kill $T --yes`;
         padding: 0.15rem 0;
       }
 
-      #copy,
-      #copy-hub {
+      #copy {
         flex: none;
         align-self: flex-start;
         border: 1px solid var(--line);
@@ -603,8 +600,7 @@ offdesk kill $T --yes`;
         cursor: pointer;
       }
 
-      #copy:hover,
-      #copy-hub:hover {
+      #copy:hover {
         color: var(--fg);
         border-color: var(--fg-2);
       }
@@ -663,6 +659,10 @@ offdesk kill $T --yes`;
 
       .shot {
         margin: 2.5rem 0 0;
+      }
+
+      .shot.still {
+        max-width: 22rem;
       }
 
       .shot img {
@@ -870,8 +870,7 @@ offdesk kill $T --yes`;
           padding: 0.3rem 0.3rem 0.3rem 0.9rem;
         }
 
-        #copy,
-        #copy-hub {
+        #copy {
           align-self: auto;
         }
       }
