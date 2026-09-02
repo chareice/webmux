@@ -198,6 +198,23 @@ impl PtyManager {
                 "manual",
             ])
             .status();
+        // Switching to manual re-sizes a never-attached window to tmux's
+        // default-size (80x24), forgetting what new-session was told. Say it
+        // again, so the size a client asked for is the size the window has —
+        // and the size the agent reports on attach.
+        let _ = tmux_cmd()
+            .args([
+                "-L",
+                tmux_socket(),
+                "resize-window",
+                "-t",
+                &tmux_name,
+                "-x",
+                &cols.to_string(),
+                "-y",
+                &rows.to_string(),
+            ])
+            .status();
 
         // Forward selected environment variables into the tmux session.
         for var in &["CLAUDE_CODE_NO_FLICKER"] {
@@ -440,7 +457,12 @@ impl PtyManager {
 /// file flag). Built once so `new-session` can either run them directly
 /// or hand them to the `systemd-run` wrapper.
 fn tmux_base_args() -> Vec<String> {
-    let mut args = Vec::new();
+    // -u: UTF-8 whatever the locale says. The agent runs as a service, and a
+    // service has no LANG unless someone gives it one; without it tmux
+    // decides the terminal cannot show non-ASCII and draws every such
+    // character as "_" — a prompt's arrow, an accent in "sautéed", the dots
+    // it fills empty space with.
+    let mut args = vec!["-u".to_string()];
     let config = tmux_config_path();
     if config.exists() {
         args.push("-f".to_string());
@@ -767,9 +789,14 @@ pub fn spawn_tmux_attach(session_id: &str, cols: u16, rows: u16) -> Result<TmuxA
     let portable_pty::PtyPair { slave, master } = pair;
 
     let mut cmd = CommandBuilder::new("tmux");
-    cmd.args(["-L", tmux_socket(), "attach-session", "-t", &tmux_name]);
+    // -u for the same reason as in tmux_base_args: the attaching client is
+    // what decides how the screen is drawn, and this one is always UTF-8.
+    cmd.args(["-u", "-L", tmux_socket(), "attach-session", "-t", &tmux_name]);
     let term = std::env::var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
     cmd.env("TERM", term);
+    if std::env::var("LANG").is_err() {
+        cmd.env("LANG", "en_US.UTF-8");
+    }
 
     let child = slave
         .spawn_command(cmd)
@@ -843,6 +870,34 @@ pub fn tmux_resize_window(session_id: &str, cols: u16, rows: u16) {
             &rows.to_string(),
         ])
         .status();
+}
+
+/// The size tmux actually gave the window — what every client sees, and
+/// what the hub should record. A resize request is a request: tmux clamps
+/// it, and with `window-size manual` the window keeps the last size any
+/// controller set, however many clients attach since.
+pub fn tmux_window_size(session_id: &str) -> Option<(u16, u16)> {
+    let name = tmux_session_name(session_id);
+    let output = tmux_cmd()
+        .args([
+            "-L",
+            tmux_socket(),
+            "display-message",
+            "-p",
+            "-t",
+            &name,
+            "#{window_width} #{window_height}",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut parts = text.split_whitespace();
+    let cols = parts.next()?.parse::<u16>().ok()?;
+    let rows = parts.next()?.parse::<u16>().ok()?;
+    (cols > 0 && rows > 0).then_some((cols, rows))
 }
 
 fn detect_login_shell() -> String {

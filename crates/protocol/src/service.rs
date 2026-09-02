@@ -10,6 +10,17 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// What a binary needs to say about itself to be run as a service.
+/// The locale a service runs with. launchd and systemd start a service with
+/// no LANG at all, and everything under it — tmux above all — then treats
+/// the terminal as unable to show non-ASCII. The installing shell's LANG,
+/// when it has one that is UTF-8; otherwise a UTF-8 default.
+pub fn lang_env() -> String {
+    std::env::var("LANG")
+        .ok()
+        .filter(|lang| lang.to_ascii_lowercase().contains("utf-8") || lang.to_ascii_lowercase().contains("utf8"))
+        .unwrap_or_else(|| "en_US.UTF-8".to_string())
+}
+
 #[derive(Debug, Clone)]
 pub struct ServiceSpec {
     /// The systemd unit name, e.g. `offdesk-node`.
@@ -90,12 +101,14 @@ RestartSec=10
 KillMode=process
 Environment=HOME={home_dir}
 Environment=PATH={path_env}
+Environment=LANG={lang_env}
 WorkingDirectory={home_dir}
 
 [Install]
 WantedBy=default.target
 "#,
             description = spec.description,
+            lang_env = lang_env(),
         )
     }
 
@@ -189,6 +202,7 @@ mod platform {
 
     fn render_plist(spec: &ServiceSpec, home_dir: &str, exe_path: &str, path_env: &str) -> String {
         let log_dir = format!("{home_dir}/Library/Logs/offdesk");
+        let lang_env = lang_env();
         let args = std::iter::once(exe_path.to_string())
             .chain(spec.args.iter().cloned())
             .map(|a| format!("        <string>{a}</string>"))
@@ -217,6 +231,8 @@ mod platform {
         <string>{home_dir}</string>
         <key>PATH</key>
         <string>{path_env}</string>
+        <key>LANG</key>
+        <string>{lang_env}</string>
     </dict>
     <key>StandardOutPath</key>
     <string>{log_dir}/{name}.stdout.log</string>
