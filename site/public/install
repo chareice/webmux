@@ -13,6 +13,10 @@
 #   --version <vX.Y.Z>  install a specific release instead of the latest
 #   --hub-only          only offdesk-hub, the server
 #   --no-service        install the binaries and stop; do not start the hub
+#   --hub-url <url> --token <token>
+#                       join a hub: install the agent alone, register this
+#                       machine with the hub, and keep the agent running as a
+#                       service — the one line the hub's "Add host" page shows
 #   --node-only         only offdesk-node, the machine agent
 #   --cli-only          only the offdesk CLI
 
@@ -28,6 +32,8 @@ WANT_CLI=yes
 WANT_NODE=yes
 WANT_HUB=yes
 NO_SERVICE=no
+HUB_URL=""
+TOKEN=""
 
 main() {
     parse_args "$@"
@@ -59,7 +65,9 @@ main() {
         say "Installed ${PREFIX}/${name}"
     done
     report_path
-    if [ "$WANT_HUB" = yes ] && [ "$NO_SERVICE" = no ]; then
+    if [ -n "$HUB_URL" ]; then
+        join_hub
+    elif [ "$WANT_HUB" = yes ] && [ "$NO_SERVICE" = no ]; then
         start_hub
     else
         report_next_steps
@@ -100,6 +108,16 @@ parse_args() {
             --no-service)
                 NO_SERVICE=yes
                 ;;
+            --hub-url)
+                shift
+                [ $# -gt 0 ] || die "--hub-url needs the hub's address"
+                HUB_URL="$1"
+                ;;
+            --token)
+                shift
+                [ $# -gt 0 ] || die "--token needs the registration token from the hub"
+                TOKEN="$1"
+                ;;
             # Accepted for scripts written against the previous version.
             --hub) ;;
             -h|--help)
@@ -113,6 +131,14 @@ parse_args() {
 
     if [ "$WANT_CLI" = no ] && [ "$WANT_NODE" = no ] && [ "$WANT_HUB" = no ]; then
         die "the --*-only options cannot be combined"
+    fi
+
+    # Joining a hub is what --node-only was for; the flags say it outright.
+    if [ -n "$HUB_URL" ] || [ -n "$TOKEN" ]; then
+        [ -n "$HUB_URL" ] && [ -n "$TOKEN" ] || die "--hub-url and --token go together; the hub's Add host page prints both"
+        WANT_CLI=no
+        WANT_HUB=no
+        WANT_NODE=yes
     fi
 }
 
@@ -131,6 +157,9 @@ the latest GitHub release. Defaults to ~/.local/bin.
   --node-only         only offdesk-node, the machine agent
   --cli-only          only the offdesk CLI
   --no-service        install the binaries and stop; do not start the hub
+  --hub-url <url> --token <token>
+                      join a hub: install the agent, register this machine
+                      with it, keep the agent running as a service
 
 Nothing is ever piped into sudo.
 EOF
@@ -342,6 +371,30 @@ start_hub() {
     esac
 }
 
+# Joining a hub from the one line its "Add host" page shows: register this
+# machine, then keep the agent running. Registering restarts an agent
+# service that is already installed, so the same line also moves a machine
+# from one hub to another, or re-registers the machine the hub runs on.
+join_hub() {
+    say ""
+    say "Registering this machine with ${HUB_URL}."
+    if ! "${PREFIX}/offdesk-node" register --hub-url "$HUB_URL" --token "$TOKEN"; then
+        say ""
+        say "Registration did not go through. The token works once and expires"
+        say "after 24 hours; take a fresh line from the hub's Add host page."
+        return 0
+    fi
+    "${PREFIX}/offdesk-node" service install || {
+        say ""
+        say "The agent is registered but not running as a service. Start it:"
+        say "  offdesk-node service install"
+        return 0
+    }
+    say ""
+    say "This machine is connected. It shows up on the hub now, and the agent"
+    say "starts at login from here on."
+}
+
 report_next_steps() {
     say ""
     case " ${installed} " in
@@ -357,13 +410,11 @@ report_next_steps() {
     esac
     case " ${installed} " in
         *" offdesk-node "*)
-            say "Next: register this machine with your hub."
+            say "Next: register this machine with your hub. Open the hub in a"
+            say "browser and choose Add host: it shows one line that installs,"
+            say "registers and starts the agent, with a token filled in. Or:"
             say "  offdesk-node register --hub-url https://your-hub.example.com --token <token>"
             say "  offdesk-node service install"
-            say ""
-            say "Open the hub in a browser and choose Add host: it shows these two"
-            say "lines with the token filled in. Each token works once and expires"
-            say "after 24 hours."
             ;;
     esac
     case " ${installed} " in

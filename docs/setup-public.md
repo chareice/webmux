@@ -125,15 +125,13 @@ docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 On each machine you want to reach — tmux required:
 
 ```bash
-curl -fsSL https://offdesk.dev/install | sh -s -- --node-only
-offdesk-node register --hub-url https://offdesk.example.com --token <token>
-offdesk-node service install
+curl -fsSL https://offdesk.dev/install | sh -s -- --hub-url wss://offdesk.example.com/ws/machine --token <token>
 ```
 
 The installer puts `offdesk-node` in `~/.local/bin`. To build it instead:
 `cargo build --release --bin offdesk-node`.
 
-`<token>` is a registration token the hub mints for one new machine: open the hub in a browser, **Add host** in the machine switcher (a fresh hub lands on **Connect a machine**), and it shows these commands with the token filled in. It is single-use and expires after 24
+`<token>` is a registration token the hub mints for one new machine: open the hub in a browser, **Add host** in the machine switcher (a fresh hub with no machine lands there by itself), and it shows this line with the token filled in. The line installs the agent, registers the machine and keeps the agent running as a service. It is single-use and expires after 24
 hours. The machine agent dials out to the hub over WebSocket, so it needs no
 inbound port and no port forwarding of its own. That is why a laptop behind NAT
 works here.
@@ -218,7 +216,7 @@ curl -sf -o /dev/null -w "%{http_code}\n" https://offdesk.example.com/
 Exactly as in the VPS path, with the tunnel hostname:
 
 ```bash
-offdesk-node register --hub-url https://offdesk.example.com --token <token>
+curl -fsSL https://offdesk.dev/install | sh -s -- --hub-url wss://offdesk.example.com/ws/machine --token <token>
 ```
 
 A machine on the same LAN as the hub still goes out to Cloudflare and back. If
@@ -271,7 +269,7 @@ the public internet, which is the thing this section avoids.
 Machines register with the tailnet URL:
 
 ```bash
-offdesk-node register --hub-url https://<machine>.<tailnet>.ts.net --token <token>
+curl -fsSL https://offdesk.dev/install | sh -s -- --hub-url wss://<machine>.<tailnet>.ts.net/ws/machine --token <token>
 ```
 
 Your phone needs the Tailscale app and needs to be on the tailnet. That is the

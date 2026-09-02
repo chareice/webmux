@@ -15,10 +15,15 @@ export function getServiceInstallCommand(): string {
   return "offdesk-node service install";
 }
 
+// The one line the "Add host" page shows. The installer takes --hub-url and
+// --token and does the rest — install the agent, register, keep it running
+// as a service — so there is nothing to sequence by hand and nothing to
+// forget. It re-registers a machine that already has the agent, the hub's
+// own included.
+export function getJoinCommand(hubUrl: string, token: string): string {
+  return `curl -fsSL ${INSTALL_SCRIPT_URL} | sh -s -- --hub-url ${hubUrl} --token ${token}`;
+}
+
 export function buildOnboardingScript(hubUrl: string, token: string): string {
-  return [
-    getInstallCommand(),
-    getRegisterCommand(hubUrl, token),
-    getServiceInstallCommand(),
-  ].join("\n");
+  return getJoinCommand(hubUrl, token);
 }

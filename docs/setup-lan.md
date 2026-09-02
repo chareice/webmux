@@ -93,28 +93,25 @@ hostname -I | awk '{print $1}' # Linux
 ## 2. Register another machine
 
 The machine the hub runs on was registered by the install. For every other
-one: `offdesk-node` needs tmux. Install it first — `brew install tmux` on macOS,
-`sudo apt install tmux` on Debian or Ubuntu. The agent exits at startup if tmux
-is missing.
-
-`<token>` is a registration token the hub mints for one new machine; you
-never type it by hand. Open the hub in a browser and choose **Add host** in
-the machine switcher: it shows the commands below with the token filled in,
-ready to paste into a shell on the new machine.
+one: open the hub in a browser and choose **Add host** in the machine
+switcher (a fresh hub with no machine lands there by itself). It shows one
+line with a registration token filled in:
 
 ```bash
-curl -fsSL https://offdesk.dev/install | sh -s -- --node-only
-offdesk-node register --hub-url http://<lan-ip>:4317 --token <token>
-offdesk-node service install
+curl -fsSL https://offdesk.dev/install | sh -s -- --hub-url ws://<lan-ip>:4317/ws/machine --token <token>
 ```
 
-The token is single-use and expires 24 hours after it is issued. To build
-`offdesk-node` instead of installing it: [building.md](building.md).
+Paste it into a terminal on the new machine. It installs `offdesk-node`,
+registers the machine with this hub, and keeps the agent running as a
+service — a systemd user unit on Linux (with `loginctl enable-linger` so it
+survives logout), a launchd agent on macOS. `offdesk-node` needs tmux:
+`brew install tmux` on macOS, `sudo apt install tmux` on Debian or Ubuntu.
 
-`service install` writes a systemd user unit on Linux (and runs
-`loginctl enable-linger` so it survives logout), or a launchd agent on macOS.
-`offdesk-node start` runs the agent in the foreground instead, and stops with
-the terminal.
+The token is single-use and expires 24 hours after it is issued; you never
+type it by hand. To build `offdesk-node` instead of installing it:
+[building.md](building.md), then `offdesk-node register --hub-url … --token …`
+and `offdesk-node service install` by hand. `offdesk-node start` runs the
+agent in the foreground instead, and stops with the terminal.
 
 ## 3. Open it on your phone
 
