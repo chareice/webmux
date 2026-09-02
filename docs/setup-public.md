@@ -133,7 +133,7 @@ offdesk-node service install
 The installer puts `offdesk-node` in `~/.local/bin`. To build it instead:
 `cargo build --release --bin offdesk-node`.
 
-Create `<token>` in the hub's Settings. It is single-use and expires after 24
+`<token>` is a registration token the hub mints for one new machine: open the hub in a browser, **Add host** in the machine switcher (a fresh hub lands on **Connect a machine**), and it shows these commands with the token filled in. It is single-use and expires after 24
 hours. The machine agent dials out to the hub over WebSocket, so it needs no
 inbound port and no port forwarding of its own. That is why a laptop behind NAT
 works here.
