@@ -1,0 +1,6 @@
+xcuserdata/
+build/
+Externals/
+assets/
+Pods/
+Podfile.lock

@@ -46,3 +46,34 @@ It is only a preset — whatever the user enters still wins, and the app grants
 notifications, the clipboard, and link opening to that hub's origin alone. On
 an emulator, a hub on your own machine is `http://10.0.2.2:4317`.
 
+
+## The iOS app
+
+The same Tauri app as Android, from the same `packages/desktop/src-tauri`.
+Needs Xcode with the iOS platform installed (Xcode → Settings → Components,
+or `xcodebuild -downloadPlatform iOS`), CocoaPods (`brew install cocoapods`)
+and the Rust targets:
+
+```bash
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+```
+
+The Xcode project is committed under `src-tauri/gen/apple` (regenerate with
+`tauri ios init` if the Tauri CLI moves); `Info.ios.plist` carries the camera
+and local-network usage strings and the ATS exceptions a LAN hub needs, and
+`tauri.ios.conf.json` the iOS-only config, both merged in by the CLI.
+
+```bash
+pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app build
+cd packages/desktop
+pnpm tauri ios dev                          # simulator, or a plugged-in phone
+pnpm tauri ios build --export-method debugging   # an .ipa signed for your team
+```
+
+Building for a device needs `APPLE_DEVELOPMENT_TEAM` in the environment (the
+Team ID from Membership details) and a matching signing identity in your
+keychain; Xcode's automatic signing takes care of that once you have opened the
+project (`pnpm tauri ios build --open`) and picked the team.
+
+Releases go through TestFlight from `.github/workflows/mobile-ios.yml` on an
+`ios-v*` tag; the secrets it needs are listed at the top of that file.
