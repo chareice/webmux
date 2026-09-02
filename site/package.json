@@ -17,6 +17,7 @@
     "@fontsource/geist-mono": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "astro": "^5.16.2",
+    "opentype.js": "^2.0.0",
     "tailwindcss": "^4.3.3"
   }
 }

@@ -2,34 +2,36 @@
 
 ## Brand assets
 
-These are generated, not hand-kept. `logo-source.png` is the master; the
-vectors come from it via `scripts/logo-to-svg.sh`, which traces with potrace
-and crops the viewBox to the ink.
+A coral donut with sprinkles, and "offdesk" set in Fredoka Bold. They are
+drawn by code, not kept by hand:
 
-| File | What it is |
-|---|---|
-| `logo-source.png` | the master bitmap — the only thing to replace when the mark changes |
-| `logo.svg` | wordmark in brand blue `#1A5FE8`, for light backgrounds |
-| `logo-black.svg` | wordmark in ink `#0C0C0C`, what the site's nav uses on its cream ground |
-| `logo-dark.svg` | wordmark in `#FAFAF5`, for dark backgrounds |
-| `favicon.svg` + `favicon-16/32.png` | the `o` alone, cream on `#0A0A0A` |
-| `avatar.svg` + `avatar-400.png` | the same mark at avatar size |
-| `og-1200x630.svg` + `.png` | share card: wordmark over the tagline |
+| File | What it is | Made by |
+|---|---|---|
+| `mark.svg` | the donut alone | `site/scripts/brand.mjs` |
+| `logo.svg` | donut + wordmark in ink, for light grounds — the README | `site/scripts/brand.mjs` |
+| `logo-dark.svg` | the same in cream, for dark grounds — the web app's setup page | `site/scripts/brand.mjs` |
+| `favicon.svg` + `favicon-16/32.png` | the donut on a rounded sand square | `brand.mjs`, then `rsvg-convert` |
+| `hero-banner.png` | the README's banner: headline, the one line, the phone | `site/scripts/brand/render.mjs` |
+| `og-1200x630.png` | share card (also `site/public/brand/og-square.png`) | `site/scripts/brand/render.mjs` |
+| `avatar-400.png` | the donut on sand, for profiles | `site/scripts/brand/render.mjs` |
+| `fonts/Fredoka-Bold.ttf` | the outlines the wordmark is traced from (OFL, see `fonts/README.md`) | — |
 
-To regenerate everything after a new `logo-source.png`:
+The wordmark is real glyph outlines, so it renders anywhere without the font.
+The site draws the same mark inline in its nav; the Android launcher icons are
+`packages/desktop/icon/*.svg` (the donut on sand), rasterised by
+`scripts/app-icons.sh`; the desktop icons come from `tauri icon` on a 1024px
+render of `icon.svg`.
+
+To change the brand, edit `brand.mjs` (the donut, the colours) or the HTML in
+`site/scripts/brand/` (the banner, the card), then, from the repo root:
 
 ```bash
-brew install potrace librsvg
-scripts/logo-to-svg.sh docs/media/logo-source.png docs/media/logo.svg '#1A5FE8' 0.71
+node site/scripts/brand.mjs && node site/scripts/brand/render.mjs
+rsvg-convert -w 32 -h 32 docs/media/favicon.svg -o docs/media/favicon-32.png
+rsvg-convert -w 16 -h 16 docs/media/favicon.svg -o docs/media/favicon-16.png
+cp docs/media/favicon-*.png site/public/brand/
+scripts/app-icons.sh
 ```
-
-The trailing `0.71` is potrace's black level, the luma where ink is split from
-ground. Its 0.5 default sits below the midpoint between this blue and the cream
-ground and erodes the glyphs by about 4% of their ink; 0.71 measured closest to
-the source. Re-derive it if the brand colours change.
-
-Then rasterise the icons and card with `rsvg-convert -w <n> -h <n>`, and copy
-`logo.svg`, `logo-black.svg`, `logo-dark.svg`, `favicon*` and the card into `site/public/`.
 
 # Screenshots and GIFs to record
 

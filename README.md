@@ -1,14 +1,20 @@
-# offdesk
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/logo-dark.svg">
+    <img src="docs/media/logo.svg" alt="offdesk" height="56">
+  </picture>
+</p>
+
+<!-- The banner is rendered by site/scripts/brand/render.mjs; the phone in it
+     is docs/media/phone-terminal.png, a real session. A GIF of the same —
+     desk and phone on one terminal, see docs/media/README.md — can take its
+     place when someone records one. -->
+<p align="center">
+  <img src="docs/media/hero-banner.png" width="800" alt="Your terminal stays home. You don't have to. A phone showing Claude Code running on a Mac at home, beside the one-line install.">
+</p>
 
 Vibe code from your phone, on the terminal you left at home.
 One self-hosted hub, every machine you own, any agent that runs in tmux.
-
-<!-- TODO(ryan): record docs/media/hero.gif — see docs/media/README.md. Until
-     then the phone screenshot below stands in; swap the reference, not the
-     file. -->
-<p align="center">
-  <img src="docs/media/phone-terminal.png" width="300" alt="An offdesk terminal on a phone: Claude Code running on a Mac at home, attached from the phone's browser">
-</p>
 
 Close the laptop and walk away. The session keeps running on the machine at
 home, and your phone opens the same terminal, mid-scroll — not a summary of it.
