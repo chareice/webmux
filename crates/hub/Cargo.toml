@@ -46,6 +46,7 @@ bytes.workspace = true
 tokio-tungstenite.workspace = true
 urlencoding = "2"
 libc = "0.2"
+qrcode = { version = "0.14", default-features = false }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

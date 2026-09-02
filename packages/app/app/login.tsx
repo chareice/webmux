@@ -235,9 +235,11 @@ export default function LoginScreen() {
 
         {providers?.link ? (
           <Text className="text-foreground text-sm text-center opacity-80 leading-6">
-            This hub has no GitHub or Google sign-in. Open the link it printed
-            when it started, or scan the code on its setup page from a device
-            that is already signed in.
+            This hub has no GitHub or Google sign-in, so the address alone does
+            not get you in. On the computer that runs the hub, open Settings →
+            Mobile app and scan the code there with this phone's camera. In
+            the Android app, paste the whole link the hub printed — including
+            ?token= — into Hub address.
           </Text>
         ) : null}
 

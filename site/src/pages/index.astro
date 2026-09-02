@@ -20,8 +20,7 @@ const releases = `${repo}/releases/latest`;
 const discord = "https://discord.gg/aFUu6VMzc";
 const description =
   "Vibe code from your phone on the terminal you left at home.";
-const install =
-  "curl -fsSL https://offdesk.dev/install | sh\noffdesk-hub\noffdesk-hub service install";
+const install = "curl -fsSL https://offdesk.dev/install | sh";
 
 const stats = [
   { n: "0", label: "accounts to create" },
@@ -35,13 +34,13 @@ const parts = [
     n: "01",
     name: "Hub",
     bin: "offdesk-hub",
-    text: "One process on the Mac, NAS or VPS that stays on. SQLite beside it, the web UI baked in. It is the only thing a phone ever talks to.",
+    text: "One process on the Mac, NAS or VPS that stays on, installed as a service by the one-line install. SQLite beside it, the web UI baked in. It is the only thing a phone ever talks to.",
   },
   {
     n: "02",
     name: "Node",
     bin: "offdesk-node",
-    text: "On every machine you want to reach. It dials out to the hub and keeps one WebSocket open, so nothing on it needs an inbound port or a public IP.",
+    text: "On every machine you want to reach — the hub's own is registered by the install. It dials out to the hub and keeps one WebSocket open, so nothing on it needs an inbound port or a public IP.",
   },
   {
     n: "03",
@@ -60,11 +59,7 @@ const setups = [
     steps: [
       {
         label: "On the machine that stays on",
-        commands: [
-          "curl -fsSL https://offdesk.dev/install | sh",
-          "offdesk-hub",
-          "offdesk-hub service install",
-        ],
+        commands: ["curl -fsSL https://offdesk.dev/install | sh"],
       },
       {
         label: "On every other machine you want to reach",
@@ -247,7 +242,7 @@ offdesk kill $T --yes`;
 const faq = [
   {
     q: "Do I need an account?",
-    a: "No. The hub is yours; the first run creates a local user and prints a link that signs you in. Nothing here has a sign-up form.",
+    a: "No. The hub is yours; the install creates a local user and prints a link that signs you in. Nothing here has a sign-up form.",
   },
   {
     q: "Does my traffic go through offdesk.dev?",
@@ -346,11 +341,11 @@ const faq = [
               </button>
             </div>
             <p class="prose-body mt-4 max-w-xl text-sm">
-              Run it on the machine that stays on. The first line installs
-              everything, the second prints a link that signs you in, the third
-              keeps it running after you close the terminal. The web UI is inside
-              the binary; there is nothing else to install and nothing to
-              configure.
+              Run it on the machine that stays on. It installs everything,
+              starts the hub as a service that survives reboots, registers this
+              machine with it, and prints a link that signs you in — as a QR
+              code, so your phone is one scan away. The web UI is inside the
+              binary; there is nothing else to install and nothing to configure.
             </p>
 
             <div class="mt-8 flex flex-wrap items-center gap-3">

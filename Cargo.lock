@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "offdesk-cli"
-version = "0.17.1"
+version = "0.18.0"
 dependencies = [
  "clap",
  "dirs",
@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "offdesk-hub"
-version = "0.17.1"
+version = "0.18.0"
 dependencies = [
  "axum",
  "bcrypt",
@@ -1306,6 +1306,7 @@ dependencies = [
  "mime_guess",
  "offdesk-protocol",
  "portable-pty",
+ "qrcode",
  "r2d2",
  "r2d2_sqlite",
  "reqwest",
@@ -1328,7 +1329,7 @@ dependencies = [
 
 [[package]]
 name = "offdesk-machine"
-version = "0.17.1"
+version = "0.18.0"
 dependencies = [
  "bytes",
  "clap",
@@ -1353,7 +1354,7 @@ dependencies = [
 
 [[package]]
 name = "offdesk-protocol"
-version = "0.17.1"
+version = "0.18.0"
 dependencies = [
  "bytes",
  "dirs",
@@ -1494,6 +1495,12 @@ checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quinn"

@@ -86,9 +86,10 @@ export function MobileAppPanel() {
       <div
         style={{ fontSize: 11, color: colors.foregroundMuted, marginBottom: 12 }}
       >
-        The Android app is a window onto this hub. Install it, then scan this
-        code on first launch instead of typing the address. Scanning with the
-        phone's own camera opens the hub in its browser, which works too.
+        Scan this code with your phone's camera and the hub opens in its
+        browser, signed in. The Android app is the same UI with native
+        notifications; on its first screen, paste the link this code carries —
+        the whole thing, including ?token= — into Hub address.
       </div>
 
       <div

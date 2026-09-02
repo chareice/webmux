@@ -12,6 +12,7 @@
 #   --prefix <dir>      install to <dir>
 #   --version <vX.Y.Z>  install a specific release instead of the latest
 #   --hub-only          only offdesk-hub, the server
+#   --no-service        install the binaries and stop; do not start the hub
 #   --node-only         only offdesk-node, the machine agent
 #   --cli-only          only the offdesk CLI
 
@@ -26,6 +27,7 @@ USE_SUDO=no
 WANT_CLI=yes
 WANT_NODE=yes
 WANT_HUB=yes
+NO_SERVICE=no
 
 main() {
     parse_args "$@"
@@ -57,7 +59,11 @@ main() {
         say "Installed ${PREFIX}/${name}"
     done
     report_path
-    report_next_steps
+    if [ "$WANT_HUB" = yes ] && [ "$NO_SERVICE" = no ]; then
+        start_hub
+    else
+        report_next_steps
+    fi
 }
 
 # ── arguments ────────────────────────────────────────────────────────
@@ -91,6 +97,9 @@ parse_args() {
                 WANT_NODE=no
                 WANT_HUB=no
                 ;;
+            --no-service)
+                NO_SERVICE=yes
+                ;;
             # Accepted for scripts written against the previous version.
             --hub) ;;
             -h|--help)
@@ -121,6 +130,7 @@ the latest GitHub release. Defaults to ~/.local/bin.
   --hub-only          only offdesk-hub, the server
   --node-only         only offdesk-node, the machine agent
   --cli-only          only the offdesk CLI
+  --no-service        install the binaries and stop; do not start the hub
 
 Nothing is ever piped into sudo.
 EOF
@@ -310,6 +320,28 @@ report_path() {
     esac
 }
 
+# The one-line install ends with a running hub, this machine registered to
+# it, and the sign-in link on the terminal — as a QR code, so the phone is
+# one scan away. `offdesk-hub service install` does all of that; the hub
+# runs at login from now on. A person who wants only the binaries passes
+# --no-service and gets the old "Next:" text.
+start_hub() {
+    say ""
+    say "Starting the hub as a service and registering this machine with it."
+    if ! "${PREFIX}/offdesk-hub" service install; then
+        say ""
+        say "The hub did not start. Run it in the foreground to see why:"
+        say "  offdesk-hub"
+        return 0
+    fi
+    case " ${installed} " in
+        *" offdesk "*)
+            say "For the CLI, create an API token under Settings and set"
+            say "OFFDESK_URL and OFFDESK_TOKEN, or write ~/.config/offdesk/config.toml."
+            ;;
+    esac
+}
+
 report_next_steps() {
     say ""
     case " ${installed} " in
@@ -327,10 +359,11 @@ report_next_steps() {
         *" offdesk-node "*)
             say "Next: register this machine with your hub."
             say "  offdesk-node register --hub-url https://your-hub.example.com --token <token>"
-            say "  offdesk-node start"
+            say "  offdesk-node service install"
             say ""
-            say "Create the token in the hub's Settings. It is single-use and"
-            say "expires after 24 hours."
+            say "Open the hub in a browser and choose Add host: it shows these two"
+            say "lines with the token filled in. Each token works once and expires"
+            say "after 24 hours."
             ;;
     esac
     case " ${installed} " in
