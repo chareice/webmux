@@ -90,7 +90,7 @@ function cleanup(tempDir) {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
-test("installs both binaries from the newest vX.Y.Z release", () => {
+test("picks the newest vX.Y.Z release", () => {
   const { result, prefix, tempDir } = run();
   try {
     assert.equal(result.status, 0, result.stderr);
@@ -106,35 +106,26 @@ test("installs both binaries from the newest vX.Y.Z release", () => {
   }
 });
 
-test("--node-only leaves the CLI alone", () => {
-  const { result, prefix, tempDir } = run({ args: ["--node-only"] });
-  try {
-    assert.equal(result.status, 0, result.stderr);
-    assert.ok(existsSync(join(prefix, "offdesk-node")));
-    assert.ok(!existsSync(join(prefix, "offdesk")), "the CLI should not be installed");
-  } finally {
-    cleanup(tempDir);
-  }
-});
-
-test("the hub is not installed unless asked for", () => {
+test("everything is installed by default: the first machine is hub and host at once", () => {
   const { result, prefix, tempDir } = run();
-  try {
-    assert.equal(result.status, 0, result.stderr);
-    assert.ok(!existsSync(join(prefix, "offdesk-hub")), "the hub is opt-in");
-  } finally {
-    cleanup(tempDir);
-  }
-});
-
-test("--hub adds the server to the usual two", () => {
-  const { result, prefix, tempDir } = run({ args: ["--hub"] });
   try {
     assert.equal(result.status, 0, result.stderr);
     for (const name of ["offdesk", "offdesk-node", "offdesk-hub"]) {
       assert.ok(existsSync(join(prefix, name)), `${name} should be installed`);
     }
     assert.match(result.stdout, /Next: start the hub/);
+  } finally {
+    cleanup(tempDir);
+  }
+});
+
+test("--node-only is just the agent, for the second machine", () => {
+  const { result, prefix, tempDir } = run({ args: ["--node-only"] });
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(join(prefix, "offdesk-node")));
+    assert.ok(!existsSync(join(prefix, "offdesk-hub")));
+    assert.ok(!existsSync(join(prefix, "offdesk")));
   } finally {
     cleanup(tempDir);
   }

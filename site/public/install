@@ -2,8 +2,8 @@
 # offdesk installer.
 #   curl -fsSL https://offdesk.dev/install | sh
 #
-# Installs the offdesk CLI and the offdesk-node machine agent from the latest
-# GitHub release. Defaults to ~/.local/bin. Pass --system to install to
+# Installs offdesk-hub, the offdesk-node machine agent and the offdesk CLI from
+# the latest GitHub release. Defaults to ~/.local/bin. Pass --system to install to
 # /usr/local/bin instead; that path re-runs the install step under sudo and
 # tells you before it does. Nothing is ever piped into sudo.
 #
@@ -11,10 +11,9 @@
 #   --system            install to /usr/local/bin (asks sudo for that step)
 #   --prefix <dir>      install to <dir>
 #   --version <vX.Y.Z>  install a specific release instead of the latest
-#   --hub               also install offdesk-hub, the server
-#   --hub-only          install only offdesk-hub
-#   --cli-only          skip offdesk-node
-#   --node-only         skip the offdesk CLI
+#   --hub-only          only offdesk-hub, the server
+#   --node-only         only offdesk-node, the machine agent
+#   --cli-only          only the offdesk CLI
 
 set -eu
 
@@ -26,7 +25,7 @@ VERSION=""
 USE_SUDO=no
 WANT_CLI=yes
 WANT_NODE=yes
-WANT_HUB=no
+WANT_HUB=yes
 
 main() {
     parse_args "$@"
@@ -80,14 +79,20 @@ parse_args() {
                 [ $# -gt 0 ] || die "--version needs a tag, e.g. v0.4.0"
                 VERSION="$1"
                 ;;
-            --hub) WANT_HUB=yes ;;
             --hub-only)
-                WANT_HUB=yes
                 WANT_CLI=no
                 WANT_NODE=no
                 ;;
-            --cli-only) WANT_NODE=no ;;
-            --node-only) WANT_CLI=no ;;
+            --node-only)
+                WANT_CLI=no
+                WANT_HUB=no
+                ;;
+            --cli-only)
+                WANT_NODE=no
+                WANT_HUB=no
+                ;;
+            # Accepted for scripts written against the previous version.
+            --hub) ;;
             -h|--help)
                 usage
                 exit 0
@@ -98,7 +103,7 @@ parse_args() {
     done
 
     if [ "$WANT_CLI" = no ] && [ "$WANT_NODE" = no ] && [ "$WANT_HUB" = no ]; then
-        die "--cli-only and --node-only cannot be combined"
+        die "the --*-only options cannot be combined"
     fi
 }
 
@@ -107,16 +112,15 @@ usage() {
 offdesk installer.
   curl -fsSL https://offdesk.dev/install | sh
 
-Installs the offdesk CLI and the offdesk-node machine agent from the latest
-GitHub release. Defaults to ~/.local/bin.
+Installs offdesk-hub, the offdesk-node machine agent and the offdesk CLI from
+the latest GitHub release. Defaults to ~/.local/bin.
 
   --system            install to /usr/local/bin (asks sudo for that step)
   --prefix <dir>      install to <dir>
   --version <vX.Y.Z>  install a specific release instead of the latest
-  --hub               also install offdesk-hub, the server
-  --hub-only          install only offdesk-hub
-  --cli-only          skip offdesk-node
-  --node-only         skip the offdesk CLI
+  --hub-only          only offdesk-hub, the server
+  --node-only         only offdesk-node, the machine agent
+  --cli-only          only the offdesk CLI
 
 Nothing is ever piped into sudo.
 EOF

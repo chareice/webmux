@@ -11,8 +11,7 @@ const docs = `${repo}#readme`;
 const description =
   "Vibe code from your phone on the terminal you left at home.";
 const install = "curl -fsSL https://offdesk.dev/install | sh";
-const hubInstall =
-  "curl -fsSL https://offdesk.dev/install | sh -s -- --hub-only\noffdesk-hub";
+const hubInstall = "offdesk-hub";
 
 const setups = [
   {
@@ -20,7 +19,7 @@ const setups = [
     blurb:
       "Hub on the Mac or NAS that stays on. Phone on the same Wi-Fi. No TLS, no domain.",
     commands: [
-      "curl -fsSL https://offdesk.dev/install | sh -s -- --hub-only",
+      "curl -fsSL https://offdesk.dev/install | sh",
       "offdesk-hub",
       "offdesk-node register --hub-url http://192.168.1.10:4317 --token <token>",
       "offdesk-node start",
@@ -198,9 +197,8 @@ offdesk kill $T --yes`;
         </div>
 
         <p class="cmd-note">
-          That installs the <code>offdesk-node</code> agent and the
-          <code>offdesk</code> CLI on a machine you want to reach. For the hub
-          itself, on whichever machine stays on:
+          That installs all three: the hub, the <code>offdesk-node</code> agent,
+          and the <code>offdesk</code> CLI. Then, on whichever machine stays on:
         </p>
 
         <div class="cmd stack">

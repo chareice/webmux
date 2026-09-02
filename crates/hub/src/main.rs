@@ -44,9 +44,11 @@ struct Args {
     #[arg(long, env = "OFFDESK_STATIC_DIR")]
     static_dir: Option<String>,
 
-    /// Path to SQLite database file
-    #[arg(long, default_value = "./offdesk.db", env = "DATABASE_PATH")]
-    database: String,
+    /// Path to the SQLite database. Defaults to the offdesk config directory
+    /// (~/Library/Application Support/offdesk on macOS, ~/.config/offdesk on
+    /// Linux); the signing key is kept beside it.
+    #[arg(long, env = "DATABASE_PATH")]
+    database: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -187,20 +189,22 @@ async fn main() {
         }
     };
 
+    let database = first_run::database_path(args.database.as_deref());
+
     // A hub with no configured key generates one and keeps it next to the
     // database, so sessions survive a restart instead of logging everyone out.
-    let (jwt_secret, generated_secret) = first_run::jwt_secret(&args.database);
+    let (jwt_secret, generated_secret) = first_run::jwt_secret(&database);
     if generated_secret {
         tracing::info!("no JWT_SECRET configured; using a generated one");
     }
 
     // Initialize database
-    let pool = db::create_pool(&args.database).expect("Failed to create database pool");
+    let pool = db::create_pool(&database).expect("Failed to create database pool");
     {
         let conn = pool.get().expect("Failed to get database connection");
         db::init_db(&conn).expect("Failed to initialize database");
     }
-    tracing::info!("Database initialized at {}", args.database);
+    tracing::info!("Database initialized at {database}");
 
     let state = AppState {
         manager: Arc::new(MachineManager::new(pool.clone())),
@@ -230,7 +234,21 @@ async fn main() {
         .fallback_service(ui_service(args.static_dir.as_deref()))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(&args.listen).await.unwrap();
+    let listener = match tokio::net::TcpListener::bind(&args.listen).await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+            eprintln!(
+                "error: {} is already in use — another offdesk-hub, probably. \
+                 Stop it, or pick a port with --listen 0.0.0.0:<port>.",
+                args.listen
+            );
+            std::process::exit(1);
+        }
+        Err(error) => {
+            eprintln!("error: could not listen on {}: {error}", args.listen);
+            std::process::exit(1);
+        }
+    };
 
     tracing::info!("Hub running on http://{}", args.listen);
 
@@ -241,6 +259,7 @@ async fn main() {
         &jwt_secret,
         &base_url_for_notice,
         &args.listen,
+        &database,
         has_oauth,
         dev_mode,
     ) {
