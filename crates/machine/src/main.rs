@@ -192,6 +192,25 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
     let resp_text = resp.text().await.unwrap_or_default();
 
     if !status.is_success() {
+        // The usual way to get here: the same line pasted twice. If the
+        // first time worked, this machine is registered and the only thing
+        // left is for its agent to connect — say that instead of "failed".
+        if resp_text.contains("already used") {
+            if let Ok(existing) = config::load_config() {
+                if existing.hub_url == build_ws_url(&hub_url) {
+                    eprintln!(
+                        "This machine is already registered with {}. The token was spent on that.",
+                        existing.hub_url
+                    );
+                    match ensure_service_running() {
+                        ServiceOutcome::Restarted => eprintln!("Its agent service was restarted and is connecting now."),
+                        ServiceOutcome::NotInstalled => eprintln!("To connect it: offdesk-node service install"),
+                        ServiceOutcome::Failed(error) => eprintln!("Restarting its agent service failed: {error}"),
+                    }
+                    return;
+                }
+            }
+        }
         eprintln!("Registration failed (HTTP {}): {}", status, resp_text);
         std::process::exit(1);
     }
@@ -232,8 +251,44 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
     println!("  Machine ID: {}", register_resp.machine_id);
     println!("  Config saved to: {}", config_path.display());
     println!();
-    println!("Start the daemon with: offdesk-node start");
-    println!("Install as service:    offdesk-node service install");
+    // Registering only writes the config. An agent service that is already
+    // running keeps the hub it started with until it is restarted — which
+    // looked, from the hub's page, like a registration that never connected.
+    match ensure_service_running() {
+        ServiceOutcome::Restarted => {
+            println!("The agent service was restarted and is connecting to the hub now.");
+        }
+        ServiceOutcome::NotInstalled => {
+            println!("Registered, not yet connected. Keep the agent running as a service:");
+            println!("  offdesk-node service install");
+            println!("or run it in the foreground: offdesk-node start");
+        }
+        ServiceOutcome::Failed(error) => {
+            println!("The agent service is installed but could not be restarted ({error}).");
+            println!("Restart it yourself: offdesk-node service restart");
+        }
+    }
+}
+
+enum ServiceOutcome {
+    Restarted,
+    NotInstalled,
+    Failed(String),
+}
+
+/// If the agent runs as a service, restart it so the config just written
+/// takes effect. Whether it is installed is read from the unit or plist on
+/// disk, not from whether it is currently running: a stopped service is
+/// still the one that will start at login.
+fn ensure_service_running() -> ServiceOutcome {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() || !std::path::Path::new(&service::service_file_path(&home)).exists() {
+        return ServiceOutcome::NotInstalled;
+    }
+    match service::restart() {
+        Ok(()) => ServiceOutcome::Restarted,
+        Err(error) => ServiceOutcome::Failed(error),
+    }
 }
 
 /// Convert any hub URL to its WebSocket machine endpoint.

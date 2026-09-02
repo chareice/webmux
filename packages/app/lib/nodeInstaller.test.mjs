@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   INSTALL_SCRIPT_URL,
+  buildOnboardingScript,
   getInstallCommand,
+  getJoinCommand,
 } from "./nodeInstaller.ts";
 
 test("getInstallCommand uses the installer the site serves", () => {
@@ -19,4 +21,14 @@ test("onboarding asks for the machine agent alone, not the CLI", () => {
   // effect would put a second, unconfigured tool on the box.
   assert.match(getInstallCommand(), /--node-only/);
   assert.doesNotMatch(getInstallCommand(), /offdesk-node-(linux|darwin)-(x64|arm64)/);
+});
+
+test("joining a hub is one line, with the hub and the token on it", () => {
+  const line = getJoinCommand("ws://192.168.1.10:4317/ws/machine", "abc-123");
+  assert.equal(
+    line,
+    "curl -fsSL https://offdesk.dev/install | sh -s -- --hub-url ws://192.168.1.10:4317/ws/machine --token abc-123",
+  );
+  // The onboarding page copies exactly that line, nothing to run after it.
+  assert.equal(buildOnboardingScript("ws://192.168.1.10:4317/ws/machine", "abc-123"), line);
 });

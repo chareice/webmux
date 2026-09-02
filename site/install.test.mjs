@@ -63,6 +63,7 @@ if [ "$1" = "-fsSL" ] && [ "$2" = "-o" ]; then
       # The hub is run by the installer, so its stand-in is a script that
       # reports the call instead of a marker file.
       *"/offdesk-hub-"*) printf '#!/bin/sh\necho "offdesk-hub $*"\n' > "$3"; exit 0 ;;
+      *"/offdesk-node-"*) printf '#!/bin/sh\necho "offdesk-node $*"\n' > "$3"; exit 0 ;;
       *"/$asset") printf 'binary:%s' "$asset" > "$3"; exit 0 ;;
     esac
   done
@@ -100,9 +101,9 @@ test("picks the newest vX.Y.Z release", () => {
     // v1.2.10 over v1.2.3, and never the desktop tag.
     assert.match(result.stdout, /Installing offdesk v1\.2\.10 \(darwin\/arm64\)/);
     assert.equal(readFileSync(join(prefix, "offdesk"), "utf8"), "binary:offdesk-darwin-arm64");
-    assert.equal(
+    assert.match(
       readFileSync(join(prefix, "offdesk-node"), "utf8"),
-      "binary:offdesk-node-darwin-arm64",
+      /offdesk-node/,
     );
   } finally {
     cleanup(tempDir);
@@ -147,6 +148,37 @@ test("--node-only is just the agent, for the second machine", () => {
     assert.ok(existsSync(join(prefix, "offdesk-node")));
     assert.ok(!existsSync(join(prefix, "offdesk-hub")));
     assert.ok(!existsSync(join(prefix, "offdesk")));
+  } finally {
+    cleanup(tempDir);
+  }
+});
+
+test("--hub-url and --token join a hub: agent only, registered, kept running", () => {
+  const { result, prefix, tempDir } = run({
+    args: ["--hub-url", "ws://192.168.1.10:4317/ws/machine", "--token", "abc-123"],
+  });
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(join(prefix, "offdesk-node")));
+    assert.ok(!existsSync(join(prefix, "offdesk-hub")));
+    assert.ok(!existsSync(join(prefix, "offdesk")));
+    assert.match(
+      result.stdout,
+      /^offdesk-node register --hub-url ws:\/\/192\.168\.1\.10:4317\/ws\/machine --token abc-123$/m,
+    );
+    assert.match(result.stdout, /^offdesk-node service install$/m);
+    assert.match(result.stdout, /This machine is connected/);
+  } finally {
+    cleanup(tempDir);
+  }
+});
+
+test("--token without --hub-url is refused before anything is downloaded", () => {
+  const { result, prefix, tempDir } = run({ args: ["--token", "abc-123"] });
+  try {
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /--hub-url and --token go together/);
+    assert.ok(!existsSync(join(prefix, "offdesk-node")));
   } finally {
     cleanup(tempDir);
   }

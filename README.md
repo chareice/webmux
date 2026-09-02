@@ -145,23 +145,30 @@ never resizes the desk.
 ### Adding a machine
 
 The machine the hub runs on is registered by the install. For every other
-machine you want to reach: tmux is required — the agent checks for it
-at startup and exits if it is missing — and
-`curl -fsSL https://offdesk.dev/install | sh -s -- --node-only` installs the
-agent alone; then:
+machine you want to reach, open the hub in a browser and choose **Add host**
+in the machine switcher (a fresh hub with no machine yet lands on that page
+by itself). It shows one line, with a token filled in:
 
 ```bash
-offdesk-node register --hub-url https://your-hub.example.com --token <token>
-offdesk-node service install
+curl -fsSL https://offdesk.dev/install | sh -s -- --hub-url ws://192.168.1.10:4317/ws/machine --token <token>
 ```
+
+Paste it into a terminal on the new machine. It installs the agent alone,
+registers the machine with your hub, and keeps the agent running as a
+service — a systemd user service on Linux, a launchd agent on macOS. tmux is
+required; the agent checks for it at startup and exits if it is missing.
 
 `<token>` is a registration token: the hub mints one for each new machine,
 and it is the only thing tying a node to your hub. You do not type it by
-hand. Open the hub in a browser — a fresh hub lands on **Connect a machine**,
-and after that it is **Add host** in the machine switcher — and that page
-shows these commands with the token filled in, ready to paste into a shell
-on the new machine. Each token works once and expires 24 hours after it is
-issued; generate another for the next machine.
+hand; it is on the line the page shows. Each token works once and expires 24
+hours after it is issued; generate another for the next machine. The same
+line also moves a machine from one hub to another, and re-registers the
+machine the hub runs on if the install left it on a hub it already belonged
+to.
+
+By hand, the line is `offdesk-node register --hub-url … --token …` followed
+by `offdesk-node service install`. Registering restarts an agent service that
+is already installed, so the new hub takes effect at once.
 
 `service install` keeps it running across reboots — a systemd user service on
 Linux, a launchd agent on macOS. `offdesk-node start` runs it in the

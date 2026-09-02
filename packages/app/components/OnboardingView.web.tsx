@@ -1,12 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { X } from "lucide-react";
 import { createRegistrationToken } from "@/lib/api";
-import {
-  buildOnboardingScript,
-  getInstallCommand,
-  getRegisterCommand,
-  getServiceInstallCommand,
-} from "@/lib/nodeInstaller";
+import { buildOnboardingScript, getJoinCommand } from "@/lib/nodeInstaller";
 import {
   getTokenActionLabel,
   shouldGenerateRegistrationToken,
@@ -156,9 +151,7 @@ export function OnboardingView({
   };
 
   const hubUrl = getHubUrl();
-  const installCmd = getInstallCommand();
-  const registerCmd = token ? getRegisterCommand(hubUrl, token) : "";
-  const serviceCmd = getServiceInstallCommand();
+  const joinCmd = token ? getJoinCommand(hubUrl, token) : "";
 
   return (
     <div
@@ -207,8 +200,9 @@ export function OnboardingView({
             lineHeight: 1.5,
           }}
         >
-          Install offdesk-node on the machine you want to manage,
-          then register it with the commands below.
+          One line, pasted into a terminal on the machine you want to reach.
+          It installs the agent, registers the machine with this hub and keeps
+          the agent running. Works on this machine too.
         </p>
 
         {!requested && !loading && !error && !token ? (
@@ -231,7 +225,7 @@ export function OnboardingView({
                 fontSize: 14,
               }}
             >
-              Generate a fresh registration token only when you are ready to copy the install script to a machine.
+              Generate a token when you are ready to paste the line into a terminal on the machine. Each token works once.
             </p>
             <button
               onClick={handleGenerateClick}
@@ -289,23 +283,7 @@ export function OnboardingView({
           </div>
         ) : token ? (
           <div>
-            {/* Step 1: Install */}
-            <CodeBlock
-              label="1. Install offdesk-node"
-              code={installCmd}
-            />
-
-            {/* Step 2: Register */}
-            <CodeBlock
-              label="2. Register with this hub"
-              code={registerCmd}
-            />
-
-            {/* Step 3: Start service */}
-            <CodeBlock
-              label="3. Start the service"
-              code={serviceCmd}
-            />
+            <CodeBlock label="On the machine you want to reach" code={joinCmd} />
 
             {/* Action buttons */}
             <div
@@ -328,7 +306,7 @@ export function OnboardingView({
                   cursor: "pointer",
                 }}
               >
-                {copied ? "Copied!" : "Copy all commands"}
+                {copied ? "Copied!" : "Copy the line"}
               </button>
               <button
                 onClick={handleRegenerate}
@@ -355,7 +333,8 @@ export function OnboardingView({
                 lineHeight: 1.5,
               }}
             >
-              Once the machine connects, this page will update automatically.
+              The token on that line works once and expires after 24 hours. Once the
+              machine connects, this page updates by itself.
             </p>
           </div>
         ) : null}
