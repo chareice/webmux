@@ -18,7 +18,8 @@ const setups = [
     blurb:
       "Hub on the Mac or NAS that stays on. Phone on the same Wi-Fi. No TLS, no domain.",
     commands: [
-      "docker compose up -d --build",
+      "git clone https://github.com/zalify/offdesk && cd offdesk",
+      "JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build",
       "offdesk-node register --hub-url http://192.168.1.10:4317 --token <token>",
       "offdesk-node start",
     ],
@@ -28,9 +29,10 @@ const setups = [
   {
     title: "Away from home",
     blurb:
-      "Hub on a VPS behind Caddy, or on your tailnet. GitHub or Google sign-in.",
+      "Hub on a VPS behind Caddy, at home behind a Cloudflare Tunnel, or on your tailnet.",
     commands: [
-      "docker compose up -d --build",
+      "git clone https://github.com/zalify/offdesk && cd offdesk",
+      "JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build",
       "caddy reverse-proxy --from offdesk.example.com --to :4317",
       "offdesk-node register --hub-url https://offdesk.example.com --token <token>",
     ],
@@ -193,6 +195,13 @@ offdesk kill $T --yes`;
           </button>
         </div>
 
+        <p class="cmd-note">
+          That installs the <code>offdesk-node</code> agent and the
+          <code>offdesk</code> CLI on a machine you want to reach. The hub
+          itself is a container — one of the two setups below, five minutes
+          either way.
+        </p>
+
         <div class="actions">
           <a class="btn primary" href={repo}>GitHub</a>
           <a class="btn" href={docs}>Read the docs</a>
@@ -233,6 +242,26 @@ offdesk kill $T --yes`;
             ))
           }
         </div>
+      </section>
+
+      <section aria-labelledby="phone">
+        <h2 id="phone">On your phone</h2>
+        <p class="lead">
+          The browser is the whole client — open the hub's URL and you are
+          there, on iPhone as much as anywhere. Android also has an app: the
+          same web UI in a WebView, with native notifications and clipboard.
+        </p>
+        <p>
+          It asks for your hub's address the first time it opens, so one APK
+          works with any hub — nothing about a hub is compiled into it. The
+          hub's own page shows that address as a QR code, on the setup page and
+          under Settings → Mobile app, so you scan it instead of typing it.
+        </p>
+        <p>
+          <a href={`${repo}/releases/latest`}>Download the APK</a> — take
+          <code>arm64-v8a</code> on a modern phone, or <code>universal</code> if
+          you are unsure.
+        </p>
       </section>
 
       <section aria-labelledby="how">
@@ -585,6 +614,13 @@ offdesk kill $T --yes`;
 
       .btn.primary:hover {
         filter: brightness(1.08);
+      }
+
+      .cmd-note {
+        max-width: 34rem;
+        margin: 0.75rem 0 0;
+        font-size: 0.9375rem;
+        color: var(--fg-2);
       }
 
       .promise {

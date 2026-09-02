@@ -31,7 +31,12 @@ One self-hosted hub, all your machines, any agent that runs in tmux.
 
 ## Install
 
-Three pieces. The hub is the only one that needs a URL other people can reach.
+Three pieces, in this order: a **hub** somewhere that stays on, the
+**offdesk-node** agent on each machine you want to reach, and — optionally —
+the **CLI** and the Android app.
+
+`curl -fsSL https://offdesk.dev/install | sh` gets you the agent and the CLI.
+It does not get you a hub; that is the step below, and it is a container.
 
 ### Hub
 
@@ -57,9 +62,16 @@ cargo build --release --bin offdesk-hub
 ./target/release/offdesk-hub --listen 0.0.0.0:4317
 ```
 
-<!-- TODO(ryan): publish ghcr.io/zalify/offdesk-hub under the new name, then
-     replace the clone-and-build above with a plain `docker run`. The
-     container workflow builds it on push to main. -->
+<!-- TODO(ryan): the container workflow already publishes
+     ghcr.io/zalify/offdesk-hub on every push to main, but the package is
+     private — an anonymous `docker pull` gets 401. Make it public
+     (github.com/orgs/zalify/packages -> offdesk-hub -> Package settings ->
+     Change visibility) and the whole section above collapses to:
+
+       docker run -d --name offdesk-hub -p 4317:4317          -e JWT_SECRET=$(openssl rand -hex 32)          -v offdesk-data:/app/data ghcr.io/zalify/offdesk-hub:main
+
+     That is the single biggest cut in the path from landing page to a
+     running hub: no clone, no build, no repo on the machine at all. -->
 
 ### Machine
 
@@ -81,8 +93,9 @@ offdesk-node register --hub-url https://your-hub.example.com --token <token>
 offdesk-node start
 ```
 
-Get `<token>` from the hub's web UI. It is single-use and expires 24 hours
-after it is issued.
+Get `<token>` from the hub — a fresh hub opens on that page, and it hands you
+these three commands with the token already in them. It is single-use and
+expires 24 hours after it is issued.
 
 To keep it running across reboots — a systemd user service on Linux, a launchd
 agent on macOS:
@@ -124,7 +137,10 @@ Two packaged clients also ship, both Tauri:
 - **Android** — an APK per ABI plus a universal one, built from `app-v*` tags.
   Sideload it; it wraps the same web app, with native notifications and
   clipboard. It asks for your hub's address on first launch, so one APK works
-  with any hub — nothing about a hub is compiled into it.
+  with any hub — nothing about a hub is compiled into it. The hub shows that
+  address as a QR code, on the page a fresh hub opens with and under
+  Settings → Mobile app, so you scan it rather than typing an IP on a phone
+  keyboard.
 
 #### Building the Android app yourself
 
