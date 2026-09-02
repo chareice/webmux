@@ -1250,6 +1250,28 @@ function TerminalCanvasInner() {
     [activeMachineId],
   );
 
+  // The other answer to "close this workspace": end its terminals. The
+  // person chose this in a dialog that named the count, so no per-terminal
+  // foreground-process prompt on top; then the empty group goes too.
+  const performCloseGroupTerminals = useCallback(
+    async (group: WorkspaceGroup) => {
+      if (!activeMachineId || !deviceId) return;
+      const ids = new Set(collectGroupPaneTerminalIds([group]));
+      const doomed = terminals.filter(
+        (terminal) => terminal.machine_id === activeMachineId && ids.has(terminal.id),
+      );
+      await Promise.allSettled(
+        doomed.map((terminal) => destroyTerminal(terminal.machine_id, terminal.id, deviceId)),
+      );
+      if (group.workspaceGroupId) {
+        await deleteWorkspaceGroup(activeMachineId, group.workspaceGroupId).catch(() => {
+          /* an auto group deletes itself once empty */
+        });
+      }
+    },
+    [activeMachineId, deviceId, terminals],
+  );
+
   const performRenameGroup = useCallback(
     async (group: WorkspaceGroup, name: string) => {
       if (!activeMachineId || !group.workspaceGroupId) return;
@@ -1743,14 +1765,20 @@ function TerminalCanvasInner() {
         {groupDeleteConfirmation && (
           <ConfirmDialog
             open
-            title="Delete workspace?"
-            message={`"${groupDeleteConfirmation.label}" has ${groupDeleteConfirmation.paneCount} pane(s). They will move back to their directory tabs; no terminal is closed.`}
-            confirmLabel="Delete workspace"
+            title={`Close workspace "${groupDeleteConfirmation.label}"?`}
+            message={`It has ${groupDeleteConfirmation.paneCount} terminal${groupDeleteConfirmation.paneCount === 1 ? "" : "s"}. Ungroup keeps them running and moves them to the tab for their directory. Close ends them.`}
+            confirmLabel={`Close ${groupDeleteConfirmation.paneCount} terminal${groupDeleteConfirmation.paneCount === 1 ? "" : "s"}`}
             variant="danger"
-            onConfirm={() => {
+            secondaryLabel="Ungroup"
+            onSecondary={() => {
               const group = groupDeleteConfirmation;
               setGroupDeleteConfirmation(null);
               void performDeleteGroup(group);
+            }}
+            onConfirm={() => {
+              const group = groupDeleteConfirmation;
+              setGroupDeleteConfirmation(null);
+              void performCloseGroupTerminals(group);
             }}
             onCancel={() => setGroupDeleteConfirmation(null)}
           />
