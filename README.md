@@ -31,31 +31,40 @@ One self-hosted hub, all your machines, any agent that runs in tmux.
 
 ## Install
 
-Three pieces, in this order: a **hub** somewhere that stays on, the
-**offdesk-node** agent on each machine you want to reach, and — optionally —
-the **CLI** and the Android app.
+One command installs all three binaries — the **hub**, the **offdesk-node**
+agent, and the **CLI** — into `~/.local/bin`, for Linux and macOS on x64 and
+arm64:
+
+```bash
+curl -fsSL https://offdesk.dev/install | sh
+```
+
+`--node-only`, `--hub-only` and `--cli-only` install one of them; `--prefix
+<dir>` installs elsewhere; `--system` uses `/usr/local/bin` (that step, and only
+that step, asks for sudo). Or build them yourself:
+`cargo build --release --bin offdesk-hub --bin offdesk-node --bin offdesk`.
 
 ### Hub
 
-On the machine that will hold the URL — the Mac that stays on, or the NAS:
+On the machine that stays on — a Mac, a NAS — which is usually also the first
+machine you want to reach:
 
 ```bash
-curl -fsSL https://offdesk.dev/install | sh -s -- --hub-only
 offdesk-hub
 ```
 
-It prints a link with a session in it. Open that and you are signed in as the
-hub's owner; there is nothing else to configure. The web UI is inside the
-binary, and the SQLite database and signing key are written to the directory
-you start it from.
-
 ```
   offdesk is running at http://192.168.1.10:4317
+  data: /Users/you/Library/Application Support/offdesk
 
   Open this to sign in:
 
     http://192.168.1.10:4317/?token=eyJhbGciOi…
 ```
+
+Open the link and you are signed in as the hub's owner; there is nothing else
+to configure. The web UI is inside the binary. The database and signing key
+live in the offdesk config directory, next to the agent's and the CLI's.
 
 That hub stops when the terminal does. To run it at login instead, restarted
 if it ever stops — a launchd agent on macOS, a systemd user service on Linux:
@@ -96,19 +105,10 @@ it in the volume, and losing the volume signs everybody out.
 
 ### Machine
 
-On every machine you want to reach. tmux is required — the agent checks for it
-at startup and exits if it is missing.
-
-```bash
-curl -fsSL https://offdesk.dev/install | sh
-```
-
-That installs the `offdesk-node` agent and the `offdesk` CLI into
-`~/.local/bin`, for Linux and macOS on x64 and arm64. `--node-only` skips the
-CLI, `--hub` adds the server, `--prefix <dir>` installs elsewhere, and
-`--system` uses `/usr/local/bin` (that step, and only that step, asks for
-sudo). Or build them yourself:
-`cargo build --release --bin offdesk --bin offdesk-node`.
+On every machine you want to reach, the hub's own machine included. tmux is
+required — the agent checks for it at startup and exits if it is missing. On
+a second machine, `curl -fsSL https://offdesk.dev/install | sh -s -- --node-only`
+is enough; then:
 
 ```bash
 offdesk-node register --hub-url https://your-hub.example.com --token <token>

@@ -13,12 +13,12 @@ be reachable from outside your home.
 On the machine that will hold the URL — the Mac that stays on, or the NAS:
 
 ```bash
-curl -fsSL https://offdesk.dev/install | sh -s -- --hub-only
+curl -fsSL https://offdesk.dev/install | sh
 offdesk-hub
 ```
 
-It binds `0.0.0.0:4317`, writes its database and signing key into the
-directory you start it from, and prints a link:
+It binds `0.0.0.0:4317`, keeps its database and signing key in the offdesk
+config directory, and prints a link:
 
 ```
   offdesk is running at http://192.168.1.10:4317

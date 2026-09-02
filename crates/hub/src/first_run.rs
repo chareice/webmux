@@ -15,6 +15,25 @@ use std::path::{Path, PathBuf};
 
 use crate::db::{self, DbPool};
 
+/// Where the database lives when nobody said. The offdesk config directory
+/// is where the agent and the CLI keep theirs, so one place holds all of it,
+/// and starting the hub from a different shell does not start a different
+/// hub. A `./offdesk.db` in the current directory is honoured first: that was
+/// the old default, and silently abandoning it would look like data loss.
+pub fn database_path(configured: Option<&str>) -> String {
+    if let Some(path) = configured.map(str::trim).filter(|p| !p.is_empty()) {
+        return path.to_string();
+    }
+    let legacy = Path::new("offdesk.db");
+    if legacy.exists() {
+        tracing::info!("using ./offdesk.db from the current directory (pass --database to move it)");
+        return legacy.display().to_string();
+    }
+    let dir = offdesk_protocol::config_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("hub.db").display().to_string()
+}
+
 const LOCAL_PROVIDER: &str = "local";
 const LOCAL_PROVIDER_ID: &str = "owner";
 
@@ -152,6 +171,7 @@ pub fn sign_in_notice(
     jwt_secret: &str,
     base_url: &str,
     listen: &str,
+    database_path: &str,
     has_oauth: bool,
     dev_mode: bool,
 ) -> Option<String> {
@@ -160,9 +180,15 @@ pub fn sign_in_notice(
     }
     let token = owner_session(pool, jwt_secret)?;
     let url = reachable_base_url(base_url, listen);
+    let data_dir = Path::new(database_path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| ".".into());
 
     Some(format!(
-        "\n  offdesk is running at {url}\n\
+        "\n  offdesk is running at {url}\n  \
+         data: {data_dir}\n\
          \n  Open this to sign in:\n\
          \n    {url}/?token={token}\n\
          \n  It signs you in as this hub's owner. Anyone who has the link can do\n  \
@@ -176,6 +202,18 @@ pub fn sign_in_notice(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_explicit_database_path_is_used_verbatim() {
+        assert_eq!(database_path(Some("/srv/hub.db")), "/srv/hub.db");
+        assert_eq!(database_path(Some("  ")), database_path(None));
+    }
+
+    #[test]
+    fn the_default_lives_in_the_config_directory() {
+        let path = database_path(None);
+        assert!(path.ends_with("hub.db") || path == "offdesk.db", "{path}");
+    }
 
     #[test]
     fn a_configured_secret_is_never_replaced() {
@@ -224,7 +262,7 @@ mod tests {
     #[test]
     fn oauth_or_dev_mode_means_no_notice() {
         let pool = crate::db::create_pool(":memory:").unwrap();
-        assert!(sign_in_notice(&pool, "s", "b", "0.0.0.0:4317", true, false).is_none());
-        assert!(sign_in_notice(&pool, "s", "b", "0.0.0.0:4317", false, true).is_none());
+        assert!(sign_in_notice(&pool, "s", "b", "0.0.0.0:4317", "x.db", true, false).is_none());
+        assert!(sign_in_notice(&pool, "s", "b", "0.0.0.0:4317", "x.db", false, true).is_none());
     }
 }
