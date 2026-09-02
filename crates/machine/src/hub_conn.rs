@@ -620,23 +620,26 @@ async fn handle_hub_message(
                     .await;
             }
             let scanner_terminal_id = terminal_id.clone();
+            // The window's real size, for the hub's record and for this
+            // client: with `window-size manual` it is whatever the last
+            // controller set, and a client that assumes its own size sees
+            // the difference as a field of dots. Sent before the attach
+            // opens, so it is ordered before anything this client does once
+            // it is attached — a controller's fit resize that followed it
+            // would otherwise be overwritten by a stale report.
+            if let Some((actual_cols, actual_rows)) = tmux_window_size(&scanner_terminal_id) {
+                let _ = send_tx
+                    .send(OutboundHubMessage::Json(MachineToHub::TerminalResized {
+                        terminal_id: scanner_terminal_id.clone(),
+                        cols: actual_cols,
+                        rows: actual_rows,
+                    }))
+                    .await;
+            }
             let mut events_rx = attach_mgr
                 .open(attach_id.clone(), terminal_id, cols, rows)
                 .await;
             let send_tx = send_tx.clone();
-            // The window's real size, for the hub's record and for this
-            // client: with `window-size manual` it is whatever the last
-            // controller set, and a client that assumes its own size sees
-            // the difference as a field of dots.
-            if let Some((cols, rows)) = tmux_window_size(&scanner_terminal_id) {
-                let _ = send_tx
-                    .send(OutboundHubMessage::Json(MachineToHub::TerminalResized {
-                        terminal_id: scanner_terminal_id.clone(),
-                        cols,
-                        rows,
-                    }))
-                    .await;
-            }
             tokio::spawn(async move {
                 let mut scanner = OscTitleScanner::new();
                 let mut last_observed_title: Option<String> = None;
