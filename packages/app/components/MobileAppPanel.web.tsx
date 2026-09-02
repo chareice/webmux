@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import * as QRCode from "qrcode";
 
+import { getAuthProviders, mintSessionToken } from "@/lib/api";
 import { colors } from "@/lib/colors";
 
 /**
@@ -19,6 +20,29 @@ export function MobileAppPanel() {
   );
   const [qrSvg, setQrSvg] = useState<string | null>(null);
 
+  // On a hub with no OAuth, a phone that opens the bare address lands on a
+  // login screen with nothing to press. So the code carries the session of
+  // whoever is looking at it — this panel is only ever shown to someone
+  // signed in — and scanning it is signing in. With OAuth configured the
+  // phone can sign in on its own, and the code stays a plain address.
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getAuthProviders()
+      .then((providers) => (providers.link ? mintSessionToken() : null))
+      .then((result) => {
+        if (!cancelled && result) setSessionToken(result.token);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const encoded = sessionToken
+    ? `${shareUrl.trim().replace(/\/+$/, "")}/?token=${sessionToken}`
+    : shareUrl.trim();
+
   const isLoopback = /^(localhost|127\.0\.0\.1|\[?::1\]?)$/i.test(
     (() => {
       try {
@@ -35,7 +59,7 @@ export function MobileAppPanel() {
       setQrSvg(null);
       return;
     }
-    QRCode.toString(shareUrl.trim(), {
+    QRCode.toString(encoded, {
       type: "svg",
       margin: 0,
       errorCorrectionLevel: "M",
@@ -55,7 +79,7 @@ export function MobileAppPanel() {
     return () => {
       cancelled = true;
     };
-  }, [shareUrl]);
+  }, [shareUrl, encoded]);
 
   return (
     <div>
@@ -126,6 +150,21 @@ export function MobileAppPanel() {
               fontSize: 13,
             }}
           />
+
+          {sessionToken && (
+            <div
+              style={{
+                fontSize: 11,
+                color: colors.foreground,
+                opacity: 0.8,
+                marginTop: 8,
+              }}
+            >
+              This hub has no GitHub or Google sign-in, so the code also carries
+              your session: scanning it signs the phone in as you. Treat it like
+              a password.
+            </div>
+          )}
 
           {isLoopback && (
             <div

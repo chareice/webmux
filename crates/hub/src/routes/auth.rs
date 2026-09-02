@@ -2,7 +2,7 @@ use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::{Json, Redirect},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -207,6 +207,49 @@ async fn dev_login(
     Ok(Json(DevLoginResponse { token: jwt }))
 }
 
+// ── Which ways in exist ──
+
+#[derive(Serialize)]
+struct ProvidersResponse {
+    github: bool,
+    google: bool,
+    /// No OAuth app is configured, so the hub prints a sign-in link on
+    /// start and signed-in users can mint one for another device.
+    link: bool,
+}
+
+/// Public: a login page has to know which buttons to draw before anyone is
+/// signed in, and the alternative — drawing every provider and letting the
+/// click fail — is what this replaces.
+async fn providers(State(state): State<AppState>) -> Json<ProvidersResponse> {
+    let github = state.github_client_id.is_some();
+    let google = state.google_client_id.is_some();
+    Json(ProvidersResponse {
+        github,
+        google,
+        link: !github && !google && !state.dev_mode,
+    })
+}
+
+#[derive(Serialize)]
+struct SessionTokenResponse {
+    token: String,
+}
+
+/// A fresh session for the caller, to carry to another device — the QR code
+/// on the hub's page encodes one so a phone that scans it is signed in, not
+/// parked on a login screen with no working button. It is the caller's own
+/// identity and nothing more; anyone who can call this already holds an
+/// equivalent token.
+async fn session_token(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+) -> Json<SessionTokenResponse> {
+    Json(SessionTokenResponse {
+        token: auth::sign_jwt(&auth_user.user_id, &state.jwt_secret),
+    })
+}
+
 // ── Me endpoint ──
 
 async fn me(
@@ -312,4 +355,6 @@ pub fn router() -> Router<AppState> {
         .route("/api/auth/google/callback", get(google_callback))
         .route("/api/auth/dev", get(dev_login))
         .route("/api/auth/me", get(me))
+        .route("/api/auth/providers", get(providers))
+        .route("/api/auth/session-token", post(session_token))
 }

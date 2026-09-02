@@ -121,7 +121,11 @@ pub fn grant_and_load<R: Runtime>(app: &AppHandle<R>, hub_url: &str) -> Result<(
 #[tauri::command]
 pub fn set_mobile_hub_url<R: Runtime>(app: AppHandle<R>, url: String) -> Result<String, String> {
     let parsed = hub_url::parse(&url)?;
-    let normalized = parsed.as_str().trim_end_matches('/').to_string();
+    // What gets remembered is the hub — its origin. A link scanned off the
+    // hub's page can carry `?token=…`, which the web UI reads, stores and
+    // strips on first load; it is spent then, not kept in the app's config
+    // to be replayed on every launch.
+    let normalized = hub_url::origin(&parsed);
 
     // Reach it before committing to it. Storing first and navigating second
     // is how a typo becomes unrecoverable: the WebView shows its own error
@@ -136,7 +140,7 @@ pub fn set_mobile_hub_url<R: Runtime>(app: AppHandle<R>, url: String) -> Result<
             hub_url: Some(normalized.clone()),
         },
     )?;
-    grant_and_load(&app, &normalized)?;
+    grant_and_load(&app, parsed.as_str())?;
     Ok(normalized)
 }
 

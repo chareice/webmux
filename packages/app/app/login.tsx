@@ -7,6 +7,7 @@ import {
   Pressable,
   TextInput,
 } from "react-native";
+import { getAuthProviders, type AuthProviders } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { isBundledOrigin, isTauri, isTauriMobile } from "../lib/platform";
 import { getServerUrl, setServerUrl } from "../lib/serverUrl";
@@ -51,6 +52,26 @@ export default function LoginScreen() {
       })
       .catch(() => {});
   }, [needsHub]);
+
+  // What this hub can actually sign you in with. Until the answer arrives
+  // nothing is drawn: a button that appears and then vanishes is worse than a
+  // moment of nothing, and a button that fails when pressed is worse still.
+  const [providers, setProviders] = useState<AuthProviders | null>(null);
+  useEffect(() => {
+    if (isDesktop || needsHub) return;
+    let cancelled = false;
+    getAuthProviders()
+      .then((result) => {
+        if (!cancelled) setProviders(result);
+      })
+      .catch(() => {
+        // An old hub without the endpoint: assume both, as before.
+        if (!cancelled) setProviders({ github: true, google: true, link: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isDesktop, needsHub]);
 
   const handleHubConnect = () => {
     setConnecting(true);
@@ -212,8 +233,18 @@ export default function LoginScreen() {
           Sign in to continue
         </Text>
 
+        {providers?.link ? (
+          <Text className="text-foreground text-sm text-center opacity-80 leading-6">
+            This hub has no GitHub or Google sign-in. Open the link it printed
+            when it started, or scan the code on its setup page from a device
+            that is already signed in.
+          </Text>
+        ) : null}
+
         <View className="gap-3">
-          {PROVIDERS.map((provider) => {
+          {PROVIDERS.filter(
+            (provider) => providers === null ? false : providers[provider.value],
+          ).map((provider) => {
             const active = activeProvider === provider.value;
             const isGitHub = provider.value === "github";
 
