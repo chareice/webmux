@@ -27,7 +27,9 @@ concurrency:
 
 jobs:
   build-ipa:
-    runs-on: macos-15
+    # App Store Connect only takes apps built against the iOS 26 SDK, which
+    # means Xcode 26; macos-26 has it as the default Xcode.
+    runs-on: macos-26
     permissions:
       contents: write
     steps:
@@ -166,16 +168,6 @@ jobs:
           xcodebuild -showBuildSettings -scheme offdesk-desktop_iOS -workspace offdesk-desktop.xcodeproj/project.xcworkspace -sdk iphoneos -configuration release 2>&1 \
             | grep -E "CODE_SIGN|PROVISIONING|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER|PLATFORM_NAME|SDK_NAME|\bCONFIGURATION\b" | mask
 
-          echo "== dry run, exactly as the CLI runs it (with -allowProvisioningUpdates)"
-          xcodebuild -allowProvisioningUpdates -scheme offdesk-desktop_iOS -workspace offdesk-desktop.xcodeproj/project.xcworkspace -sdk iphoneos -configuration release build -dry-run 2>&1 \
-            | grep -E "error|warning|Provisioning|profile|BUILD" | mask | head -20
-          echo "== dry run, without -allowProvisioningUpdates"
-          xcodebuild -scheme offdesk-desktop_iOS -workspace offdesk-desktop.xcodeproj/project.xcworkspace -sdk iphoneos -configuration release build -dry-run 2>&1 \
-            | grep -E "error|warning|Provisioning|profile|BUILD" | mask | head -20
-          echo "== dry run, profile by name instead of UUID"
-          xcodebuild -scheme offdesk-desktop_iOS -workspace offdesk-desktop.xcodeproj/project.xcworkspace -sdk iphoneos -configuration release build -dry-run \
-            CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER="offdesk App Store" 'CODE_SIGN_IDENTITY=Apple Distribution' 2>&1 \
-            | grep -E "error|warning|Provisioning|profile|BUILD" | mask | head -20
           security delete-keychain "$kc"
           rm -f "$p12"
 
