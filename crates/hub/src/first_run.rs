@@ -10,7 +10,7 @@
 //! from the address bar, so this is the existing session mechanism handed over
 //! on the terminal rather than a second way to authenticate.
 
-use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::path::{Path, PathBuf};
 
 use crate::db::{self, DbPool};
@@ -155,14 +155,116 @@ pub fn reachable_base_url(base_url: &str, listen: &str) -> String {
     format!("http://{}:{port}", host.unwrap_or_else(|| "localhost".into()))
 }
 
-/// The address this machine uses to reach the world, which is the one a phone
-/// on the same network can reach back. No packet is sent: connecting a UDP
-/// socket only asks the routing table which interface would be used.
+/// The address a phone on this network can reach this machine at.
+///
+/// The obvious answer — the interface the default route leaves by — is wrong
+/// on any machine running a VPN or a proxy in TUN mode: the default route
+/// then goes through a virtual interface whose address (Clash and Surge use
+/// 198.18.0.1, Tailscale 100.x) a phone on the Wi-Fi cannot reach, and a
+/// browser on the machine itself is sent through the proxy, which answers
+/// 502. So the interfaces are listed and a private address on a physical one
+/// wins; the route only breaks ties, or stands in when there is no LAN at
+/// all.
 fn lan_address() -> Option<IpAddr> {
+    pick_lan_address(interface_addresses(), route_address()).map(IpAddr::V4)
+}
+
+fn pick_lan_address(
+    mut interfaces: Vec<(String, Ipv4Addr)>,
+    route: Option<Ipv4Addr>,
+) -> Option<Ipv4Addr> {
+    // en0 before en5, eth0 before eth1: the first physical interface is the
+    // one a laptop is usually on.
+    interfaces.sort_by(|a, b| a.0.cmp(&b.0));
+    let on_the_lan = |(name, ip): &(String, Ipv4Addr)| ip.is_private() && !is_virtual(name);
+
+    if let Some(route) = route {
+        if interfaces.iter().any(|c| c.1 == route && on_the_lan(c)) {
+            return Some(route);
+        }
+    }
+    if let Some((_, ip)) = interfaces.iter().find(|c| on_the_lan(c)) {
+        return Some(*ip);
+    }
+    // No LAN. A tailnet address is still one a phone on the tailnet reaches;
+    // a fake-IP gateway never is.
+    if let Some(route) = route {
+        if !route.is_loopback() && !route.is_link_local() && !is_benchmark_range(route) {
+            return Some(route);
+        }
+    }
+    interfaces
+        .iter()
+        .find(|(name, ip)| ip.is_private() && !name.starts_with("lo"))
+        .map(|c| c.1)
+}
+
+/// Interfaces that do not lead to the Wi-Fi: tunnels, VM and container
+/// bridges, Apple's peer-to-peer links.
+fn is_virtual(name: &str) -> bool {
+    [
+        "lo", "utun", "tun", "tap", "wg", "tailscale", "docker", "br-", "bridge", "vmnet",
+        "veth", "virbr", "awdl", "llw",
+    ]
+    .iter()
+    .any(|prefix| name.starts_with(prefix))
+}
+
+/// 198.18.0.0/15, reserved for benchmarking (RFC 2544) and therefore what
+/// fake-IP proxies hand out; nothing on a real network answers there.
+fn is_benchmark_range(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 198 && (octets[1] == 18 || octets[1] == 19)
+}
+
+/// The source address of the default route. No packet is sent: connecting a
+/// UDP socket only asks the routing table which interface would be used.
+fn route_address() -> Option<Ipv4Addr> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect(SocketAddr::from(([1, 1, 1, 1], 80))).ok()?;
-    let address = socket.local_addr().ok()?.ip();
-    (!address.is_loopback() && !address.is_unspecified()).then_some(address)
+    match socket.local_addr().ok()?.ip() {
+        IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_unspecified() => Some(ip),
+        _ => None,
+    }
+}
+
+/// Every up interface's IPv4 address, by name.
+#[cfg(unix)]
+fn interface_addresses() -> Vec<(String, Ipv4Addr)> {
+    use std::ffi::CStr;
+
+    let mut found = Vec::new();
+    let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: getifaddrs fills `list` with a linked list it owns. The list is
+    // walked read-only, every pointer is null-checked before it is
+    // dereferenced, and freeifaddrs releases it before returning.
+    unsafe {
+        if libc::getifaddrs(&mut list) != 0 {
+            return found;
+        }
+        let mut cursor = list;
+        while !cursor.is_null() {
+            let entry = &*cursor;
+            let is_up = entry.ifa_flags & (libc::IFF_UP as u32) != 0;
+            if is_up
+                && !entry.ifa_addr.is_null()
+                && i32::from((*entry.ifa_addr).sa_family) == libc::AF_INET
+            {
+                let address = &*(entry.ifa_addr as *const libc::sockaddr_in);
+                let ip = Ipv4Addr::from(u32::from_be(address.sin_addr.s_addr));
+                let name = CStr::from_ptr(entry.ifa_name).to_string_lossy().into_owned();
+                found.push((name, ip));
+            }
+            cursor = entry.ifa_next;
+        }
+        libc::freeifaddrs(list);
+    }
+    found
+}
+
+#[cfg(not(unix))]
+fn interface_addresses() -> Vec<(String, Ipv4Addr)> {
+    Vec::new()
 }
 
 /// Whether to open the sign-in link in a browser, which is only right when a
@@ -286,23 +388,75 @@ mod tests {
         assert_ne!(secret, generate_secret());
     }
 
+    // One test for both: they set and clear the same environment variable,
+    // and the test harness runs tests in parallel.
     #[test]
-    fn an_explicit_base_url_wins() {
+    fn an_explicit_base_url_wins_and_a_specific_bind_address_is_used_as_given() {
         std::env::set_var("OFFDESK_BASE_URL", "https://offdesk.example.com/");
         assert_eq!(
             reachable_base_url("https://offdesk.example.com/", "0.0.0.0:4317"),
             "https://offdesk.example.com"
         );
         std::env::remove_var("OFFDESK_BASE_URL");
-    }
-
-    #[test]
-    fn a_specific_bind_address_is_used_as_given() {
-        std::env::remove_var("OFFDESK_BASE_URL");
         assert_eq!(
             reachable_base_url("http://localhost:4317", "127.0.0.1:4319"),
             "http://127.0.0.1:4319"
         );
+    }
+
+    #[test]
+    fn a_proxy_tunnel_never_becomes_the_address() {
+        let interfaces = vec![
+            ("utun4".to_string(), Ipv4Addr::new(198, 18, 0, 1)),
+            ("bridge100".to_string(), Ipv4Addr::new(192, 168, 64, 1)),
+            ("en0".to_string(), Ipv4Addr::new(192, 168, 1, 23)),
+            ("lo0".to_string(), Ipv4Addr::LOCALHOST),
+        ];
+        assert_eq!(
+            pick_lan_address(interfaces, Some(Ipv4Addr::new(198, 18, 0, 1))),
+            Some(Ipv4Addr::new(192, 168, 1, 23))
+        );
+    }
+
+    #[test]
+    fn the_route_wins_when_it_is_on_the_lan() {
+        let interfaces = vec![
+            ("en0".to_string(), Ipv4Addr::new(192, 168, 1, 23)),
+            ("en5".to_string(), Ipv4Addr::new(10, 0, 0, 5)),
+        ];
+        assert_eq!(
+            pick_lan_address(interfaces, Some(Ipv4Addr::new(10, 0, 0, 5))),
+            Some(Ipv4Addr::new(10, 0, 0, 5))
+        );
+    }
+
+    #[test]
+    fn a_tailnet_is_kept_when_there_is_no_lan() {
+        let interfaces = vec![("utun3".to_string(), Ipv4Addr::new(100, 100, 1, 2))];
+        assert_eq!(
+            pick_lan_address(interfaces, Some(Ipv4Addr::new(100, 100, 1, 2))),
+            Some(Ipv4Addr::new(100, 100, 1, 2))
+        );
+    }
+
+    #[test]
+    fn a_fake_ip_gateway_is_never_kept() {
+        let interfaces = vec![("utun4".to_string(), Ipv4Addr::new(198, 18, 0, 1))];
+        assert_eq!(pick_lan_address(interfaces, Some(Ipv4Addr::new(198, 18, 0, 1))), None);
+    }
+
+    #[test]
+    fn a_vm_bridge_is_the_last_resort() {
+        let interfaces = vec![("bridge100".to_string(), Ipv4Addr::new(192, 168, 64, 1))];
+        assert_eq!(
+            pick_lan_address(interfaces, None),
+            Some(Ipv4Addr::new(192, 168, 64, 1))
+        );
+    }
+
+    #[test]
+    fn this_machine_lists_its_interfaces() {
+        assert!(interface_addresses().iter().any(|(_, ip)| ip.is_loopback()));
     }
 
     #[test]

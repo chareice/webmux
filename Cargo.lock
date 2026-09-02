@@ -1302,6 +1302,7 @@ dependencies = [
  "hex",
  "http",
  "jsonwebtoken",
+ "libc",
  "mime_guess",
  "offdesk-protocol",
  "portable-pty",

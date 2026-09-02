@@ -56,6 +56,10 @@ launchd agent on macOS, a systemd user service on Linux. On a Mac it also keeps
 the machine from idle-sleeping while it runs (`--allow-idle-sleep` to opt out;
 the display and the lid are unaffected).
 
+The address in the link is the one a phone on your Wi-Fi can reach; a VPN or
+a proxy in TUN mode does not fool it. If it still prints one you cannot reach,
+start the hub with `OFFDESK_BASE_URL=http://<this machine's LAN IP>:4317`.
+
 The link signs in whoever has it, so keep it off shared terminals. It stops
 being printed once you configure GitHub or Google sign-in — which you want the
 moment the hub is reachable from outside your network:
