@@ -186,9 +186,11 @@ fn run_link(args: &Args) {
         std::process::exit(1);
     };
     let url = first_run::reachable_base_url(&base_url, listen);
-    let qr = first_run::qr_code(&link).unwrap_or_default();
+    let qr = first_run::short_link(&pool, &base_url, listen)
+        .and_then(|short| first_run::qr_code(&short))
+        .unwrap_or_default();
     println!("\n  offdesk is running at {url}\n");
-    println!("  Scan this with your phone's camera, or open the link:\n");
+    println!("  Scan this with your phone's camera (good for 15 minutes), or open the link:\n");
     println!("{qr}\n");
     println!("    {link}\n");
     println!("  It signs you in as this hub's owner. Anyone who has the link can do");

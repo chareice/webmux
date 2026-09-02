@@ -79,6 +79,16 @@ pub struct ApiTokenRow {
     pub expires_at: Option<i64>,
 }
 
+/// A short, single-use way in: ten characters in a QR code instead of a
+/// session token's three hundred. Redeemed once for a session, within
+/// minutes of being minted.
+pub struct LoginCodeRow {
+    pub id: String,
+    pub user_id: String,
+    pub expires_at: i64,
+    pub used: bool,
+}
+
 pub struct RegistrationTokenRow {
     pub id: String,
     pub user_id: String,

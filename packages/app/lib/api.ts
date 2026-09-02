@@ -66,6 +66,21 @@ export const getAuthProviders = () =>
 /** A fresh session for the current user, to carry to another device. */
 export const mintSessionToken = () =>
   request<{ token: string }>("POST", "/api/auth/session-token");
+// A short code for a QR: ten characters instead of a session token's three
+// hundred, redeemed once, within fifteen minutes.
+export const mintLoginCode = () =>
+  request<{ code: string; expires_at: number }>("POST", "/api/auth/login-code");
+// Public: no token yet, that is the point. Called on the raw base URL.
+export async function redeemLoginCode(baseUrl: string, code: string): Promise<string> {
+  const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/auth/code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  const data = (await res.json()) as { token: string };
+  return data.token;
+}
 
 // API Tokens
 export interface ApiToken {

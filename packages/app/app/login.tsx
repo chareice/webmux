@@ -105,8 +105,8 @@ export default function LoginScreen() {
       setLinkError("That is not a link. Paste the whole thing, starting with http.");
       return;
     }
-    if (!url.searchParams.has("token")) {
-      setLinkError("That link has no ?token= in it. Copy the whole line the hub printed.");
+    if (!url.searchParams.has("token") && !url.searchParams.has("code")) {
+      setLinkError("That link has no ?token= or ?code= in it. Copy the whole line the hub printed.");
       return;
     }
     if (url.origin === window.location.origin) {

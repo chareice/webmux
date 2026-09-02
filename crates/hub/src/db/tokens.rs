@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection};
 
 use super::now_ms;
-use super::types::{ApiTokenRow, RegistrationTokenRow};
+use super::types::{ApiTokenRow, LoginCodeRow, RegistrationTokenRow};
 
 pub fn create_registration_token(
     conn: &Connection,
@@ -138,6 +138,60 @@ pub fn update_api_token_last_used(conn: &Connection, token_id: &str) -> rusqlite
     conn.execute(
         "UPDATE api_tokens SET last_used_at = ?1 WHERE id = ?2",
         params![now, token_id],
+    )?;
+    Ok(())
+}
+
+// ── Login codes ──
+
+pub fn create_login_code(
+    conn: &Connection,
+    id: &str,
+    user_id: &str,
+    code_hash: &str,
+    expires_at: i64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO login_codes (id, user_id, code_hash, expires_at, used) VALUES (?1, ?2, ?3, ?4, 0)",
+        params![id, user_id, code_hash, expires_at],
+    )?;
+    Ok(())
+}
+
+pub fn find_login_code_by_hash(
+    conn: &Connection,
+    code_hash: &str,
+) -> rusqlite::Result<Option<LoginCodeRow>> {
+    let mut stmt =
+        conn.prepare("SELECT id, user_id, expires_at, used FROM login_codes WHERE code_hash = ?1")?;
+    let mut rows = stmt.query_map(params![code_hash], |row| {
+        Ok(LoginCodeRow {
+            id: row.get(0)?,
+            user_id: row.get(1)?,
+            expires_at: row.get(2)?,
+            used: row.get::<_, i64>(3)? != 0,
+        })
+    })?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
+}
+
+/// Marks the code used, and says whether this call was the one that did —
+/// two phones racing on one code get one session between them.
+pub fn consume_login_code(conn: &Connection, id: &str) -> rusqlite::Result<bool> {
+    let changed = conn.execute(
+        "UPDATE login_codes SET used = 1 WHERE id = ?1 AND used = 0",
+        params![id],
+    )?;
+    Ok(changed == 1)
+}
+
+pub fn cleanup_login_codes(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM login_codes WHERE expires_at < ?1 OR used = 1",
+        params![now_ms()],
     )?;
     Ok(())
 }

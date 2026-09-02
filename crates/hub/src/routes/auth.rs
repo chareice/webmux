@@ -250,6 +250,82 @@ async fn session_token(
     })
 }
 
+// ── Login codes: the short thing a QR code carries ──
+
+#[derive(Serialize)]
+struct LoginCodeResponse {
+    code: String,
+    expires_at: i64,
+}
+
+/// A code for the caller's own identity, to put in a QR code where a
+/// session token would make the code four times the size. Ten characters,
+/// fifteen minutes, one use.
+async fn login_code(
+    State(state): State<AppState>,
+    auth_user: AuthUser,
+) -> Result<Json<LoginCodeResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let conn = state.db.get().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("DB error: {e}")})),
+        )
+    })?;
+    let (code, expires_at) = crate::first_run::mint_login_code_with(&conn, &auth_user.user_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("DB error: {e}")})),
+            )
+        })?;
+    Ok(Json(LoginCodeResponse { code, expires_at }))
+}
+
+#[derive(Deserialize)]
+struct RedeemCodeRequest {
+    code: String,
+}
+
+/// Public: the phone that scanned the code trades it for a session. The
+/// code is gone after this, whatever the outcome.
+async fn redeem_login_code(
+    State(state): State<AppState>,
+    Json(req): Json<RedeemCodeRequest>,
+) -> Result<Json<SessionTokenResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let code = req.code.trim().to_ascii_uppercase();
+    let conn = state.db.get().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("DB error: {e}")})),
+        )
+    })?;
+    let row = db::tokens::find_login_code_by_hash(&conn, &auth::hash_token(&code))
+        .ok()
+        .flatten();
+    let Some(row) = row else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "That code is not one this hub issued"})),
+        ));
+    };
+    if row.used || row.expires_at < db::now_ms() {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "That code was already used or has expired; scan a fresh one"})),
+        ));
+    }
+    let consumed = db::tokens::consume_login_code(&conn, &row.id).unwrap_or(false);
+    if !consumed {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "That code was just used"})),
+        ));
+    }
+    Ok(Json(SessionTokenResponse {
+        token: auth::sign_jwt(&row.user_id, &state.jwt_secret),
+    }))
+}
+
 // ── Me endpoint ──
 
 async fn me(
@@ -357,4 +433,6 @@ pub fn router() -> Router<AppState> {
         .route("/api/auth/me", get(me))
         .route("/api/auth/providers", get(providers))
         .route("/api/auth/session-token", post(session_token))
+        .route("/api/auth/login-code", post(login_code))
+        .route("/api/auth/code", post(redeem_login_code))
 }

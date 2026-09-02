@@ -12,7 +12,7 @@ import { Platform } from "react-native";
 // object per render, and an effect that depends on it re-runs forever.
 import { router } from "expo-router";
 
-import { configure, devLogin, getMe } from "./api";
+import { configure, devLogin, getMe, redeemLoginCode } from "./api";
 import type { User } from "@offdesk/shared";
 import { storage } from "./storage";
 import { getServerUrl } from "./serverUrl";
@@ -64,6 +64,18 @@ function takeUrlToken(): string | null {
   const token = pendingUrlToken;
   pendingUrlToken = null;
   return token;
+}
+
+// The QR code carries `?code=` — short, single-use — instead of a token.
+// Same one-shot handling: it is redeemed once, and it comes off the URL.
+let pendingUrlCode: string | null = (() => {
+  if (Platform.OS !== "web" || typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("code");
+})();
+function takeUrlCode(): string | null {
+  const code = pendingUrlCode;
+  pendingUrlCode = null;
+  return code;
 }
 
 function getUrlParam(name: string): string | null {
@@ -177,7 +189,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         // 1. A token that arrived on the URL — an OAuth callback, or the
         //    hub's own sign-in link. Already off the address bar; see above.
-        const urlToken = takeUrlToken();
+        //    A scanned code is one step further back: redeem it for the
+        //    token first. A stale or used code just falls through to the
+        //    sign-in page, which says what to do.
+        let urlToken = takeUrlToken();
+        const urlCode = urlToken ? null : takeUrlCode();
+        if (urlCode) {
+          if (
+            Platform.OS === "web" &&
+            typeof window !== "undefined" &&
+            new URLSearchParams(window.location.search).has("code")
+          ) {
+            router.replace(window.location.pathname);
+          }
+          try {
+            urlToken = await redeemLoginCode(currentServerUrl(), urlCode);
+          } catch {
+            urlToken = null;
+          }
+        }
         if (urlToken) {
           // Through the router, so its own idea of the URL loses the token
           // too — a plain history.replaceState is overwritten the next time

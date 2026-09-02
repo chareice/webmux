@@ -64,6 +64,14 @@ pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
             used INTEGER NOT NULL DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS login_codes (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            code_hash TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS bookmarks (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL REFERENCES users(id),

@@ -159,6 +159,54 @@ pub fn mint_registration_token(pool: &DbPool) -> Option<String> {
     Some(raw)
 }
 
+/// How long a login code lives. Long enough to find the phone; short enough
+/// that a code left on a screen is not a way in tomorrow.
+pub const LOGIN_CODE_TTL_MS: i64 = 15 * 60 * 1000;
+
+/// Ten characters from an alphabet without 0/O or 1/I, so a code read out
+/// loud survives the trip; 32 symbols divide 256 evenly, so no bias.
+fn random_login_code() -> String {
+    const ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    uuid::Uuid::new_v4()
+        .as_bytes()
+        .iter()
+        .take(10)
+        .map(|byte| ALPHABET[(byte % 32) as usize] as char)
+        .collect()
+}
+
+/// A login code for `user_id`, written to the database; returns the code and
+/// when it expires.
+pub fn mint_login_code_with(
+    conn: &rusqlite::Connection,
+    user_id: &str,
+) -> rusqlite::Result<(String, i64)> {
+    let code = random_login_code();
+    let expires_at = db::now_ms() + LOGIN_CODE_TTL_MS;
+    db::tokens::create_login_code(
+        conn,
+        &uuid::Uuid::new_v4().to_string(),
+        user_id,
+        &crate::auth::hash_token(&code),
+        expires_at,
+    )?;
+    Ok((code, expires_at))
+}
+
+/// A login code for the owner — what the QR code on the terminal carries.
+pub fn mint_login_code(pool: &DbPool) -> Option<String> {
+    let user_id = owner_user_id(pool)?;
+    let conn = pool.get().ok()?;
+    mint_login_code_with(&conn, &user_id).ok().map(|(code, _)| code)
+}
+
+/// The short link for a QR code: `?code=` instead of `?token=`, a quarter
+/// of the modules, a code a camera reads from across a desk.
+pub fn short_link(pool: &DbPool, base_url: &str, listen: &str) -> Option<String> {
+    let code = mint_login_code(pool)?;
+    Some(format!("{}/?code={code}", reachable_base_url(base_url, listen)))
+}
+
 /// The signing key as stored beside the database — what a hub running as a
 /// service is using — without minting one. `None` until the hub has started
 /// once and written it.
@@ -566,14 +614,16 @@ pub fn service_notice(
              the page the link opens."
         ),
     };
-    let qr = qr_code(&link).unwrap_or_default();
+    let qr = short_link(pool, base_url, listen)
+        .and_then(|short| qr_code(&short))
+        .unwrap_or_default();
 
     Some(format!(
         "\n  offdesk is running at {url}\n  \
          data: {data_dir}\n  \
          It starts at login and restarts if it stops. Logs: {logs}\n\
          \n  {machine}\n\
-         \n  Scan this with your phone's camera, or open the link:\n\
+         \n  Scan this with your phone's camera (good for 15 minutes), or open the link:\n\
          \n{qr}\n\
          \n    {link}\n\
          \n  It signs you in as this hub's owner. Anyone who has the link can do\n  \
@@ -605,12 +655,14 @@ pub fn sign_in_notice(
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| ".".into());
 
-    let qr = qr_code(&link).unwrap_or_default();
+    let qr = short_link(pool, base_url, listen)
+        .and_then(|short| qr_code(&short))
+        .unwrap_or_default();
 
     Some(format!(
         "\n  offdesk is running at {url}\n  \
          data: {data_dir}\n\
-         \n  Scan this with your phone's camera, or open the link:\n\
+         \n  Scan this with your phone's camera (good for 15 minutes), or open the link:\n\
          \n{qr}\n\
          \n    {link}\n\
          \n  It signs you in as this hub's owner. Anyone who has the link can do\n  \
@@ -732,6 +784,42 @@ mod tests {
     #[test]
     fn this_machine_lists_its_interfaces() {
         assert!(interface_addresses().iter().any(|(_, ip)| ip.is_loopback()));
+    }
+
+    #[test]
+    fn a_login_code_is_short_unambiguous_and_redeemable_once() {
+        let pool = crate::db::create_pool(":memory:").unwrap();
+        {
+            let conn = pool.get().unwrap();
+            crate::db::init_db(&conn).unwrap();
+        }
+        let code = mint_login_code(&pool).unwrap();
+        assert_eq!(code.len(), 10);
+        assert!(code.chars().all(|c| "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".contains(c)), "{code}");
+        let conn = pool.get().unwrap();
+        let row = crate::db::tokens::find_login_code_by_hash(&conn, &crate::auth::hash_token(&code))
+            .unwrap()
+            .unwrap();
+        assert!(!row.used);
+        assert!(row.expires_at > crate::db::now_ms());
+        assert!(crate::db::tokens::consume_login_code(&conn, &row.id).unwrap());
+        assert!(!crate::db::tokens::consume_login_code(&conn, &row.id).unwrap(), "second use");
+    }
+
+    #[test]
+    fn the_short_link_makes_a_code_a_third_the_size() {
+        let pool = crate::db::create_pool(":memory:").unwrap();
+        {
+            let conn = pool.get().unwrap();
+            crate::db::init_db(&conn).unwrap();
+        }
+        std::env::remove_var("OFFDESK_BASE_URL");
+        let short = short_link(&pool, "http://localhost:4317", "127.0.0.1:4317").unwrap();
+        assert!(short.contains("/?code="), "{short}");
+        let small = qr_code(&short).unwrap().lines().count();
+        let long = qr_code(&format!("http://127.0.0.1:4317/?token={}", "x".repeat(230))).unwrap().lines().count();
+        assert!(small <= 24, "{small} rows");
+        assert!(small + 10 < long, "{small} vs {long}");
     }
 
     #[test]
