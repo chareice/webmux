@@ -141,9 +141,13 @@ offdesk-node register --hub-url https://your-hub.example.com --token <token>
 offdesk-node start
 ```
 
-Get `<token>` from the hub — a fresh hub opens on that page, and it hands you
-these three commands with the token already in them. It is single-use and
-expires 24 hours after it is issued.
+`<token>` is a registration token: the hub mints one for each new machine,
+and it is the only thing tying a node to your hub. You do not type it by
+hand. Open the hub in a browser — a fresh hub lands on **Connect a machine**,
+and after that it is **Add host** in the machine switcher — and that page
+shows these commands with the token filled in, ready to paste into a shell
+on the new machine. Each token works once and expires 24 hours after it is
+issued; generate another for the next machine.
 
 To keep it running across reboots — a systemd user service on Linux, a launchd
 agent on macOS:

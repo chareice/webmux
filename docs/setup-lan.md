@@ -88,9 +88,12 @@ hostname -I | awk '{print $1}' # Linux
 `sudo apt install tmux` on Debian or Ubuntu. The agent exits at startup if tmux
 is missing.
 
-Open the sign-in link the hub printed. It lands on a page that hands you the
-commands below with a registration token already in them. On the hub's own
-machine the installer has already run, so skip the first line:
+`<token>` is a registration token the hub mints for one new machine; you
+never type it by hand. Open the sign-in link the hub printed: a fresh hub
+lands on **Connect a machine**, which shows the commands below with the token
+filled in. For the next machine, it is **Add host** in the machine switcher.
+On the hub's own machine the installer has already run, so skip the first
+line:
 
 ```bash
 curl -fsSL https://offdesk.dev/install | sh -s -- --node-only
