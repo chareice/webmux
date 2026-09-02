@@ -57,12 +57,28 @@ const setups = [
     title: "At home, off the desk",
     blurb:
       "Hub on the Mac or NAS that stays on. Phone on the same Wi-Fi. No TLS, no domain.",
-    commands: [
-      "curl -fsSL https://offdesk.dev/install | sh",
-      "offdesk-hub",
-      "offdesk-node register --hub-url http://192.168.1.10:4317 --token <token>",
-      "offdesk-node start",
+    steps: [
+      {
+        label: "On the machine that stays on",
+        commands: [
+          "curl -fsSL https://offdesk.dev/install | sh",
+          "offdesk-hub",
+          "offdesk-hub service install",
+        ],
+      },
+      {
+        label: "On every other machine you want to reach",
+        commands: [
+          "curl -fsSL https://offdesk.dev/install \\",
+          "  | sh -s -- --node-only",
+          "offdesk-node register \\",
+          "  --hub-url http://192.168.1.10:4317 \\",
+          "  --token <token>",
+          "offdesk-node service install",
+        ],
+      },
     ],
+    note: "The hub's own page hands you the second block with the token already in it.",
     href: `${repo}/blob/main/docs/setup-lan.md`,
     linkText: "setup-lan.md",
   },
@@ -70,13 +86,31 @@ const setups = [
     n: "02",
     title: "Away from home",
     blurb:
-      "Hub on a VPS behind Caddy, at home behind a Cloudflare Tunnel, or on your tailnet.",
-    commands: [
-      "git clone https://github.com/zalify/offdesk && cd offdesk",
-      "JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build",
-      "caddy reverse-proxy --from offdesk.example.com --to :4317",
-      "offdesk-node register --hub-url https://offdesk.example.com --token <token>",
+      "Hub on a VPS behind Caddy, at home behind a Cloudflare Tunnel, or on your tailnet. Sign-in is GitHub or Google.",
+    steps: [
+      {
+        label: "On the VPS, or the machine behind the tunnel",
+        commands: [
+          "git clone https://github.com/zalify/offdesk",
+          "cd offdesk && $EDITOR .env   # base URL, OAuth",
+          "docker compose up -d --build",
+          "caddy reverse-proxy \\",
+          "  --from offdesk.example.com --to :4317",
+        ],
+      },
+      {
+        label: "On every machine you want to reach",
+        commands: [
+          "curl -fsSL https://offdesk.dev/install \\",
+          "  | sh -s -- --node-only",
+          "offdesk-node register \\",
+          "  --hub-url https://offdesk.example.com \\",
+          "  --token <token>",
+          "offdesk-node service install",
+        ],
+      },
     ],
+    note: "The guide compares the three routes by who ends up able to read your traffic.",
     href: `${repo}/blob/main/docs/setup-public.md`,
     linkText: "setup-public.md",
   },
@@ -204,7 +238,8 @@ const rows = [
 ];
 
 const orchestration = `T=$(offdesk open nas --cwd ~/app --cmd claude --json | jq -r .id)
-offdesk send $T "fix the type errors in src/auth.ts; stop when tests pass"
+offdesk send $T \\
+  "fix the type errors in src/auth.ts; stop when tests pass"
 offdesk wait $T --silence 5000 --timeout 600
 offdesk read $T --lines 80
 offdesk kill $T --yes`;
@@ -501,7 +536,15 @@ const faq = [
                   </div>
                   <h3 class="display mt-3 text-2xl">{s.title}</h3>
                   <p class="prose-body mt-3">{s.blurb}</p>
-                  <pre class="term mt-6 overflow-x-auto p-4 text-[12.5px]"><code>{s.commands.join("\n")}</code></pre>
+                  {
+                    s.steps.map((step) => (
+                      <div class="mt-6">
+                        <p class="eyebrow mb-2">{step.label}</p>
+                        <pre class="term overflow-x-auto p-4 text-[12.5px]"><code>{step.commands.join("\n")}</code></pre>
+                      </div>
+                    ))
+                  }
+                  <p class="prose-body mt-5 text-sm">{s.note}</p>
                 </article>
               ))
             }
