@@ -94,6 +94,27 @@ jobs:
           cargo tauri ios build --export-method app-store-connect \
             --config "{\"version\": \"${{ steps.version.outputs.version }}\", \"bundle\": {\"iOS\": {\"developmentTeam\": \"$APPLE_DEVELOPMENT_TEAM\"}}}"
 
+      # When signing fails, say why in terms a person can act on: what the
+      # profile the CLI installed is for, and what the project ended up
+      # asking for. None of this is secret — a profile's bundle id, team and
+      # name are the same facts printed on its page in the developer portal.
+      - name: Signing diagnostics
+        if: failure()
+        run: |
+          echo "== provisioning profiles installed on the runner"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || echo "(none)"
+          for f in ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision; do
+            [ -e "$f" ] || continue
+            echo "-- $f"
+            security cms -D -i "$f" 2>/dev/null | plutil -p - 2>/dev/null \
+              | grep -E '"(Name|UUID|TeamIdentifier|ExpirationDate|application-identifier|get-task-allow|Platform)"' || true
+          done
+          echo "== signing identities in the build keychain(s)"
+          security find-identity -v -p codesigning 2>/dev/null | sed -E 's/[0-9A-F]{40}/<hash>/' || true
+          echo "== what the project asks for"
+          grep -nE "CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|DEVELOPMENT_TEAM|PROVISIONING_PROFILE|PRODUCT_BUNDLE_IDENTIFIER" \
+            packages/desktop/src-tauri/gen/apple/offdesk-desktop.xcodeproj/project.pbxproj || true
+
       - name: Collect IPA
         id: ipa
         run: |
