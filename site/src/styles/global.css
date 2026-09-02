@@ -64,6 +64,17 @@
   .term pre {
     @apply font-mono;
   }
+  /* A command to copy: a dark block lifted off the cream by the same flat
+     offset the phone frame uses, a muted prompt on each line, one button. */
+  .cmd {
+    @apply flex max-w-full flex-col gap-3 overflow-hidden rounded-xl sm:flex-row sm:items-start sm:gap-4 border border-ink bg-term p-4 pr-3 font-mono text-[13px] leading-[1.75] text-term-fg shadow-[8px_8px_0_0_#e4e4df];
+  }
+  .cmd-prompt {
+    @apply select-none text-term-dim;
+  }
+  .cmd-copy {
+    @apply shrink-0 self-end rounded-full border border-white/15 sm:self-auto px-3.5 py-1.5 font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-term-fg transition-colors hover:border-white/40 hover:bg-white/10;
+  }
   .prose-lead {
     @apply text-lg leading-relaxed text-muted;
     text-wrap: pretty;
