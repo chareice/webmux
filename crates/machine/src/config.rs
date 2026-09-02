@@ -2,11 +2,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+pub fn default_prevent_idle_sleep() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MachineConfig {
     pub machine_id: String,
     pub machine_secret: String,
     pub hub_url: String,
+    /// On macOS, prevent automatic idle sleep while offdesk-node is running.
+    /// Other causes of sleep (such as closing a laptop lid) are unaffected.
+    #[serde(default = "default_prevent_idle_sleep")]
+    pub prevent_idle_sleep: bool,
     /// Optional spawn-command overrides for agent sessions, keyed by agent
     /// kind ("claude" | "codex" | "grok" | "kimi"); values are argv vectors.
     /// Missing entries fall back to the built-in defaults.
@@ -39,4 +47,36 @@ pub fn save_config(config: &MachineConfig) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("Failed to write config: {}", e))?;
     tracing::info!("Config saved to {}", path.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LEGACY_CONFIG: &str = r#"{
+        "machine_id": "machine-1",
+        "machine_secret": "secret",
+        "hub_url": "wss://hub.example/ws/machine"
+    }"#;
+
+    const OPT_OUT_CONFIG: &str = r#"{
+        "machine_id": "machine-1",
+        "machine_secret": "secret",
+        "hub_url": "wss://hub.example/ws/machine",
+        "prevent_idle_sleep": false
+    }"#;
+
+    #[test]
+    fn legacy_config_prevents_idle_sleep_by_default() {
+        let config: MachineConfig = serde_json::from_str(LEGACY_CONFIG).unwrap();
+
+        assert!(config.prevent_idle_sleep);
+    }
+
+    #[test]
+    fn config_can_allow_idle_sleep() {
+        let config: MachineConfig = serde_json::from_str(OPT_OUT_CONFIG).unwrap();
+
+        assert!(!config.prevent_idle_sleep);
+    }
 }

@@ -129,6 +129,13 @@ agent on macOS:
 offdesk-node service install
 ```
 
+On macOS, a running node prevents automatic idle system sleep by default so it
+stays reachable. The display may still turn off, and closing a laptop lid,
+choosing Sleep, or a critically low battery can still put the Mac to sleep. To
+opt out, add `"prevent_idle_sleep": false` to
+`~/Library/Application Support/offdesk/machine.json`, then restart the node
+with `offdesk-node service restart` (or stop and start a foreground node).
+
 ### CLI
 
 The installer above already placed it. To build just the CLI:
