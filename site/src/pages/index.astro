@@ -1,5 +1,10 @@
 ---
 import { existsSync } from "node:fs";
+import "@fontsource-variable/host-grotesk";
+import "@fontsource-variable/instrument-sans";
+import "@fontsource/geist-mono/400.css";
+import "@fontsource/geist-mono/500.css";
+import "../styles/global.css";
 
 // The hero GIF is not committed yet (see docs/media/README.md). Rendering an
 // <img> for a file that does not exist gives every visitor a broken-image
@@ -10,13 +15,43 @@ const hasStill = existsSync(new URL("../../public/media/phone-terminal.png", imp
 
 const repo = "https://github.com/zalify/offdesk";
 const docs = `${repo}#readme`;
+const releases = `${repo}/releases/latest`;
 const description =
   "Vibe code from your phone on the terminal you left at home.";
 const install =
   "curl -fsSL https://offdesk.dev/install | sh\noffdesk-hub\noffdesk-hub service install";
 
+const stats = [
+  { n: "0", label: "accounts to create" },
+  { n: "1", label: "URL for every machine" },
+  { n: "3", label: "binaries, nothing else" },
+  { n: "MIT", label: "all of it, hub included" },
+];
+
+const parts = [
+  {
+    n: "01",
+    name: "Hub",
+    bin: "offdesk-hub",
+    text: "One process on the Mac, NAS or VPS that stays on. SQLite beside it, the web UI baked in. It is the only thing a phone ever talks to.",
+  },
+  {
+    n: "02",
+    name: "Node",
+    bin: "offdesk-node",
+    text: "On every machine you want to reach. It dials out to the hub and keeps one WebSocket open, so nothing on it needs an inbound port or a public IP.",
+  },
+  {
+    n: "03",
+    name: "Terminal",
+    bin: "tmux",
+    text: "Every terminal is a tmux session on the machine that owns it. It outlives the app, the network, and you walking away.",
+  },
+];
+
 const setups = [
   {
+    n: "01",
     title: "At home, off the desk",
     blurb:
       "Hub on the Mac or NAS that stays on. Phone on the same Wi-Fi. No TLS, no domain.",
@@ -30,6 +65,7 @@ const setups = [
     linkText: "setup-lan.md",
   },
   {
+    n: "02",
     title: "Away from home",
     blurb:
       "Hub on a VPS behind Caddy, at home behind a Cloudflare Tunnel, or on your tailnet.",
@@ -42,6 +78,29 @@ const setups = [
     href: `${repo}/blob/main/docs/setup-public.md`,
     linkText: "setup-public.md",
   },
+];
+
+// Nothing about a given tool is compiled in: a terminal is a terminal. These
+// are the ones people actually run in it.
+const agents = [
+  "Claude Code",
+  "Codex",
+  "OpenCode",
+  "Gemini CLI",
+  "Aider",
+  "Cursor CLI",
+  "vim",
+  "htop",
+  "pnpm dev",
+  "cargo watch",
+  "any CLI",
+];
+
+const verbs = [
+  { n: "01", verb: "open", text: "a terminal on any registered machine, in any directory, running any command." },
+  { n: "02", verb: "send", text: "keystrokes into it, exactly as if you were typing." },
+  { n: "03", verb: "wait", text: "until the output goes quiet, or a timeout passes." },
+  { n: "04", verb: "read", text: "the last N lines back, and decide what to do next." },
 ];
 
 // Every cell is from the vendor's own documentation, sourced below and
@@ -93,7 +152,7 @@ const rows = [
   {
     name: "Claude Code Remote Control",
     cells: [
-      "No \u2014 a Claude Code session, not a terminal",
+      "No — a Claude Code session, not a terminal",
       "Sessions from several machines in one list",
       "Anthropic's servers; transcript stored there",
       "Not documented",
@@ -103,7 +162,7 @@ const rows = [
   {
     name: "VibeTunnel",
     cells: [
-      "Yes \u2014 vt <any command>, vt --shell",
+      "Yes — vt <any command>, vt --shell",
       "One server per machine",
       "Your choice: LAN, Tailscale, ngrok, Cloudflare",
       "Launches commands only",
@@ -113,7 +172,7 @@ const rows = [
   {
     name: "Happy Coder",
     cells: [
-      "No \u2014 wraps claude and codex",
+      "No — wraps claude and codex",
       "Several; spawn --machine",
       "slopus cloud by default, end-to-end encrypted",
       "create / send / history / wait",
@@ -133,7 +192,7 @@ const rows = [
   {
     name: "Orca",
     cells: [
-      "Yes \u2014 real terminal, 30+ CLI agents",
+      "Yes — real terminal, 30+ CLI agents",
       "Several, via SSH worktrees and orca serve",
       "Orca Relay by default, or direct on the LAN",
       "orca terminal create/send/read/wait",
@@ -147,6 +206,29 @@ offdesk send $T "fix the type errors in src/auth.ts; stop when tests pass"
 offdesk wait $T --silence 5000 --timeout 600
 offdesk read $T --lines 80
 offdesk kill $T --yes`;
+
+const faq = [
+  {
+    q: "Do I need an account?",
+    a: "No. The hub is yours; the first run creates a local user and prints a link that signs you in. Nothing here has a sign-up form.",
+  },
+  {
+    q: "Does my traffic go through offdesk.dev?",
+    a: "No. This domain serves the install script and this page. Your phone talks to your hub, and your hub talks to your machines. That is the whole path.",
+  },
+  {
+    q: "Is it only for Claude Code?",
+    a: "It is a terminal. Claude Code, Codex, OpenCode, a build that takes an hour, or vim — whatever runs in tmux runs here, and offdesk does not know or care which.",
+  },
+  {
+    q: "What about iPhone?",
+    a: "The browser is the whole client, so open the hub's URL in Safari and add it to the home screen. Android also has an app, which is the same UI in a WebView with native notifications.",
+  },
+  {
+    q: "What if two people type at once?",
+    a: "The control lease decides who may type. Sending input claims it — last writer wins, no queue. Everyone else keeps receiving output, so they watch live instead of being disconnected.",
+  },
+];
 ---
 
 <!doctype html>
@@ -160,8 +242,8 @@ offdesk kill $T --yes`;
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/brand/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="icon" href="/brand/favicon-16.png" sizes="16x16" type="image/png" />
-    <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#0b0c0f" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#fafaf8" />
 
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://offdesk.dev/" />
@@ -176,232 +258,361 @@ offdesk kill $T --yes`;
     <meta name="twitter:image" content="https://offdesk.dev/brand/og-square.png" />
   </head>
 
-  <body>
+  <body class="min-h-screen">
+    <!-- Top bar -->
+    <header class="sticky top-0 z-10 border-b border-line bg-cream/85 backdrop-blur">
+      <nav class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+        <a href="/" aria-label="offdesk home">
+          <img src="/brand/logo.svg" alt="offdesk" width="112" height="31" class="h-7 w-auto" />
+        </a>
+        <div class="hidden items-center gap-8 md:flex">
+          <a href="#how" class="eyebrow hover:text-ink">How it works</a>
+          <a href="#phone" class="eyebrow hover:text-ink">Phone</a>
+          <a href="#agents" class="eyebrow hover:text-ink">For agents</a>
+          <a href="#compare" class="eyebrow hover:text-ink">Compare</a>
+          <a href="#faq" class="eyebrow hover:text-ink">FAQ</a>
+        </div>
+        <a href={repo} class="btn-ink px-4 py-2">GitHub</a>
+      </nav>
+    </header>
+
     <main>
-      <header class="hero">
-        <img
-          class="wordmark"
-          src="/brand/logo-dark.svg"
-          alt="offdesk"
-          width="1000"
-          height="278"
-        />
-        <h1>Vibe code from your phone, on the terminal running at home.</h1>
-        <p class="sub">
-          One self-hosted hub, all your machines, any agent that runs in tmux.
-        </p>
+      <!-- Hero -->
+      <section class="mx-auto max-w-6xl px-6 pt-20 pb-16 md:pt-28 md:pb-24">
+        <div class="grid items-center gap-14 lg:grid-cols-[1.15fr_1fr] lg:gap-10">
+          <div class="min-w-0">
+            <p class="eyebrow">Open source · Self-hosted · Any agent</p>
+            <h1 class="display mt-5 text-5xl leading-[1.02] md:text-6xl">
+              Vibe code from your phone, on the terminal you left at home.
+            </h1>
+            <p class="prose-lead mt-6 max-w-xl text-xl">
+              One self-hosted hub, every machine you own, any agent that runs
+              in tmux. Close the laptop; the session keeps going, and your phone
+              opens the same terminal, mid-scroll.
+            </p>
 
-        <div class="cmd stack">
-          <code id="install-cmd">{install}</code>
-          <button type="button" id="copy" aria-label="Copy install commands">
-            Copy
-          </button>
-        </div>
+            <div class="term mt-9 flex max-w-full items-start gap-4 overflow-hidden border border-ink p-4 pr-3 shadow-[6px_6px_0_0_#0c0c0c]">
+              <pre class="min-w-0 flex-1 overflow-x-auto whitespace-pre"><code id="install-cmd">{install}</code></pre>
+              <button
+                type="button"
+                id="copy"
+                aria-label="Copy install commands"
+                class="shrink-0 rounded-md border border-white/15 px-3 py-1.5 font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-term-fg hover:bg-white/10"
+              >
+                Copy
+              </button>
+            </div>
+            <p class="prose-body mt-4 max-w-xl text-sm">
+              Run it on the machine that stays on. The first line installs
+              everything, the second prints a link that signs you in, the third
+              keeps it running after you close the terminal. The web UI is inside
+              the binary; there is nothing else to install and nothing to
+              configure.
+            </p>
 
-        <p class="cmd-note">
-          On the machine that stays on. The first line installs everything, the
-          second prints a link that signs you in, the third keeps it running
-          after you close the terminal. The web UI is inside the binary — there
-          is nothing else to install and nothing to configure.
-        </p>
+            <div class="mt-8 flex flex-wrap items-center gap-3">
+              <a href={releases} class="btn-ink">Android APK</a>
+              <a href={docs} class="btn-line">Read the docs</a>
+              <span class="eyebrow ml-1">macOS · Linux · Docker</span>
+            </div>
+          </div>
 
-        <div class="actions">
-          <a class="btn primary" href={repo}>GitHub</a>
-          <a class="btn" href={docs}>Read the docs</a>
-        </div>
-
-        <p class="promise">
-          Close the laptop and walk away. The session keeps running on the
-          machine at home, and your phone opens the same terminal, mid-scroll
-          — not a summary of it. Anything that runs in tmux runs here.
-        </p>
-
-        {
-          hasHero ? (
-            <figure class="shot">
-              <img
-                src="/media/hero.gif"
-                alt="Claude Code running on a desk machine while a phone is attached to the same tmux session"
-                width="1200"
-                height="750"
-                loading="eager"
-              />
-            </figure>
-          ) : hasStill ? (
-            <figure class="shot still">
-              <img
-                src="/media/phone-terminal.png"
-                alt="An offdesk terminal on a phone: vim on a Mac at home, attached from the phone's browser"
-                width="390"
-                height="844"
-                loading="eager"
-              />
-            </figure>
-          ) : null
-        }
-      </header>
-
-      <section aria-labelledby="setups">
-        <h2 id="setups">Two setups</h2>
-        <div class="cards">
           {
-            setups.map((setup) => (
-              <article class="card">
-                <h3>{setup.title}</h3>
-                <p>{setup.blurb}</p>
-                <pre><code>{setup.commands.join("\n")}</code></pre>
-                <a href={setup.href}>{setup.linkText}</a>
-              </article>
+            hasHero ? (
+              <figure class="overflow-hidden rounded-2xl border border-line-2 bg-term">
+                <img
+                  src="/media/hero.gif"
+                  alt="Claude Code running on a desk machine while a phone is attached to the same tmux session"
+                  width="1200"
+                  height="750"
+                  loading="eager"
+                  class="block w-full"
+                />
+              </figure>
+            ) : hasStill ? (
+              <figure class="mx-auto w-full max-w-[21rem] lg:justify-self-end">
+                <div class="overflow-hidden rounded-[2.2rem] border-[6px] border-ink bg-term shadow-[12px_12px_0_0_#e4e4df]">
+                  <img
+                    src="/media/phone-terminal.png"
+                    alt="An offdesk terminal on a phone: an agent session on a Mac at home, attached from the phone's browser"
+                    width="390"
+                    height="844"
+                    loading="eager"
+                    class="block w-full"
+                  />
+                </div>
+                <figcaption class="eyebrow mt-4 text-center">
+                  The real terminal. Not a summary of it.
+                </figcaption>
+              </figure>
+            ) : null
+          }
+        </div>
+      </section>
+
+      <!-- Stats strip -->
+      <section class="border-y border-line">
+        <div class="mx-auto grid max-w-6xl grid-cols-2 divide-line md:grid-cols-4 md:divide-x">
+          {
+            stats.map((s) => (
+              <div class="px-6 py-8 first:pl-6 md:py-10">
+                <div class="display text-4xl md:text-5xl">{s.n}</div>
+                <div class="eyebrow mt-2">{s.label}</div>
+              </div>
             ))
           }
         </div>
       </section>
 
-      <section aria-labelledby="phone">
-        <h2 id="phone">On your phone</h2>
-        <p class="lead">
-          The browser is the whole client — open the hub's URL and you are
-          there, on iPhone as much as anywhere. Android also has an app: the
-          same web UI in a WebView, with native notifications and clipboard.
+      <!-- How it works -->
+      <section id="how" class="mx-auto max-w-6xl px-6 py-20 md:py-28">
+        <p class="eyebrow">How it works</p>
+        <h2 class="display mt-4 max-w-3xl text-4xl md:text-5xl">
+          Three binaries. One outbound socket each. Nothing to keep awake but the hub.
+        </h2>
+        <p class="prose-lead mt-6 max-w-2xl">
+          The hub is the only address anyone needs. Each machine dials out to it
+          and stays connected, so a laptop behind a hotel router and a NAS behind
+          a home NAT both show up in one list, with no port forwarding on either.
         </p>
-        <p>
-          It asks for your hub's address the first time it opens, so one APK
-          works with any hub — nothing about a hub is compiled into it. The
-          hub's own page shows that address as a QR code, on the setup page and
-          under Settings → Mobile app, so you scan it instead of typing it.
-        </p>
-        <p>
-          <a href={`${repo}/releases/latest`}>Download the APK</a> — take
-          <code>arm64-v8a</code> on a modern phone, or <code>universal</code> if
-          you are unsure.
-        </p>
+
+        <div class="mt-14 grid gap-10 md:grid-cols-3 md:gap-8">
+          {
+            parts.map((p) => (
+              <div class="border-t border-ink pt-6">
+                <div class="flex items-baseline justify-between">
+                  <span class="eyebrow">{p.n}</span>
+                  <code class="font-mono text-[12px] text-faint">{p.bin}</code>
+                </div>
+                <h3 class="display mt-3 text-2xl">{p.name}</h3>
+                <p class="prose-body mt-3">{p.text}</p>
+              </div>
+            ))
+          }
+        </div>
+
+        <div class="mt-16 grid items-start gap-10 lg:grid-cols-[1fr_1.2fr]">
+          <svg
+            class="mx-auto w-full max-w-sm text-ink"
+            viewBox="0 0 400 470"
+            role="img"
+            aria-label="A phone and the offdesk CLI both connect to your hub over WebSocket; the hub connects to each machine's node, which hosts terminals as tmux sessions"
+          >
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="currentColor" />
+              </marker>
+            </defs>
+            <g class="node">
+              <rect x="24" y="10" width="160" height="66" rx="10" />
+              <text x="104" y="38">phone / browser</text>
+              <text x="104" y="58" class="muted">xterm.js</text>
+            </g>
+            <g class="node">
+              <rect x="216" y="10" width="160" height="66" rx="10" />
+              <text x="296" y="38">offdesk CLI</text>
+              <text x="296" y="58" class="muted">or another agent</text>
+            </g>
+            <g class="link">
+              <path d="M104 80 L104 130" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+              <path d="M296 80 L296 130" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+              <text x="200" y="104" class="edge">WebSocket</text>
+            </g>
+            <g class="node hub">
+              <rect x="24" y="136" width="352" height="90" rx="10" />
+              <text x="200" y="167" class="strong">your hub</text>
+              <text x="200" y="189" class="muted">offdesk-hub — Axum + SQLite</text>
+              <text x="200" y="209" class="muted">holds the control lease</text>
+            </g>
+            <g class="link">
+              <path d="M112 230 L112 286" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+              <path d="M288 230 L288 286" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+              <text x="200" y="262" class="edge">WebSocket, dialled out</text>
+            </g>
+            <g class="node">
+              <rect x="24" y="292" width="160" height="164" rx="10" />
+              <text x="104" y="318">laptop</text>
+              <text x="104" y="340" class="muted">offdesk-node</text>
+              <line x1="40" y1="354" x2="168" y2="354" />
+              <text x="104" y="378" class="mono">tmux — claude</text>
+              <text x="104" y="402" class="mono">tmux — vim</text>
+              <text x="104" y="426" class="mono">tmux — htop</text>
+            </g>
+            <g class="node">
+              <rect x="216" y="292" width="160" height="164" rx="10" />
+              <text x="296" y="318">NAS</text>
+              <text x="296" y="340" class="muted">offdesk-node</text>
+              <line x1="232" y1="354" x2="360" y2="354" />
+              <text x="296" y="378" class="mono">tmux — codex</text>
+              <text x="296" y="402" class="mono">tmux — pnpm dev</text>
+            </g>
+          </svg>
+
+          <div class="lg:pt-6">
+            <p class="eyebrow">Who may type</p>
+            <h3 class="display mt-3 text-2xl md:text-3xl">
+              Two screens, one terminal, one keyboard at a time.
+            </h3>
+            <p class="prose-body mt-4">
+              The desk and the phone attach to the same tmux session and see the
+              same bytes. The control lease decides who may type: sending input
+              claims it, last writer wins, no queue. Everyone else keeps
+              receiving output, so they watch live instead of being
+              disconnected.
+            </p>
+            <p class="prose-body mt-4">
+              It is not a security boundary, and it does not stop anyone
+              holding a valid token. Tokens do that; see
+              <a href="#security">Security</a>.
+            </p>
+          </div>
+        </div>
       </section>
 
-      <section aria-labelledby="how">
-        <h2 id="how">How it works</h2>
-        <p class="lead">
-          Every terminal is a tmux session on the machine that owns it, so it
-          outlives the app, the network, and you walking away. Each machine
-          keeps one outbound WebSocket open to your hub — nothing on it needs
-          an inbound port, and nothing has to stay awake but the hub.
-        </p>
+      <!-- Setups -->
+      <section class="border-y border-line bg-white/60">
+        <div class="mx-auto max-w-6xl px-6 py-20 md:py-28">
+          <p class="eyebrow">Two setups</p>
+          <h2 class="display mt-4 max-w-3xl text-4xl md:text-5xl">
+            At home on Wi-Fi. Or anywhere, behind a tunnel.
+          </h2>
+          <p class="prose-lead mt-6 max-w-2xl">
+            The same binaries either way. The only question is whether your
+            phone can already reach the hub's address.
+          </p>
 
-        <svg
-          class="diagram"
-          viewBox="0 0 400 470"
-          role="img"
-          aria-label="A phone and the offdesk CLI both connect to your hub over WebSocket; the hub connects to each machine's agent, which hosts terminals as tmux sessions"
-        >
-          <defs>
-            <marker
-              id="arrow"
-              viewBox="0 0 10 10"
-              refX="9"
-              refY="5"
-              markerWidth="5"
-              markerHeight="5"
-              orient="auto-start-reverse"
-            >
-              <path d="M0 0 L10 5 L0 10 z" fill="currentColor" />
-            </marker>
-          </defs>
-
-          <g class="node">
-            <rect x="24" y="10" width="160" height="66" rx="8" />
-            <text x="104" y="38">phone / browser</text>
-            <text x="104" y="58" class="muted">xterm.js</text>
-          </g>
-          <g class="node">
-            <rect x="216" y="10" width="160" height="66" rx="8" />
-            <text x="296" y="38">offdesk CLI</text>
-            <text x="296" y="58" class="muted">or another agent</text>
-          </g>
-
-          <g class="link">
-            <path d="M104 80 L104 130" marker-end="url(#arrow)" marker-start="url(#arrow)" />
-            <path d="M296 80 L296 130" marker-end="url(#arrow)" marker-start="url(#arrow)" />
-            <text x="200" y="104" class="edge">WebSocket</text>
-          </g>
-
-          <g class="node accent">
-            <rect x="24" y="136" width="352" height="90" rx="8" />
-            <text x="200" y="167" class="strong">your hub</text>
-            <text x="200" y="189" class="muted">offdesk-hub — Axum + SQLite</text>
-            <text x="200" y="209" class="muted">holds the control lease</text>
-          </g>
-
-          <g class="link">
-            <path d="M112 230 L112 286" marker-end="url(#arrow)" marker-start="url(#arrow)" />
-            <path d="M288 230 L288 286" marker-end="url(#arrow)" marker-start="url(#arrow)" />
-            <text x="200" y="262" class="edge">WebSocket, dialled out</text>
-          </g>
-
-          <g class="node">
-            <rect x="24" y="292" width="160" height="164" rx="8" />
-            <text x="104" y="318">laptop</text>
-            <text x="104" y="340" class="muted">offdesk-node</text>
-            <line x1="40" y1="354" x2="168" y2="354" />
-            <text x="104" y="378" class="mono">tmux — claude</text>
-            <text x="104" y="402" class="mono">tmux — vim</text>
-            <text x="104" y="426" class="mono">tmux — htop</text>
-          </g>
-          <g class="node">
-            <rect x="216" y="292" width="160" height="164" rx="8" />
-            <text x="296" y="318">NAS</text>
-            <text x="296" y="340" class="muted">offdesk-node</text>
-            <line x1="232" y1="354" x2="360" y2="354" />
-            <text x="296" y="378" class="mono">tmux — codex</text>
-            <text x="296" y="402" class="mono">tmux — pnpm dev</text>
-          </g>
-        </svg>
-
-        <p class="note">
-          The control lease decides who may type. Sending input claims it —
-          last writer wins, no queue. Everyone else keeps receiving output, so
-          they watch live instead of being disconnected.
-        </p>
+          <div class="mt-14 grid gap-8 lg:grid-cols-2">
+            {
+              setups.map((s) => (
+                <article class="flex min-w-0 flex-col rounded-2xl border border-line-2 bg-cream p-6 md:p-8">
+                  <div class="flex items-baseline justify-between">
+                    <span class="eyebrow">{s.n}</span>
+                    <a href={s.href} class="font-mono text-[12px] text-muted underline decoration-line-2 underline-offset-4 hover:text-ink">
+                      {s.linkText}
+                    </a>
+                  </div>
+                  <h3 class="display mt-3 text-2xl">{s.title}</h3>
+                  <p class="prose-body mt-3">{s.blurb}</p>
+                  <pre class="term mt-6 overflow-x-auto p-4 text-[12.5px]"><code>{s.commands.join("\n")}</code></pre>
+                </article>
+              ))
+            }
+          </div>
+        </div>
       </section>
 
-      <section aria-labelledby="agents">
-        <h2 id="agents">For agents</h2>
-        <p class="lead">
-          One token, and any script — or any agent, on any machine — can open a
-          terminal on any other machine registered to your hub, type into it,
-          wait on it, and read it back. Not an agent session: a terminal, so
-          whatever you drive is whatever you would have run by hand.
-        </p>
-        <pre class="block"><code>{orchestration}</code></pre>
+      <!-- Phone -->
+      <section id="phone" class="mx-auto max-w-6xl px-6 py-20 md:py-28">
+        <div class="grid gap-12 lg:grid-cols-[1fr_1fr] lg:gap-16">
+          <div class="min-w-0">
+            <p class="eyebrow">On your phone</p>
+            <h2 class="display mt-4 text-4xl md:text-5xl">
+              The browser is the whole client.
+            </h2>
+            <p class="prose-lead mt-6">
+              Open the hub's URL and you are there, on iPhone as much as
+              anywhere. A full terminal with a key bar for Ctrl, Esc and the
+              arrows, because agents ask questions and builds need a Ctrl-C.
+            </p>
+            <p class="prose-body mt-5">
+              Android also has an app: the same web UI in a WebView, with native
+              notifications and clipboard. It asks for your hub's address the
+              first time it opens, so one APK works with any hub and nothing
+              about a hub is compiled into it. The hub shows that address as a
+              QR code, on the setup page and under Settings → Mobile app, so
+              you scan it instead of typing it.
+            </p>
+            <div class="mt-8 flex flex-wrap items-center gap-3">
+              <a href={releases} class="btn-ink">Download the APK</a>
+              <span class="prose-body text-sm">
+                <span class="inline-code">arm64-v8a</span> on a modern phone,
+                <span class="inline-code">universal</span> if unsure.
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <p class="eyebrow">Bring your own agent</p>
+            <h3 class="display mt-4 text-2xl md:text-3xl">
+              Anything that runs in tmux runs here.
+            </h3>
+            <p class="prose-body mt-4">
+              offdesk does not wrap an agent or speak its protocol. It hands you
+              the terminal the agent is already running in, with your own
+              subscription, your own config, your own dotfiles.
+            </p>
+            <ul class="mt-6 flex flex-wrap gap-2">
+              {
+                agents.map((a) => (
+                  <li class="rounded-full border border-line-2 px-3.5 py-1.5 font-mono text-[12.5px] text-ink">
+                    {a}
+                  </li>
+                ))
+              }
+            </ul>
+          </div>
+        </div>
       </section>
 
-      <section aria-labelledby="compare">
-        <h2 id="compare">How it compares</h2>
-        <p class="lead">
+      <!-- For agents -->
+      <section id="agents" class="bg-ink text-cream">
+        <div class="mx-auto max-w-6xl px-6 py-20 md:py-28">
+          <p class="eyebrow text-cream/60">For agents</p>
+          <h2 class="display mt-4 max-w-3xl text-4xl text-cream md:text-5xl">
+            One token, and any agent can drive any machine you own.
+          </h2>
+          <p class="mt-6 max-w-2xl text-lg leading-relaxed text-cream/70">
+            Any script, or any agent on any machine, can open a terminal on any
+            other machine registered to your hub, type into it, wait on it, and
+            read it back. Not an agent session: a terminal, so whatever you
+            drive is whatever you would have run by hand.
+          </p>
+
+          <div class="mt-14 grid gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-14">
+            <pre class="term min-w-0 overflow-x-auto border border-white/10 p-5 text-[12.5px] leading-[1.7]"><code>{orchestration}</code></pre>
+            <ol class="grid gap-6 sm:grid-cols-2 lg:grid-cols-1">
+              {
+                verbs.map((v) => (
+                  <li class="border-t border-white/15 pt-4">
+                    <div class="flex items-baseline gap-3">
+                      <span class="eyebrow text-cream/50">{v.n}</span>
+                      <code class="font-mono text-base text-cream">offdesk {v.verb}</code>
+                    </div>
+                    <p class="mt-2 text-[15px] leading-relaxed text-cream/70">{v.text}</p>
+                  </li>
+                ))
+              }
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- Compare -->
+      <section id="compare" class="mx-auto max-w-6xl px-6 py-20 md:py-28">
+        <p class="eyebrow">How it compares</p>
+        <h2 class="display mt-4 max-w-3xl text-4xl md:text-5xl">
+          The ones that gather machines hand you a chat. The ones that hand you a terminal run one server per machine.
+        </h2>
+        <p class="prose-lead mt-6 max-w-2xl">
           Every cell is from that project's own documentation, checked
-          2026-09-01. Nothing here is a guess. The tools that gather several
-          machines into one place hand you an agent session; the ones that
-          hand you a real terminal run one server per machine.
+          2026-09-01. Nothing here is a guess.
         </p>
-        <div class="scroll">
-          <table>
+
+        <div class="mt-12 overflow-x-auto rounded-2xl border border-line-2">
+          <table class="w-full min-w-[56rem] border-collapse text-left text-[14px]">
             <thead>
-              <tr>
-                <th scope="col"></th>
-                {columns.map((column) => <th scope="col">{column}</th>)}
+              <tr class="bg-white/70">
+                <th scope="col" class="px-4 py-3"></th>
+                {columns.map((c) => <th scope="col" class="eyebrow px-4 py-3 align-bottom">{c}</th>)}
               </tr>
             </thead>
             <tbody>
               {
                 rows.map((row) => (
-                  <tr class={row.self ? "self" : undefined}>
-                    <th scope="row">{row.name}</th>
+                  <tr class:list={["border-t border-line", { "bg-brand/5": row.self }]}>
+                    <th scope="row" class:list={["px-4 py-3 align-top font-display font-bold", { "text-brand": row.self }]}>{row.name}</th>
                     {row.cells.map((cell) => (
-                      <td
-                        class={
-                          /not documented|Not documented/.test(cell)
-                            ? "unknown"
-                            : undefined
-                        }
-                      >
+                      <td class:list={["px-4 py-3 align-top leading-snug", /not documented/i.test(cell) ? "text-faint" : "text-ink-2"]}>
                         {cell}
                       </td>
                     ))}
@@ -413,466 +624,144 @@ offdesk kill $T --yes`;
         </div>
       </section>
 
-      <section aria-labelledby="security">
-        <h2 id="security">Security</h2>
-        <p class="lead">
-          A token is remote code execution on every registered machine. Mint one
-          per agent, name it, and revoke it on its own when you are done — the
-          hub records when each one was last used. The control lease decides who
-          may type; it is not a security boundary, and it does not stop anyone
-          holding a valid token.
-        </p>
-        <a href={`${repo}/blob/main/SECURITY.md`}>SECURITY.md</a>
+      <!-- Security + FAQ -->
+      <section id="faq" class="border-t border-line bg-white/60">
+        <div class="mx-auto grid max-w-6xl gap-14 px-6 py-20 md:py-28 lg:grid-cols-[1fr_1.4fr] lg:gap-20">
+          <div id="security">
+            <p class="eyebrow">Security</p>
+            <h2 class="display mt-4 text-3xl md:text-4xl">
+              A token is remote code execution on every machine you registered.
+            </h2>
+            <p class="prose-body mt-5">
+              So mint one per agent, name it, and revoke it on its own when you
+              are done. The hub records when each one was last used. The
+              sign-in link the hub prints signs in whoever has it; treat it
+              like a password.
+            </p>
+            <a href={`${repo}/blob/main/SECURITY.md`} class="btn-line mt-6">SECURITY.md</a>
+          </div>
+
+          <div>
+            <p class="eyebrow">FAQ</p>
+            <h2 class="display mt-4 text-3xl md:text-4xl">Questions, answered.</h2>
+            <dl class="mt-8 divide-y divide-line border-y border-line">
+              {
+                faq.map((f, i) => (
+                  <div class="grid gap-2 py-5 sm:grid-cols-[3rem_1fr]">
+                    <dt class="eyebrow pt-1">{String(i + 1).padStart(2, "0")}</dt>
+                    <div>
+                      <dt class="display text-lg tracking-[-0.01em]">{f.q}</dt>
+                      <dd class="prose-body mt-2">{f.a}</dd>
+                    </div>
+                  </div>
+                ))
+              }
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <!-- Closing -->
+      <section class="mx-auto max-w-6xl px-6 py-24 md:py-32">
+        <div class="max-w-3xl">
+          <h2 class="display text-4xl md:text-6xl">
+            Close the laptop and walk away.
+          </h2>
+          <p class="prose-lead mt-6 max-w-xl">
+            The session keeps running on the machine at home. Your phone opens
+            the same terminal, mid-scroll.
+          </p>
+          <div class="term mt-9 flex max-w-full items-center gap-4 overflow-hidden border border-ink px-4 py-3 shadow-[6px_6px_0_0_#0c0c0c] sm:inline-flex">
+            <code class="min-w-0 overflow-x-auto whitespace-nowrap">curl -fsSL https://offdesk.dev/install | sh</code>
+          </div>
+          <div class="mt-8 flex flex-wrap gap-3">
+            <a href={repo} class="btn-ink">GitHub</a>
+            <a href={releases} class="btn-line">Android APK</a>
+          </div>
+        </div>
       </section>
     </main>
 
-    <footer>
-      <span>MIT · Built by Zalify</span>
-      <span class="links">
-        <a href={repo}>GitHub</a>
-        <a href={docs}>Docs</a>
-      </span>
+    <footer class="border-t border-line">
+      <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8">
+        <span class="eyebrow">MIT · Built by <a href="https://zalify.com" class="text-ink">Zalify</a></span>
+        <span class="flex gap-6">
+          <a href={repo} class="eyebrow hover:text-ink">GitHub</a>
+          <a href={docs} class="eyebrow hover:text-ink">Docs</a>
+          <a href={`${repo}/blob/main/SECURITY.md`} class="eyebrow hover:text-ink">Security</a>
+        </span>
+      </div>
     </footer>
 
     <script is:inline>
-      for (const [buttonId, commandId] of [["copy", "install-cmd"]]) {
-        const button = document.getElementById(buttonId);
-        const command = document.getElementById(commandId);
-        button?.addEventListener("click", async () => {
-          try {
-            await navigator.clipboard.writeText(command.textContent.trim());
-            button.textContent = "Copied";
-          } catch {
-            button.textContent = "Press ⌘C";
-          }
-          setTimeout(() => {
-            button.textContent = "Copy";
-          }, 1600);
-        });
-      }
+      const button = document.getElementById("copy");
+      const command = document.getElementById("install-cmd");
+      button?.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(command.textContent.trim());
+          button.textContent = "Copied";
+        } catch {
+          button.textContent = "Press ⌘C";
+        }
+        setTimeout(() => {
+          button.textContent = "Copy";
+        }, 1600);
+      });
     </script>
 
-    <style is:global>
-      :root {
-        --bg: #0b0c0f;
-        --bg-1: #111316;
-        --bg-2: #171a1d;
-        --line: #272a2d;
-        --fg: #f7f8fb;
-        --fg-1: #b9bcc1;
-        --fg-2: #82868b;
-        /* Brand blue from the logo. At 3.58:1 on the canvas it clears WCAG AA
-           for large text and UI, but not for body text — so it fills buttons,
-           where cream on it is 5.46:1, and never sets small text itself. */
-        --brand: #1a5fe8;
-        /* Lightened for links and small accents on dark: 5.74:1. */
-        --accent: #4c86ff;
-        --cream: #fafaf5;
-        --term-bg: #05060a;
-        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-          "Liberation Mono", monospace;
-        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
+    <style>
+      /* The architecture diagram, in the page's ink. */
+      svg .node rect {
+        fill: #fff;
+        stroke: currentColor;
+        stroke-width: 1.5;
       }
-
-      * {
-        box-sizing: border-box;
+      svg .node.hub rect {
+        fill: #0c0c0c;
       }
-
-      html {
-        -webkit-text-size-adjust: 100%;
+      svg .node.hub text {
+        fill: #fafaf8;
       }
-
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--fg-1);
-        font-family: var(--sans);
-        font-size: 16px;
-        line-height: 1.6;
+      svg .node.hub text.muted {
+        fill: rgba(250, 250, 248, 0.6);
       }
-
-      main {
-        max-width: 62rem;
-        margin: 0 auto;
-        padding: 3rem 1.25rem 0;
+      svg .node line {
+        stroke: #e4e4df;
       }
-
-      h1,
-      h2,
-      h3 {
-        color: var(--fg);
-        line-height: 1.2;
-        text-wrap: balance;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: 2rem;
-        letter-spacing: -0.02em;
-      }
-
-      h2 {
-        margin: 0 0 0.75rem;
-        font-size: 1.35rem;
-        letter-spacing: -0.01em;
-      }
-
-      h3 {
-        margin: 0 0 0.5rem;
-        font-size: 1.05rem;
-      }
-
-      a {
-        color: var(--accent);
-        text-underline-offset: 3px;
-      }
-
-      section {
-        padding: 3.5rem 0;
-        border-top: 1px solid var(--line);
-      }
-
-      .lead,
-      .note {
-        max-width: 46rem;
-        margin: 0 0 1.5rem;
-      }
-
-      .note {
-        color: var(--fg-2);
-        margin: 1.5rem 0 0;
-      }
-
-      /* hero */
-      .hero {
-        padding-bottom: 3.5rem;
-      }
-
-      .sub {
-        max-width: 34rem;
-        margin: 1rem 0 2rem;
-        font-size: 1.05rem;
-        color: var(--fg-1);
-      }
-
-      .cmd {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.5rem;
-        background: var(--term-bg);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 0.6rem 0.7rem;
-        overflow: hidden;
-      }
-
-      /* two commands, one box: the hub install and the command that starts it.
-         Wrapping a long single line at 375px would be worse than two lines. */
-      .cmd.stack code {
-        white-space: pre;
-      }
-
-      .cmd code {
-        flex: 1;
-        min-width: 0;
-        font-family: var(--mono);
-        /* the install line is the primary call to action — fit it whole at
-           375px rather than making people scroll a one-line command */
-        font-size: clamp(0.68rem, 3.1vw, 0.9rem);
-        color: var(--fg);
-        overflow-x: auto;
-        white-space: nowrap;
-        padding: 0.15rem 0;
-      }
-
-      #copy {
-        flex: none;
-        align-self: flex-start;
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        background: var(--bg-2);
-        color: var(--fg-1);
-        font: inherit;
-        font-size: 0.82rem;
-        padding: 0.45rem 0.8rem;
-        cursor: pointer;
-      }
-
-      #copy:hover {
-        color: var(--fg);
-        border-color: var(--fg-2);
-      }
-
-      .actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem;
-        margin-top: 1.25rem;
-      }
-
-      .btn {
-        display: inline-block;
-        padding: 0.6rem 1.15rem;
-        border: 1px solid var(--line);
-        border-radius: 7px;
-        color: var(--fg);
-        text-decoration: none;
-        font-size: 0.95rem;
-      }
-
-      .btn:hover {
-        border-color: var(--fg-2);
-      }
-
-      .btn.primary {
-        background: var(--brand);
-        border-color: var(--brand);
-        color: var(--cream);
-        font-weight: 600;
-      }
-
-      .btn.primary:hover {
-        filter: brightness(1.08);
-      }
-
-      .cmd-note {
-        max-width: 34rem;
-        margin: 0.75rem 0 0;
-        font-size: 0.9375rem;
-        color: var(--fg-2);
-      }
-
-      .promise {
-        max-width: 34rem;
-        margin: 1.75rem 0 0;
-        color: var(--fg-1);
-      }
-
-      .wordmark {
-        display: block;
-        width: 8.5rem;
-        height: auto;
-        margin: 0 0 1.75rem;
-      }
-
-      .shot {
-        margin: 2.5rem 0 0;
-      }
-
-      .shot.still {
-        max-width: 22rem;
-      }
-
-      .shot img {
-        display: block;
-        width: 100%;
-        height: auto;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        background: var(--term-bg);
-      }
-
-      /* cards */
-      .cards {
-        display: grid;
-        gap: 1rem;
-      }
-
-      .card {
-        /* grid items default to min-width:auto, so the wide <pre> inside would
-           stretch the track and scroll the whole page sideways */
-        min-width: 0;
-        background: var(--bg-1);
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 1.25rem;
-      }
-
-      .card p {
-        margin: 0 0 1rem;
-        color: var(--fg-2);
-      }
-
-      pre {
-        margin: 0 0 1rem;
-        background: var(--term-bg);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 0.85rem;
-        overflow-x: auto;
-      }
-
-      pre code {
-        font-family: var(--mono);
-        font-size: 0.76rem;
-        line-height: 1.7;
-        color: var(--fg);
-        white-space: pre;
-      }
-
-      pre.block {
-        padding: 1.1rem;
-      }
-
-      pre.block code {
-        font-size: 0.8rem;
-      }
-
-      /* diagram */
-      .diagram {
-        display: block;
-        width: 100%;
-        max-width: 26rem;
-        height: auto;
-        margin: 0 auto;
-        color: var(--fg-2);
-      }
-
-      .diagram .node rect {
-        fill: var(--bg-1);
-        stroke: var(--line);
-      }
-
-      .diagram .node.accent rect {
-        stroke: var(--accent);
-      }
-
-      .diagram line {
-        stroke: var(--line);
-      }
-
-      .diagram text {
-        fill: var(--fg);
-        font-family: var(--sans);
+      svg text {
+        fill: currentColor;
+        font-family: var(--font-sans);
         font-size: 13px;
         text-anchor: middle;
       }
-
-      .diagram .strong {
-        font-weight: 600;
+      svg text.muted {
+        fill: #8b8b86;
+        font-size: 11.5px;
+      }
+      svg text.strong {
+        font-family: var(--font-display);
+        font-weight: 800;
         font-size: 15px;
       }
-
-      .diagram .muted,
-      .diagram .edge {
-        fill: var(--fg-2);
-        font-size: 11px;
-      }
-
-      .diagram .mono {
-        font-family: var(--mono);
+      svg text.mono {
+        font-family: var(--font-mono);
         font-size: 11.5px;
-        fill: var(--fg-1);
+        fill: #2a2a2a;
       }
-
-      .diagram .link path {
-        stroke: var(--fg-2);
-        fill: none;
-      }
-
-      .diagram .edge {
+      svg text.edge {
+        fill: #5a5a56;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
         paint-order: stroke;
-        stroke: var(--bg);
+        stroke: #fafaf8;
         stroke-width: 6px;
+        stroke-linejoin: round;
       }
-
-      /* table */
-      .scroll {
-        overflow-x: auto;
-      }
-
-      table {
-        border-collapse: collapse;
-        width: 100%;
-        min-width: 44rem;
-        font-size: 0.85rem;
-      }
-
-      th,
-      td {
-        text-align: left;
-        vertical-align: top;
-        padding: 0.7rem 0.8rem;
-        border-bottom: 1px solid var(--line);
-      }
-
-      thead th {
-        color: var(--fg-2);
-        font-weight: 500;
-        font-size: 0.78rem;
-      }
-
-      tbody th {
-        color: var(--fg);
-        font-weight: 500;
-        white-space: nowrap;
-      }
-
-      tr.self th,
-      tr.self td {
-        background: var(--bg-1);
-        color: var(--fg);
-      }
-
-      tr.self th {
-        color: var(--accent);
-      }
-
-      td.unknown {
-        color: var(--fg-2);
-      }
-
-      /* footer */
-      footer {
-        max-width: 62rem;
-        margin: 0 auto;
-        padding: 2rem 1.25rem 3rem;
-        border-top: 1px solid var(--line);
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.75rem 1.5rem;
-        justify-content: space-between;
-        color: var(--fg-2);
-        font-size: 0.85rem;
-      }
-
-      .links {
-        display: flex;
-        gap: 1.25rem;
-      }
-
-      @media (min-width: 46rem) {
-        main {
-          padding-top: 5rem;
-        }
-
-        h1 {
-          font-size: 2.9rem;
-        }
-
-        .wordmark {
-          width: 10.5rem;
-        }
-
-        .sub {
-          font-size: 1.15rem;
-        }
-
-        .cards {
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        }
-
-        .cmd {
-          flex-direction: row;
-          align-items: center;
-          padding: 0.3rem 0.3rem 0.3rem 0.9rem;
-        }
-
-        #copy {
-          align-self: auto;
-        }
+      svg .link path {
+        stroke: currentColor;
+        stroke-width: 1.5;
+        fill: none;
       }
     </style>
   </body>
