@@ -18,6 +18,10 @@
     <key>NSAllowsArbitraryLoadsInWebContent</key>
     <true/>
   </dict>
+  <!-- Only the platform's TLS, no encryption of our own: exempt, and saying
+       so here spares every TestFlight build the export-compliance question. -->
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
   <key>UISupportedInterfaceOrientations</key>
   <array>
     <string>UIInterfaceOrientationPortrait</string>
