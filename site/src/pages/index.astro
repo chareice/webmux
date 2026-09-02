@@ -291,14 +291,9 @@ const faq = [
               opens the same terminal, mid-scroll.
             </p>
 
-            <div class="term mt-9 flex max-w-full items-start gap-4 overflow-hidden border border-ink p-4 pr-3 shadow-[6px_6px_0_0_#0c0c0c]">
-              <pre class="min-w-0 flex-1 overflow-x-auto whitespace-pre"><code id="install-cmd">{install}</code></pre>
-              <button
-                type="button"
-                id="copy"
-                aria-label="Copy install commands"
-                class="shrink-0 rounded-md border border-white/15 px-3 py-1.5 font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-term-fg hover:bg-white/10"
-              >
+            <div class="cmd mt-9">
+              <pre class="min-w-0 flex-1 overflow-x-auto whitespace-pre"><code>{install.split("\n").map((line) => (<span class="block"><span class="cmd-prompt">$ </span>{line}</span>))}</code></pre>
+              <button type="button" class="cmd-copy" data-copy={install} aria-label="Copy install commands">
                 Copy
               </button>
             </div>
@@ -671,8 +666,11 @@ const faq = [
             The session keeps running on the machine at home. Your phone opens
             the same terminal, mid-scroll.
           </p>
-          <div class="term mt-9 flex max-w-full items-center gap-4 overflow-hidden border border-ink px-4 py-3 shadow-[6px_6px_0_0_#0c0c0c] sm:inline-flex">
-            <code class="min-w-0 overflow-x-auto whitespace-nowrap">curl -fsSL https://offdesk.dev/install | sh</code>
+          <div class="cmd mt-9 max-w-xl">
+            <pre class="min-w-0 flex-1 overflow-x-auto whitespace-pre"><code><span class="cmd-prompt">$ </span>curl -fsSL https://offdesk.dev/install | sh</code></pre>
+            <button type="button" class="cmd-copy" data-copy="curl -fsSL https://offdesk.dev/install | sh" aria-label="Copy the install command">
+              Copy
+            </button>
           </div>
           <div class="mt-8 flex flex-wrap gap-3">
             <a href={repo} class="btn-ink">GitHub</a>
@@ -694,19 +692,19 @@ const faq = [
     </footer>
 
     <script is:inline>
-      const button = document.getElementById("copy");
-      const command = document.getElementById("install-cmd");
-      button?.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(command.textContent.trim());
-          button.textContent = "Copied";
-        } catch {
-          button.textContent = "Press ⌘C";
-        }
-        setTimeout(() => {
-          button.textContent = "Copy";
-        }, 1600);
-      });
+      for (const button of document.querySelectorAll("[data-copy]")) {
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(button.dataset.copy);
+            button.textContent = "Copied";
+          } catch {
+            button.textContent = "Press ⌘C";
+          }
+          setTimeout(() => {
+            button.textContent = "Copy";
+          }, 1600);
+        });
+      }
     </script>
 
     <style>
