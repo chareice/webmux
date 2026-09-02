@@ -1,0 +1,26 @@
+{
+  "$schema": "../gen/schemas/ios-schema.json",
+  "productName": "offdesk",
+  "identifier": "dev.offdesk.ios",
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": ""
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "url": "index.html"
+      }
+    ],
+    "security": {
+      "csp": null,
+      "dangerousDisableAssetCspModification": true
+    }
+  },
+  "bundle": {
+    "iOS": {
+      "minimumSystemVersion": "15.0"
+    }
+  }
+}

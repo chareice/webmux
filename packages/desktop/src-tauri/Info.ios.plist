@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Merged into the generated Info.plist by the Tauri CLI. Everything an
+       offdesk phone needs that the template does not ask for. -->
+  <key>NSCameraUsageDescription</key>
+  <string>offdesk reads the sign-in code your hub shows, so you never type an address or a token on the phone.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Your hub is usually a Mac or a NAS on this Wi-Fi; offdesk connects to it directly.</string>
+  <!-- A hub at home is plain http on a LAN address. iOS blocks that by
+       default; local networking and web content are the two exceptions it
+       offers, and they are exactly the two paths a hub page uses. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+    <key>NSAllowsArbitraryLoadsInWebContent</key>
+    <true/>
+  </dict>
+  <!-- Only the platform's TLS, no encryption of our own: exempt, and saying
+       so here spares every TestFlight build the export-compliance question. -->
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
+  <key>UISupportedInterfaceOrientations</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
+  <key>UISupportedInterfaceOrientations~ipad</key>
+  <array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
+</dict>
+</plist>

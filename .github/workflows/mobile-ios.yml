@@ -1,0 +1,132 @@
+name: Mobile (iOS)
+# Builds the iOS app on an ios-v* tag and hands it to TestFlight.
+#
+# Signing lives in repository secrets, all from the Apple Developer account:
+#
+#   APPLE_DEVELOPMENT_TEAM    the 10-character Team ID (Membership details)
+#   IOS_CERTIFICATE           an Apple Distribution certificate, .p12, base64
+#   IOS_CERTIFICATE_PASSWORD  its password
+#   IOS_MOBILE_PROVISION      an App Store provisioning profile for
+#                             dev.offdesk.ios, .mobileprovision, base64
+#   APP_STORE_CONNECT_KEY_ID  an App Store Connect API key (Users and Access
+#   APP_STORE_CONNECT_ISSUER_ID   → Integrations → App Store Connect API), with
+#   APP_STORE_CONNECT_API_KEY     the .p8 contents base64 — for the upload
+#
+# The Tauri CLI reads the first four itself and signs the archive with them;
+# the upload is xcrun altool with the API key. The tag decides the version:
+# ios-v0.4.5 builds 0.4.5.
+on:
+  push:
+    tags:
+      - "ios-v*"
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-ipa:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+
+      - name: Tauri CLI
+        run: cargo install cargo-binstall --locked && cargo binstall -y tauri-cli --version "^2.0"
+
+      - name: Build shared package
+        run: pnpm --filter @offdesk/shared build
+
+      - name: Build web bundle (loaded as launch shell, replaced at runtime)
+        run: pnpm --filter @offdesk/app build
+
+      - name: Set release version from tag
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME:-ios-vlocal}"
+          version="${tag#ios-v}"
+          if [ "$version" = "$tag" ]; then version="0.1.0"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check signing secrets
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+        run: |
+          missing=0
+          for name in APPLE_DEVELOPMENT_TEAM IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION; do
+            if [ -z "${!name}" ]; then
+              echo "$name secret is required for iOS releases." >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+
+      - name: Build IPA
+        working-directory: packages/desktop
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+        run: |
+          cargo tauri ios build --export-method app-store-connect \
+            --config "{\"version\": \"${{ steps.version.outputs.version }}\", \"bundle\": {\"iOS\": {\"developmentTeam\": \"$APPLE_DEVELOPMENT_TEAM\"}}}"
+
+      - name: Collect IPA
+        id: ipa
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          mkdir -p artifacts
+          src=$(find packages/desktop/src-tauri/gen/apple/build -name "*.ipa" | head -1)
+          [ -n "$src" ] || { echo "no .ipa produced" >&2; exit 1; }
+          cp "$src" "artifacts/offdesk-${version}.ipa"
+          echo "path=artifacts/offdesk-${version}.ipa" >> "$GITHUB_OUTPUT"
+          ls -lh artifacts/
+
+      - name: Upload to TestFlight
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          if [ -z "$APP_STORE_CONNECT_KEY_ID" ] || [ -z "$APP_STORE_CONNECT_ISSUER_ID" ] || [ -z "$APP_STORE_CONNECT_API_KEY" ]; then
+            echo "App Store Connect API secrets not set; the IPA is on the release but not on TestFlight." >&2
+            exit 0
+          fi
+          mkdir -p ~/.private_keys
+          echo "$APP_STORE_CONNECT_API_KEY" | base64 --decode > ~/.private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
+          xcrun altool --upload-app --type ios \
+            --file "${{ steps.ipa.outputs.path }}" \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: iOS ${{ steps.version.outputs.tag }}
+          body: |
+            The offdesk iOS app, ${{ steps.version.outputs.version }}. Install it from TestFlight; the .ipa here is the same build, for the record.
+          files: artifacts/*.ipa

@@ -13,6 +13,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+# Its own root, not a member of the repo workspace: the root Cargo.toml
+# excludes it, but cargo keeps walking up past a git worktree and finds the
+# parent checkout's workspace instead. An empty table stops the walk.
+[workspace]
+
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-notification = "2"
