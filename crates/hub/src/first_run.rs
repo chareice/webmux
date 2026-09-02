@@ -242,9 +242,8 @@ pub fn register_local_node(pool: &DbPool, listen: &str) -> LocalNode {
             .ok()
             .and_then(|v| v.get("hub_url").and_then(|u| u.as_str()).map(str::to_string))
             .unwrap_or_default();
-        let here = hub.contains(&format!("127.0.0.1:{port}/"))
-            || hub.contains(&format!("localhost:{port}/"));
-        if here {
+        let mine: Vec<Ipv4Addr> = interface_addresses().into_iter().map(|(_, ip)| ip).collect();
+        if hub_is_here(&hub, port, &mine) {
             let _ = node_service_install(&find_node_binary().unwrap_or_else(|| "offdesk-node".into()));
             return LocalNode::AlreadyHere;
         }
@@ -278,6 +277,33 @@ pub fn register_local_node(pool: &DbPool, listen: &str) -> LocalNode {
     }
     let name = hostname().unwrap_or_else(|| "this machine".into());
     LocalNode::Registered { name }
+}
+
+/// Whether a node's hub URL points at the hub on this machine: loopback, or
+/// any address this machine holds, on this hub's port. A node registered
+/// through the LAN address — which is what the Add host page hands out — is
+/// as much "here" as one registered through 127.0.0.1.
+fn hub_is_here(hub_url: &str, port: u16, own_addresses: &[Ipv4Addr]) -> bool {
+    let Some(host) = offdesk_protocol::local_host::host_of(hub_url) else {
+        return false;
+    };
+    let after_scheme = hub_url.split_once("://").map(|(_, rest)| rest).unwrap_or(hub_url);
+    let authority = after_scheme.split(['/', '?', '#']).next().unwrap_or_default();
+    let hub_port = authority
+        .rsplit_once(':')
+        .and_then(|(_, p)| p.parse::<u16>().ok())
+        .unwrap_or(if hub_url.starts_with("wss://") || hub_url.starts_with("https://") { 443 } else { 80 });
+    if hub_port != port {
+        return false;
+    }
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => ip.is_loopback() || own_addresses.contains(&ip),
+        Ok(IpAddr::V6(ip)) => ip.is_loopback(),
+        Err(_) => false,
+    }
 }
 
 fn node_service_install(node: &Path) -> Result<(), String> {
@@ -750,6 +776,17 @@ mod tests {
         assert!(notice.contains("?token="));
         assert!(notice.contains('█'));
         assert!(!notice.contains("stops when this terminal does"));
+    }
+
+    #[test]
+    fn a_node_on_this_machines_lan_address_is_here() {
+        let mine = [Ipv4Addr::new(192, 168, 1, 223), Ipv4Addr::new(192, 168, 64, 1)];
+        assert!(hub_is_here("ws://192.168.1.223:4317/ws/machine", 4317, &mine));
+        assert!(hub_is_here("ws://127.0.0.1:4317/ws/machine", 4317, &mine));
+        assert!(hub_is_here("http://localhost:4317", 4317, &mine));
+        assert!(!hub_is_here("ws://192.168.1.223:4318/ws/machine", 4317, &mine), "other port");
+        assert!(!hub_is_here("ws://192.168.1.10:4317/ws/machine", 4317, &mine), "other machine");
+        assert!(!hub_is_here("wss://webmux.nas.example/ws/machine", 4317, &mine), "other hub");
     }
 
     #[test]
