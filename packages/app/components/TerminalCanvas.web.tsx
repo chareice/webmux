@@ -92,6 +92,7 @@ import { createTerminalReconnectController } from "@/lib/terminalReconnect";
 import { readViewOnlyLock, writeViewOnlyLock } from "@/lib/viewOnlyLock";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import { LazyLoadingFallback } from "./LazyLoadingFallback";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 const OnboardingView = lazy(() =>
   lazyWithReload(() =>
@@ -103,13 +104,6 @@ const OnboardingView = lazy(() =>
 const SettingsPage = lazy(() =>
   lazyWithReload(() =>
     import("./SettingsPage").then((module) => ({ default: module.SettingsPage })),
-  ),
-);
-const ConfirmDialog = lazy(() =>
-  lazyWithReload(() =>
-    import("./ConfirmDialog").then((module) => ({
-      default: module.ConfirmDialog,
-    })),
   ),
 );
 const RenameGroupDialog = lazy(() =>
@@ -1731,39 +1725,35 @@ function TerminalCanvasInner() {
         )}
 
         {hostRemoveTarget && (
-          <Suspense fallback={<LazyLoadingFallback />}>
-            <ConfirmDialog
-              open
-              title={`Remove ${hostRemoveTarget.name}?`}
-              message={
-                hostRemoveTarget.online
-                  ? `"${hostRemoveTarget.name}" is connected. Removing it disconnects the host and it will not reconnect until registered again. Tabs and terminals for this host leave offdesk.`
-                  : `"${hostRemoveTarget.name}" is offline. Removing it forgets the host and its tabs and terminals. Re-register to add it back.`
-              }
-              confirmLabel="Remove host"
-              variant="danger"
-              onConfirm={confirmRemoveHost}
-              onCancel={() => setHostRemoveTarget(null)}
-            />
-          </Suspense>
+          <ConfirmDialog
+            open
+            title={`Remove ${hostRemoveTarget.name}?`}
+            message={
+              hostRemoveTarget.online
+                ? `"${hostRemoveTarget.name}" is connected. Removing it disconnects the host and it will not reconnect until registered again. Tabs and terminals for this host leave offdesk.`
+                : `"${hostRemoveTarget.name}" is offline. Removing it forgets the host and its tabs and terminals. Re-register to add it back.`
+            }
+            confirmLabel="Remove host"
+            variant="danger"
+            onConfirm={confirmRemoveHost}
+            onCancel={() => setHostRemoveTarget(null)}
+          />
         )}
 
         {groupDeleteConfirmation && (
-          <Suspense fallback={<LazyLoadingFallback />}>
-            <ConfirmDialog
-              open
-              title="Delete workspace?"
-              message={`"${groupDeleteConfirmation.label}" has ${groupDeleteConfirmation.paneCount} pane(s). They will move back to their directory tabs; no terminal is closed.`}
-              confirmLabel="Delete workspace"
-              variant="danger"
-              onConfirm={() => {
-                const group = groupDeleteConfirmation;
-                setGroupDeleteConfirmation(null);
-                void performDeleteGroup(group);
-              }}
-              onCancel={() => setGroupDeleteConfirmation(null)}
-            />
-          </Suspense>
+          <ConfirmDialog
+            open
+            title="Delete workspace?"
+            message={`"${groupDeleteConfirmation.label}" has ${groupDeleteConfirmation.paneCount} pane(s). They will move back to their directory tabs; no terminal is closed.`}
+            confirmLabel="Delete workspace"
+            variant="danger"
+            onConfirm={() => {
+              const group = groupDeleteConfirmation;
+              setGroupDeleteConfirmation(null);
+              void performDeleteGroup(group);
+            }}
+            onCancel={() => setGroupDeleteConfirmation(null)}
+          />
         )}
 
         {groupRenameTarget && (
@@ -1782,18 +1772,16 @@ function TerminalCanvasInner() {
         )}
 
         {closeConfirmation && (
-          <Suspense fallback={<LazyLoadingFallback />}>
-            <ConfirmDialog
-              open
-              title="Close terminal?"
-              message={`"${closeConfirmation.processName}" is still running in this terminal. Closing the terminal will terminate it.`}
-              confirmLabel="Close terminal"
-              cancelLabel="Cancel"
-              variant="danger"
-              onConfirm={confirmClosePending}
-              onCancel={() => setCloseConfirmation(null)}
-            />
-          </Suspense>
+          <ConfirmDialog
+            open
+            title="Close terminal?"
+            message={`"${closeConfirmation.processName}" is still running in this terminal. Closing the terminal will terminate it.`}
+            confirmLabel="Close terminal"
+            cancelLabel="Cancel"
+            variant="danger"
+            onConfirm={confirmClosePending}
+            onCancel={() => setCloseConfirmation(null)}
+          />
         )}
       </TerminalPreviewMuxProvider>
     </div>
