@@ -5,6 +5,7 @@ import "@fontsource-variable/instrument-sans";
 import "@fontsource/geist-mono/400.css";
 import "@fontsource/geist-mono/500.css";
 import "../styles/global.css";
+import Icon from "../components/Icon.astro";
 
 // The hero GIF is not committed yet (see docs/media/README.md). Rendering an
 // <img> for a file that does not exist gives every visitor a broken-image
@@ -276,9 +277,15 @@ const faq = [
           <a href="#agents" class="eyebrow hover:text-ink">For agents</a>
           <a href="#compare" class="eyebrow hover:text-ink">Compare</a>
           <a href="#faq" class="eyebrow hover:text-ink">FAQ</a>
-          <a href={discord} class="eyebrow hover:text-ink">Discord</a>
         </div>
-        <a href={repo} class="btn-ink px-4 py-2">GitHub</a>
+        <div class="flex items-center gap-2">
+          <a href={discord} class="btn-line gap-2 px-4 py-2" aria-label="offdesk on Discord">
+            <Icon name="discord" /><span class="hidden sm:inline">Discord</span>
+          </a>
+          <a href={repo} class="btn-ink gap-2 px-4 py-2" aria-label="offdesk on GitHub">
+            <Icon name="github" /><span class="hidden sm:inline">GitHub</span>
+          </a>
+        </div>
       </nav>
     </header>
 
@@ -679,9 +686,9 @@ const faq = [
             </button>
           </div>
           <div class="mt-8 flex flex-wrap gap-3">
-            <a href={repo} class="btn-ink">GitHub</a>
+            <a href={repo} class="btn-ink gap-2"><Icon name="github" />GitHub</a>
+            <a href={discord} class="btn-line gap-2"><Icon name="discord" />Discord</a>
             <a href={releases} class="btn-line">Android APK</a>
-            <a href={discord} class="btn-line">Discord</a>
           </div>
         </div>
       </section>
@@ -690,11 +697,11 @@ const faq = [
     <footer class="border-t border-line">
       <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8">
         <span class="eyebrow">MIT · Built by <a href="https://zalify.com" class="text-ink">Zalify</a></span>
-        <span class="flex gap-6">
-          <a href={repo} class="eyebrow hover:text-ink">GitHub</a>
+        <span class="flex items-center gap-6">
           <a href={docs} class="eyebrow hover:text-ink">Docs</a>
-          <a href={discord} class="eyebrow hover:text-ink">Discord</a>
           <a href={`${repo}/blob/main/SECURITY.md`} class="eyebrow hover:text-ink">Security</a>
+          <a href={discord} class="eyebrow inline-flex items-center gap-1.5 hover:text-ink"><Icon name="discord" /> Discord</a>
+          <a href={repo} class="eyebrow inline-flex items-center gap-1.5 hover:text-ink"><Icon name="github" /> GitHub</a>
         </span>
       </div>
     </footer>
