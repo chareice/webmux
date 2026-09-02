@@ -100,6 +100,12 @@ pub fn grant_and_load<R: Runtime>(app: &AppHandle<R>, hub_url: &str) -> Result<(
             .permission("clipboard-manager:allow-read-text")
             .permission("clipboard-manager:allow-write-text")
             .permission("process:default")
+            // The hub's own sign-in page offers "Scan code": the camera reads
+            // the link the hub's page shows, so nothing is typed on a phone.
+            .permission("barcode-scanner:allow-scan")
+            .permission("barcode-scanner:allow-cancel")
+            .permission("barcode-scanner:allow-request-permissions")
+            .permission("barcode-scanner:allow-check-permissions")
             // Lets the hub's own UI hand the app back to the setup screen.
             // Deliberately not `allow-set-mobile-hub-url`: a hub may offer to
             // let go of the app, but must not be able to point it somewhere

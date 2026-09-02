@@ -27,11 +27,13 @@ pub fn run() {
     // The mobile app is a WebView on a hub the user picks at runtime; these
     // are how the setup screen and the hub's own UI change that choice.
     #[cfg(mobile)]
-    let builder = builder.invoke_handler(tauri::generate_handler![
-        mobile_hub::mobile_hub_url,
-        mobile_hub::set_mobile_hub_url,
-        mobile_hub::clear_mobile_hub_url
-    ]);
+    let builder = builder
+        .plugin(tauri_plugin_barcode_scanner::init())
+        .invoke_handler(tauri::generate_handler![
+            mobile_hub::mobile_hub_url,
+            mobile_hub::set_mobile_hub_url,
+            mobile_hub::clear_mobile_hub_url
+        ]);
 
     builder
         .setup(|app| {
