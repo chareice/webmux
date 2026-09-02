@@ -12,7 +12,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use crate::acp::AcpManager;
 use crate::attach::{AttachEvent, AttachManager};
 use crate::osc_title::OscTitleScanner;
-use crate::pty::{tmux_resize_window, PtyManager};
+use crate::pty::{tmux_resize_window, tmux_window_size, PtyManager};
 use crate::session_watcher::SessionWatcher;
 use crate::stats::should_emit_stats;
 
@@ -624,6 +624,19 @@ async fn handle_hub_message(
                 .open(attach_id.clone(), terminal_id, cols, rows)
                 .await;
             let send_tx = send_tx.clone();
+            // The window's real size, for the hub's record and for this
+            // client: with `window-size manual` it is whatever the last
+            // controller set, and a client that assumes its own size sees
+            // the difference as a field of dots.
+            if let Some((cols, rows)) = tmux_window_size(&scanner_terminal_id) {
+                let _ = send_tx
+                    .send(OutboundHubMessage::Json(MachineToHub::TerminalResized {
+                        terminal_id: scanner_terminal_id.clone(),
+                        cols,
+                        rows,
+                    }))
+                    .await;
+            }
             tokio::spawn(async move {
                 let mut scanner = OscTitleScanner::new();
                 let mut last_observed_title: Option<String> = None;
@@ -723,6 +736,10 @@ async fn handle_hub_message(
                     "AttachResize: resizing tmux window"
                 );
                 tmux_resize_window(&session_id, cols, rows);
+                // Report what tmux did, not what was asked: a hub that
+                // records the request draws every other client a window
+                // it does not have, and fills the difference with dots.
+                let (cols, rows) = tmux_window_size(&session_id).unwrap_or((cols, rows));
                 let _ = send_tx
                     .send(OutboundHubMessage::Json(MachineToHub::TerminalResized {
                         terminal_id: session_id,

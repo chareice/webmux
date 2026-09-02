@@ -130,18 +130,45 @@ export default function LoginScreen() {
   // app has a camera to offer; a browser tab uses the system camera app,
   // which opens the link by itself.
   const [scanError, setScanError] = useState<string | null>(null);
+  // Errors from the plugin arrive as objects, not Error instances; String()
+  // on those is "[object Object]", which tells nobody anything.
+  const describe = (error: unknown): string => {
+    if (error instanceof Error) return error.message;
+    if (typeof error === "string") return error;
+    if (error && typeof error === "object" && "message" in error) {
+      return String((error as { message: unknown }).message);
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "unknown error";
+    }
+  };
   const scanCode = async (): Promise<string | null> => {
     setScanError(null);
     try {
-      const { scan, Format } = await import("@tauri-apps/plugin-barcode-scanner");
+      const { scan, Format, checkPermissions, requestPermissions, openAppSettings } =
+        await import("@tauri-apps/plugin-barcode-scanner");
+      // The camera has to be asked for before it is used; scan() alone does
+      // not put the system prompt up. Denied once, the prompt is gone for
+      // good on Android and only the app's settings page can undo it.
+      let permission = await checkPermissions();
+      if (permission !== "granted") {
+        permission = await requestPermissions();
+      }
+      if (permission !== "granted") {
+        setScanError(
+          "The camera is off for this app. Allow it in the app's settings, then try again.",
+        );
+        void openAppSettings().catch(() => {});
+        return null;
+      }
       const result = await scan({ windowed: false, formats: [Format.QRCode] });
       return result.content?.trim() || null;
     } catch (error) {
-      const text = String(error);
+      const text = describe(error);
       setScanError(
-        /not allowed|permission/i.test(text)
-          ? "The app needs the camera for this. Allow it in Android's settings, or update the app."
-          : `Could not scan: ${text}`,
+        /cancel/i.test(text) ? null : `Could not scan: ${text}`,
       );
       return null;
     }
