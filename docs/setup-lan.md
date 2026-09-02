@@ -32,7 +32,14 @@ Open that on the same machine and you are signed in. The address it prints is
 the one your phone can reach — the hub asks the routing table which interface
 this machine uses, rather than guessing localhost.
 
-To keep it running, hand it to your init system, or use Docker instead:
+To keep it running after you close the terminal, and across reboots:
+
+```bash
+offdesk-hub service install
+```
+
+While it runs it also keeps a Mac from idle-sleeping — `--allow-idle-sleep`
+if you would rather it did not. Or use Docker instead:
 
 ```bash
 git clone https://github.com/zalify/offdesk && cd offdesk

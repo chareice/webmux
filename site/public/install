@@ -313,8 +313,9 @@ report_next_steps() {
             say "Next: start the hub."
             say "  offdesk-hub"
             say ""
-            say "It prints a link that signs you in, and keeps its database and"
-            say "signing key in the directory you start it from."
+            say "It prints a link that signs you in. To keep it running after"
+            say "you close this terminal, and across reboots:"
+            say "  offdesk-hub service install"
             say ""
             ;;
     esac

@@ -57,6 +57,17 @@ you start it from.
     http://192.168.1.10:4317/?token=eyJhbGciOi…
 ```
 
+That hub stops when the terminal does. To run it at login instead, restarted
+if it ever stops — a launchd agent on macOS, a systemd user service on Linux:
+
+```bash
+offdesk-hub service install
+```
+
+On macOS the hub also keeps the machine from idle-sleeping while it runs, since
+a hub whose host is asleep is a hub that is down. `--allow-idle-sleep` turns
+that off; display sleep and closing the lid are unaffected either way.
+
 Anyone who has that link can sign in as you, so keep it off shared terminals.
 It stops being printed once you configure GitHub or Google sign-in, which is
 what you want the moment the hub is reachable from outside your network —

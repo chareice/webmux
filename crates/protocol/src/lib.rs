@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod compression;
+pub mod keep_awake;
 pub mod local_host;
+pub mod service;
 
 // ── Shared data types ──
 
