@@ -16,6 +16,7 @@ const hasStill = existsSync(new URL("../../public/media/phone-terminal.png", imp
 const repo = "https://github.com/zalify/offdesk";
 const docs = `${repo}#readme`;
 const releases = `${repo}/releases/latest`;
+const discord = "https://discord.gg/aFUu6VMzc";
 const description =
   "Vibe code from your phone on the terminal you left at home.";
 const install =
@@ -225,6 +226,10 @@ const faq = [
     a: "The browser is the whole client, so open the hub's URL in Safari and add it to the home screen. Android also has an app, which is the same UI in a WebView with native notifications.",
   },
   {
+    q: "Where do I ask when something does not work?",
+    a: "Discord, at discord.gg/aFUu6VMzc — setups, questions, things you want it to do. Bugs go to GitHub issues.",
+  },
+  {
     q: "What if two people type at once?",
     a: "The control lease decides who may type. Sending input claims it — last writer wins, no queue. Everyone else keeps receiving output, so they watch live instead of being disconnected.",
   },
@@ -271,6 +276,7 @@ const faq = [
           <a href="#agents" class="eyebrow hover:text-ink">For agents</a>
           <a href="#compare" class="eyebrow hover:text-ink">Compare</a>
           <a href="#faq" class="eyebrow hover:text-ink">FAQ</a>
+          <a href={discord} class="eyebrow hover:text-ink">Discord</a>
         </div>
         <a href={repo} class="btn-ink px-4 py-2">GitHub</a>
       </nav>
@@ -675,6 +681,7 @@ const faq = [
           <div class="mt-8 flex flex-wrap gap-3">
             <a href={repo} class="btn-ink">GitHub</a>
             <a href={releases} class="btn-line">Android APK</a>
+            <a href={discord} class="btn-line">Discord</a>
           </div>
         </div>
       </section>
@@ -686,6 +693,7 @@ const faq = [
         <span class="flex gap-6">
           <a href={repo} class="eyebrow hover:text-ink">GitHub</a>
           <a href={docs} class="eyebrow hover:text-ink">Docs</a>
+          <a href={discord} class="eyebrow hover:text-ink">Discord</a>
           <a href={`${repo}/blob/main/SECURITY.md`} class="eyebrow hover:text-ink">Security</a>
         </span>
       </div>
