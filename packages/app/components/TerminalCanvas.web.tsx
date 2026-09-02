@@ -25,7 +25,7 @@ import {
 import { TerminalWorkspace, type WorkspaceCommandChannel } from "./TerminalWorkspace.web";
 import { MobileWorkbench } from "./MobileWorkbench.web";
 import { HandoffBanner } from "./HandoffBanner";
-import { MachineOnboardingDialog } from "./OnboardingView.web";
+import { MachineOnboardingDialog, MobileAppDialog } from "./OnboardingView.web";
 import { Terminal as TerminalIcon } from "lucide-react";
 import {
   createTerminal,
@@ -251,6 +251,25 @@ function TerminalCanvasInner() {
   const [activeMachineId, setActiveMachineId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [addMachineOpen, setAddMachineOpen] = useState(false);
+  const [phoneOpen, setPhoneOpen] = useState(false);
+  // A one-time nudge on the desk: the phone is the point of the product,
+  // and nothing on this screen said where it was.
+  const PHONE_HINT_KEY = "offdesk:phone-hint-dismissed";
+  const [phoneHintDismissed, setPhoneHintDismissed] = useState(() => {
+    try {
+      return window.localStorage.getItem(PHONE_HINT_KEY) === "1";
+    } catch {
+      return true;
+    }
+  });
+  const dismissPhoneHint = useCallback(() => {
+    setPhoneHintDismissed(true);
+    try {
+      window.localStorage.setItem(PHONE_HINT_KEY, "1");
+    } catch {
+      /* no storage, no memory of it */
+    }
+  }, []);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const lastSeqRef = useRef(0);
   const keepWorkspaceOpenDestroyedTerminalIdsRef = useRef(new Set<string>());
@@ -1638,6 +1657,7 @@ function TerminalCanvasInner() {
                 onReorderGroups={handleRequestWorkspaceGroupReorder}
                 onSelectMachine={setActiveMachineId}
                 onAddMachine={() => setAddMachineOpen(true)}
+                onOpenPhone={() => setPhoneOpen(true)}
                 onRemoveHost={handleRemoveHost}
                 onRequestControl={() => {
                   if (activeMachine) void handleRequestControl(activeMachine.id);
@@ -1647,6 +1667,58 @@ function TerminalCanvasInner() {
                 }}
                 onDisengageViewOnly={handleDisengageViewOnly}
               />
+              {!phoneHintDismissed && machines.length > 0 && (
+                <div
+                  data-testid="phone-hint"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "6px 12px",
+                    borderBottom: `1px solid ${colors.border}`,
+                    background: colors.surface,
+                    color: colors.foregroundSecondary,
+                    fontSize: 12,
+                    flexShrink: 0,
+                  }}
+                >
+                  <span style={{ flex: 1 }}>
+                    Your phone can open these same terminals — scan a code, nothing
+                    to type.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPhoneOpen(true)}
+                    style={{
+                      background: colors.accent,
+                      border: "none",
+                      borderRadius: 6,
+                      color: colors.background,
+                      cursor: "pointer",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: "4px 10px",
+                    }}
+                  >
+                    Show me
+                  </button>
+                  <button
+                    type="button"
+                    onClick={dismissPhoneHint}
+                    aria-label="Dismiss"
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: colors.foregroundMuted,
+                      cursor: "pointer",
+                      fontSize: 14,
+                      padding: "0 4px",
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
 
               {scopedTerminals.length === 0 ? (
                 <EmptyState
@@ -1709,6 +1781,8 @@ function TerminalCanvasInner() {
         {addMachineOpen && (
           <MachineOnboardingDialog onClose={() => setAddMachineOpen(false)} />
         )}
+
+        {phoneOpen && <MobileAppDialog onClose={() => setPhoneOpen(false)} />}
 
         {!isCompact && paletteState.open && (
           <CommandPalette

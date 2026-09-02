@@ -430,3 +430,83 @@ export function MachineOnboardingDialog({
     </div>
   );
 }
+
+/// The phone, reachable from anywhere in the app — not only from the page a
+/// fresh hub opens with, which a hub with a machine never shows again.
+export function MobileAppDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      data-testid="phone-dialog"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 80,
+        background: "rgba(0, 0, 0, 0.56)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          position: "relative",
+          width: "min(640px, 100%)",
+          maxHeight: "min(820px, calc(100vh - 40px))",
+          overflowY: "auto",
+          background: colors.background,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 16,
+          boxShadow: "0 28px 80px -24px rgba(0, 0, 0, 0.7)",
+          padding: 24,
+        }}
+      >
+        <button
+          onClick={onClose}
+          title="Close"
+          aria-label="Close"
+          style={{
+            position: "absolute",
+            top: 14,
+            right: 14,
+            width: 32,
+            height: 32,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 999,
+            border: `1px solid ${colors.border}`,
+            background: colors.surface,
+            color: colors.foregroundSecondary,
+            cursor: "pointer",
+          }}
+        >
+          <X size={16} />
+        </button>
+        <h1
+          style={{
+            fontSize: 20,
+            fontWeight: 700,
+            color: colors.foreground,
+            margin: "0 0 6px 0",
+          }}
+        >
+          On your phone
+        </h1>
+        <p
+          style={{
+            fontSize: 14,
+            color: colors.foregroundSecondary,
+            margin: "0 0 20px 0",
+            lineHeight: 1.5,
+          }}
+        >
+          The same terminals, from wherever you are.
+        </p>
+        <MobileAppPanel />
+      </div>
+    </div>
+  );
+}
