@@ -1,6 +1,6 @@
 name: offdesk-desktop
 options:
-  bundleIdPrefix: dev.offdesk.desktop
+  bundleIdPrefix: dev.offdesk.ios
   deploymentTarget:
     iOS: 15.0
 fileGroups: [../../src]
@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: offdesk
-      PRODUCT_BUNDLE_IDENTIFIER: dev.offdesk.desktop
+      PRODUCT_BUNDLE_IDENTIFIER: dev.offdesk.ios
 targetTemplates:
   app:
     type: application

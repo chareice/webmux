@@ -7,7 +7,7 @@ name: Mobile (iOS)
 #   IOS_CERTIFICATE           an Apple Distribution certificate, .p12, base64
 #   IOS_CERTIFICATE_PASSWORD  its password
 #   IOS_MOBILE_PROVISION      an App Store provisioning profile for
-#                             dev.offdesk.desktop, .mobileprovision, base64
+#                             dev.offdesk.ios, .mobileprovision, base64
 #   APP_STORE_CONNECT_KEY_ID  an App Store Connect API key (Users and Access
 #   APP_STORE_CONNECT_ISSUER_ID   → Integrations → App Store Connect API), with
 #   APP_STORE_CONNECT_API_KEY     the .p8 contents base64 — for the upload
