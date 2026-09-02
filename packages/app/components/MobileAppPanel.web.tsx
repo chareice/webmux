@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import * as QRCode from "qrcode";
 
-import { getAuthProviders, mintSessionToken } from "@/lib/api";
+import { getAuthProviders, mintLoginCode } from "@/lib/api";
 import { colors } from "@/lib/colors";
 
 /**
@@ -29,9 +29,9 @@ export function MobileAppPanel() {
   useEffect(() => {
     let cancelled = false;
     getAuthProviders()
-      .then((providers) => (providers.link ? mintSessionToken() : null))
+      .then((providers) => (providers.link ? mintLoginCode() : null))
       .then((result) => {
-        if (!cancelled && result) setSessionToken(result.token);
+        if (!cancelled && result) setSessionToken(result.code);
       })
       .catch(() => {});
     return () => {
@@ -40,7 +40,7 @@ export function MobileAppPanel() {
   }, []);
 
   const encoded = sessionToken
-    ? `${shareUrl.trim().replace(/\/+$/, "")}/?token=${sessionToken}`
+    ? `${shareUrl.trim().replace(/\/+$/, "")}/?code=${sessionToken}`
     : shareUrl.trim();
 
   const isLoopback = /^(localhost|127\.0\.0\.1|\[?::1\]?)$/i.test(
