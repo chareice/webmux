@@ -198,6 +198,23 @@ impl PtyManager {
                 "manual",
             ])
             .status();
+        // Switching to manual re-sizes a never-attached window to tmux's
+        // default-size (80x24), forgetting what new-session was told. Say it
+        // again, so the size a client asked for is the size the window has —
+        // and the size the agent reports on attach.
+        let _ = tmux_cmd()
+            .args([
+                "-L",
+                tmux_socket(),
+                "resize-window",
+                "-t",
+                &tmux_name,
+                "-x",
+                &cols.to_string(),
+                "-y",
+                &rows.to_string(),
+            ])
+            .status();
 
         // Forward selected environment variables into the tmux session.
         for var in &["CLAUDE_CODE_NO_FLICKER"] {
