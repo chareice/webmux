@@ -22,6 +22,9 @@ home, and your phone opens the same terminal, mid-scroll — not a summary of it
 - **MIT**, all of it, hub included. No relay, no vendor account, no transcript
   stored anywhere you do not control.
 
+Questions, setups that did not work, things you want it to do:
+[Discord](https://discord.gg/aFUu6VMzc).
+
 ## Install
 
 On the machine that stays on — a Mac, a NAS — which is usually also the first
@@ -430,6 +433,11 @@ same UI in a WebView with native notifications.
 **What if two people type at once?** The control lease decides who may type.
 Sending input claims it — last writer wins, no queue. Everyone else keeps
 receiving output, so they watch live instead of being disconnected.
+
+## Community
+
+[Discord](https://discord.gg/aFUu6VMzc) for questions and setups; GitHub
+[issues](https://github.com/zalify/offdesk/issues) for bugs.
 
 ## License
 
