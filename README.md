@@ -213,11 +213,11 @@ Two packaged clients also ship:
 - **Android** — an APK from [offdesk.dev/apk](https://offdesk.dev/apk), which always
   points at the newest app build (`/apk/universal` for the universal one);
   take `arm64-v8a` on a modern phone, `universal` if unsure. Sideload it; it
-  wraps the same web app, with native notifications and clipboard. It asks for
-  your hub's address on first launch, so one APK works with any hub — nothing
-  about a hub is compiled into it. The hub shows that address as a QR code, on
-  the page a fresh hub opens with and under Settings → Mobile app, so you scan
-  it rather than typing an IP on a phone keyboard.
+  wraps the same web app, with native notifications and clipboard. On first
+  launch it scans the code the hub shows — on the terminal at install, under
+  the Phone button, or `offdesk-hub link` — and is signed in; one APK works
+  with any hub, nothing about a hub is compiled into it. The address can also
+  be typed, and the sign-in link pasted.
 - **Desktop** — macOS (universal), Windows, and Linux, with an auto-updater.
   Built from `desktop-v*` tags. Set your hub URL in Settings.
 
@@ -459,9 +459,9 @@ machines. That is the whole path.
 a build that takes an hour, or vim — whatever runs in tmux runs here, and
 offdesk does not know or care which.
 
-**What about iPhone?** The browser is the whole client, so open the hub's URL
-in Safari and add it to the home screen. Android also has an app, which is the
-same UI in a WebView with native notifications.
+**What about iPhone?** The browser is the whole client: scan the hub's code
+with the camera, and add the page to the home screen. Android also has an
+app, which scans the same code and adds native notifications.
 
 **What if two people type at once?** The control lease decides who may type.
 Sending input claims it — last writer wins, no queue. Everyone else keeps

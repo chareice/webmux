@@ -1,13 +1,22 @@
 {
   "identifier": "mobile",
-  "description": "What the bundled setup screen may do on Android/iOS, before any hub is known. Local only: the hub itself is granted its own capability at runtime, scoped to its origin, by mobile_hub.rs. `set-mobile-hub-url` is deliberately not reachable from a hub — a hub may hand the app back to this screen, but only a person may type the next address.",
-  "platforms": ["android", "iOS"],
+  "description": "What the bundled setup screen may do on Android/iOS, before any hub is known. Local only: the hub itself is granted its own capability at runtime, scoped to its origin, by mobile_hub.rs. `set-mobile-hub-url` is deliberately not reachable from a hub \u2014 a hub may hand the app back to this screen, but only a person may type the next address. The barcode scanner is what lets a phone read the hub's code instead of typing its address.",
+  "platforms": [
+    "android",
+    "iOS"
+  ],
   "local": true,
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "allow-mobile-hub-url",
     "allow-set-mobile-hub-url",
-    "allow-clear-mobile-hub-url"
+    "allow-clear-mobile-hub-url",
+    "barcode-scanner:allow-scan",
+    "barcode-scanner:allow-cancel",
+    "barcode-scanner:allow-request-permissions",
+    "barcode-scanner:allow-check-permissions"
   ]
 }

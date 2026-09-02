@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@offdesk/shared": "workspace:*",
+    "@tauri-apps/plugin-barcode-scanner": "^2.4.6",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@xterm/addon-clipboard": "0.3.0-beta.302",
     "@xterm/addon-fit": "0.12.0-beta.300",

@@ -96,8 +96,8 @@ export default function LoginScreen() {
   const inMobileApp = isTauriMobile() && !isBundledOrigin();
   const [pastedLink, setPastedLink] = useState("");
   const [linkError, setLinkError] = useState<string | null>(null);
-  const handleOpenLink = () => {
-    const raw = pastedLink.trim();
+  const handleOpenLink = () => openLink(pastedLink.trim());
+  const openLink = (raw: string) => {
     let url: URL;
     try {
       url = new URL(raw);
@@ -123,6 +123,47 @@ export default function LoginScreen() {
     void import("@tauri-apps/api/core").then(({ invoke }) =>
       invoke("clear_mobile_hub_url"),
     );
+  };
+
+  // The phone's camera, in the app: reads the code the hub's page shows —
+  // the sign-in link, with the token on it — so nothing is typed. Only the
+  // app has a camera to offer; a browser tab uses the system camera app,
+  // which opens the link by itself.
+  const [scanError, setScanError] = useState<string | null>(null);
+  const scanCode = async (): Promise<string | null> => {
+    setScanError(null);
+    try {
+      const { scan, Format } = await import("@tauri-apps/plugin-barcode-scanner");
+      const result = await scan({ windowed: false, formats: [Format.QRCode] });
+      return result.content?.trim() || null;
+    } catch (error) {
+      const text = String(error);
+      setScanError(
+        /not allowed|permission/i.test(text)
+          ? "The app needs the camera for this. Allow it in Android's settings, or update the app."
+          : `Could not scan: ${text}`,
+      );
+      return null;
+    }
+  };
+  const handleScanForHub = async () => {
+    const content = await scanCode();
+    if (!content) return;
+    setServerUrlInput(content);
+    setConnecting(true);
+    setHubError(null);
+    void import("@tauri-apps/api/core")
+      .then(({ invoke }) => invoke("set_mobile_hub_url", { url: content }))
+      .catch((error: unknown) => {
+        setHubError(String(error));
+        setConnecting(false);
+      });
+  };
+  const handleScanForLink = async () => {
+    const content = await scanCode();
+    if (!content) return;
+    setPastedLink(content);
+    openLink(content);
   };
 
   const handleDesktopConnect = () => {
@@ -201,9 +242,21 @@ export default function LoginScreen() {
             )}
           </Pressable>
 
+          <Pressable
+            onPress={() => void handleScanForHub()}
+            disabled={connecting}
+            className="py-3 px-4 rounded-lg items-center active:opacity-80 border border-border mt-3"
+          >
+            <Text className="text-foreground font-medium">Scan the code instead</Text>
+          </Pressable>
+          {scanError ? (
+            <Text className="text-foreground text-xs mt-3 opacity-80">{scanError}</Text>
+          ) : null}
+
           <Text className="text-foreground text-xs text-center mt-4 opacity-40">
-            The address you use to open offdesk in a browser. You sign in on the
-            hub itself, once it loads.
+            The hub shows a code on its terminal at install, behind the Phone
+            button, and from `offdesk-hub link`. Scan it, or type the address
+            and sign in on the hub once it loads.
           </Text>
         </View>
       </View>
@@ -307,6 +360,17 @@ export default function LoginScreen() {
             >
               <Text className="text-background font-medium">Open the link</Text>
             </Pressable>
+            {inMobileApp ? (
+              <Pressable
+                onPress={() => void handleScanForLink()}
+                className="py-3 px-4 rounded-lg items-center active:opacity-80 border border-border mt-3"
+              >
+                <Text className="text-foreground font-medium">Scan the code instead</Text>
+              </Pressable>
+            ) : null}
+            {scanError && inMobileApp ? (
+              <Text className="text-foreground text-xs mt-3 opacity-80">{scanError}</Text>
+            ) : null}
             {inMobileApp ? (
               <Pressable
                 onPress={handleSwitchHub}

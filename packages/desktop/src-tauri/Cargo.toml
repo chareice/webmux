@@ -23,6 +23,12 @@ tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Mobile-only: the camera reads the hub's QR code so nothing is typed on a
+# phone. Android and iOS ship the plugin's native view; there is no desktop
+# counterpart.
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-barcode-scanner = "2"
+
 # Desktop-only plugins / runtime bits. Tray icon and global shortcuts make
 # no sense on mobile; the loopback OAuth listener (axum/tokio-net) needs
 # bind-to-port permission that mobile platforms restrict.

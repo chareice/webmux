@@ -87,9 +87,9 @@ export function MobileAppPanel() {
         style={{ fontSize: 11, color: colors.foregroundMuted, marginBottom: 12 }}
       >
         Scan this code with your phone's camera and the hub opens in its
-        browser, signed in. The Android app is the same UI with native
-        notifications; on its first screen, paste the link this code carries —
-        the whole thing, including ?token= — into Hub address.
+        browser, signed in. In the Android app, tap "Scan the code instead" on
+        its first screen and point it here — same result, with native
+        notifications.
       </div>
 
       <div
