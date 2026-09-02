@@ -270,8 +270,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "offdesk-desktop_iOS/offdesk-desktop_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
 				DEVELOPMENT_TEAM = 9W5QNP72NX;
 				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 9W5QNP72NX;
 				ENABLE_BITCODE = NO;
@@ -290,7 +290,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.offdesk.ios;
 				PRODUCT_NAME = "offdesk";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "offdesk App Store";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -426,8 +426,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "offdesk-desktop_iOS/offdesk-desktop_iOS.entitlements";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
 				DEVELOPMENT_TEAM = 9W5QNP72NX;
 				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 9W5QNP72NX;
 				ENABLE_BITCODE = NO;
@@ -446,7 +446,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.offdesk.ios;
 				PRODUCT_NAME = "offdesk";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "offdesk App Store";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
