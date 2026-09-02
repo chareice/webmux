@@ -53,6 +53,20 @@ export const getMe = () => request<User>("GET", "/api/auth/me");
 export const devLogin = () =>
   request<{ token: string }>("GET", "/api/auth/dev");
 
+/** Which ways into this hub exist. `link` means no OAuth app is configured:
+ * the hub prints a sign-in link on start, and signed-in users can mint one. */
+export interface AuthProviders {
+  github: boolean;
+  google: boolean;
+  link: boolean;
+}
+export const getAuthProviders = () =>
+  request<AuthProviders>("GET", "/api/auth/providers");
+
+/** A fresh session for the current user, to carry to another device. */
+export const mintSessionToken = () =>
+  request<{ token: string }>("POST", "/api/auth/session-token");
+
 // API Tokens
 export interface ApiToken {
   id: string;
