@@ -8,6 +8,10 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "default" | "danger";
+  // A second, non-destructive way out, drawn between Cancel and the
+  // confirm: "Ungroup" next to "Close 2 terminals".
+  secondaryLabel?: string;
+  onSecondary?: () => void;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -19,6 +23,8 @@ export function ConfirmDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   variant = "default",
+  secondaryLabel,
+  onSecondary,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -126,6 +132,24 @@ export function ConfirmDialog({
           >
             {cancelLabel}
           </button>
+          {secondaryLabel && onSecondary ? (
+            <button
+              type="button"
+              onClick={onSecondary}
+              style={{
+                background: "transparent",
+                border: `1px solid ${colors.border}`,
+                borderRadius: 6,
+                color: colors.foreground,
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: 500,
+                padding: "6px 14px",
+              }}
+            >
+              {secondaryLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onConfirm}

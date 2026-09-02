@@ -861,11 +861,13 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
     .locator(`[data-testid='workspace-tab-${created.id}']`)
     .click({ button: "right" });
   await page
-    .getByRole("button", { name: `Delete workspace "${created.name}"` })
+    .getByRole("button", { name: `Close workspace "${created.name}"…` })
     .click();
+  // "Ungroup" is the non-destructive answer: the group row goes, the
+  // terminal stays.
   await page
-    .getByRole("dialog", { name: "Delete workspace?" })
-    .getByRole("button", { name: "Delete workspace" })
+    .getByRole("dialog", { name: `Close workspace "${created.name}"?` })
+    .getByRole("button", { name: "Ungroup" })
     .click();
 
   // Group row is gone server-side; the terminal survives in its cwd tab.

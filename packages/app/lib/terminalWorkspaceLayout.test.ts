@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TerminalInfo, WorkspaceGroupInfo } from "@offdesk/shared";
 import {
+  labelFromCwd,
   MAX_PANES_PER_TAB,
   appendWorkspacePaneToGroup,
   buildReorderPersistentGroupIds,
@@ -1148,5 +1149,23 @@ describe("flattenWorkspacePanes", () => {
       { terminalId: "x", left: 0, top: 0, width: 1, height: 1 },
     ]);
     expect(flattenWorkspacePanes(null)).toEqual([]);
+  });
+});
+
+describe("labelFromCwd", () => {
+  it("names a tab after the last path segment", () => {
+    expect(labelFromCwd("/Users/ryan/workspaces/offdesk")).toBe("offdesk");
+    expect(labelFromCwd("/srv/app/")).toBe("app");
+  });
+
+  it("calls a home directory ~, on macOS, Linux and for root", () => {
+    expect(labelFromCwd("/Users/zourenyuan")).toBe("~");
+    expect(labelFromCwd("/home/ryan/")).toBe("~");
+    expect(labelFromCwd("/root")).toBe("~");
+  });
+
+  it("does not mistake a directory under home for home", () => {
+    expect(labelFromCwd("/Users/zourenyuan/eng")).toBe("eng");
+    expect(labelFromCwd("/home")).toBe("home");
   });
 });

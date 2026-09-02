@@ -12,6 +12,7 @@ import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
 import { useVisualViewportHeight } from "@/lib/hooks";
 import { useKeyBarSlot } from "@/lib/keyBarSlot";
 import { getMobileViewportTerminalAction } from "@/lib/mobileViewportTerminal";
+import { estimateInitialTerminalDimensions } from "@/lib/terminalViewModel";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import { LazyLoadingFallback } from "./LazyLoadingFallback";
 
@@ -155,6 +156,48 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   );
 
   useEffect(() => clearFitRefRetryTimer, [clearFitRefRetryTimer]);
+
+  // A terminal sized by another device — a phone that typed into it, since
+  // typing claims control and control carries size — shows up on a desk as
+  // a strip in a black field, with nothing saying why. Measure the pane and,
+  // when the terminal is well under what would fit, say so and offer the
+  // fit; the fit claims control first when this device does not hold it.
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [paneSize, setPaneSize] = useState<{ width: number; height: number } | null>(null);
+  useEffect(() => {
+    const node = contentRef.current;
+    if (!node || !isTab || isCompact || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (rect) setPaneSize({ width: rect.width, height: rect.height });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isTab, isCompact]);
+  const wouldFit = paneSize
+    ? estimateInitialTerminalDimensions(paneSize.width, paneSize.height)
+    : null;
+  const sizedElsewhere =
+    isTab &&
+    !isCompact &&
+    terminal.reachable &&
+    wouldFit !== null &&
+    (terminal.cols < wouldFit.cols * 0.6 || terminal.rows < wouldFit.rows * 0.6);
+  const [fitAfterControl, setFitAfterControl] = useState(false);
+  useEffect(() => {
+    if (!fitAfterControl || !isController) return;
+    setFitAfterControl(false);
+    fitToContainer({ focusAfterFit: true });
+  }, [fitAfterControl, fitToContainer, isController]);
+  const handleFitHere = useCallback(() => {
+    if (isController) {
+      fitToContainer({ focusAfterFit: true });
+      return;
+    }
+    if (!onRequestControl) return;
+    setFitAfterControl(true);
+    onRequestControl(terminal.machine_id);
+  }, [fitToContainer, isController, onRequestControl, terminal.machine_id]);
 
   useImperativeHandle(ref, () => ({
     fitToContainer: (opts) => {
@@ -526,12 +569,53 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
         } : {
           width: "100%", height: "100%", pointerEvents: "none" as const, overflow: "hidden",
         }}>
-          <div style={isTab ? {
+          <div ref={contentRef} style={isTab ? {
             flex: 1, padding: "8px 10px", overflow: "hidden", background: terminalTheme.background,
             position: "relative" as const,
           } : {
             width: "100%", height: "100%",
           }}>
+            {sizedElsewhere && (
+              <div
+                data-testid="terminal-size-banner"
+                style={{
+                  position: "absolute",
+                  top: 8,
+                  right: 10,
+                  zIndex: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "6px 8px 6px 12px",
+                  borderRadius: 8,
+                  background: colors.surface,
+                  border: `1px solid ${colors.border}`,
+                  color: colors.foregroundSecondary,
+                  fontSize: 12,
+                }}
+              >
+                <span>
+                  Sized by another device · {terminal.cols}×{terminal.rows}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleFitHere}
+                  disabled={!isController && !onRequestControl}
+                  style={{
+                    background: colors.accent,
+                    border: "none",
+                    borderRadius: 6,
+                    color: colors.background,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    padding: "4px 10px",
+                  }}
+                >
+                  {isController ? "Fit to this window" : "Take control and fit"}
+                </button>
+              </div>
+            )}
             {terminal.reachable && isTab ? (
               <Suspense
                 fallback={<LazyLoadingFallback />}

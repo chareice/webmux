@@ -276,7 +276,7 @@ function TabBarComponent({
             },
             { type: "separator" },
             {
-              label: `Delete workspace "${tabMenu.group.label}"`,
+              label: `Close workspace "${tabMenu.group.label}"…`,
               // cwd fallback groups only exist while their panes do — there
               // is nothing to delete; persistent groups are user-owned rows.
               disabled: !tabMenu.group.persistent || !isController,

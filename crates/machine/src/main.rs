@@ -270,6 +270,43 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
     }
 }
 
+/// A machine that ran webmux before the rename still has that agent
+/// installed and running beside this one: two agents, one of them a binary
+/// nobody updates, and — because it started the tmux server every shell on
+/// the machine lives in — the name macOS puts on every file-access prompt.
+/// Nobody wants two; the old one goes when the new one is installed.
+fn retire_legacy_webmux_agent() {
+    let Some(home) = std::env::var_os("HOME") else { return };
+    let home = std::path::PathBuf::from(home);
+    if cfg!(target_os = "macos") {
+        let plist = home.join("Library/LaunchAgents/com.webmux.node.plist");
+        if !plist.exists() {
+            return;
+        }
+        let _ = std::process::Command::new("launchctl")
+            .args(["unload", &plist.to_string_lossy()])
+            .output();
+        let _ = std::fs::remove_file(&plist);
+        println!("Retired the old webmux-node agent (com.webmux.node); offdesk-node replaces it.");
+        if home.join(".local/bin/webmux-node").exists() {
+            println!("Its binary is still at ~/.local/bin/webmux-node and can be deleted.");
+        }
+    } else if cfg!(target_os = "linux") {
+        let unit = home.join(".config/systemd/user/webmux-node.service");
+        if !unit.exists() {
+            return;
+        }
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "disable", "--now", "webmux-node"])
+            .output();
+        let _ = std::fs::remove_file(&unit);
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "daemon-reload"])
+            .output();
+        println!("Retired the old webmux-node service; offdesk-node replaces it.");
+    }
+}
+
 enum ServiceOutcome {
     Restarted,
     NotInstalled,
@@ -458,6 +495,8 @@ fn cmd_service_install(no_auto_upgrade: bool) {
             std::process::exit(1);
         }
     };
+
+    retire_legacy_webmux_agent();
 
     let machine_name = hostname::get()
         .map(|h| h.to_string_lossy().to_string())
