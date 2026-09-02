@@ -454,6 +454,82 @@ test("canceling close for a busy workspace pane keeps the pane visible", async (
   await expect.poll(async () => (await listTerminals(page)).length).toBe(1);
 });
 
+test("opening the busy-terminal close dialog does not resize the workspace", async ({
+  page,
+}) => {
+  let releaseDialogChunk = () => {};
+  let dialogChunkRequested = false;
+  const dialogChunkGate = new Promise<void>((resolve) => {
+    releaseDialogChunk = resolve;
+  });
+  const pageLevelSpinnerCount = () =>
+    page.getByRole("progressbar").evaluateAll(
+      (elements) =>
+        elements.filter(
+          (element) => !element.closest('[data-testid="expanded-terminal"]'),
+        ).length,
+    );
+
+  await page.route(/\/ConfirmDialog-[^/]+\.js(?:\?.*)?$/, async (route) => {
+    dialogChunkRequested = true;
+    await dialogChunkGate;
+    await route.continue();
+  });
+
+  try {
+    await openApp(page);
+    await resetMachineState(page);
+    await takeControlFromHeader(page);
+
+    const terminalId = await createTerminalViaApi(page, { cwd: "/root" });
+    await page.route(
+      `**/api/machines/e2e-node/terminals/${terminalId}/foreground-process`,
+      async (route) => {
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            has_foreground_process: true,
+            process_name: "sleep",
+          }),
+        });
+      },
+    );
+
+    await expandTerminalById(page, terminalId);
+    const workspace = page.getByTestId("expanded-terminal");
+    const before = await workspace.boundingBox();
+    expect(before).not.toBeNull();
+
+    await pressPrefixKey(page, "x");
+    await expect
+      .poll(async () =>
+        dialogChunkRequested ||
+        (await page
+          .getByRole("dialog", { name: "Close terminal?" })
+          .isVisible()) ||
+        (await pageLevelSpinnerCount()) > 0,
+      )
+      .toBe(true);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+
+    const whileOpening = await workspace.boundingBox();
+    expect(whileOpening).not.toBeNull();
+    expect(await pageLevelSpinnerCount()).toBe(0);
+    expect(whileOpening?.height).toBe(before?.height);
+  } finally {
+    releaseDialogChunk();
+  }
+
+  await expect(
+    page.getByRole("dialog", { name: "Close terminal?" }),
+  ).toBeVisible();
+});
+
 test("confirming close for a busy cwd pane keeps an empty cwd group open", async ({
   page,
 }) => {
