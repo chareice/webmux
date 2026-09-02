@@ -23,7 +23,15 @@ function writeExecutable(path, contents) {
 // `apiStatus` is what the fake curl reports for the releases API, and
 // `assets` is the set of release files that exist. Between them they cover
 // every way the installer can fail.
-function run({ args = [], apiStatus = 200, assets = ["offdesk-darwin-arm64", "offdesk-node-darwin-arm64"] } = {}) {
+function run({
+  args = [],
+  apiStatus = 200,
+  assets = [
+    "offdesk-darwin-arm64",
+    "offdesk-node-darwin-arm64",
+    "offdesk-hub-darwin-arm64",
+  ],
+} = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), "offdesk-install-"));
   const binDir = join(tempDir, "bin");
   const prefix = join(tempDir, "prefix");
@@ -104,6 +112,41 @@ test("--node-only leaves the CLI alone", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.ok(existsSync(join(prefix, "offdesk-node")));
     assert.ok(!existsSync(join(prefix, "offdesk")), "the CLI should not be installed");
+  } finally {
+    cleanup(tempDir);
+  }
+});
+
+test("the hub is not installed unless asked for", () => {
+  const { result, prefix, tempDir } = run();
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(!existsSync(join(prefix, "offdesk-hub")), "the hub is opt-in");
+  } finally {
+    cleanup(tempDir);
+  }
+});
+
+test("--hub adds the server to the usual two", () => {
+  const { result, prefix, tempDir } = run({ args: ["--hub"] });
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    for (const name of ["offdesk", "offdesk-node", "offdesk-hub"]) {
+      assert.ok(existsSync(join(prefix, name)), `${name} should be installed`);
+    }
+    assert.match(result.stdout, /Next: start the hub/);
+  } finally {
+    cleanup(tempDir);
+  }
+});
+
+test("--hub-only installs the server alone", () => {
+  const { result, prefix, tempDir } = run({ args: ["--hub-only"] });
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(join(prefix, "offdesk-hub")));
+    assert.ok(!existsSync(join(prefix, "offdesk")));
+    assert.ok(!existsSync(join(prefix, "offdesk-node")));
   } finally {
     cleanup(tempDir);
   }

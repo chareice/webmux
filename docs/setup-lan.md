@@ -13,6 +13,28 @@ be reachable from outside your home.
 On the machine that will hold the URL — the Mac that stays on, or the NAS:
 
 ```bash
+curl -fsSL https://offdesk.dev/install | sh -s -- --hub-only
+offdesk-hub
+```
+
+It binds `0.0.0.0:4317`, writes its database and signing key into the
+directory you start it from, and prints a link:
+
+```
+  offdesk is running at http://192.168.1.10:4317
+
+  Open this to sign in:
+
+    http://192.168.1.10:4317/?token=eyJhbGciOi…
+```
+
+Open that on the same machine and you are signed in. The address it prints is
+the one your phone can reach — the hub asks the routing table which interface
+this machine uses, rather than guessing localhost.
+
+To keep it running, hand it to your init system, or use Docker instead:
+
+```bash
 git clone https://github.com/zalify/offdesk && cd offdesk
 ```
 
@@ -25,8 +47,6 @@ cat > docker-compose.override.yml <<'YAML'
 services:
   server:
     ports: !override ["4317:4317"]
-    environment:
-      OFFDESK_DEV_MODE: "true"
 YAML
 ```
 
@@ -39,13 +59,10 @@ version`).
 JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
 ```
 
-Docker Compose merges `docker-compose.override.yml` automatically. Or skip
-Docker and run the binary:
+Then read the sign-in link out of the container's logs:
 
 ```bash
-cargo build --release --bin offdesk-hub
-OFFDESK_DEV_MODE=true JWT_SECRET=$(openssl rand -hex 32) \
-  ./target/release/offdesk-hub --listen 0.0.0.0:4317
+docker compose logs server | grep -A 4 "Open this to sign in"
 ```
 
 Either way the point is the same: bind to `0.0.0.0`, not loopback, so the
@@ -62,9 +79,8 @@ hostname -I | awk '{print $1}' # Linux
 `sudo apt install tmux` on Debian or Ubuntu. The agent exits at startup if tmux
 is missing.
 
-Open `http://<lan-ip>:4317` in a browser on the same machine. With
-`OFFDESK_DEV_MODE=true` it signs you straight in. Go to Settings and create a
-machine registration token, then:
+Open the sign-in link the hub printed. It lands on a page that hands you the
+three commands below with a registration token already in them:
 
 ```bash
 curl -fsSL https://offdesk.dev/install | sh -s -- --node-only
@@ -100,11 +116,12 @@ the other goes view-only until it types again.
 
 ## What this setup does not protect
 
-- **`OFFDESK_DEV_MODE=true` signs in anyone who opens the URL.** The web client
-  calls the dev-login endpoint on its own, with no prompt, and everyone who
-  does lands on the same account. Anyone who can reach `<lan-ip>:4317` — a
-  guest on your Wi-Fi, a smart TV, anything on the network — gets a shell on
-  every registered machine.
+- **The sign-in link is a session in a URL.** Anyone who has it — from your
+  scrollback, a screenshot, a shared terminal — signs in as the hub's owner and
+  gets a shell on every registered machine. It is printed on every start until
+  you configure OAuth.
+- **`OFFDESK_DEV_MODE=true` is worse and should not be used here.** It signs in
+  anyone who opens the URL, with no prompt and no link required.
 - **There is no TLS.** Traffic, including the session JWT, crosses your LAN in
   the clear.
 - **Do not port-forward this.** If you want the hub reachable from outside,
