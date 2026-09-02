@@ -88,6 +88,43 @@ export default function LoginScreen() {
       });
   };
 
+  // The link the hub printed, pasted here. Same origin as this page means
+  // this hub: loading it is the sign-in — the app reads `?token=`, stores it
+  // and strips it. A link for another hub cannot be followed from a page the
+  // first hub served; the mobile app can let go of this hub and take the
+  // whole link on its own setup screen instead.
+  const inMobileApp = isTauriMobile() && !isBundledOrigin();
+  const [pastedLink, setPastedLink] = useState("");
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const handleOpenLink = () => {
+    const raw = pastedLink.trim();
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      setLinkError("That is not a link. Paste the whole thing, starting with http.");
+      return;
+    }
+    if (!url.searchParams.has("token")) {
+      setLinkError("That link has no ?token= in it. Copy the whole line the hub printed.");
+      return;
+    }
+    if (url.origin === window.location.origin) {
+      window.location.assign(url.toString());
+      return;
+    }
+    setLinkError(
+      inMobileApp
+        ? `That link is for ${url.origin}, not this hub. Switch hub, then paste it there.`
+        : `That link is for ${url.origin}, not this hub. Open it in the browser instead.`,
+    );
+  };
+  const handleSwitchHub = () => {
+    void import("@tauri-apps/api/core").then(({ invoke }) =>
+      invoke("clear_mobile_hub_url"),
+    );
+  };
+
   const handleDesktopConnect = () => {
     setServerUrl(serverUrlInput.trim());
     setConnecting(true);
@@ -122,12 +159,12 @@ export default function LoginScreen() {
 
           <View className="mb-6">
             <Text className="text-foreground text-sm mb-2 opacity-60">
-              Hub address
+              Hub address, or the whole sign-in link the hub printed
             </Text>
             <TextInput
               value={serverUrlInput}
               onChangeText={setServerUrlInput}
-              placeholder="https://your-hub.example.com"
+              placeholder="http://192.168.1.10:4317/?token=…"
               placeholderTextColor="#999"
               autoCapitalize="none"
               autoCorrect={false}
@@ -234,13 +271,53 @@ export default function LoginScreen() {
         </Text>
 
         {providers?.link ? (
-          <Text className="text-foreground text-sm text-center opacity-80 leading-6">
-            This hub has no GitHub or Google sign-in, so the address alone does
-            not get you in. On the computer that runs the hub, open Settings →
-            Mobile app and scan the code there with this phone's camera. In
-            the Android app, paste the whole link the hub printed — including
-            ?token= — into Hub address.
-          </Text>
+          <View className="mb-6">
+            <Text className="text-foreground text-sm text-center opacity-80 leading-6 mb-5">
+              This hub has no GitHub or Google sign-in, so the address alone
+              does not get you in. It printed a link when it was installed —
+              also under Settings → Mobile app on the computer that runs it,
+              as a code for this phone's camera. Paste that link here:
+            </Text>
+            <TextInput
+              value={pastedLink}
+              onChangeText={(text) => {
+                setPastedLink(text);
+                setLinkError(null);
+              }}
+              placeholder="http://192.168.1.10:4317/?token=…"
+              placeholderTextColor="#999"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              inputMode="url"
+              onSubmitEditing={handleOpenLink}
+              className="bg-background border border-border rounded-lg px-4 py-3 text-foreground mb-3"
+            />
+            {linkError ? (
+              <Text className="text-foreground text-xs mb-3 opacity-80">
+                {linkError}
+              </Text>
+            ) : null}
+            <Pressable
+              onPress={handleOpenLink}
+              disabled={!pastedLink.trim()}
+              className={`py-3 px-4 rounded-lg items-center active:opacity-80 bg-foreground ${
+                pastedLink.trim() ? "" : "opacity-50"
+              }`}
+            >
+              <Text className="text-background font-medium">Open the link</Text>
+            </Pressable>
+            {inMobileApp ? (
+              <Pressable
+                onPress={handleSwitchHub}
+                className="py-3 px-4 rounded-lg items-center active:opacity-80 mt-3"
+              >
+                <Text className="text-foreground opacity-70">
+                  Use a different hub
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
         ) : null}
 
         <View className="gap-3">
