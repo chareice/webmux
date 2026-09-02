@@ -120,22 +120,64 @@ jobs:
       # profile the CLI installed is for, and what the project ended up
       # asking for. None of this is secret — a profile's bundle id, team and
       # name are the same facts printed on its page in the developer portal.
+      # When signing fails, reproduce the setup by hand and say what Xcode
+      # sees. Nothing printed here is secret: a profile's bundle id, team and
+      # name are on its page in the developer portal, and certificate hashes
+      # are masked.
       - name: Signing diagnostics
         if: failure()
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
         run: |
-          echo "== provisioning profiles installed on the runner"
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ 2>/dev/null || echo "(none)"
-          for f in ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision; do
-            [ -e "$f" ] || continue
-            echo "-- $f"
-            security cms -D -i "$f" 2>/dev/null | plutil -p - 2>/dev/null \
-              | grep -E '"(Name|UUID|TeamIdentifier|ExpirationDate|application-identifier|get-task-allow|Platform)"' || true
+          set +e
+          mask() { sed -E 's/[0-9A-F]{40}/<hash>/g'; }
+          echo "== profiles Xcode can see"
+          for dir in ~/Library/MobileDevice/Provisioning\ Profiles ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles; do
+            echo "-- $dir"; ls -la "$dir" 2>/dev/null
           done
-          echo "== signing identities in the build keychain(s)"
-          security find-identity -v -p codesigning 2>/dev/null | sed -E 's/[0-9A-F]{40}/<hash>/' || true
-          echo "== what the project asks for"
-          grep -nE "CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|DEVELOPMENT_TEAM|PROVISIONING_PROFILE|PRODUCT_BUNDLE_IDENTIFIER" \
-            packages/desktop/src-tauri/gen/apple/offdesk-desktop.xcodeproj/project.pbxproj || true
+          f=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | head -1)
+          echo "== the profile, minus the certificate blobs"
+          security cms -D -i "$f" | plutil -p - | grep -vE '^\s+[0-9]+ => <|DER-Encoded' | grep -vE '^\s+"(DeveloperCertificates|DER-Encoded-Profile)"' | mask
+
+          echo "== the certificate, imported into a fresh keychain the way the CLI does it"
+          kc=$RUNNER_TEMP/diag.keychain-db
+          p12=$RUNNER_TEMP/diag.p12
+          echo "$IOS_CERTIFICATE" | base64 --decode > "$p12"
+          security create-keychain -p diagpass "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p diagpass "$kc"
+          security import "$p12" -k "$kc" -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/xcodebuild
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k diagpass "$kc" > /dev/null
+          security list-keychains -d user -s "$kc" login.keychain-db
+          echo "-- identities (before adding Apple's intermediate)"
+          security find-identity -p codesigning "$kc" | mask
+          echo "-- certificates in the keychain"
+          security find-certificate -a -p "$kc" | openssl crl2pkcs7 -nocrl -certfile /dev/stdin | openssl pkcs7 -print_certs -noout | mask
+          echo "-- adding Apple WWDR G3 + G4"
+          for ca in AppleWWDRCAG3 AppleWWDRCAG4; do
+            curl -fsSL "https://www.apple.com/certificateauthority/$ca.cer" -o "$RUNNER_TEMP/$ca.cer" && security import "$RUNNER_TEMP/$ca.cer" -k "$kc" -T /usr/bin/codesign > /dev/null 2>&1 && echo "   imported $ca"
+          done
+          echo "-- identities (after)"
+          security find-identity -v -p codesigning "$kc" | mask
+
+          echo "== effective build settings"
+          cd packages/desktop/src-tauri/gen/apple
+          xcodebuild -showBuildSettings -scheme offdesk-desktop_iOS -workspace offdesk-desktop.xcodeproj/project.xcworkspace -sdk iphoneos -configuration release 2>&1 \
+            | grep -E "CODE_SIGN|PROVISIONING|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER|PLATFORM_NAME|SDK_NAME|\bCONFIGURATION\b" | mask
+
+          echo "== dry run, exactly as the CLI runs it (with -allowProvisioningUpdates)"
+          xcodebuild -allowProvisioningUpdates -scheme offdesk-desktop_iOS -workspace offdesk-desktop.xcodeproj/project.xcworkspace -sdk iphoneos -configuration release build -dry-run 2>&1 \
+            | grep -E "error|warning|Provisioning|profile|BUILD" | mask | head -20
+          echo "== dry run, without -allowProvisioningUpdates"
+          xcodebuild -scheme offdesk-desktop_iOS -workspace offdesk-desktop.xcodeproj/project.xcworkspace -sdk iphoneos -configuration release build -dry-run 2>&1 \
+            | grep -E "error|warning|Provisioning|profile|BUILD" | mask | head -20
+          echo "== dry run, profile by name instead of UUID"
+          xcodebuild -scheme offdesk-desktop_iOS -workspace offdesk-desktop.xcodeproj/project.xcworkspace -sdk iphoneos -configuration release build -dry-run \
+            CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER="offdesk App Store" 'CODE_SIGN_IDENTITY=Apple Distribution' 2>&1 \
+            | grep -E "error|warning|Provisioning|profile|BUILD" | mask | head -20
+          security delete-keychain "$kc"
+          rm -f "$p12"
 
       - name: Collect IPA
         id: ipa
