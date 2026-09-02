@@ -26,7 +26,7 @@ import type {
   ResourceStats,
   TerminalInfo,
 } from "@offdesk/shared";
-import { FolderTree, Lock, Plus } from "lucide-react";
+import { FolderTree, Lock, Plus, Smartphone } from "lucide-react";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { colors, colorAlpha, terminalTheme } from "@/lib/colors";
 import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
@@ -73,6 +73,7 @@ interface TabBarProps {
   ) => void;
   onSelectMachine: (id: string) => void;
   onAddMachine: () => void;
+  onOpenPhone?: () => void;
   onRemoveHost: (machineId: string) => void;
   onRequestControl: () => void;
   onEngageViewOnly: () => void;
@@ -106,6 +107,7 @@ function TabBarComponent({
   onReorderGroups,
   onSelectMachine,
   onAddMachine,
+  onOpenPhone,
   onRemoveHost,
   onRequestControl,
   onEngageViewOnly,
@@ -540,6 +542,31 @@ function TabBarComponent({
           onRemoveHost={onRemoveHost}
         />
         <MicroMeters stats={stats} />
+        {onOpenPhone && (
+        <button
+          type="button"
+          data-testid="tab-bar-phone"
+          onClick={onOpenPhone}
+          title="Open this hub on your phone"
+          aria-label="Open this hub on your phone"
+          style={{
+            height: 24,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "0 8px",
+            borderRadius: 6,
+            background: "transparent",
+            border: `1px solid ${colors.line}`,
+            color: colors.fg2,
+            cursor: "pointer",
+            fontSize: 11,
+          }}
+        >
+          <Smartphone size={13} />
+          Phone
+        </button>
+        )}
         <span
           data-testid="tab-bar-rtt"
           style={{
