@@ -15,10 +15,12 @@ On the machine that will hold the URL — the Mac that stays on, or the NAS:
 ```bash
 curl -fsSL https://offdesk.dev/install | sh
 offdesk-hub
+offdesk-hub service install
 ```
 
-It binds `0.0.0.0:4317`, keeps its database and signing key in the offdesk
-config directory, and prints a link:
+The first line installs the hub, the node agent and the CLI. The second
+starts the hub: it binds `0.0.0.0:4317`, keeps its database and signing key
+in the offdesk config directory, and prints a link:
 
 ```
   offdesk is running at http://192.168.1.10:4317
@@ -29,17 +31,17 @@ config directory, and prints a link:
 ```
 
 Open that on the same machine and you are signed in. The address it prints is
-the one your phone can reach — the hub asks the routing table which interface
-this machine uses, rather than guessing localhost.
+the one your phone can reach: the hub lists this machine's interfaces and
+takes a private address on a physical one, so a VPN or a proxy in TUN mode
+does not fool it. If it still guesses wrong, start it with
+`OFFDESK_BASE_URL=http://<lan-ip>:4317`.
 
-To keep it running after you close the terminal, and across reboots:
+The third line keeps it running after you close the terminal, and across
+reboots — a launchd agent on macOS, a systemd user service on Linux. While it
+runs it also keeps a Mac from idle-sleeping; `--allow-idle-sleep` if you would
+rather it did not.
 
-```bash
-offdesk-hub service install
-```
-
-While it runs it also keeps a Mac from idle-sleeping — `--allow-idle-sleep`
-if you would rather it did not. Or use Docker instead:
+Or use Docker instead:
 
 ```bash
 git clone https://github.com/zalify/offdesk && cd offdesk
@@ -87,7 +89,8 @@ hostname -I | awk '{print $1}' # Linux
 is missing.
 
 Open the sign-in link the hub printed. It lands on a page that hands you the
-three commands below with a registration token already in them:
+commands below with a registration token already in them. On the hub's own
+machine the installer has already run, so skip the first line:
 
 ```bash
 curl -fsSL https://offdesk.dev/install | sh -s -- --node-only
@@ -95,15 +98,14 @@ offdesk-node register --hub-url http://<lan-ip>:4317 --token <token>
 offdesk-node start
 ```
 
-The installer puts `offdesk-node` in `~/.local/bin`. To build it instead:
-`cargo build --release --bin offdesk-node`.
+The token is single-use and expires 24 hours after it is issued. To build
+`offdesk-node` instead of installing it: [building.md](building.md).
 
-The token is single-use and expires 24 hours after it is issued.
-
-To keep the agent running after a reboot:
+`start` runs in the foreground and stops with the terminal. To keep the agent
+running after a reboot, use this instead:
 
 ```bash
-./target/release/offdesk-node service install
+offdesk-node service install
 ```
 
 That writes a systemd user unit on Linux (and runs `loginctl enable-linger` so
