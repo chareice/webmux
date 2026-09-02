@@ -173,6 +173,14 @@ enum Commands {
         #[arg(long)]
         yes: bool,
     },
+    /// Open the hub in a browser. On the machine that runs the hub this is
+    /// `offdesk-hub link`: the sign-in link, with the code for a phone;
+    /// elsewhere it opens the hub's address
+    Link {
+        /// Print the link without opening a browser
+        #[arg(long)]
+        no_open: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -206,6 +214,67 @@ async fn main() {
     std::process::exit(code);
 }
 
+/// `offdesk link`. A hub on this machine has a signing key in the offdesk
+/// data directory; then `offdesk-hub link` prints the sign-in link and the
+/// code, and this just runs it. Without one, the configured hub address is
+/// opened — that hub signs in through its own page.
+fn link(no_open: bool, configured_url: Option<&str>) -> Result<(), CliError> {
+    let local_hub = offdesk_protocol::config_dir().join("jwt_secret").is_file();
+    if local_hub {
+        let hub = find_beside_or_on_path("offdesk-hub").ok_or_else(|| {
+            CliError::Config(
+                "this machine runs a hub, but offdesk-hub is not installed beside offdesk or on PATH"
+                    .to_string(),
+            )
+        })?;
+        let mut command = std::process::Command::new(hub);
+        command.arg("link");
+        if no_open {
+            command.arg("--no-open");
+        }
+        let status = command
+            .status()
+            .map_err(|error| CliError::Config(format!("could not run offdesk-hub link: {error}")))?;
+        if status.success() {
+            return Ok(());
+        }
+        return Err(CliError::Config("offdesk-hub link did not succeed".to_string()));
+    }
+    let Some(url) = configured_url else {
+        return Err(CliError::Config(
+            "no hub runs on this machine and no hub address is configured. \
+             Set OFFDESK_URL, or url in ~/.config/offdesk/config.toml, or run this on the hub's machine."
+                .to_string(),
+        ));
+    };
+    let url = url.trim_end_matches('/');
+    println!("{url}");
+    if !no_open {
+        let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        let _ = std::process::Command::new(opener)
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+    Ok(())
+}
+
+fn find_beside_or_on_path(name: &str) -> Option<std::path::PathBuf> {
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(name)))
+        .filter(|path| path.is_file());
+    if beside.is_some() {
+        return beside;
+    }
+    std::env::var_os("PATH").and_then(|path| {
+        std::env::split_paths(&path)
+            .map(|dir| dir.join(name))
+            .find(|candidate| candidate.is_file())
+    })
+}
+
 /// Read `name`, falling back to the pre-rename `legacy` variable with a
 /// deprecation notice on stderr. Dropped once nobody is on webmux.
 fn env_with_legacy(name: &str, legacy: &str) -> Option<String> {
@@ -220,6 +289,16 @@ fn env_with_legacy(name: &str, legacy: &str) -> Option<String> {
 async fn run(cli: Cli) -> Result<(), CliError> {
     let file = config::load_config_file()?;
     let env_url = env_with_legacy("OFFDESK_URL", "WEBMUX_URL");
+    // Needs no token: on the hub's machine the hub signs the link itself,
+    // and anywhere else there is only an address to open.
+    if let Commands::Link { no_open } = cli.command {
+        let url = cli
+            .url
+            .clone()
+            .or_else(|| env_url.clone())
+            .or_else(|| file.as_ref().and_then(|f| f.url.clone()));
+        return link(no_open, url.as_deref());
+    }
     let env_token = env_with_legacy("OFFDESK_TOKEN", "WEBMUX_TOKEN");
     let resolved = config::resolve(
         cli.url.as_deref(),
@@ -231,6 +310,8 @@ async fn run(cli: Cli) -> Result<(), CliError> {
     let hub_client = client::HubClient::new(&resolved)?;
 
     match cli.command {
+        // Handled before the hub client existed; it needs no token.
+        Commands::Link { .. } => unreachable!("link returns early"),
         Commands::Machines { action, json, all } => match action {
             Some(MachinesAction::Rm { machine, yes }) => {
                 commands::machines::rm(&hub_client, &machine, yes).await

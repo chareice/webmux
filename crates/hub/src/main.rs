@@ -65,6 +65,9 @@ enum Command {
         #[command(subcommand)]
         action: ServiceCommand,
     },
+    /// Print the sign-in link again — with the code for a phone's camera —
+    /// and open it in the browser
+    Link,
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -152,6 +155,50 @@ fn run_service(action: ServiceCommand, args: &Args) {
     }
 }
 
+/// `offdesk-hub link`: the sign-in link, as many times as anyone wants it.
+/// Nothing is created or changed — the hub's own key signs a session for its
+/// owner, the same as at install. It has to be run on the machine the hub
+/// runs on; that is where the key is.
+fn run_link(args: &Args) {
+    let listen = &args.listen;
+    let database = first_run::database_path(args.database.as_deref());
+    let Some(jwt_secret) = first_run::stored_jwt_secret(&database) else {
+        eprintln!("This hub has not started yet, so there is no key to sign a link with.");
+        eprintln!("Start it: offdesk-hub service install");
+        std::process::exit(1);
+    };
+    if !first_run::wait_for_hub(listen, std::time::Duration::from_secs(1)) {
+        eprintln!("Nothing is listening on {listen}. Start the hub: offdesk-hub service install");
+        eprintln!("(or offdesk-hub, in the foreground)");
+        std::process::exit(1);
+    }
+    let pool = match db::create_pool(&database) {
+        Ok(pool) => pool,
+        Err(error) => {
+            eprintln!("error: could not open {database}: {error}");
+            std::process::exit(1);
+        }
+    };
+    let base_url = env_or("OFFDESK_BASE_URL", "http://localhost:4317");
+    let Some(link) = first_run::sign_in_link(&pool, &jwt_secret, &base_url, listen) else {
+        eprintln!("This hub signs in through GitHub or Google, so there is no link to print.");
+        eprintln!("Open it: {}", first_run::reachable_base_url(&base_url, listen));
+        std::process::exit(1);
+    };
+    let url = first_run::reachable_base_url(&base_url, listen);
+    let qr = first_run::qr_code(&link).unwrap_or_default();
+    println!("\n  offdesk is running at {url}\n");
+    println!("  Scan this with your phone's camera, or open the link:\n");
+    println!("{qr}\n");
+    println!("    {link}\n");
+    println!("  It signs you in as this hub's owner. Anyone who has the link can do");
+    println!("  the same, so keep it off shared terminals.");
+    if first_run::should_open_browser(args.no_open) {
+        println!("\n  Opening it in your browser.\n");
+        first_run::open_in_browser(&link);
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub manager: Arc<MachineManager>,
@@ -200,6 +247,10 @@ async fn main() {
 
     if let Some(Command::Service { action }) = &args.command {
         run_service(*action, &args);
+        return;
+    }
+    if let Some(Command::Link) = &args.command {
+        run_link(&args);
         return;
     }
 

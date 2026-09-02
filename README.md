@@ -62,6 +62,15 @@ binary; there is nothing else to install and nothing to configure. On a Mac
 the hub also keeps the machine from idle-sleeping while it runs
 (`--allow-idle-sleep` to opt out; the display and the lid are unaffected).
 
+To see the link and the code again, from any terminal on that machine:
+
+```bash
+offdesk-hub link
+```
+
+(`offdesk link` does the same once the CLI is set up, and opens a remote
+hub's address when there is no hub on this machine.)
+
 The link signs in whoever has it, so keep it off shared terminals. It stops
 being printed once you configure GitHub or Google sign-in — which you want the
 moment the hub is reachable from outside your network:
@@ -268,6 +277,7 @@ offdesk send <term> <text...> [--no-enter]      # type text (Enter appended by d
 offdesk key  <term> <KEY>...                    # Enter Esc Tab BTab Up Down Left Right C-c C-d F1-F12 ...
 offdesk wait <term> [--pattern <regex>] [--silence <ms>] [--timeout <sec>]
 offdesk kill <term> [--yes]
+offdesk link [--no-open]                        # open the hub in a browser; on the hub's machine, the sign-in link + code
 ```
 
 - Machines and terminals are addressed by **id prefix** (first column of `ls`);

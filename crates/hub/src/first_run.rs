@@ -578,7 +578,9 @@ pub fn service_notice(
          \n    {link}\n\
          \n  It signs you in as this hub's owner. Anyone who has the link can do\n  \
          the same, so keep it off shared terminals. Configure GitHub or Google\n  \
-         sign-in to stop printing it — see docs/setup-public.md.\n"
+         sign-in to stop printing it — see docs/setup-public.md.\n\
+         \n  To see this link again, from any terminal on this machine:\n\
+         \n    offdesk-hub link\n"
     ))
 }
 
