@@ -61,6 +61,18 @@ targets:
         RUST_LOG: info
     settings:
       base:
+        # Every signing key the Tauri CLI sets on a release build is listed
+        # here on purpose. The CLI edits this project by line number, and a
+        # key it has to *add* lands one line further down than the last —
+        # outside the build settings, where Xcode ignores it. A key that
+        # already exists is replaced in place. So: present, with the
+        # everyday values, and CI overwrites them.
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY[sdk=iphoneos*]: iPhone Developer
+        DEVELOPMENT_TEAM: 9W5QNP72NX
+        DEVELOPMENT_TEAM[sdk=iphoneos*]: 9W5QNP72NX
+        PROVISIONING_PROFILE_SPECIFIER: ""
+        PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]: ""
         ENABLE_BITCODE: false
         ARCHS: [arm64]
         VALID_ARCHS: arm64 
