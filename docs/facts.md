@@ -92,7 +92,7 @@ macOS — it is `~/Library/Application Support`.
 | File | Written by | Contents |
 |---|---|---|
 | `<config_dir>/webmux/config.toml` | the user, by hand | `url`, `token` for the CLI (`crates/cli/src/config.rs`) |
-| `<config_dir>/webmux/machine.json` | `webmux-node register` | `machine_id`, `machine_secret`, `hub_url`, optional `acp_agents` map (`crates/machine/src/config.rs`) |
+| `<config_dir>/webmux/machine.json` | `webmux-node register` | `machine_id`, `machine_secret`, `hub_url`, optional `prevent_idle_sleep` flag and `acp_agents` map (`crates/machine/src/config.rs`) |
 | `<config_dir>/webmux/tmux.conf` | the node, on start | generated tmux config (`crates/machine/src/pty.rs`) |
 | `<config_dir>/webmux/tmux.user.conf` | the user, optional | sourced at the end of the generated config, so it wins |
 | `<config_dir>/webmux/osc52copy.sh` | the node, on start | clipboard helper, mode 0755 |

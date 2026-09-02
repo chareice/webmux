@@ -2,6 +2,7 @@ mod acp;
 mod attach;
 mod config;
 mod hub_conn;
+mod keep_awake;
 mod osc_title;
 mod pty;
 mod service;
@@ -217,6 +218,7 @@ async fn run_register(hub_url: String, token: String, name: Option<String>) {
         machine_id: register_resp.machine_id.clone(),
         machine_secret: register_resp.machine_secret,
         hub_url: ws_url,
+        prevent_idle_sleep: config::default_prevent_idle_sleep(),
         acp_agents: Default::default(),
     };
 
@@ -274,6 +276,10 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
 
     // Try to load config
     let loaded_config = config::load_config().ok();
+    let prevent_idle_sleep = loaded_config
+        .as_ref()
+        .map(|config| config.prevent_idle_sleep)
+        .unwrap_or_else(config::default_prevent_idle_sleep);
 
     let (machine_id, machine_secret, ws_url) = if let Some(cfg) = &loaded_config {
         // Use config values, but allow CLI overrides for hub_url and name
@@ -333,6 +339,21 @@ async fn run_start(hub_url: Option<String>, name: Option<String>, id: Option<Str
             .unwrap_or_default(),
     };
 
+    // Hold this guard across the reconnect loop. On macOS, caffeinate also
+    // watches this process ID so abrupt termination releases the assertion.
+    let _keep_awake_guard = match keep_awake::prevent_idle_sleep(prevent_idle_sleep) {
+        Ok(guard) => {
+            if guard.is_some() {
+                tracing::info!("Preventing macOS idle sleep while offdesk-node is running");
+            }
+            guard
+        }
+        Err(error) => {
+            tracing::warn!("Could not prevent macOS idle sleep: {error}");
+            None
+        }
+    };
+
     conn.run().await;
 }
 
@@ -350,6 +371,16 @@ fn cmd_status() {
         Ok(cfg) => {
             println!("Machine ID:  {}", cfg.machine_id);
             println!("Hub URL:     {}", cfg.hub_url);
+            if cfg!(target_os = "macos") {
+                println!(
+                    "Prevent idle sleep setting: {}",
+                    if cfg.prevent_idle_sleep {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                );
+            }
         }
         Err(_) => {
             println!("Machine ID:  (not registered)");
