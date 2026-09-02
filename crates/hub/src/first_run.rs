@@ -106,6 +106,13 @@ fn generate_secret() -> String {
 /// has users signed in through a provider — then this is somebody else's hub
 /// and it is not this code's business to mint a session on it.
 pub fn owner_session(pool: &DbPool, jwt_secret: &str) -> Option<String> {
+    let user_id = owner_user_id(pool)?;
+    Some(crate::auth::sign_jwt(&user_id, jwt_secret))
+}
+
+/// The owner's user id, created on first use. See [`owner_session`] for when
+/// this is `None`.
+fn owner_user_id(pool: &DbPool) -> Option<String> {
     let conn = pool.get().ok()?;
 
     let user = match db::users::find_user_by_provider(&conn, LOCAL_PROVIDER, LOCAL_PROVIDER_ID) {
@@ -129,7 +136,187 @@ pub fn owner_session(pool: &DbPool, jwt_secret: &str) -> Option<String> {
         Err(_) => return None,
     };
 
-    Some(crate::auth::sign_jwt(&user.id, jwt_secret))
+    Some(user.id)
+}
+
+/// A single-use registration token for one machine, the same one the web
+/// UI's "Add host" mints, so that `service install` can register the machine
+/// it is running on without a browser in the loop.
+pub fn mint_registration_token(pool: &DbPool) -> Option<String> {
+    let user_id = owner_user_id(pool)?;
+    let conn = pool.get().ok()?;
+    let raw = uuid::Uuid::new_v4().to_string();
+    let expires_at = db::now_ms() + 24 * 60 * 60 * 1000;
+    db::tokens::create_registration_token(
+        &conn,
+        &uuid::Uuid::new_v4().to_string(),
+        &user_id,
+        "",
+        &crate::auth::hash_token(&raw),
+        expires_at,
+    )
+    .ok()?;
+    Some(raw)
+}
+
+/// The signing key as stored beside the database — what a hub running as a
+/// service is using — without minting one. `None` until the hub has started
+/// once and written it.
+pub fn stored_jwt_secret(database_path: &str) -> Option<String> {
+    let secret = std::fs::read_to_string(secret_path(database_path)).ok()?;
+    let secret = secret.trim().to_string();
+    (!secret.is_empty()).then_some(secret)
+}
+
+/// The link as a QR code for a phone camera, drawn with half-block
+/// characters. Dark modules are drawn as the terminal's background and light
+/// ones as its foreground, which is the right way round on the dark terminal
+/// most people run; phone cameras read either polarity.
+pub fn qr_code(link: &str) -> Option<String> {
+    use qrcode::render::unicode::Dense1x2;
+    let code = qrcode::QrCode::new(link.as_bytes()).ok()?;
+    let art = code
+        .render::<Dense1x2>()
+        .dark_color(Dense1x2::Light)
+        .light_color(Dense1x2::Dark)
+        .quiet_zone(true)
+        .build();
+    Some(
+        art.lines()
+            .map(|line| format!("    {line}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+/// True once something accepts connections on the listen port. A service
+/// that was just loaded takes a moment to bind; the sign-in link can only be
+/// printed once the hub has written its signing key, which it does before
+/// it listens.
+pub fn wait_for_hub(listen: &str, timeout: std::time::Duration) -> bool {
+    let port = listen
+        .rsplit(':')
+        .next()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(4317);
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if std::net::TcpStream::connect_timeout(&address, std::time::Duration::from_millis(500)).is_ok() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    false
+}
+
+/// What became of the machine the hub runs on.
+pub enum LocalNode {
+    /// Registered now, and installed as a service.
+    Registered { name: String },
+    /// Its node already belongs to this hub.
+    AlreadyHere,
+    /// Its node belongs to a different hub, which is left alone.
+    Elsewhere { hub: String },
+    /// No `offdesk-node` beside `offdesk-hub` or on PATH.
+    NoBinary,
+    Failed(String),
+}
+
+/// Register this machine with the hub that just started on it, and keep its
+/// node running as a service. The three-line install used to end with the
+/// person on a "Connect a machine" page, being asked to register the machine
+/// they were sitting at; this is that step, done.
+pub fn register_local_node(pool: &DbPool, listen: &str) -> LocalNode {
+    let port = listen
+        .rsplit(':')
+        .next()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(4317);
+
+    // A node belongs to one hub. If this machine's already points somewhere,
+    // that was a decision, and not one to overturn from an installer.
+    let machine_json = offdesk_protocol::config_dir().join("machine.json");
+    if let Ok(existing) = std::fs::read_to_string(&machine_json) {
+        let hub = serde_json::from_str::<serde_json::Value>(&existing)
+            .ok()
+            .and_then(|v| v.get("hub_url").and_then(|u| u.as_str()).map(str::to_string))
+            .unwrap_or_default();
+        let here = hub.contains(&format!("127.0.0.1:{port}/"))
+            || hub.contains(&format!("localhost:{port}/"));
+        if here {
+            let _ = node_service_install(&find_node_binary().unwrap_or_else(|| "offdesk-node".into()));
+            return LocalNode::AlreadyHere;
+        }
+        if !hub.is_empty() {
+            return LocalNode::Elsewhere { hub };
+        }
+    }
+
+    let Some(node) = find_node_binary() else {
+        return LocalNode::NoBinary;
+    };
+    let Some(token) = mint_registration_token(pool) else {
+        return LocalNode::Failed("could not mint a registration token".into());
+    };
+
+    let registered = std::process::Command::new(&node)
+        .args(["register", "--hub-url", &format!("http://127.0.0.1:{port}"), "--token", &token])
+        .env("NO_PROXY", "127.0.0.1,localhost")
+        .env("no_proxy", "127.0.0.1,localhost")
+        .output();
+    match registered {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            let text = String::from_utf8_lossy(&output.stderr);
+            return LocalNode::Failed(text.lines().last().unwrap_or("registration failed").to_string());
+        }
+        Err(error) => return LocalNode::Failed(format!("could not run {}: {error}", node.display())),
+    }
+    if let Err(error) = node_service_install(&node) {
+        return LocalNode::Failed(error);
+    }
+    let name = hostname().unwrap_or_else(|| "this machine".into());
+    LocalNode::Registered { name }
+}
+
+fn node_service_install(node: &Path) -> Result<(), String> {
+    let output = std::process::Command::new(node)
+        .args(["service", "install"])
+        .output()
+        .map_err(|error| format!("could not run {}: {error}", node.display()))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let text = String::from_utf8_lossy(&output.stderr);
+        Err(text.lines().last().unwrap_or("offdesk-node service install failed").to_string())
+    }
+}
+
+/// `offdesk-node` beside this binary first — the installer puts the three
+/// side by side — then on PATH.
+fn find_node_binary() -> Option<PathBuf> {
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("offdesk-node")))
+        .filter(|path| path.is_file());
+    if beside.is_some() {
+        return beside;
+    }
+    std::env::var_os("PATH").and_then(|path| {
+        std::env::split_paths(&path)
+            .map(|dir| dir.join("offdesk-node"))
+            .find(|candidate| candidate.is_file())
+    })
+}
+
+fn hostname() -> Option<String> {
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|name| !name.is_empty())
 }
 
 /// The address to hand someone, preferring what they configured, then the LAN
@@ -313,6 +500,62 @@ pub fn sign_in_link(pool: &DbPool, jwt_secret: &str, base_url: &str, listen: &st
     Some(format!("{}/?token={token}", reachable_base_url(base_url, listen)))
 }
 
+/// What `service install` prints once the hub is up: where it is, what
+/// became of this machine, and the link — as a QR code for the phone that
+/// is the point of all this, and as text.
+pub fn service_notice(
+    pool: &DbPool,
+    jwt_secret: &str,
+    base_url: &str,
+    listen: &str,
+    database_path: &str,
+    local: &LocalNode,
+) -> Option<String> {
+    let link = sign_in_link(pool, jwt_secret, base_url, listen)?;
+    let url = reachable_base_url(base_url, listen);
+    let data_dir = Path::new(database_path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| ".".into());
+    let logs = if cfg!(target_os = "macos") {
+        "~/Library/Logs/offdesk/offdesk-hub.stdout.log"
+    } else {
+        "journalctl --user -u offdesk-hub -f"
+    };
+    let machine = match local {
+        LocalNode::Registered { name } => format!(
+            "This machine is registered as \"{name}\" and its node runs as a service\n  \
+             too, so the first terminal you open is a shell right here."
+        ),
+        LocalNode::AlreadyHere => "This machine was already registered here; its node runs as a service.".into(),
+        LocalNode::Elsewhere { hub } => format!(
+            "This machine's node belongs to another hub ({hub}) and was left\n  \
+             alone. To move it here, take the commands from the page the link opens."
+        ),
+        LocalNode::NoBinary => "offdesk-node was not found beside offdesk-hub, so this machine is not\n  \
+             registered. Install it, then take the commands from the page the link opens.".into(),
+        LocalNode::Failed(why) => format!(
+            "Registering this machine did not work ({why}). Take the commands from\n  \
+             the page the link opens."
+        ),
+    };
+    let qr = qr_code(&link).unwrap_or_default();
+
+    Some(format!(
+        "\n  offdesk is running at {url}\n  \
+         data: {data_dir}\n  \
+         It starts at login and restarts if it stops. Logs: {logs}\n\
+         \n  {machine}\n\
+         \n  Scan this with your phone's camera, or open the link:\n\
+         \n{qr}\n\
+         \n    {link}\n\
+         \n  It signs you in as this hub's owner. Anyone who has the link can do\n  \
+         the same, so keep it off shared terminals. Configure GitHub or Google\n  \
+         sign-in to stop printing it — see docs/setup-public.md.\n"
+    ))
+}
+
 /// What to print on startup. `None` when the hub has a way in already.
 pub fn sign_in_notice(
     pool: &DbPool,
@@ -334,15 +577,19 @@ pub fn sign_in_notice(
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| ".".into());
 
+    let qr = qr_code(&link).unwrap_or_default();
+
     Some(format!(
         "\n  offdesk is running at {url}\n  \
          data: {data_dir}\n\
-         \n  Open this to sign in:\n\
+         \n  Scan this with your phone's camera, or open the link:\n\
+         \n{qr}\n\
          \n    {link}\n\
          \n  It signs you in as this hub's owner. Anyone who has the link can do\n  \
          the same, so keep it off shared terminals. Configure GitHub or Google\n  \
          sign-in to stop printing it — see docs/setup-public.md.\n\
-         \n  This hub stops when this terminal does. To run it at login instead:\n\
+         \n  This hub stops when this terminal does. To run it at login instead,\n  \
+         registered with this machine and with the link printed again:\n\
          \n    offdesk-hub service install\n"
     ))
 }
@@ -457,6 +704,52 @@ mod tests {
     #[test]
     fn this_machine_lists_its_interfaces() {
         assert!(interface_addresses().iter().any(|(_, ip)| ip.is_loopback()));
+    }
+
+    #[test]
+    fn the_link_becomes_a_scannable_block_of_half_cells() {
+        let art = qr_code("http://192.168.1.10:4317/?token=abc").unwrap();
+        let lines: Vec<&str> = art.lines().collect();
+        assert!(lines.len() > 12, "{}", lines.len());
+        assert!(lines.iter().all(|l| l.starts_with("    ")));
+        assert!(art.contains('█'));
+    }
+
+    #[test]
+    fn nothing_listening_is_reported_without_a_long_wait() {
+        let started = std::time::Instant::now();
+        assert!(!wait_for_hub("0.0.0.0:1", std::time::Duration::from_millis(300)));
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    #[test]
+    fn a_registration_token_is_minted_for_the_owner() {
+        let pool = crate::db::create_pool(":memory:").unwrap();
+        {
+            let conn = pool.get().unwrap();
+            crate::db::init_db(&conn).unwrap();
+        }
+        let token = mint_registration_token(&pool).unwrap();
+        assert_eq!(token.len(), 36);
+        let conn = pool.get().unwrap();
+        let found = crate::db::tokens::find_registration_token_by_hash(&conn, &crate::auth::hash_token(&token)).unwrap();
+        assert!(found.is_some());
+    }
+
+    #[test]
+    fn the_service_notice_says_what_became_of_this_machine() {
+        std::env::remove_var("OFFDESK_BASE_URL");
+        let pool = crate::db::create_pool(":memory:").unwrap();
+        {
+            let conn = pool.get().unwrap();
+            crate::db::init_db(&conn).unwrap();
+        }
+        let local = LocalNode::Elsewhere { hub: "wss://other.example/ws/machine".into() };
+        let notice = service_notice(&pool, "s", "http://localhost:4317", "127.0.0.1:4317", "x.db", &local).unwrap();
+        assert!(notice.contains("belongs to another hub (wss://other.example/ws/machine)"));
+        assert!(notice.contains("?token="));
+        assert!(notice.contains('█'));
+        assert!(!notice.contains("stops when this terminal does"));
     }
 
     #[test]

@@ -60,6 +60,9 @@ fi
 if [ "$1" = "-fsSL" ] && [ "$2" = "-o" ]; then
   for asset in ${assets.join(" ") || '""'}; do
     case "$4" in
+      # The hub is run by the installer, so its stand-in is a script that
+      # reports the call instead of a marker file.
+      *"/offdesk-hub-"*) printf '#!/bin/sh\necho "offdesk-hub $*"\n' > "$3"; exit 0 ;;
       *"/$asset") printf 'binary:%s' "$asset" > "$3"; exit 0 ;;
     esac
   done
@@ -106,14 +109,32 @@ test("picks the newest vX.Y.Z release", () => {
   }
 });
 
-test("everything is installed by default: the first machine is hub and host at once", () => {
+test("everything is installed by default, and the hub is started as a service", () => {
   const { result, prefix, tempDir } = run();
   try {
     assert.equal(result.status, 0, result.stderr);
     for (const name of ["offdesk", "offdesk-node", "offdesk-hub"]) {
       assert.ok(existsSync(join(prefix, name)), `${name} should be installed`);
     }
+    // The one line ends with the hub running: the installer calls
+    // `offdesk-hub service install`, which registers this machine and prints
+    // the sign-in link itself.
+    assert.match(result.stdout, /offdesk-hub service install/);
+    assert.doesNotMatch(result.stdout, /Next: start the hub/);
+  } finally {
+    cleanup(tempDir);
+  }
+});
+
+test("--no-service installs the binaries and says what to run", () => {
+  const { result, prefix, tempDir } = run({ args: ["--no-service"] });
+  try {
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(join(prefix, "offdesk-hub")));
     assert.match(result.stdout, /Next: start the hub/);
+    // The stand-in hub echoes its call at the start of a line; the "Next:"
+    // text only mentions the command, indented.
+    assert.doesNotMatch(result.stdout, /^offdesk-hub service install/m);
   } finally {
     cleanup(tempDir);
   }

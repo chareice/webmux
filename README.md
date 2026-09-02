@@ -32,42 +32,51 @@ machine you want to reach:
 
 ```bash
 curl -fsSL https://offdesk.dev/install | sh
-offdesk-hub
-offdesk-hub service install
 ```
 
-The first line installs all three binaries — the **hub**, the **offdesk-node**
-agent, and the **CLI** — into `~/.local/bin`, for Linux and macOS on x64 and
-arm64. The second starts the hub and prints a link that signs you in:
+That one line installs the three binaries — the **hub**, the **offdesk-node**
+agent, and the **CLI** — into `~/.local/bin` for Linux and macOS on x64 and
+arm64, then starts the hub as a service that runs at login and restarts if it
+stops, registers this machine with it, and prints a link that signs you in:
 
 ```
   offdesk is running at http://192.168.1.10:4317
   data: /Users/you/Library/Application Support/offdesk
+  It starts at login and restarts if it stops.
 
-  Open this to sign in:
+  This machine is registered as "studio" and its node runs as a service
+  too, so the first terminal you open is a shell right here.
+
+  Scan this with your phone's camera, or open the link:
+
+    █▀▀▀▀▀█ ▀▄█ ▄ █▀▀▀▀▀█
+    …
 
     http://192.168.1.10:4317/?token=eyJhbGciOi…
 ```
 
-Open it and you are the hub's owner. The web UI is inside the binary; there is
-nothing else to install and nothing to configure. The third line keeps the hub
-running after you close the terminal — at login, restarted if it ever stops: a
-launchd agent on macOS, a systemd user service on Linux. On a Mac it also keeps
-the machine from idle-sleeping while it runs (`--allow-idle-sleep` to opt out;
-the display and the lid are unaffected).
-
-The address in the link is the one a phone on your Wi-Fi can reach; a VPN or
-a proxy in TUN mode does not fool it. If it still prints one you cannot reach,
-start the hub with `OFFDESK_BASE_URL=http://<this machine's LAN IP>:4317`.
+Scan the code with your phone, or open the link on this machine (it opens in
+your browser by itself when you are at the terminal), and you are the hub's
+owner, looking at a terminal on this machine. The web UI is inside the
+binary; there is nothing else to install and nothing to configure. On a Mac
+the hub also keeps the machine from idle-sleeping while it runs
+(`--allow-idle-sleep` to opt out; the display and the lid are unaffected).
 
 The link signs in whoever has it, so keep it off shared terminals. It stops
 being printed once you configure GitHub or Google sign-in — which you want the
 moment the hub is reachable from outside your network:
 [docs/setup-public.md](docs/setup-public.md).
 
-Installer flags: `--node-only`, `--hub-only` and `--cli-only` install one
-binary; `--prefix <dir>` installs elsewhere; `--system` uses `/usr/local/bin`
-(that step, and only that step, asks for sudo). To build from source instead:
+The address in the link is the one a phone on your Wi-Fi can reach; a VPN or
+a proxy in TUN mode does not fool it. If it still prints one you cannot reach,
+start the hub with `OFFDESK_BASE_URL=http://<this machine's LAN IP>:4317`.
+
+Installer flags: `--no-service` installs the binaries and stops, and the
+same `offdesk-hub service install` is then yours to run; `--node-only`,
+`--hub-only` and `--cli-only` install one binary; `--prefix <dir>` installs
+elsewhere; `--system` uses `/usr/local/bin` (that step, and only that step,
+asks for sudo). `offdesk-hub` on its own runs the hub in the foreground, for
+Docker and for watching the logs. To build from source instead:
 [docs/building.md](docs/building.md).
 
 ### Or in Docker
@@ -135,14 +144,15 @@ never resizes the desk.
 
 ### Adding a machine
 
-On every machine you want to reach. tmux is required — the agent checks for it
-at startup and exits if it is missing. On a second machine,
-`curl -fsSL https://offdesk.dev/install | sh -s -- --node-only` is enough;
-then:
+The machine the hub runs on is registered by the install. For every other
+machine you want to reach: tmux is required — the agent checks for it
+at startup and exits if it is missing — and
+`curl -fsSL https://offdesk.dev/install | sh -s -- --node-only` installs the
+agent alone; then:
 
 ```bash
 offdesk-node register --hub-url https://your-hub.example.com --token <token>
-offdesk-node start
+offdesk-node service install
 ```
 
 `<token>` is a registration token: the hub mints one for each new machine,
@@ -153,12 +163,9 @@ shows these commands with the token filled in, ready to paste into a shell
 on the new machine. Each token works once and expires 24 hours after it is
 issued; generate another for the next machine.
 
-To keep it running across reboots — a systemd user service on Linux, a launchd
-agent on macOS:
-
-```bash
-offdesk-node service install
-```
+`service install` keeps it running across reboots — a systemd user service on
+Linux, a launchd agent on macOS. `offdesk-node start` runs it in the
+foreground instead.
 
 On macOS, a running node prevents automatic idle system sleep by default so it
 stays reachable. The display may still turn off, and closing a laptop lid,
@@ -423,7 +430,7 @@ hub keeps in SQLite: [SECURITY.md](SECURITY.md).
 
 ## Questions, answered
 
-**Do I need an account?** No. The hub is yours; the first run creates a local
+**Do I need an account?** No. The hub is yours; the install creates a local
 user and prints a link that signs you in. Nothing here has a sign-up form.
 
 **Does my traffic go through offdesk.dev?** No. That domain serves the install

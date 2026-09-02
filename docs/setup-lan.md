@@ -14,32 +14,40 @@ On the machine that will hold the URL — the Mac that stays on, or the NAS:
 
 ```bash
 curl -fsSL https://offdesk.dev/install | sh
-offdesk-hub
-offdesk-hub service install
 ```
 
-The first line installs the hub, the node agent and the CLI. The second
-starts the hub: it binds `0.0.0.0:4317`, keeps its database and signing key
-in the offdesk config directory, and prints a link:
+That installs the hub, the node agent and the CLI, starts the hub as a
+service — a launchd agent on macOS, a systemd user service on Linux, at login
+and restarted if it stops — registers this machine with it, and prints a
+link:
 
 ```
   offdesk is running at http://192.168.1.10:4317
+  data: /Users/you/Library/Application Support/offdesk
+  It starts at login and restarts if it stops.
 
-  Open this to sign in:
+  This machine is registered as "studio" and its node runs as a service
+  too, so the first terminal you open is a shell right here.
+
+  Scan this with your phone's camera, or open the link:
+
+    █▀▀▀▀▀█ ▀▄█ ▄ █▀▀▀▀▀█
+    …
 
     http://192.168.1.10:4317/?token=eyJhbGciOi…
 ```
 
-Open that on the same machine and you are signed in. The address it prints is
-the one your phone can reach: the hub lists this machine's interfaces and
-takes a private address on a physical one, so a VPN or a proxy in TUN mode
-does not fool it. If it still guesses wrong, start it with
-`OFFDESK_BASE_URL=http://<lan-ip>:4317`.
+Open that on the same machine (it opens in your browser by itself when you
+are at the terminal) and you are signed in, looking at a terminal on this
+machine. The address it prints is the one your phone can reach: the hub lists
+this machine's interfaces and takes a private address on a physical one, so a
+VPN or a proxy in TUN mode does not fool it. If it still guesses wrong, run
+`OFFDESK_BASE_URL=http://<lan-ip>:4317 offdesk-hub service install` again.
 
-The third line keeps it running after you close the terminal, and across
-reboots — a launchd agent on macOS, a systemd user service on Linux. While it
-runs it also keeps a Mac from idle-sleeping; `--allow-idle-sleep` if you would
-rather it did not.
+While it runs the hub also keeps a Mac from idle-sleeping;
+`--allow-idle-sleep` on `service install` if you would rather it did not.
+`offdesk-hub` on its own runs the hub in the foreground instead, for watching
+the logs; `--no-service` on the installer leaves starting it to you.
 
 Or use Docker instead:
 
@@ -82,37 +90,31 @@ ipconfig getifaddr en0        # macOS
 hostname -I | awk '{print $1}' # Linux
 ```
 
-## 2. Register the machine
+## 2. Register another machine
 
-`offdesk-node` needs tmux. Install it first — `brew install tmux` on macOS,
+The machine the hub runs on was registered by the install. For every other
+one: `offdesk-node` needs tmux. Install it first — `brew install tmux` on macOS,
 `sudo apt install tmux` on Debian or Ubuntu. The agent exits at startup if tmux
 is missing.
 
 `<token>` is a registration token the hub mints for one new machine; you
-never type it by hand. Open the sign-in link the hub printed: a fresh hub
-lands on **Connect a machine**, which shows the commands below with the token
-filled in. For the next machine, it is **Add host** in the machine switcher.
-On the hub's own machine the installer has already run, so skip the first
-line:
+never type it by hand. Open the hub in a browser and choose **Add host** in
+the machine switcher: it shows the commands below with the token filled in,
+ready to paste into a shell on the new machine.
 
 ```bash
 curl -fsSL https://offdesk.dev/install | sh -s -- --node-only
 offdesk-node register --hub-url http://<lan-ip>:4317 --token <token>
-offdesk-node start
+offdesk-node service install
 ```
 
 The token is single-use and expires 24 hours after it is issued. To build
 `offdesk-node` instead of installing it: [building.md](building.md).
 
-`start` runs in the foreground and stops with the terminal. To keep the agent
-running after a reboot, use this instead:
-
-```bash
-offdesk-node service install
-```
-
-That writes a systemd user unit on Linux (and runs `loginctl enable-linger` so
-it survives logout), or a launchd agent on macOS.
+`service install` writes a systemd user unit on Linux (and runs
+`loginctl enable-linger` so it survives logout), or a launchd agent on macOS.
+`offdesk-node start` runs the agent in the foreground instead, and stops with
+the terminal.
 
 ## 3. Open it on your phone
 

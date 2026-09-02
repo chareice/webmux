@@ -67,7 +67,7 @@ enum Command {
     },
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Copy)]
 enum ServiceCommand {
     /// Install and start the service, with the arguments given to this command
     Install,
@@ -95,19 +95,45 @@ fn service_spec(listen: &str, allow_idle_sleep: bool) -> offdesk_protocol::servi
     }
 }
 
-fn run_service(action: ServiceCommand, listen: &str, allow_idle_sleep: bool) {
+fn run_service(action: ServiceCommand, args: &Args) {
     use offdesk_protocol::service as svc;
-    let spec = service_spec(listen, allow_idle_sleep);
+    let listen = &args.listen;
+    let spec = service_spec(listen, args.allow_idle_sleep);
     let outcome = match action {
-        ServiceCommand::Install => svc::install(&spec).map(|()| {
-            println!("offdesk-hub is installed as a service and running.");
-            println!("It starts at login and restarts if it stops. To see it:");
-            println!("  offdesk-hub service status");
-            if cfg!(target_os = "macos") {
-                println!("Logs: ~/Library/Logs/offdesk/offdesk-hub.stdout.log");
-            } else {
-                println!("Logs: journalctl --user -u offdesk-hub -f");
+        ServiceCommand::Install => svc::install(&spec).and_then(|()| {
+            // Installing is the whole first step now: the hub is up, this
+            // machine is registered to it, and the link is on the terminal
+            // — nothing to read out of a log file, nothing to Ctrl-C.
+            if !first_run::wait_for_hub(listen, std::time::Duration::from_secs(20)) {
+                return Err(format!(
+                    "the service was installed but nothing answered on {listen} within 20s; \
+                     see offdesk-hub service status"
+                ));
             }
+            let database = first_run::database_path(args.database.as_deref());
+            let Some(jwt_secret) = first_run::stored_jwt_secret(&database) else {
+                println!("offdesk-hub is installed as a service and running.");
+                println!("Its sign-in link is in the log: offdesk-hub service status");
+                return Ok(());
+            };
+            let pool = db::create_pool(&database).map_err(|e| e.to_string())?;
+            let local = first_run::register_local_node(&pool, listen);
+            let base_url = env_or("OFFDESK_BASE_URL", "http://localhost:4317");
+            match first_run::service_notice(&pool, &jwt_secret, &base_url, listen, &database, &local) {
+                Some(notice) => {
+                    println!("{notice}");
+                    if first_run::should_open_browser(args.no_open) {
+                        if let Some(link) = first_run::sign_in_link(&pool, &jwt_secret, &base_url, listen) {
+                            println!("  Opening it in your browser.\n");
+                            first_run::open_in_browser(&link);
+                        }
+                    }
+                }
+                None => {
+                    println!("offdesk-hub is installed as a service and running: {}", first_run::reachable_base_url(&base_url, listen));
+                }
+            }
+            Ok(())
         }),
         ServiceCommand::Uninstall => svc::uninstall(&spec).map(|()| {
             println!("offdesk-hub service removed.");
@@ -172,8 +198,8 @@ async fn main() {
     promote_legacy_env();
     let args = Args::parse();
 
-    if let Some(Command::Service { action }) = args.command {
-        run_service(action, &args.listen, args.allow_idle_sleep);
+    if let Some(Command::Service { action }) = &args.command {
+        run_service(*action, &args);
         return;
     }
 
