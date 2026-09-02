@@ -1,7 +1,7 @@
 # offdesk
 
-Vibe code from your phone, on the terminal running at home.
-One self-hosted hub, all your machines, any agent that runs in tmux.
+Vibe code from your phone, on the terminal you left at home.
+One self-hosted hub, every machine you own, any agent that runs in tmux.
 
 <!-- TODO(ryan): record docs/media/hero.gif — see docs/media/README.md. Until
      then the phone screenshot below stands in; swap the reference, not the
@@ -10,52 +10,32 @@ One self-hosted hub, all your machines, any agent that runs in tmux.
   <img src="docs/media/phone-terminal.png" width="300" alt="An offdesk terminal on a phone: Claude Code running on a Mac at home, attached from the phone's browser">
 </p>
 
-- **Off the desk, not off the work.** Close the laptop and walk away. The
-  session is still running on the machine at home, and your phone opens the
-  same terminal, mid-scroll — not a summary of it.
-- **It is the real terminal, and it is just tmux.** Anything that runs in tmux
-  runs here: Claude Code, Codex, Grok, vim, htop. No agent-specific
-  integration, so there is nothing to add when the next agent ships — and
-  nothing to be locked into. Uninstall offdesk, ssh in, `tmux attach`, and your
-  sessions are still there.
-- **Your phone and your desk on the same session, live.** Whoever typed last
-  holds the control lease; everyone else keeps receiving output instead of
-  being disconnected. tmux runs `window-size manual`, so a phone attaching
-  never resizes the desk.
-- **Every machine you own, in one place.** A Mac at home, a NAS, a VPS — they
-  all register to one hub and open from one URL. The other tools that give you
-  a real terminal run one server per machine.
-- **Your server, your traffic.** Each machine dials out to a hub you run. No
-  third-party relay, no vendor account, and no transcript stored anywhere you
-  do not control.
-- **`offdesk open nas --cwd ~/app --cmd claude`** from a script, or from an
-  agent on a different machine, against any machine on the hub.
-- Rust. The hub is one binary plus a SQLite file. The machine agent is one
-  binary.
+Close the laptop and walk away. The session keeps running on the machine at
+home, and your phone opens the same terminal, mid-scroll — not a summary of it.
+
+- **0** accounts to create. The hub is yours; the first run prints a link that
+  signs you in.
+- **1** URL for every machine. A Mac at home, a NAS, a VPS — they all register
+  to one hub. The other tools that give you a real terminal run one server per
+  machine.
+- **3** binaries, nothing else. Rust; the hub is one binary plus a SQLite file.
+- **MIT**, all of it, hub included. No relay, no vendor account, no transcript
+  stored anywhere you do not control.
 
 ## Install
-
-One command installs all three binaries — the **hub**, the **offdesk-node**
-agent, and the **CLI** — into `~/.local/bin`, for Linux and macOS on x64 and
-arm64:
-
-```bash
-curl -fsSL https://offdesk.dev/install | sh
-```
-
-`--node-only`, `--hub-only` and `--cli-only` install one of them; `--prefix
-<dir>` installs elsewhere; `--system` uses `/usr/local/bin` (that step, and only
-that step, asks for sudo). Or build them yourself:
-`cargo build --release --bin offdesk-hub --bin offdesk-node --bin offdesk`.
-
-### Hub
 
 On the machine that stays on — a Mac, a NAS — which is usually also the first
 machine you want to reach:
 
 ```bash
+curl -fsSL https://offdesk.dev/install | sh
 offdesk-hub
+offdesk-hub service install
 ```
+
+The first line installs all three binaries — the **hub**, the **offdesk-node**
+agent, and the **CLI** — into `~/.local/bin`, for Linux and macOS on x64 and
+arm64. The second starts the hub and prints a link that signs you in:
 
 ```
   offdesk is running at http://192.168.1.10:4317
@@ -66,26 +46,26 @@ offdesk-hub
     http://192.168.1.10:4317/?token=eyJhbGciOi…
 ```
 
-Open the link and you are signed in as the hub's owner; there is nothing else
-to configure. The web UI is inside the binary. The database and signing key
-live in the offdesk config directory, next to the agent's and the CLI's.
-
-That hub stops when the terminal does. To run it at login instead, restarted
-if it ever stops — a launchd agent on macOS, a systemd user service on Linux:
-
-```bash
-offdesk-hub service install
-```
-
-On a Mac it also keeps the machine from idle-sleeping while it runs
-(`--allow-idle-sleep` to opt out; the display and the lid are unaffected).
+Open it and you are the hub's owner. The web UI is inside the binary; there is
+nothing else to install and nothing to configure. The third line keeps the hub
+running after you close the terminal — at login, restarted if it ever stops: a
+launchd agent on macOS, a systemd user service on Linux. On a Mac it also keeps
+the machine from idle-sleeping while it runs (`--allow-idle-sleep` to opt out;
+the display and the lid are unaffected).
 
 The link signs in whoever has it, so keep it off shared terminals. It stops
 being printed once you configure GitHub or Google sign-in — which you want the
 moment the hub is reachable from outside your network:
 [docs/setup-public.md](docs/setup-public.md).
 
-Or run it in Docker, which is what a NAS usually wants:
+Installer flags: `--node-only`, `--hub-only` and `--cli-only` install one
+binary; `--prefix <dir>` installs elsewhere; `--system` uses `/usr/local/bin`
+(that step, and only that step, asks for sudo). To build from source instead:
+[docs/building.md](docs/building.md).
+
+### Or in Docker
+
+What a NAS usually wants:
 
 ```bash
 git clone https://github.com/zalify/offdesk && cd offdesk
@@ -106,12 +86,52 @@ it in the volume, and losing the volume signs everybody out.
          -e JWT_SECRET=$(openssl rand -hex 32) \
          -v offdesk-data:/app/data ghcr.io/zalify/offdesk-hub:main -->
 
-### Machine
+## How it works
 
-On every machine you want to reach, the hub's own machine included. tmux is
-required — the agent checks for it at startup and exits if it is missing. On
-a second machine, `curl -fsSL https://offdesk.dev/install | sh -s -- --node-only`
-is enough; then:
+Three binaries. One outbound socket each. Nothing to keep awake but the hub.
+
+1. **Hub** — `offdesk-hub`. One process on the machine that stays on, SQLite
+   beside it, the web UI baked in. It is the only address anyone needs, and the
+   only thing a phone ever talks to.
+2. **Node** — `offdesk-node`. On every machine you want to reach, the hub's own
+   machine included. It dials out to the hub and keeps one WebSocket open, so
+   nothing on it needs an inbound port or a public IP: a laptop behind a hotel
+   router and a NAS behind a home NAT both show up in one list.
+3. **Terminal** — tmux. Every terminal is a tmux session on the machine that
+   owns it. It outlives the app, the network, and you walking away. Uninstall
+   offdesk, ssh in, `tmux attach`, and your sessions are still there.
+
+```
+   phone / browser            your hub                  your machines
+  ┌────────────────┐      ┌──────────────┐        ┌──────────────────────┐
+  │  xterm.js in a │      │ offdesk-hub  │        │ offdesk-node         │
+  │  browser tab   │◄────►│              │◄──────►│   tmux ── claude     │
+  └────────────────┘  WS  │  Axum + WS   │   WS   │   tmux ── vim        │
+                          │  SQLite      │        │   tmux ── htop       │
+  ┌────────────────┐      │              │        └──────────────────────┘
+  │  offdesk CLI   │◄────►│  control     │        ┌──────────────────────┐
+  │  another agent │  WS  │  lease       │◄──────►│ offdesk-node (NAS)   │
+  └────────────────┘      └──────────────┘   WS   └──────────────────────┘
+```
+
+Browsers, phones, and the CLI all connect to the hub, and the hub brokers
+bytes between them and tmux.
+
+**Who may type.** The desk and the phone attach to the same tmux session and
+see the same bytes. The control lease decides who may type: it is held per
+(user, machine), and sending input claims it — last writer wins, no queue.
+Everyone else keeps receiving output but their keystrokes, resizes, and image
+pastes are dropped: they are watching, live, not disconnected. Reading and
+waiting never claim it. The lease is held in memory, so it does not survive a
+hub restart. Because tmux runs with `window-size manual`, a phone attaching
+never resizes the desk.
+
+### Adding a machine
+
+On every machine you want to reach. tmux is required — the agent checks for it
+at startup and exits if it is missing. On a second machine,
+`curl -fsSL https://offdesk.dev/install | sh -s -- --node-only` is enough;
+then:
 
 ```bash
 offdesk-node register --hub-url https://your-hub.example.com --token <token>
@@ -136,16 +156,67 @@ opt out, add `"prevent_idle_sleep": false` to
 `~/Library/Application Support/offdesk/machine.json`, then restart the node
 with `offdesk-node service restart` (or stop and start a foreground node).
 
-### CLI
+## Two setups
 
-The installer above already placed it. To build just the CLI:
+The same binaries either way. The only question is whether your phone can
+already reach the hub's address.
+
+- **At home, off the desk** — hub on your Mac or NAS, phone on the same Wi-Fi.
+  No TLS, no domain. → [docs/setup-lan.md](docs/setup-lan.md)
+- **Away from home** — hub on a VPS behind Caddy, at home behind a Cloudflare
+  Tunnel, or on your tailnet. The guide compares them by who ends up able to
+  read your traffic. → [docs/setup-public.md](docs/setup-public.md)
+
+## On your phone
+
+The browser is the whole client. Open the hub's URL and you are there, on
+iPhone as much as anywhere — there is no iOS build, and none is needed. A full
+terminal with a key bar for Ctrl, Esc and the arrows, because agents ask
+questions and builds need a Ctrl-C.
+
+Two packaged clients also ship:
+
+- **Android** — an APK from [Releases](https://github.com/zalify/offdesk/releases/latest);
+  take `arm64-v8a` on a modern phone, `universal` if unsure. Sideload it; it
+  wraps the same web app, with native notifications and clipboard. It asks for
+  your hub's address on first launch, so one APK works with any hub — nothing
+  about a hub is compiled into it. The hub shows that address as a QR code, on
+  the page a fresh hub opens with and under Settings → Mobile app, so you scan
+  it rather than typing an IP on a phone keyboard.
+- **Desktop** — macOS (universal), Windows, and Linux, with an auto-updater.
+  Built from `desktop-v*` tags. Set your hub URL in Settings.
+
+To build either yourself: [docs/building.md](docs/building.md).
+
+### Bring your own agent
+
+offdesk does not wrap an agent or speak its protocol. It hands you the terminal
+the agent is already running in, with your own subscription, your own config,
+your own dotfiles. Anything that runs in tmux runs here: Claude Code, Codex,
+OpenCode, Gemini CLI, Aider, vim, htop, a build that takes an hour. No
+agent-specific integration, so there is nothing to add when the next agent
+ships — and nothing to be locked into.
+
+## For agents
+
+One token, and any agent can drive any machine you own. Any script, or any
+agent on any machine, can **open** a terminal on any other machine registered
+to your hub, **send** keystrokes into it, **wait** on it, and **read** it
+back. Not an agent session: a terminal, so whatever you drive is whatever you
+would have run by hand.
 
 ```bash
-cargo build --release --bin offdesk    # binary: target/release/offdesk
+T=$(offdesk open nas --cwd ~/projects/foo --cmd claude --json | jq -r .id)
+offdesk send $T "fix the type errors in src/auth.ts; stop when tests pass"
+offdesk wait $T --silence 5000 --timeout 600     # or --pattern '❯' to await a prompt
+offdesk read $T --lines 80                       # collect the result
+offdesk kill $T --yes
 ```
 
-Create an API token in the web UI (Settings → API Tokens → Create), then either
-write it to a config file:
+### Setting up the CLI
+
+The installer already placed it. Create an API token in the web UI (Settings →
+API Tokens → Create), then either write it to a config file:
 
 ```toml
 # ~/.config/offdesk/config.toml  (chmod 600)
@@ -157,67 +228,7 @@ token = "odk_..."
 or export `OFFDESK_URL` and `OFFDESK_TOKEN`. `--url` and `--token` override
 both.
 
-### Phone and desktop
-
-Open the hub URL in a browser. There is nothing to install, and on iPhone this
-is the only client — there is no iOS build.
-
-Two packaged clients also ship:
-
-- **Desktop** — macOS (universal), Windows, and Linux, with an auto-updater.
-  Built from `desktop-v*` tags. Set your hub URL in Settings.
-- **Android** — an APK from [Releases](https://github.com/zalify/offdesk/releases/latest);
-  take `arm64-v8a` on a modern phone, `universal` if unsure. Sideload it; it
-  wraps the same web app, with native notifications and clipboard. It asks for
-  your hub's address on first launch, so one APK works with any hub — nothing
-  about a hub is compiled into it. The hub shows that address as a QR code, on
-  the page a fresh hub opens with and under Settings → Mobile app, so you scan
-  it rather than typing an IP on a phone keyboard.
-
-To build the app yourself: [docs/building.md](docs/building.md).
-
-## Two setups
-
-- **At home, off the desk** — hub on your Mac or NAS, phone on the same Wi-Fi.
-  → [docs/setup-lan.md](docs/setup-lan.md)
-- **Away from home** — hub on a VPS behind Caddy, at home behind a Cloudflare
-  Tunnel, or on your tailnet. The guide compares them by who ends up able to
-  read your traffic. → [docs/setup-public.md](docs/setup-public.md)
-
-## How it works
-
-```
-   phone / browser            your hub                  your machines
-  ┌────────────────┐      ┌──────────────┐        ┌──────────────────────┐
-  │  xterm.js in a │      │ offdesk-hub  │        │ offdesk-node         │
-  │  browser tab   │◄────►│              │◄──────►│   tmux ── claude     │
-  └────────────────┘  WS  │  Axum + WS   │   WS   │   tmux ── vim        │
-                          │  SQLite      │        │   tmux ── htop       │
-  ┌────────────────┐      │              │        └──────────────────────┘
-  │  offdesk CLI   │◄────►│  control     │        ┌──────────────────────┐
-  │  another agent │  WS  │  lease       │◄──────►│ offdesk-node (NAS)   │
-  └────────────────┘      └──────────────┘   WS   └──────────────────────┘
-```
-
-Each machine runs `offdesk-node`, which opens one outbound WebSocket to the hub
-and hosts every terminal as a tmux session. Nothing on the machine needs an
-inbound port. Browsers, phones, and the CLI all connect to the hub, and the hub
-brokers bytes between them and tmux.
-
-**The control lease** decides who may type. It is held per (user, machine), and
-sending input claims it — last writer wins, no queue. Everyone else keeps
-receiving output but their keystrokes, resizes, and image pastes are dropped:
-they are watching, live, not disconnected. Reading and waiting never claim it.
-The lease is held in memory, so it does not survive a hub restart.
-
-Because tmux runs with `window-size manual`, a second client attaching or
-resizing does not resize anyone else's view.
-
-## For agents and scripts
-
-The CLI lets anything that can run a shell command — a human, a script, or
-another AI agent — list, open, read, write to, and wait on terminals on any
-machine registered to a hub.
+### Commands
 
 ```
 offdesk machines [--all] [--json]               # list machines (default: online; --all includes offline)
@@ -255,16 +266,6 @@ offdesk kill <term> [--yes]
   during the capture window only. `cwd` is live (tmux `pane_current_path`), not
   creation-time.
 
-### Driving an agent inside a terminal
-
-```bash
-T=$(offdesk open nas --cwd ~/projects/foo --cmd claude --json | jq -r .id)
-offdesk send $T "fix the type errors in src/auth.ts; stop when tests pass"
-offdesk wait $T --silence 5000 --timeout 600     # or --pattern '❯' to await a prompt
-offdesk read $T --lines 80                       # collect the result
-offdesk kill $T --yes
-```
-
 ### Semantics you must know
 
 1. **`send`/`key` claim control** (last-writer-wins). Other clients on the same
@@ -289,9 +290,11 @@ offdesk kill $T --yes
 
 ## How it compares
 
-Every cell below is from the vendor's own docs, sourced in the comment under
-the table. Checked 2026-09-01; these products move fast, so re-check before
-relying on any row.
+The tools that gather several machines into one place hand you a chat; the
+ones that hand you a real terminal run one server per machine. Every cell
+below is from the vendor's own docs, sourced in the comment under the table.
+Checked 2026-09-01; these products move fast, so re-check before relying on
+any row.
 
 | | Any terminal program | Machines per hub | Traffic goes through | Agents can drive it via CLI | Self-hosted |
 |---|---|---|---|---|---|
@@ -400,8 +403,33 @@ What the hub gives you to contain that:
 - Tokens are stored as SHA-256 hashes. The plaintext is shown once, at
   creation, and is not recoverable.
 
+The sign-in link the hub prints signs in whoever has it; treat it like a
+password. The control lease is not a security boundary, and it does not stop
+anyone holding a valid token.
+
 Threat model, what the control lease does and does not prevent, and what the
 hub keeps in SQLite: [SECURITY.md](SECURITY.md).
+
+## Questions, answered
+
+**Do I need an account?** No. The hub is yours; the first run creates a local
+user and prints a link that signs you in. Nothing here has a sign-up form.
+
+**Does my traffic go through offdesk.dev?** No. That domain serves the install
+script and a web page. Your phone talks to your hub, and your hub talks to your
+machines. That is the whole path.
+
+**Is it only for Claude Code?** It is a terminal. Claude Code, Codex, OpenCode,
+a build that takes an hour, or vim — whatever runs in tmux runs here, and
+offdesk does not know or care which.
+
+**What about iPhone?** The browser is the whole client, so open the hub's URL
+in Safari and add it to the home screen. Android also has an app, which is the
+same UI in a WebView with native notifications.
+
+**What if two people type at once?** The control lease decides who may type.
+Sending input claims it — last writer wins, no queue. Everyone else keeps
+receiving output, so they watch live instead of being disconnected.
 
 ## License
 
