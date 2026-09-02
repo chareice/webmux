@@ -11,6 +11,8 @@
 #   --system            install to /usr/local/bin (asks sudo for that step)
 #   --prefix <dir>      install to <dir>
 #   --version <vX.Y.Z>  install a specific release instead of the latest
+#   --hub               also install offdesk-hub, the server
+#   --hub-only          install only offdesk-hub
 #   --cli-only          skip offdesk-node
 #   --node-only         skip the offdesk CLI
 
@@ -24,6 +26,7 @@ VERSION=""
 USE_SUDO=no
 WANT_CLI=yes
 WANT_NODE=yes
+WANT_HUB=no
 
 main() {
     parse_args "$@"
@@ -43,6 +46,7 @@ main() {
     installed=""
     [ "$WANT_CLI" = yes ] && fetch_binary offdesk && installed="${installed} offdesk"
     [ "$WANT_NODE" = yes ] && fetch_binary offdesk-node && installed="${installed} offdesk-node"
+    [ "$WANT_HUB" = yes ] && fetch_binary offdesk-hub && installed="${installed} offdesk-hub"
 
     ensure_prefix
     for name in $installed; do
@@ -76,6 +80,12 @@ parse_args() {
                 [ $# -gt 0 ] || die "--version needs a tag, e.g. v0.4.0"
                 VERSION="$1"
                 ;;
+            --hub) WANT_HUB=yes ;;
+            --hub-only)
+                WANT_HUB=yes
+                WANT_CLI=no
+                WANT_NODE=no
+                ;;
             --cli-only) WANT_NODE=no ;;
             --node-only) WANT_CLI=no ;;
             -h|--help)
@@ -87,7 +97,7 @@ parse_args() {
         shift
     done
 
-    if [ "$WANT_CLI" = no ] && [ "$WANT_NODE" = no ]; then
+    if [ "$WANT_CLI" = no ] && [ "$WANT_NODE" = no ] && [ "$WANT_HUB" = no ]; then
         die "--cli-only and --node-only cannot be combined"
     fi
 }
@@ -103,6 +113,8 @@ GitHub release. Defaults to ~/.local/bin.
   --system            install to /usr/local/bin (asks sudo for that step)
   --prefix <dir>      install to <dir>
   --version <vX.Y.Z>  install a specific release instead of the latest
+  --hub               also install offdesk-hub, the server
+  --hub-only          install only offdesk-hub
   --cli-only          skip offdesk-node
   --node-only         skip the offdesk CLI
 
@@ -296,6 +308,16 @@ report_path() {
 
 report_next_steps() {
     say ""
+    case " ${installed} " in
+        *" offdesk-hub "*)
+            say "Next: start the hub."
+            say "  offdesk-hub"
+            say ""
+            say "It prints a link that signs you in, and keeps its database and"
+            say "signing key in the directory you start it from."
+            say ""
+            ;;
+    esac
     case " ${installed} " in
         *" offdesk-node "*)
             say "Next: register this machine with your hub."

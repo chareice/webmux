@@ -1,5 +1,8 @@
 mod attach_router;
 mod auth;
+mod first_run;
+#[cfg(feature = "embed-ui")]
+mod embedded_ui;
 pub mod db;
 mod machine_manager;
 mod routes;
@@ -27,9 +30,10 @@ struct Args {
     #[arg(long, default_value = "0.0.0.0:4317")]
     listen: String,
 
-    /// Path to frontend static files
-    #[arg(long, default_value = "packages/app/dist", env = "OFFDESK_STATIC_DIR")]
-    static_dir: String,
+    /// Path to frontend static files. Without it the binary serves the UI it
+    /// was built with, and falls back to ./packages/app/dist when it has none.
+    #[arg(long, env = "OFFDESK_STATIC_DIR")]
+    static_dir: Option<String>,
 
     /// Path to SQLite database file
     #[arg(long, default_value = "./offdesk.db", env = "DATABASE_PATH")]
@@ -82,6 +86,13 @@ async fn main() {
     promote_legacy_env();
     let args = Args::parse();
 
+    // A hub with no configured key generates one and keeps it next to the
+    // database, so sessions survive a restart instead of logging everyone out.
+    let (jwt_secret, generated_secret) = first_run::jwt_secret(&args.database);
+    if generated_secret {
+        tracing::info!("no JWT_SECRET configured; using a generated one");
+    }
+
     // Initialize database
     let pool = db::create_pool(&args.database).expect("Failed to create database pool");
     {
@@ -94,7 +105,7 @@ async fn main() {
         manager: Arc::new(MachineManager::new(pool.clone())),
         router: Arc::new(HubRouter::new()),
         db: pool,
-        jwt_secret: env_or("JWT_SECRET", "dev-secret-change-me"),
+        jwt_secret: jwt_secret.clone(),
         base_url: env_or("OFFDESK_BASE_URL", "http://localhost:4317"),
         dev_mode: env_or("OFFDESK_DEV_MODE", "false") == "true",
         github_client_id: env_opt("GITHUB_CLIENT_ID"),
@@ -103,6 +114,11 @@ async fn main() {
         google_client_secret: env_opt("GOOGLE_CLIENT_SECRET"),
     };
 
+    let pool_for_notice = state.db.clone();
+    let base_url_for_notice = state.base_url.clone();
+    let has_oauth = state.github_client_id.is_some() || state.google_client_id.is_some();
+    let dev_mode = state.dev_mode;
+
     state.manager.start_seq_flush_task();
 
     let app = routes::router()
@@ -110,12 +126,26 @@ async fn main() {
         .route("/api", any(api_not_found))
         .route("/api/{*path}", any(api_not_found))
         .layer(CorsLayer::permissive())
-        .fallback_service(static_file_service(&args.static_dir))
+        .fallback_service(ui_service(args.static_dir.as_deref()))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&args.listen).await.unwrap();
 
     tracing::info!("Hub running on http://{}", args.listen);
+
+    // Printed rather than logged: this is the one thing the person who just
+    // started a hub needs, and it should not be buried in a log line.
+    if let Some(notice) = first_run::sign_in_notice(
+        &pool_for_notice,
+        &jwt_secret,
+        &base_url_for_notice,
+        &args.listen,
+        has_oauth,
+        dev_mode,
+    ) {
+        println!("{notice}");
+    }
+
     // Nagle's algorithm batches small TCP segments while ACKs are outstanding,
     // which turns per-keystroke WS frames into visible latency spikes. axum
     // does not set TCP_NODELAY on accepted connections by default.
@@ -140,6 +170,25 @@ fn cache_control_for_static<B>(res: &http::Response<B>) -> Option<HeaderValue> {
         "public, max-age=3600"
     };
     HeaderValue::from_str(directive).ok()
+}
+
+/// An explicit `--static-dir` always wins: it is how someone runs a hub
+/// against a frontend they are editing. Otherwise the baked-in UI, and
+/// otherwise the repo-relative path this has always defaulted to.
+fn ui_service(static_dir: Option<&str>) -> Router {
+    if let Some(dir) = static_dir {
+        tracing::info!("serving the web UI from {dir}");
+        return static_file_service(dir);
+    }
+
+    #[cfg(feature = "embed-ui")]
+    if embedded_ui::is_populated() {
+        tracing::info!("serving the web UI baked into this binary");
+        return Router::new().fallback(embedded_ui::serve);
+    }
+
+    tracing::info!("serving the web UI from packages/app/dist");
+    static_file_service("packages/app/dist")
 }
 
 fn static_file_service(static_dir: impl AsRef<Path>) -> Router {

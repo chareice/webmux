@@ -11,6 +11,8 @@ const docs = `${repo}#readme`;
 const description =
   "Vibe code from your phone on the terminal you left at home.";
 const install = "curl -fsSL https://offdesk.dev/install | sh";
+const hubInstall =
+  "curl -fsSL https://offdesk.dev/install | sh -s -- --hub-only\noffdesk-hub";
 
 const setups = [
   {
@@ -18,8 +20,8 @@ const setups = [
     blurb:
       "Hub on the Mac or NAS that stays on. Phone on the same Wi-Fi. No TLS, no domain.",
     commands: [
-      "git clone https://github.com/zalify/offdesk && cd offdesk",
-      "JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build",
+      "curl -fsSL https://offdesk.dev/install | sh -s -- --hub-only",
+      "offdesk-hub",
       "offdesk-node register --hub-url http://192.168.1.10:4317 --token <token>",
       "offdesk-node start",
     ],
@@ -197,9 +199,21 @@ offdesk kill $T --yes`;
 
         <p class="cmd-note">
           That installs the <code>offdesk-node</code> agent and the
-          <code>offdesk</code> CLI on a machine you want to reach. The hub
-          itself is a container — one of the two setups below, five minutes
-          either way.
+          <code>offdesk</code> CLI on a machine you want to reach. For the hub
+          itself, on whichever machine stays on:
+        </p>
+
+        <div class="cmd stack">
+          <code id="hub-cmd">{hubInstall}</code>
+          <button type="button" id="copy-hub" aria-label="Copy hub install command">
+            Copy
+          </button>
+        </div>
+
+        <p class="cmd-note">
+          <code>offdesk-hub</code> prints a link that signs you in. The web UI
+          is inside the binary; there is nothing else to install and nothing to
+          configure. Docker is the other way — both setups below.
         </p>
 
         <div class="actions">
@@ -422,19 +436,24 @@ offdesk kill $T --yes`;
     </footer>
 
     <script is:inline>
-      const button = document.getElementById("copy");
-      const command = document.getElementById("install-cmd");
-      button?.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(command.textContent.trim());
-          button.textContent = "Copied";
-        } catch {
-          button.textContent = "Press ⌘C";
-        }
-        setTimeout(() => {
-          button.textContent = "Copy";
-        }, 1600);
-      });
+      for (const [buttonId, commandId] of [
+        ["copy", "install-cmd"],
+        ["copy-hub", "hub-cmd"],
+      ]) {
+        const button = document.getElementById(buttonId);
+        const command = document.getElementById(commandId);
+        button?.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(command.textContent.trim());
+            button.textContent = "Copied";
+          } catch {
+            button.textContent = "Press ⌘C";
+          }
+          setTimeout(() => {
+            button.textContent = "Copy";
+          }, 1600);
+        });
+      }
     </script>
 
     <style is:global>
@@ -553,6 +572,12 @@ offdesk kill $T --yes`;
         overflow: hidden;
       }
 
+      /* two commands, one box: the hub install and the command that starts it.
+         Wrapping a long single line at 375px would be worse than two lines. */
+      .cmd.stack code {
+        white-space: pre;
+      }
+
       .cmd code {
         flex: 1;
         min-width: 0;
@@ -566,7 +591,8 @@ offdesk kill $T --yes`;
         padding: 0.15rem 0;
       }
 
-      #copy {
+      #copy,
+      #copy-hub {
         flex: none;
         align-self: flex-start;
         border: 1px solid var(--line);
@@ -579,7 +605,8 @@ offdesk kill $T --yes`;
         cursor: pointer;
       }
 
-      #copy:hover {
+      #copy:hover,
+      #copy-hub:hover {
         color: var(--fg);
         border-color: var(--fg-2);
       }
@@ -845,7 +872,8 @@ offdesk kill $T --yes`;
           padding: 0.3rem 0.3rem 0.3rem 0.9rem;
         }
 
-        #copy {
+        #copy,
+        #copy-hub {
           align-self: auto;
         }
       }

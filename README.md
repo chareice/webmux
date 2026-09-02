@@ -35,43 +35,53 @@ Three pieces, in this order: a **hub** somewhere that stays on, the
 **offdesk-node** agent on each machine you want to reach, and — optionally —
 the **CLI** and the Android app.
 
-`curl -fsSL https://offdesk.dev/install | sh` gets you the agent and the CLI.
-It does not get you a hub; that is the step below, and it is a container.
-
 ### Hub
 
-Docker, on the machine that will hold the URL:
+On the machine that will hold the URL — the Mac that stays on, or the NAS:
+
+```bash
+curl -fsSL https://offdesk.dev/install | sh -s -- --hub-only
+offdesk-hub
+```
+
+It prints a link with a session in it. Open that and you are signed in as the
+hub's owner; there is nothing else to configure. The web UI is inside the
+binary, and the SQLite database and signing key are written to the directory
+you start it from.
+
+```
+  offdesk is running at http://192.168.1.10:4317
+
+  Open this to sign in:
+
+    http://192.168.1.10:4317/?token=eyJhbGciOi…
+```
+
+Anyone who has that link can sign in as you, so keep it off shared terminals.
+It stops being printed once you configure GitHub or Google sign-in, which is
+what you want the moment the hub is reachable from outside your network —
+[docs/setup-public.md](docs/setup-public.md).
+
+Or run it in Docker, which is what a NAS usually wants:
 
 ```bash
 git clone https://github.com/zalify/offdesk && cd offdesk
 JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
 ```
 
-It listens on `127.0.0.1:4317` and keeps its SQLite file in the `offdesk-data`
-volume. Set `JWT_SECRET` — the built-in default is the literal string
-`dev-secret-change-me`, which is not a secret.
-
-The hub signs you in with GitHub or Google OAuth. Which one you configure, and
-what callback URL it needs, depends on how you reach the hub, so that part is
-in the two setup guides below.
-
-Or build it directly:
-
-```bash
-cargo build --release --bin offdesk-hub
-./target/release/offdesk-hub --listen 0.0.0.0:4317
-```
+That binds `127.0.0.1:4317` and keeps its database in the `offdesk-data`
+volume. Set `JWT_SECRET` yourself here — a container that generates one keeps
+it in the volume, and losing the volume signs everybody out.
 
 <!-- TODO(ryan): the container workflow already publishes
      ghcr.io/zalify/offdesk-hub on every push to main, but the package is
      private — an anonymous `docker pull` gets 401. Make it public
      (github.com/orgs/zalify/packages -> offdesk-hub -> Package settings ->
-     Change visibility) and the whole section above collapses to:
+     Change visibility) and the clone-and-build above becomes:
 
-       docker run -d --name offdesk-hub -p 4317:4317          -e JWT_SECRET=$(openssl rand -hex 32)          -v offdesk-data:/app/data ghcr.io/zalify/offdesk-hub:main
-
-     That is the single biggest cut in the path from landing page to a
-     running hub: no clone, no build, no repo on the machine at all. -->
+       docker run -d --name offdesk-hub -p 4317:4317 \
+         -e JWT_SECRET=$(openssl rand -hex 32) \
+         -v offdesk-data:/app/data ghcr.io/zalify/offdesk-hub:main -->
 
 ### Machine
 
@@ -82,11 +92,12 @@ at startup and exits if it is missing.
 curl -fsSL https://offdesk.dev/install | sh
 ```
 
-That installs both binaries — the `offdesk-node` agent and the `offdesk` CLI —
-into `~/.local/bin`, for Linux and macOS on x64 and arm64. `--node-only` skips
-the CLI, `--prefix <dir>` installs elsewhere, and `--system` uses
-`/usr/local/bin` (that step, and only that step, asks for sudo). Or build them
-yourself: `cargo build --release --bin offdesk --bin offdesk-node`.
+That installs the `offdesk-node` agent and the `offdesk` CLI into
+`~/.local/bin`, for Linux and macOS on x64 and arm64. `--node-only` skips the
+CLI, `--hub` adds the server, `--prefix <dir>` installs elsewhere, and
+`--system` uses `/usr/local/bin` (that step, and only that step, asks for
+sudo). Or build them yourself:
+`cargo build --release --bin offdesk --bin offdesk-node`.
 
 ```bash
 offdesk-node register --hub-url https://your-hub.example.com --token <token>

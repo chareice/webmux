@@ -25,15 +25,39 @@ jobs:
           else
             gh release create "$tag" \
               --title "offdesk ${tag}" \
-              --notes "The offdesk CLI and the offdesk-node machine agent, for linux and darwin on x64 and arm64. Install both with: curl -fsSL https://offdesk.dev/install | sh"
+              --notes "The offdesk CLI, the offdesk-node machine agent, and the offdesk-hub server with the web UI baked in — linux and darwin, x64 and arm64. Install with: curl -fsSL https://offdesk.dev/install | sh"
           fi
 
+  web-bundle:
+    # offdesk-hub bakes the web UI into the binary, and it is the same bundle
+    # on every target — built once here rather than four times in the matrix.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile=false
+      - run: pnpm --filter @offdesk/shared build
+      - run: cd packages/app && npx expo export --platform web
+      # Metro's entry chunk keeps its filename while its contents change, so
+      # without this a browser that cached one is pinned to an old chunk map.
+      - run: node scripts/stamp-build.mjs packages/app/dist "${{ github.ref_name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-bundle
+          path: packages/app/dist
+
   build:
-    needs: [create-release]
+    needs: [create-release, web-bundle]
     # `needs` makes this implicitly skipped when create-release is skipped
     # (i.e., workflow_dispatch with no tag). Re-enable with always() so the
     # binaries still get uploaded as run artifacts in that mode.
-    if: always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    if: always() && needs.web-bundle.result == 'success' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
@@ -62,6 +86,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-bundle
+          path: packages/app/dist
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -74,21 +103,24 @@ jobs:
         if: matrix.use-cross
         uses: taiki-e/install-action@cross
 
-      # Both binaries, or `curl offdesk.dev/install | sh` only half works:
-      # that installer takes the CLI and the machine agent from the same
-      # release, and skipping the CLI leaves it failing on a missing asset.
-      - name: Build offdesk and offdesk-node
+      # All three, or the installer only half works: it takes the CLI, the
+      # agent and the hub from the same release, and a missing asset is a
+      # failed install. embed-ui bakes the web bundle into offdesk-hub so it
+      # runs with nothing beside it.
+      - name: Build offdesk, offdesk-node and offdesk-hub
         run: |
-          if [ "${{ matrix.use-cross }}" = "true" ]; then
-            cross build --release --bin offdesk --bin offdesk-node --target ${{ matrix.target }}
-          else
-            cargo build --release --bin offdesk --bin offdesk-node --target ${{ matrix.target }}
-          fi
+          builder=cargo
+          if [ "${{ matrix.use-cross }}" = "true" ]; then builder=cross; fi
+          $builder build --release --target ${{ matrix.target }} \
+            --bin offdesk --bin offdesk-node
+          $builder build --release --target ${{ matrix.target }} \
+            --bin offdesk-hub --features offdesk-hub/embed-ui
 
       - name: Name the binaries for the release
         run: |
-          cp target/${{ matrix.target }}/release/offdesk offdesk-${{ matrix.platform }}
-          cp target/${{ matrix.target }}/release/offdesk-node offdesk-node-${{ matrix.platform }}
+          for name in offdesk offdesk-node offdesk-hub; do
+            cp "target/${{ matrix.target }}/release/$name" "$name-${{ matrix.platform }}"
+          done
 
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -96,6 +128,7 @@ jobs:
           gh release upload ${{ github.ref_name }} \
             offdesk-${{ matrix.platform }} \
             offdesk-node-${{ matrix.platform }} \
+            offdesk-hub-${{ matrix.platform }} \
             --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -107,3 +140,4 @@ jobs:
           path: |
             offdesk-${{ matrix.platform }}
             offdesk-node-${{ matrix.platform }}
+            offdesk-hub-${{ matrix.platform }}
