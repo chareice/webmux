@@ -7,7 +7,7 @@ One self-hosted hub, all your machines, any agent that runs in tmux.
      then the phone screenshot below stands in; swap the reference, not the
      file. -->
 <p align="center">
-  <img src="docs/media/phone-terminal.png" width="300" alt="An offdesk terminal on a phone: vim running on a Mac at home, attached from the phone's browser">
+  <img src="docs/media/phone-terminal.png" width="300" alt="An offdesk terminal on a phone: a Codex session running on a Mac at home, attached from the phone's browser">
 </p>
 
 - **Off the desk, not off the work.** Close the laptop and walk away. The

@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+/* The palette is the one the Zalify site uses: cream ground, ink type, one
+   blue. The product itself is dark-only, so anything that shows a terminal
+   sits on --color-term and stays dark on purpose. */
+@theme {
+  --color-cream: #fafaf8;
+  --color-ink: #0c0c0c;
+  --color-ink-2: #2a2a2a;
+  --color-muted: #5a5a56;
+  --color-faint: #8b8b86;
+  --color-line: #e4e4df;
+  --color-line-2: #d3d3cd;
+  --color-brand: #1a5fe8;
+  --color-term: #0a0a0a;
+  --color-term-fg: #e8e8e3;
+  --color-term-dim: #8b949e;
+
+  --font-display: "Host Grotesk Variable", "Host Grotesk", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-sans: "Instrument Sans Variable", "Instrument Sans", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-cream font-sans text-ink;
+  }
+  ::selection {
+    @apply bg-ink text-cream;
+  }
+}
+
+@layer components {
+  /* The small tracked label above every section: "01 · HUB". */
+  .eyebrow {
+    @apply font-sans text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
+  }
+  .display {
+    @apply font-display font-extrabold tracking-[-0.03em] text-ink;
+    text-wrap: balance;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center rounded-full px-5 py-3 font-sans text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors;
+  }
+  .btn-ink {
+    @apply inline-flex items-center justify-center rounded-full px-5 py-3 font-sans text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors bg-ink text-cream hover:bg-ink-2;
+  }
+  .btn-line {
+    @apply inline-flex items-center justify-center rounded-full px-5 py-3 font-sans text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors border border-line-2 text-ink hover:border-ink;
+  }
+  /* A terminal on the page: always dark, always mono. */
+  .term {
+    @apply rounded-xl bg-term font-mono text-[13px] leading-relaxed text-term-fg;
+  }
+  .term code,
+  .term pre {
+    @apply font-mono;
+  }
+  .prose-lead {
+    @apply text-lg leading-relaxed text-muted;
+    text-wrap: pretty;
+  }
+  .prose-body {
+    @apply text-[15px] leading-relaxed text-muted;
+    text-wrap: pretty;
+  }
+  .prose-body a,
+  .prose-lead a {
+    @apply text-ink underline decoration-line-2 underline-offset-4 hover:decoration-ink;
+  }
+  .inline-code {
+    @apply rounded bg-ink/5 px-1.5 py-0.5 font-mono text-[0.85em] text-ink;
+  }
+}
