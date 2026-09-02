@@ -16,7 +16,9 @@ const hasStill = existsSync(new URL("../../public/media/phone-terminal.png", imp
 
 const repo = "https://github.com/zalify/offdesk";
 const docs = `${repo}#readme`;
-const releases = `${repo}/releases/latest`;
+// /apk redirects to the newest app-v* release: GitHub's /releases/latest is
+// the hub's, which ships far more often. See site/worker.js.
+const apk = "https://offdesk.dev/apk";
 const discord = "https://discord.gg/aFUu6VMzc";
 const description =
   "Vibe code from your phone on the terminal you left at home.";
@@ -343,7 +345,7 @@ const faq = [
             </p>
 
             <div class="mt-8 flex flex-wrap items-center gap-3">
-              <a href={releases} class="btn-ink">Android APK</a>
+              <a href={apk} class="btn-ink">Android APK</a>
               <a href={docs} class="btn-line">Read the docs</a>
               <span class="eyebrow ml-1">macOS · Linux · Docker</span>
             </div>
@@ -563,10 +565,10 @@ const faq = [
               you scan it instead of typing it.
             </p>
             <div class="mt-8 flex flex-wrap items-center gap-3">
-              <a href={releases} class="btn-ink">Download the APK</a>
+              <a href={apk} class="btn-ink">Download the APK</a>
               <span class="prose-body text-sm">
-                <span class="inline-code">arm64-v8a</span> on a modern phone,
-                <span class="inline-code">universal</span> if unsure.
+                That is the <span class="inline-code">arm64-v8a</span> build, right for any
+                modern phone; <a href="https://offdesk.dev/apk/universal">universal</a> if unsure.
               </span>
             </div>
           </div>
@@ -720,7 +722,7 @@ const faq = [
           <div class="mt-8 flex flex-wrap gap-3">
             <a href={repo} class="btn-ink gap-2"><Icon name="github" />GitHub</a>
             <a href={discord} class="btn-line gap-2"><Icon name="discord" />Discord</a>
-            <a href={releases} class="btn-line">Android APK</a>
+            <a href={apk} class="btn-line">Android APK</a>
           </div>
         </div>
       </section>

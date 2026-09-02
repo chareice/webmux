@@ -201,7 +201,8 @@ questions and builds need a Ctrl-C.
 
 Two packaged clients also ship:
 
-- **Android** — an APK from [Releases](https://github.com/zalify/offdesk/releases/latest);
+- **Android** — an APK from [offdesk.dev/apk](https://offdesk.dev/apk), which always
+  points at the newest app build (`/apk/universal` for the universal one);
   take `arm64-v8a` on a modern phone, `universal` if unsure. Sideload it; it
   wraps the same web app, with native notifications and clipboard. It asks for
   your hub's address on first launch, so one APK works with any hub — nothing

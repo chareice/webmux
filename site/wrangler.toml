@@ -1,14 +1,18 @@
 # offdesk.dev — static assets on Workers.
 #
 # Cloudflare's guidance for new projects is Workers rather than Pages; Pages
-# still works but no longer gets the investment. There is no `main` here
-# because nothing runs server-side: the Worker only serves ./dist.
+# still works but no longer gets the investment. worker.js serves ./dist and
+# answers one path itself, /apk, which redirects to the newest Android build
+# (GitHub's /releases/latest is whichever release was newest, usually the
+# hub's). Paths that match a static file never reach the script.
 #
 # `wrangler deploy` creates the Worker on first run, so nothing has to be
 # created in the dashboard beforehand.
 
 name = "offdesk"
+main = "worker.js"
 compatibility_date = "2026-09-01"
 
 [assets]
 directory = "./dist"
+binding = "ASSETS"

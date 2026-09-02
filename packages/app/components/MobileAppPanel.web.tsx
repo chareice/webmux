@@ -182,7 +182,7 @@ export function MobileAppPanel() {
           )}
 
           <a
-            href="https://github.com/zalify/offdesk/releases/latest"
+            href="https://offdesk.dev/apk/release"
             target="_blank"
             rel="noreferrer"
             style={{
