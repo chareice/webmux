@@ -7,6 +7,8 @@ import Icon from "../components/Icon.astro";
 // a real phone screenshot stands in; the GIF wins when it appears.
 const hasHero = existsSync(new URL("../../public/media/hero.gif", import.meta.url));
 const hasStill = existsSync(new URL("../../public/media/phone-terminal.png", import.meta.url));
+// The iPhone app, once its screenshot is in: same terminal, native frame.
+const hasIphone = existsSync(new URL("../../public/media/phone-ios.png", import.meta.url));
 
 const repo = "https://github.com/zalify/offdesk";
 const docs = `${repo}#readme`;
@@ -66,9 +68,11 @@ const rows = [
 ---
 
 <Site title="offdesk — vibe code from your phone" description={description}>
-  <!-- Hero: the whole first setup, on the machine at home. -->
-  <section class="mx-auto max-w-6xl px-6 pt-10 pb-16 md:pt-16 md:pb-24">
-    <div class="grid items-center gap-14 lg:grid-cols-[1.1fr_1fr] lg:gap-12">
+  <!-- Hero: the whole first setup, on the machine at home. It has to fit
+       one laptop screen with the three steps showing: the steps are the
+       point, and a step below the fold is a step nobody takes. -->
+  <section class="mx-auto max-w-6xl px-6 pt-5 pb-12 md:pt-5 md:pb-16">
+    <div class="grid items-start gap-10 lg:grid-cols-[1.25fr_1fr] lg:items-center lg:gap-10">
       <div class="min-w-0">
         <p class="eyebrow inline-flex items-center gap-2">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -79,63 +83,62 @@ const rows = [
           </svg>
           Vibe code from the beach
         </p>
-        <h1 class="display mt-4 text-5xl leading-[1.02] md:text-6xl">
+        <h1 class="display mt-2 text-[2.6rem] leading-[1.04] md:text-[3.25rem]">
           Your terminal stays home. You don't have to.
         </h1>
-        <p class="prose-lead mt-6 max-w-xl">
+        <p class="prose-lead mt-3 max-w-xl text-[17px]">
           The Mac at home keeps running Claude Code. Your phone opens the same
-          terminal, mid-scroll, from the sand. One line to set up, one scan to
-          get in.
+          terminal, mid-scroll, from the sand. One line to set up, one scan to get in.
         </p>
 
-        <ol class="mt-10 space-y-8">
+        <ol class="mt-5 space-y-3">
           <li class="flex gap-4">
             <span class="step mt-0.5">1</span>
             <div class="min-w-0 flex-1">
-              <p class="font-display text-lg font-semibold text-ink">
+              <p class="font-display text-[17px] font-semibold text-ink">
                 On the machine that stays on, run this
               </p>
-              <div class="cmd mt-3">
+              <div class="cmd mt-2.5">
                 <pre class="min-w-0 flex-1 overflow-x-auto whitespace-pre"><code><span class="cmd-prompt">$ </span>{install}</code></pre>
                 <button type="button" class="cmd-copy" data-copy={install} aria-label="Copy the install command">Copy</button>
               </div>
-              <p class="prose-body mt-3 text-[15px]">
-                It installs everything, starts the hub as a service that survives
-                reboots, and registers this machine with it. A Mac or a NAS on
-                your Wi-Fi is perfect. No account, no cloud, no config.
+              <p class="prose-body mt-2 text-[14.5px]">
+                Installs everything, starts the hub as a service that survives reboots,
+                registers this machine. A Mac or a NAS on your Wi-Fi is perfect. No account, no cloud.
               </p>
             </div>
           </li>
           <li class="flex gap-4">
             <span class="step mt-0.5">2</span>
             <div class="min-w-0 flex-1">
-              <p class="font-display text-lg font-semibold text-ink">
+              <p class="font-display text-[17px] font-semibold text-ink">
                 Scan the code it prints
               </p>
-              <p class="prose-body mt-2 text-[15px]">
-                With your phone's camera, or the Android app. That's the
-                sign-in. Need it again later? <span class="inline-code">offdesk link</span>.
+              <p class="prose-body mt-1 text-[14.5px]">
+                With the iPhone or Android app, or just the phone's camera. That's the sign-in.
+                Need it again later? <span class="inline-code">offdesk link</span>.
               </p>
             </div>
           </li>
           <li class="flex gap-4">
             <span class="step mt-0.5">3</span>
             <div class="min-w-0 flex-1">
-              <p class="font-display text-lg font-semibold text-ink">
+              <p class="font-display text-[17px] font-semibold text-ink">
                 That's your terminal. Go outside.
               </p>
-              <p class="prose-body mt-2 text-[15px]">
-                Same tmux session as the desk, live. Close the laptop; nothing
-                stops. Anything that runs in tmux runs here.
+              <p class="prose-body mt-1 text-[14.5px]">
+                Same tmux session as the desk, live. Close the laptop; nothing stops.
+                Anything that runs in tmux runs here.
               </p>
             </div>
           </li>
         </ol>
 
-        <div class="mt-10 flex flex-wrap items-center gap-3">
-          <a href={apk} class="btn-coral">Android app</a>
-          <a href={docs} class="btn-sky">Read the docs</a>
-          <span class="font-display text-[14px] font-semibold text-muted">iPhone: just the browser</span>
+        <div class="mt-5 flex flex-wrap items-center gap-3">
+          <a href="#phone" class="btn-coral px-5 py-2.5 text-[14px]">iPhone app</a>
+          <a href={apk} class="btn-coral px-5 py-2.5 text-[14px]">Android app</a>
+          <a href={docs} class="btn-sky px-5 py-2.5 text-[14px]">Read the docs</a>
+          <span class="font-display text-[13px] font-semibold text-muted">or any browser on the phone</span>
         </div>
       </div>
 
@@ -144,14 +147,25 @@ const rows = [
           <figure class="overflow-hidden rounded-[28px] border border-line bg-term shadow-[12px_12px_0_0_#ffc857]">
             <img src="/media/hero.gif" alt="Claude Code on a desk machine while a phone is attached to the same tmux session" width="1200" height="750" loading="eager" class="block w-full" />
           </figure>
+        ) : hasIphone ? (
+          <figure class="relative mx-auto w-full max-w-[17.5rem] lg:justify-self-end">
+            <div aria-hidden="true" class="absolute -top-8 -left-10 h-24 w-24 rounded-full bg-pink/60"></div>
+            <div aria-hidden="true" class="absolute -right-8 bottom-16 h-16 w-16 rounded-full border-[10px] border-sun"></div>
+            <div class="relative overflow-hidden rounded-[2.6rem] border-[6px] border-ink bg-term shadow-[14px_14px_0_0_#ffc857]">
+              <img src="/media/phone-ios.png" alt="Claude Code in the offdesk iPhone app, attached to the Mac at home" width="1206" height="2622" loading="eager" class="block w-full" />
+            </div>
+            <figcaption class="mt-4 text-center font-display text-[14px] font-semibold text-muted">
+              Real terminal. Real Mac at home. Real beach optional.
+            </figcaption>
+          </figure>
         ) : hasStill ? (
-          <figure class="relative mx-auto w-full max-w-[21rem] lg:justify-self-end">
+          <figure class="relative mx-auto w-full max-w-[17.5rem] lg:justify-self-end">
             <div aria-hidden="true" class="absolute -top-8 -left-10 h-24 w-24 rounded-full bg-pink/60"></div>
             <div aria-hidden="true" class="absolute -right-8 bottom-16 h-16 w-16 rounded-full border-[10px] border-sun"></div>
             <div class="relative overflow-hidden rounded-[2.4rem] border-[6px] border-ink bg-term shadow-[14px_14px_0_0_#ffc857]">
               <img src="/media/phone-terminal.png" alt="An offdesk terminal on a phone: Claude Code on a Mac at home, attached from the phone's browser" width="390" height="844" loading="eager" class="block w-full" />
             </div>
-            <figcaption class="mt-5 text-center font-display text-[14px] font-semibold text-muted">
+            <figcaption class="mt-4 text-center font-display text-[14px] font-semibold text-muted">
               Real terminal. Real Mac at home. Real beach optional.
             </figcaption>
           </figure>
@@ -277,17 +291,22 @@ const rows = [
           </p>
           <pre class="term mt-5 overflow-x-auto p-4 text-[12.5px]"><code>{join}</code></pre>
         </div>
-        <div class="card min-w-0">
+        <div id="phone" class="card min-w-0 scroll-mt-24">
           <h3 class="display text-2xl">Your phone</h3>
           <p class="prose-body mt-3">
-            The browser is the whole client — iPhone included. A key bar for
-            Ctrl, Esc and the arrows, because agents ask questions and builds
-            need a Ctrl‑C. The Android app adds native notifications and scans
-            the code itself.
+            A key bar for Ctrl, Esc and the arrows, because agents ask questions
+            and builds need a Ctrl‑C. The apps add the camera for the code and
+            native notifications; any browser gets you the same terminal.
+          </p>
+          <p class="prose-body mt-3">
+            <strong class="text-ink">iPhone:</strong> the app is on TestFlight,
+            in beta with the team right now. The public link lands here as soon as
+            Apple waves it through; ask on Discord for a seat before then.
           </p>
           <div class="mt-5 flex flex-wrap gap-2">
-            <a href={apk} class="btn-coral px-5 py-2.5 text-[14px]">Download the APK</a>
+            <a href={apk} class="btn-coral px-5 py-2.5 text-[14px]">Android APK</a>
             <a href="https://offdesk.dev/apk/universal" class="btn-sky px-5 py-2.5 text-[14px]">universal build</a>
+            <a href="https://discord.gg/aFUu6VMzc" class="btn-sky px-5 py-2.5 text-[14px]">iPhone beta on Discord</a>
           </div>
         </div>
         <div class="card min-w-0">
@@ -381,6 +400,7 @@ const rows = [
       <div class="mt-8 flex flex-wrap gap-3">
         <a href={repo} class="btn-coral"><Icon name="github" />GitHub</a>
         <a href="https://discord.gg/aFUu6VMzc" class="btn-sky"><Icon name="discord" />Discord</a>
+        <a href="#phone" class="btn-sky">iPhone app</a>
         <a href={apk} class="btn-sky">Android app</a>
       </div>
     </div>
