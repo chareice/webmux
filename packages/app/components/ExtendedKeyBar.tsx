@@ -408,8 +408,12 @@ export function ExtendedKeyBar({
             <button
               // Activate on pointerup with a canceled pointerdown: a plain
               // click would focus the button, dismiss the soft keyboard and
-              // break the arm → type flow the latch exists for.
+              // break the arm → type flow the latch exists for. iOS moves
+              // focus on the mousedown it synthesises after the touch, and
+              // does not honour the pointerdown cancel for that — so that
+              // one is cancelled too.
               onPointerDown={(event) => event.preventDefault()}
+              onMouseDown={(event) => event.preventDefault()}
               onPointerUp={(event) => {
                 event.preventDefault();
                 if (isController) onToggleCtrl();
@@ -524,9 +528,15 @@ function KeyButton({ label, onPress, isController, pinned, testid, repeat }: Key
     }, REPEAT_INITIAL_DELAY_MS);
   };
 
+  // Neither kind of key may take focus from the terminal: the soft
+  // keyboard lives on that focus, and a key that dismissed it would cost a
+  // tap to bring it back. Chrome moves focus on pointerdown, iOS on the
+  // mousedown it synthesises afterwards; both are cancelled.
+  const keepFocus = (event: React.SyntheticEvent) => event.preventDefault();
   const activationProps = repeat
     ? {
         onPointerDown: startRepeat,
+        onMouseDown: keepFocus,
         onPointerUp: stopRepeat,
         onPointerLeave: stopRepeat,
         onPointerCancel: stopRepeat,
@@ -535,7 +545,7 @@ function KeyButton({ label, onPress, isController, pinned, testid, repeat }: Key
         onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) =>
           event.preventDefault(),
       }
-    : { onClick: onPress };
+    : { onPointerDown: keepFocus, onMouseDown: keepFocus, onClick: onPress };
 
   return (
     <button
