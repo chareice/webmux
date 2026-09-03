@@ -119,6 +119,17 @@ export default function LoginScreen() {
         : `That link is for ${url.origin}, not this hub. Open it in the browser instead.`,
     );
   };
+  // iOS keeps the local-network switch in the app's Settings page; the
+  // scanner plugin already knows how to open it, and the app's own origin
+  // is allowed to ask.
+  const openSettings = async () => {
+    try {
+      const { openAppSettings } = await import("@tauri-apps/plugin-barcode-scanner");
+      await openAppSettings();
+    } catch {
+      // Nothing to do: the message already says where the switch is.
+    }
+  };
   const handleSwitchHub = () => {
     void import("@tauri-apps/api/core").then(({ invoke }) =>
       invoke("clear_mobile_hub_url"),
@@ -243,9 +254,19 @@ export default function LoginScreen() {
           </View>
 
           {hubError ? (
-            <Text className="text-foreground text-xs mb-4 opacity-80">
-              {hubError}
-            </Text>
+            <View className="mb-4">
+              <Text className="text-foreground text-xs opacity-80">
+                {hubError}
+              </Text>
+              {/Local Network/.test(hubError) ? (
+                <Pressable
+                  onPress={() => void openSettings()}
+                  className="mt-2 self-start py-1.5 px-3 rounded-lg border border-border active:opacity-80"
+                >
+                  <Text className="text-foreground text-xs font-medium">Open Settings</Text>
+                </Pressable>
+              ) : null}
+            </View>
           ) : savedHub ? (
             <Text className="text-foreground text-xs mb-4 opacity-60">
               Could not reach this hub on launch. Check that it is running and

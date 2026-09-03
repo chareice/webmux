@@ -173,9 +173,29 @@ fn reachable(url: &Url) -> Result<(), String> {
         }
     }
     Err(match last {
-        Some(_) => format!("Nothing answered at {host}:{port}. Is the hub running, and are you on the same network?"),
+        Some(error) if local_network_blocked(&error) => format!(
+            "iOS is not letting offdesk use the local network yet, so {host}:{port} is out of reach. \
+             Allow it under Settings → Apps → offdesk → Local Network, then try again."
+        ),
+        Some(error) => format!(
+            "Nothing answered at {host}:{port}. Is the hub running, and are you on the same network? ({error})"
+        ),
         None => format!("Could not find {host}."),
     })
+}
+
+/// What a refused local-network permission looks like from a socket: iOS
+/// answers the connect with "no route to host" (or "network unreachable"),
+/// not with a permission error. The system prompt is shown once, on the
+/// first attempt; "Don't Allow" then, or the prompt going unnoticed behind
+/// the camera, leaves every later attempt failing this way until the switch
+/// in Settings is flipped.
+fn local_network_blocked(error: &std::io::Error) -> bool {
+    if !cfg!(target_os = "ios") {
+        return false;
+    }
+    // EHOSTUNREACH and ENETUNREACH on Darwin.
+    matches!(error.raw_os_error(), Some(65) | Some(51))
 }
 
 /// Forget the hub and return to the setup screen. The origin we granted keeps
