@@ -65,6 +65,7 @@ interface TerminalWorkspaceProps {
   onSplit: (
     terminal: TerminalInfo,
     direction: WorkspaceSplitIntent,
+    workspaceGroupId: string | null,
   ) => Promise<TerminalInfo | null>;
   onCreatePane: (input: {
     machineId: string;
@@ -297,20 +298,28 @@ function TerminalWorkspaceComponent({
   const layoutSaveQueuesRef = useRef(new Map<string, Promise<void>>());
 
   const persistGroupLayout = useCallback(
-    async (nextWorkspace: TerminalWorkspaceState, groupId: string | null) => {
-      if (!groupId) return;
+    async (
+      nextWorkspace: TerminalWorkspaceState,
+      groupId: string | null,
+      persistenceGroupId = groupId,
+    ) => {
+      if (!groupId || !persistenceGroupId) return;
       const group = nextWorkspace.groups.find(
         (candidate) => candidate.id === groupId,
       );
       if (!group) return;
-      const queueKey = `${commandMachineId}\u0000${group.id}`;
+      const queueKey = `${commandMachineId}\u0000${persistenceGroupId}`;
       const previous =
         layoutSaveQueuesRef.current.get(queueKey) ?? Promise.resolve();
       const save = previous
         .catch(() => undefined)
         .then(async () => {
           try {
-            await onSaveWorkspaceLayout(commandMachineId, group.id, group.root);
+            await onSaveWorkspaceLayout(
+              commandMachineId,
+              persistenceGroupId,
+              group.root,
+            );
           } catch (error) {
             console.error("Failed to save workspace pane layout", error);
           }
@@ -463,7 +472,31 @@ function TerminalWorkspaceComponent({
       }
       const sourceTerminal = activeTerminal;
       const sourceGroupId = activeGroup?.id ?? workspaceRef.current.activeGroupId;
-      const created = await onSplit(activeTerminal, direction);
+      let targetWorkspaceGroupId =
+        activeGroup?.workspaceGroupId ?? activeTerminal.workspace_group_id ?? null;
+      let promotedWorkspaceGroupId: string | null = null;
+      if (activeGroup && !activeGroup.persistent) {
+        const terminalIds = collectIds(activeGroup.root);
+        const promoted = await onPromoteGroup(
+          sourceTerminal.machine_id,
+          activeGroup.label,
+          terminalIds,
+        ).catch((error) => {
+          console.error("Failed to promote workspace group for split", error);
+          return null;
+        });
+        if (!promoted) {
+          showWorkspaceToast("Couldn't split this pane. Please try again.");
+          return;
+        }
+        targetWorkspaceGroupId = promoted.id;
+        promotedWorkspaceGroupId = promoted.id;
+      }
+      const created = await onSplit(
+        activeTerminal,
+        direction,
+        targetWorkspaceGroupId,
+      );
       if (!created) return;
       setMaximizedTerminalId(null);
       let savedGroupId: string | null = null;
@@ -495,7 +528,11 @@ function TerminalWorkspaceComponent({
         collectIds(getActiveWorkspaceGroup(nextWorkspace)?.root ?? null),
         { focusTerminalId: created.id },
       );
-      await persistGroupLayout(nextWorkspace, savedGroupId);
+      await persistGroupLayout(
+        nextWorkspace,
+        savedGroupId,
+        promotedWorkspaceGroupId ?? savedGroupId,
+      );
     },
     [
       activeGroup,
@@ -504,6 +541,7 @@ function TerminalWorkspaceComponent({
       isController,
       onCreatePane,
       onPick,
+      onPromoteGroup,
       onSplit,
       persistGroupLayout,
       requestPaneFit,

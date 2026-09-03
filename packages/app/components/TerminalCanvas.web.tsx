@@ -78,6 +78,7 @@ import {
   createTerminalWorkspace,
   planNewTerminalPlacement,
   type WorkspaceGroup,
+  type WorkspaceSplitIntent,
 } from "@/lib/terminalWorkspaceLayout";
 import {
   createInitialMainLayout,
@@ -1006,10 +1007,14 @@ function TerminalCanvasInner() {
   );
 
   const handleSplitWorkspacePane = useCallback(
-    async (terminal: TerminalInfo) => {
+    async (
+      terminal: TerminalInfo,
+      _direction: WorkspaceSplitIntent,
+      workspaceGroupId: string | null,
+    ) => {
       return handleCreateTerminal(terminal.machine_id, terminal.cwd, undefined, {
         selectWorkpath: false,
-        workspaceGroupId: terminal.workspace_group_id ?? null,
+        workspaceGroupId,
       });
     },
     [handleCreateTerminal],
