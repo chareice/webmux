@@ -45,13 +45,13 @@ class AppErrorBoundary extends Component<
     return (
       <View className="flex-1 min-h-screen bg-zinc-950 items-center justify-center px-6 py-10">
         <View className="w-full max-w-2xl items-center gap-4">
-          <Text className="text-2xl font-semibold text-zinc-100">加载失败</Text>
+          <Text className="text-2xl font-semibold text-zinc-100">Something went wrong</Text>
           <Pressable
             accessibilityRole="button"
             className="rounded-md bg-orange-400 px-5 py-3"
             onPress={this.reload}
           >
-            <Text className="font-semibold text-zinc-950">重新加载</Text>
+            <Text className="font-semibold text-zinc-950">Reload</Text>
           </Pressable>
           <View className="mt-4 w-full rounded-md bg-zinc-900 p-4">
             <Text className="font-mono text-xs text-zinc-400">

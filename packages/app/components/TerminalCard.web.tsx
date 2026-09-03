@@ -445,7 +445,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                 fontSize: 10,
               }}
             >
-              重连中…
+              Reconnecting…
             </div>
           </>
         )}

@@ -40,7 +40,7 @@ export function HandoffBanner({
         transition: "opacity 400ms ease",
       }}
     >
-      已恢复上次会话
+      Picked up where you left off
     </div>
   );
 }
