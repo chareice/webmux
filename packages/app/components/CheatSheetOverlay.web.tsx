@@ -104,7 +104,7 @@ export function CheatSheetOverlay({ onClose }: { onClose: () => void }) {
             color: colors.fg3,
           }}
         >
-          除 ⌃B 外所有按键穿透给终端 · 复制粘贴用系统惯例
+          Every key except ⌃B goes to the terminal · copy and paste the way your system does
         </div>
       </div>
     </div>
