@@ -8,7 +8,7 @@ import Icon from "../components/Icon.astro";
 const hasHero = existsSync(new URL("../../public/media/hero.gif", import.meta.url));
 const hasStill = existsSync(new URL("../../public/media/phone-terminal.png", import.meta.url));
 // The iPhone app, once its screenshot is in: same terminal, native frame.
-const hasIphone = existsSync(new URL("../../public/media/phone-ios.png", import.meta.url));
+const hasIphone = existsSync(new URL("../../public/media/phone-ios.jpg", import.meta.url));
 
 const repo = "https://github.com/zalify/offdesk";
 const docs = `${repo}#readme`;
@@ -152,7 +152,7 @@ const rows = [
             <div aria-hidden="true" class="absolute -top-8 -left-10 h-24 w-24 rounded-full bg-pink/60"></div>
             <div aria-hidden="true" class="absolute -right-8 bottom-16 h-16 w-16 rounded-full border-[10px] border-sun"></div>
             <div class="relative overflow-hidden rounded-[2.6rem] border-[6px] border-ink bg-term shadow-[14px_14px_0_0_#ffc857]">
-              <img src="/media/phone-ios.png" alt="Claude Code in the offdesk iPhone app, attached to the Mac at home" width="1206" height="2622" loading="eager" class="block w-full" />
+              <img src="/media/phone-ios.jpg" alt="Claude Code in the offdesk iPhone app, attached to the Mac at home" width="1179" height="2556" loading="eager" class="block w-full" />
             </div>
             <figcaption class="mt-4 text-center font-display text-[14px] font-semibold text-muted">
               Real terminal. Real Mac at home. Real beach optional.
