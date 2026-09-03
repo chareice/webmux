@@ -174,8 +174,9 @@ fn reachable(url: &Url) -> Result<(), String> {
     }
     Err(match last {
         Some(error) if local_network_blocked(&error) => format!(
-            "iOS is not letting offdesk use the local network yet, so {host}:{port} is out of reach. \
-             Allow it under Settings → Apps → offdesk → Local Network, then try again."
+            "iOS is not letting offdesk reach {host}:{port}. Under Settings → Apps → offdesk, \
+             turn on Local Network — and on a phone sold in China, set Wireless Data (无线数据) \
+             to WLAN & Cellular, which is off until you answer its prompt. Then try again."
         ),
         Some(error) => format!(
             "Nothing answered at {host}:{port}. Is the hub running, and are you on the same network? ({error})"
@@ -184,12 +185,13 @@ fn reachable(url: &Url) -> Result<(), String> {
     })
 }
 
-/// What a refused local-network permission looks like from a socket: iOS
-/// answers the connect with "no route to host" (or "network unreachable"),
-/// not with a permission error. The system prompt is shown once, on the
-/// first attempt; "Don't Allow" then, or the prompt going unnoticed behind
-/// the camera, leaves every later attempt failing this way until the switch
-/// in Settings is flipped.
+/// What a refused network permission looks like from a socket: iOS answers
+/// the connect with "no route to host" (or "network unreachable"), not with
+/// a permission error. Two switches produce it. Local Network, everywhere:
+/// asked once, on the first attempt, easily behind the camera. And on
+/// phones sold in mainland China, the per-app Wireless Data (无线数据)
+/// permission, which starts as Off and stays there until its prompt is
+/// answered — with it off the app has no network at all.
 fn local_network_blocked(error: &std::io::Error) -> bool {
     if !cfg!(target_os = "ios") {
         return false;
