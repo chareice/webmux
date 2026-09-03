@@ -26,9 +26,12 @@ const canonical = `https://offdesk.dev${path}`;
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="icon" href="/brand/favicon-32.png" sizes="32x32" type="image/png" />
-    <link rel="icon" href="/brand/favicon-16.png" sizes="16x16" type="image/png" />
+    <!-- The donut. The query string is a cache key: browsers hold on to a
+         favicon long after the file behind it changed. -->
+    <link rel="icon" href="/favicon.svg?v=donut" type="image/svg+xml" />
+    <link rel="icon" href="/brand/favicon-32.png?v=donut" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/brand/favicon-16.png?v=donut" sizes="16x16" type="image/png" />
+    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png?v=donut" />
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#fff4e3" />
     <meta property="og:type" content="website" />
