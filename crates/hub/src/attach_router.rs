@@ -27,6 +27,12 @@ pub struct HubRouter {
 #[derive(Default)]
 struct HubRouterInner {
     senders: HashMap<String, WsSender>,
+    /// Attaches whose bytes are one deflate stream with context takeover.
+    /// A frame of such a stream can never be dropped: the browser inflates
+    /// every later frame against a window the missing one should have
+    /// filled, and the screen turns to a soup of half-recognisable text
+    /// that no redraw can fix. The only recovery is a new stream.
+    compressed: std::collections::HashSet<String>,
     /// attach_id -> (machine_id, terminal_id), so we can drop entries when
     /// a machine disconnects without scanning every attach.
     attach_to_terminal: HashMap<String, (String, String)>,
@@ -46,11 +52,31 @@ impl HubRouter {
         terminal_id: String,
         sender: WsSender,
     ) {
+        self.register_with_compression(attach_id, machine_id, terminal_id, sender, false);
+    }
+
+    pub fn register_with_compression(
+        &self,
+        attach_id: String,
+        machine_id: String,
+        terminal_id: String,
+        sender: WsSender,
+        compressed: bool,
+    ) {
         let mut inner = self.inner.write().unwrap();
         inner.senders.insert(attach_id.clone(), sender);
+        if compressed {
+            inner.compressed.insert(attach_id.clone());
+        }
         inner
             .attach_to_terminal
             .insert(attach_id, (machine_id, terminal_id));
+    }
+
+    /// Whether this attach's bytes are a compressed stream — one that must
+    /// be reset rather than thinned when the browser falls behind.
+    pub fn is_compressed(&self, attach_id: &str) -> bool {
+        self.inner.read().unwrap().compressed.contains(attach_id)
     }
 
     pub fn lookup_sender(&self, attach_id: &str) -> Option<WsSender> {
@@ -69,6 +95,7 @@ impl HubRouter {
     pub fn unregister(&self, attach_id: &str) {
         let mut inner = self.inner.write().unwrap();
         inner.senders.remove(attach_id);
+        inner.compressed.remove(attach_id);
         inner.attach_to_terminal.remove(attach_id);
     }
 
@@ -83,6 +110,7 @@ impl HubRouter {
             .map(|(a, _)| a.clone())
             .collect();
         for attach in &dropped {
+            inner.compressed.remove(attach);
             inner.senders.remove(attach);
             inner.attach_to_terminal.remove(attach);
         }
@@ -103,6 +131,37 @@ mod tests {
     fn ws_sender() -> (WsSender, mpsc::Receiver<Bytes>) {
         let (tx, rx) = mpsc::channel::<Bytes>(8);
         (WsSender(tx), rx)
+    }
+
+    #[tokio::test]
+    async fn a_compressed_attach_is_known_as_such_until_it_is_unregistered() {
+        let router = HubRouter::new();
+        let (tx, _rx) = mpsc::channel::<Bytes>(8);
+        router.register_with_compression(
+            "a1".into(),
+            "m1".into(),
+            "t1".into(),
+            WsSender(tx.clone()),
+            true,
+        );
+        router.register("a2".into(), "m1".into(), "t1".into(), WsSender(tx));
+        assert!(router.is_compressed("a1"));
+        assert!(!router.is_compressed("a2"));
+        assert!(!router.is_compressed("nope"));
+
+        router.unregister("a1");
+        assert!(!router.is_compressed("a1"));
+        assert!(router.lookup_sender("a1").is_none());
+    }
+
+    #[tokio::test]
+    async fn dropping_a_machine_forgets_its_compressed_attaches_too() {
+        let router = HubRouter::new();
+        let (tx, _rx) = mpsc::channel::<Bytes>(8);
+        router.register_with_compression("a1".into(), "m1".into(), "t1".into(), WsSender(tx), true);
+        let dropped = router.drop_machine("m1");
+        assert_eq!(dropped, vec!["a1".to_string()]);
+        assert!(!router.is_compressed("a1"));
     }
 
     #[tokio::test]

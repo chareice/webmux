@@ -202,14 +202,6 @@ async fn handle_terminal_ws(
 
     // Register the attach in the router BEFORE asking the machine to open
     // it, so any AttachOutput that arrives can be routed immediately.
-    let (out_tx, mut out_rx) = mpsc::channel::<Bytes>(64);
-    state.router.register(
-        attach_id.clone(),
-        machine_id.clone(),
-        terminal_id.clone(),
-        WsSender(out_tx),
-    );
-
     // deflate-raw-v1 negotiation: compress only when the browser asked AND
     // the machine declared the capability. Old peers on either side simply
     // never opt in and the stream stays uncompressed. The ack goes out before
@@ -221,6 +213,20 @@ async fn handle_terminal_ws(
             .manager
             .machine_supports(&machine_id, offdesk_protocol::compression::DEFLATE_RAW_V1)
             .await;
+
+    // Room for a burst: the send task drains this 32 chunks at a time into
+    // one WS write, so it only fills when the socket itself has stopped
+    // taking bytes. What happens then depends on the stream — see the
+    // machine recv loop: an uncompressed one is thinned and redrawn, a
+    // compressed one is reset, because a hole in it is not survivable.
+    let (out_tx, mut out_rx) = mpsc::channel::<Bytes>(ATTACH_OUTPUT_QUEUE);
+    state.router.register_with_compression(
+        attach_id.clone(),
+        machine_id.clone(),
+        terminal_id.clone(),
+        WsSender(out_tx),
+        compress,
+    );
     if compress {
         let ack = serde_json::to_string(&ServerMessage::CompressionEnabled {
             algo: offdesk_protocol::compression::DEFLATE_RAW_V1.to_string(),
@@ -388,6 +394,9 @@ async fn handle_terminal_ws(
         .await;
     state.router.unregister(&attach_id);
 }
+
+/// Output chunks a browser attach may have waiting for its socket.
+const ATTACH_OUTPUT_QUEUE: usize = 256;
 
 async fn terminal_previews_ws_handler(
     ws: WebSocketUpgrade,
@@ -754,6 +763,25 @@ async fn handle_machine_ws(socket: WebSocket, state: AppState) {
                                                 use tokio::sync::mpsc::error::TrySendError;
                                                 match sender.0.try_send(payload) {
                                                     Ok(()) => {}
+                                                    Err(TrySendError::Full(_))
+                                                        if router.is_compressed(&attach_id) =>
+                                                    {
+                                                        // A compressed stream cannot lose a
+                                                        // frame: every later one would inflate
+                                                        // against the wrong window, and the
+                                                        // browser would show garbage until it
+                                                        // reconnected on its own — if ever.
+                                                        // Cut it now. Dropping the sender ends
+                                                        // that browser's send task, its socket
+                                                        // closes, and the reconnect it makes
+                                                        // starts a fresh stream and a full
+                                                        // redraw.
+                                                        tracing::warn!(
+                                                            attach_id = %attach_id,
+                                                            "resetting attach: browser too slow for its compressed stream"
+                                                        );
+                                                        router.unregister(&attach_id);
+                                                    }
                                                     Err(TrySendError::Full(_)) => {
                                                         tracing::warn!(
                                                             attach_id = %attach_id,
