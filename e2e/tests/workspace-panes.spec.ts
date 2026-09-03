@@ -1,7 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import {
+  createWorkspaceGroupViaApi,
   createTerminalViaApi,
+  deleteWorkspaceGroupViaApi,
   expandTerminalById,
   getAuthHeaders,
   getExpandedOverlay,
@@ -14,6 +16,49 @@ import {
   selectHomeWorkpath,
   takeControlFromHeader,
 } from "./helpers";
+
+test("splitting a fallback terminal keeps both panes in one tab", async ({
+  page,
+}) => {
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+
+  const group = await createWorkspaceGroupViaApi(
+    page,
+    `Fallback split ${Date.now()}`,
+  );
+  const firstId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    workspaceGroupId: group.id,
+  });
+  await expandTerminalById(page, firstId);
+
+  // Ungrouping leaves the terminal in a derived cwd tab with no persisted
+  // workspace-group id. Splitting that pane must still stay in this one tab.
+  await deleteWorkspaceGroupViaApi(page, group.id);
+  await expect
+    .poll(async () =>
+      (await listTerminals(page)).find((terminal) => terminal.id === firstId)
+        ?.workspace_group_id,
+    )
+    .toBeNull();
+  await expect(page.locator("[data-testid^='workspace-tab-']")).toHaveCount(1);
+
+  await openPaneContextMenu(page, firstId);
+  await page.getByRole("button", { name: "Split right" }).click();
+
+  await expect.poll(async () => (await listTerminals(page)).length).toBe(2);
+  await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(2);
+  await expect(page.locator("[data-testid^='workspace-tab-']")).toHaveCount(1);
+
+  const terminals = await listTerminals(page);
+  const workspaceGroupIds = new Set(
+    terminals.map((terminal) => terminal.workspace_group_id),
+  );
+  expect(workspaceGroupIds.size).toBe(1);
+  expect([...workspaceGroupIds][0]).toBeTruthy();
+});
 
 test("desktop workspace splits the active terminal into tiled panes", async ({
   browser,
