@@ -221,21 +221,34 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
     setKeyboardVisible(false);
   }, [canType]);
 
+  // A key-bar tap must leave the soft keyboard where it was. The buttons
+  // decline focus, but a browser that took it anyway has just dismissed
+  // the keyboard — so while it is meant to be up, focus goes back to the
+  // terminal inside the same tap, which is the only time a phone lets a
+  // page raise it.
+  const keepKeyboard = useCallback(() => {
+    if (keyboardVisible) termViewRef.current?.focus();
+  }, [keyboardVisible]);
+
   const handleToolbarKey = useCallback((data: string) => {
     if (!canType) return;
     if (ctrlArmedRef.current) {
       setCtrlLatch(false);
       termViewRef.current?.sendCommandInput(ctrlLatchTransform(data) ?? data);
-      return;
+    } else {
+      termViewRef.current?.sendCommandInput(data);
     }
-    termViewRef.current?.sendCommandInput(data);
-  }, [canType, setCtrlLatch]);
+    keepKeyboard();
+  }, [canType, keepKeyboard, setCtrlLatch]);
 
   const handleToggleCtrl = useCallback(() => {
     if (!canType) return;
     // Tapping Ctrl again while armed disarms without sending anything.
     setCtrlLatch(!ctrlArmedRef.current);
-  }, [canType, setCtrlLatch]);
+    // Ctrl is the first half of C-p or C-n; the second half is typed on
+    // the keyboard, so it has to still be there.
+    keepKeyboard();
+  }, [canType, keepKeyboard, setCtrlLatch]);
 
   const handleAttachFile = useCallback(async (file: File) => {
     if (!canType) return;
