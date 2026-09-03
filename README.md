@@ -210,12 +210,19 @@ already reach the hub's address.
 ## On your phone
 
 The browser is the whole client. Open the hub's URL and you are there, on
-iPhone as much as anywhere — there is no iOS build, and none is needed. A full
-terminal with a key bar for Ctrl, Esc and the arrows, because agents ask
-questions and builds need a Ctrl-C.
+any phone. A full terminal with a key bar for Ctrl, Esc and the arrows,
+because agents ask questions and builds need a Ctrl-C.
 
-Two packaged clients also ship:
+Three packaged clients also ship:
 
+- **iPhone** — on TestFlight, in beta with the team while Apple reviews the
+  first public build; the public link goes here the moment it exists, and a
+  seat before then is a message away on [Discord](https://discord.gg/aFUu6VMzc).
+  It wraps the same web app: on first launch it scans the code the hub shows
+  and is signed in, and one build works with any hub. Two switches on the
+  phone can stand in the way of a hub on the LAN, and the app names them when
+  they do: Local Network, and on phones sold in China, Wireless Data. Built
+  from `ios-v*` tags.
 - **Android** — an APK from [offdesk.dev/apk](https://offdesk.dev/apk), which always
   points at the newest app build (`/apk/universal` for the universal one);
   take `arm64-v8a` on a modern phone, `universal` if unsure. Sideload it; it
@@ -227,7 +234,7 @@ Two packaged clients also ship:
 - **Desktop** — macOS (universal), Windows, and Linux, with an auto-updater.
   Built from `desktop-v*` tags. Set your hub URL in Settings.
 
-To build either yourself: [docs/building.md](docs/building.md).
+To build any of them yourself: [docs/building.md](docs/building.md).
 
 ### Bring your own agent
 
@@ -465,9 +472,10 @@ machines. That is the whole path.
 a build that takes an hour, or vim — whatever runs in tmux runs here, and
 offdesk does not know or care which.
 
-**What about iPhone?** The browser is the whole client: scan the hub's code
-with the camera, and add the page to the home screen. Android also has an
-app, which scans the same code and adds native notifications.
+**What about iPhone?** There is an app, on TestFlight for now — see
+[On your phone](#on-your-phone). Without it, the browser is the whole client:
+scan the hub's code with the camera, and add the page to the home screen.
+Android has an app too; both scan the same code and add native notifications.
 
 **What if two people type at once?** The control lease decides who may type.
 Sending input claims it — last writer wins, no queue. Everyone else keeps
