@@ -33,6 +33,9 @@ struct HubRouterInner {
     /// filled, and the screen turns to a soup of half-recognisable text
     /// that no redraw can fix. The only recovery is a new stream.
     compressed: std::collections::HashSet<String>,
+    /// Attaches that feed a tab's thumbnail. They are sized for the
+    /// thumbnail, and must not follow the window like a viewer does.
+    previews: std::collections::HashSet<String>,
     /// attach_id -> (machine_id, terminal_id), so we can drop entries when
     /// a machine disconnects without scanning every attach.
     attach_to_terminal: HashMap<String, (String, String)>,
@@ -73,6 +76,37 @@ impl HubRouter {
             .insert(attach_id, (machine_id, terminal_id));
     }
 
+    /// A preview attach: a thumbnail's own small client of the terminal.
+    pub fn register_preview(
+        &self,
+        attach_id: String,
+        machine_id: String,
+        terminal_id: String,
+        sender: WsSender,
+    ) {
+        let mut inner = self.inner.write().unwrap();
+        inner.senders.insert(attach_id.clone(), sender);
+        inner.previews.insert(attach_id.clone());
+        inner
+            .attach_to_terminal
+            .insert(attach_id, (machine_id, terminal_id));
+    }
+
+    /// Every full-view attach of a terminal — a desk, a phone, a second tab —
+    /// and not its thumbnails. With `window-size manual` the window follows
+    /// the controller's resize alone; these are the clients that must be
+    /// resized with it, or tmux paints them the window in one corner and
+    /// dots everywhere else.
+    pub fn main_attaches_of(&self, machine_id: &str, terminal_id: &str) -> Vec<String> {
+        let inner = self.inner.read().unwrap();
+        inner
+            .attach_to_terminal
+            .iter()
+            .filter(|(id, (m, t))| m == machine_id && t == terminal_id && !inner.previews.contains(*id))
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
     /// Whether this attach's bytes are a compressed stream — one that must
     /// be reset rather than thinned when the browser falls behind.
     pub fn is_compressed(&self, attach_id: &str) -> bool {
@@ -96,6 +130,7 @@ impl HubRouter {
         let mut inner = self.inner.write().unwrap();
         inner.senders.remove(attach_id);
         inner.compressed.remove(attach_id);
+        inner.previews.remove(attach_id);
         inner.attach_to_terminal.remove(attach_id);
     }
 
@@ -126,6 +161,24 @@ impl Default for HubRouter {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_full_views_of_a_terminal_are_listed_and_its_thumbnails_are_not() {
+        use super::*;
+        let router = HubRouter::new();
+        let sender = || WsSender(mpsc::channel::<Bytes>(1).0);
+        router.register("desk".into(), "m".into(), "t".into(), sender());
+        router.register_with_compression("phone".into(), "m".into(), "t".into(), sender(), true);
+        router.register_preview("thumb".into(), "m".into(), "t".into(), sender());
+        router.register("other-terminal".into(), "m".into(), "u".into(), sender());
+
+        let mut main = router.main_attaches_of("m", "t");
+        main.sort();
+        assert_eq!(main, vec!["desk".to_string(), "phone".to_string()]);
+
+        router.unregister("phone");
+        assert_eq!(router.main_attaches_of("m", "t"), vec!["desk".to_string()]);
+    }
+
     use super::*;
 
     fn ws_sender() -> (WsSender, mpsc::Receiver<Bytes>) {
