@@ -42,12 +42,18 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         ],
     )?;
 
-    // A template image: black with alpha, which macOS tints for a light or
-    // dark menu bar. The app icon is a colour tile and would sit there as one.
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
-    TrayIconBuilder::new()
-        .icon(icon)
-        .icon_as_template(true)
+    // macOS: a template image, black with alpha, tinted for a light or dark
+    // menu bar. Elsewhere the tray draws colour, so the donut alone on
+    // transparent — never the app icon, a tile that sits in a tray as a
+    // square.
+    #[cfg(target_os = "macos")]
+    let builder = TrayIconBuilder::new()
+        .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?)
+        .icon_as_template(true);
+    #[cfg(not(target_os = "macos"))]
+    let builder = TrayIconBuilder::new()
+        .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray-color.png"))?);
+    builder
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_window(app),
