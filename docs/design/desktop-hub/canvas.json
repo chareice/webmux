@@ -1,0 +1,116 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "title": "Desktop \u00b7 First run",
+      "x": 0,
+      "y": 0,
+      "w": 1120,
+      "h": 760
+    },
+    {
+      "file": "HubReady.dc.html",
+      "title": "Desktop \u00b7 Hub ready",
+      "x": 1220,
+      "y": 0,
+      "w": 1120,
+      "h": 760
+    },
+    {
+      "file": "ClientConnect.dc.html",
+      "title": "Desktop \u00b7 Connect to a hub",
+      "x": 2440,
+      "y": 0,
+      "w": 1120,
+      "h": 760
+    },
+    {
+      "file": "Workspace.dc.html",
+      "title": "Desktop \u00b7 Workspace",
+      "x": 0,
+      "y": 900,
+      "w": 1120,
+      "h": 760
+    },
+    {
+      "file": "HubPanel.dc.html",
+      "title": "Desktop \u00b7 Menu bar",
+      "x": 1220,
+      "y": 900,
+      "w": 340,
+      "h": 520
+    },
+    {
+      "file": "PhoneWelcome.dc.html",
+      "title": "Phone \u00b7 Welcome",
+      "x": 0,
+      "y": 1800,
+      "w": 390,
+      "h": 844
+    },
+    {
+      "file": "PhoneList.dc.html",
+      "title": "Phone \u00b7 Machines & sessions",
+      "x": 490,
+      "y": 1800,
+      "w": 390,
+      "h": 844
+    },
+    {
+      "file": "PhoneTerminal.dc.html",
+      "title": "Phone \u00b7 Terminal",
+      "x": 980,
+      "y": 1800,
+      "w": 390,
+      "h": 844
+    },
+    {
+      "file": "PhoneBlocked.dc.html",
+      "title": "Phone \u00b7 Can't reach the hub",
+      "x": 1470,
+      "y": 1800,
+      "w": 390,
+      "h": 844
+    }
+  ],
+  "annotations": [
+    {
+      "id": "flow-desktop",
+      "x": 0,
+      "y": -150,
+      "w": 520,
+      "text": "Desktop, first run. One question: is this the machine that stays on? Left card installs hub + node + tmux and lands on Hub ready. Right card is the client path and lands on Connect to a hub. Both end in the Workspace."
+    },
+    {
+      "id": "flow-hub",
+      "x": 1220,
+      "y": -150,
+      "w": 520,
+      "text": "Hub ready is also the hand-off to the phone: the code on screen is what Phone \u00b7 Welcome scans. The address dropdown replaces today's OFFDESK_BASE_URL env var. Get-the-app buttons are placeholders until the App Store link exists."
+    },
+    {
+      "id": "flow-menubar",
+      "x": 1620,
+      "y": 900,
+      "w": 360,
+      "text": "Menu bar popover on the hub machine only. Same items as `offdesk-hub link`, `service`, and Add host, but visible. Close the window and the hub keeps running as a service."
+    },
+    {
+      "id": "flow-phone",
+      "x": 0,
+      "y": 1650,
+      "w": 700,
+      "text": "Phone. Welcome \u2192 scan \u2192 list \u2192 terminal. Can't reach the hub is the screen the app shows instead of a blank WebView when the LAN address times out; it names the two iOS switches the README already documents."
+    },
+    {
+      "id": "style",
+      "x": 2440,
+      "y": 900,
+      "w": 420,
+      "text": "Style: the site's sand / cream / coral / sun palette, Fredoka display + Nunito body + Geist Mono. Terminals stay night-dark. The app's current dark-only chrome is intentionally not matched here; that is the change being proposed."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

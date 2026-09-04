@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700&family=Geist+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #fff4e3; }
+    * { box-sizing: border-box; }
+    a { color: #38b6e3; text-decoration: none; } a:hover { color: #2b2340; }
+    .d { font-family: 'Fredoka', ui-rounded, 'Nunito', system-ui, sans-serif; }
+    .s { font-family: 'Nunito', ui-rounded, system-ui, sans-serif; }
+    .m { font-family: 'Geist Mono', ui-monospace, Menlo, Consolas, monospace; }
+  </style>
+</helmet>
+<div class="s" style="width:340px; height:520px; display:flex; flex-direction:column; background:#fffbf4; color:#2b2340; font-size:14px; border-radius:18px; border:1px solid #e6cfae; box-shadow:0 18px 50px -20px rgba(43,35,64,0.45); overflow:hidden;">
+  <div style="display:flex; align-items:center; gap:10px; padding:16px 16px 12px;"><svg width="24" height="24" viewBox="0 0 100 100" aria-hidden="true" style="flex-shrink:0"><circle cx="50" cy="50" r="27" fill="none" stroke="#ff6b57" stroke-width="22"/><path d="M26 22l9-6" stroke="#38b6e3" stroke-width="7" stroke-linecap="round"/><path d="M68 25l7 7" stroke="#ff8fb1" stroke-width="7" stroke-linecap="round"/><path d="M15 56l-3 9" stroke="#ffc857" stroke-width="7" stroke-linecap="round"/><path d="M60 80l10 2" stroke="#5ed3c1" stroke-width="7" stroke-linecap="round"/><path d="M40 84l-8 4" stroke="#ff8fb1" stroke-width="7" stroke-linecap="round"/></svg><div style="display:flex; flex-direction:column; flex-grow:1;"><span class="d" style="font-size:15px; font-weight:700;">offdesk hub</span><span style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:#6e6486;"><span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#5ed3c1; flex-shrink:0"></span><span>Running since Tue · 3 machines</span></span></div></div>
+  <div style="margin:0 12px; padding:10px 12px; border-radius:12px; background:#fff4e3; border:1px solid #f1dec6; display:flex; align-items:center; gap:8px;"><span class="m" style="font-size:12.5px; flex-grow:1;">http://192.168.1.10:4317</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6e6486" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg></div>
+  <div style="display:flex; flex-direction:column; padding:10px 6px 0;">
+    <div class="d" style="font-size:11px; font-weight:600; letter-spacing:0.06em; color:#ff6b57; padding:6px 12px;">MACHINES</div>
+    <div style="display:flex; align-items:center; gap:10px; height:40px; padding:0 12px; border-radius:12px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2b2340" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><rect x="3" y="5" width="18" height="12" rx="1.5"/><path d="M2 20h20"/></svg><span class="d" style="font-size:14px; font-weight:600; flex-grow:1;">studio</span><span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#5ed3c1; flex-shrink:0"></span><span class="m" style="font-size:11px; color:#9d95b3;">this Mac</span></div>
+    <div style="display:flex; align-items:center; gap:10px; height:40px; padding:0 12px; border-radius:12px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2b2340" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg><span class="d" style="font-size:14px; font-weight:600; flex-grow:1;">nas</span><span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:#5ed3c1; flex-shrink:0"></span><span class="m" style="font-size:11px; color:#9d95b3;">12ms</span></div>
+    <div style="display:flex; align-items:center; gap:10px; height:40px; padding:0 12px; border-radius:12px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2b2340" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg><span class="d" style="font-size:14px; font-weight:600; flex-grow:1;">hetzner-1</span><span style="display:inline-block; width:9px; height:9px; border-radius:50%; border:2px dashed #9d95b3; background:transparent; flex-shrink:0"></span><span class="m" style="font-size:11px; color:#9d95b3;">offline 4m</span></div>
+    <div style="height:1px; background:#f1dec6; margin:6px 10px;"></div>
+    <div style="display:flex; align-items:center; gap:10px; height:40px; padding:0 12px; border-radius:12px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2b2340" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3M21 14v3M14 21h3M21 21h-1"/></svg><span class="d" style="font-size:14px; font-weight:600; flex-grow:1;">Show the phone code</span><span class="m" style="font-size:11px; color:#9d95b3;"></span></div>
+    <div style="display:flex; align-items:center; gap:10px; height:40px; padding:0 12px; border-radius:12px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2b2340" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="M12 5v14M5 12h14"/></svg><span class="d" style="font-size:14px; font-weight:600; flex-grow:1;">Add a machine</span><span class="m" style="font-size:11px; color:#9d95b3;"></span></div>
+    <div style="display:flex; align-items:center; gap:10px; height:40px; padding:0 12px; border-radius:12px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2b2340" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span class="d" style="font-size:14px; font-weight:600; flex-grow:1;">Open offdesk</span><span class="m" style="font-size:11px; color:#9d95b3;">⌃⇧`</span></div>
+    <div style="height:1px; background:#f1dec6; margin:6px 10px;"></div>
+    <div style="display:flex; align-items:center; gap:10px; height:40px; padding:0 12px;"><span class="d" style="font-size:14px; font-weight:600; flex-grow:1; color:#6e6486;">Start at login</span><div style="width:40px; height:24px; border-radius:999px; background:#5ed3c1; position:relative;"><div style="position:absolute; top:3px; right:3px; width:18px; height:18px; border-radius:50%; background:#fffbf4;"></div></div></div>
+    <div style="display:flex; align-items:center; gap:10px; height:40px; padding:0 12px; border-radius:12px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2b2340" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="d" style="font-size:14px; font-weight:600; flex-grow:1; color:#6e6486;">Quit offdesk</span><span class="m" style="font-size:11px; color:#9d95b3;"></span></div>
+  </div>
+</div></x-dc>
+</body>
+</html>
