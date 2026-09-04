@@ -14,7 +14,7 @@ test("desktop workbench keeps an add-host entry point after machines exist", asy
 
   await expect(page.getByTestId("host-switcher-button")).toBeVisible();
   await page.getByTestId("host-switcher-button").click();
-  await expect(page.getByText("Hosts · 1")).toBeVisible();
+  await expect(page.getByText("Machines · 1")).toBeVisible();
   await expect(page.getByTestId("host-switcher-add-machine")).toBeVisible();
   await page.getByTestId("host-switcher-add-machine").click();
   await expect(page.getByTestId("add-machine-dialog")).toBeVisible();
