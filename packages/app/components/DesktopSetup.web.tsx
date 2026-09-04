@@ -26,7 +26,7 @@ import {
   type HubLink,
   type HubStatus,
 } from "@/lib/desktopHub";
-import { setServerUrl } from "@/lib/serverUrl";
+import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import LoginScreen from "../app/login";
 import { Body, Button, Card, Check, Display, Donut, Eyebrow, Spinner, fontDisplay } from "./Warm.web";
 
@@ -69,7 +69,20 @@ export function DesktopGate({ children }: { children: ReactNode }) {
     // A bridge that does not know the command (an older shell, or a test's
     // stub) answers with nothing: that is "never answered", not "loading".
     desktopRole()
-      .then((stored) => setRole(stored ?? null))
+      .then((stored) => {
+        if (stored) {
+          setRole(stored);
+          return;
+        }
+        // An install from before the question, already pointed at a hub:
+        // it has answered "just connecting" by having one. Ask nobody.
+        if (getServerUrl()) {
+          setRole("client");
+          void setDesktopRole("client").catch(() => {});
+          return;
+        }
+        setRole(null);
+      })
       .catch(() => setRole(null));
   }, []);
 
