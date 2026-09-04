@@ -108,8 +108,10 @@ cp "$work/prefix-arm64/bin/tmux" "$out/tmux-aarch64-apple-darwin"
 cp "$work/prefix-x86_64/bin/tmux" "$out/tmux-x86_64-apple-darwin"
 chmod +x "$out"/tmux-*
 
-# Nothing outside /usr/lib, or it is not a sidecar.
-if otool -L "$out/tmux-universal-apple-darwin" | tail -n +2 | grep -v -E '^\s+/usr/lib/' >/dev/null; then
+# Nothing outside /usr/lib, or it is not a sidecar. Dependency lines are the
+# indented ones; a universal binary also prints one "(architecture …):"
+# header per slice, which is not a dependency.
+if otool -L "$out/tmux-universal-apple-darwin" | grep -E '^[[:space:]]' | grep -v -E '^[[:space:]]+/usr/lib/' >/dev/null; then
     echo "error: the tmux sidecar links outside /usr/lib:" >&2
     otool -L "$out/tmux-universal-apple-darwin" >&2
     exit 1
