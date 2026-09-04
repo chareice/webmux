@@ -263,7 +263,7 @@ function TerminalCanvasInner() {
     const unlisteners: Array<() => void> = [];
     void import("@tauri-apps/api/event").then(({ listen }) => {
       if (disposed) return;
-      void listen("offdesk://show-phone-code", () => setShowSettings(true)).then((un) => unlisteners.push(un));
+      void listen("offdesk://show-phone-code", () => setPhoneOpen(true)).then((un) => unlisteners.push(un));
       void listen("offdesk://add-machine", () => setAddMachineOpen(true)).then((un) => unlisteners.push(un));
     });
     return () => {
@@ -1517,7 +1517,7 @@ function TerminalCanvasInner() {
       {
         id: "add-host",
         section: "actions",
-        label: "Add host…",
+        label: "Add a machine…",
         action: () => setAddMachineOpen(true),
       },
       {
@@ -1849,10 +1849,10 @@ function TerminalCanvasInner() {
             title={`Remove ${hostRemoveTarget.name}?`}
             message={
               hostRemoveTarget.online
-                ? `"${hostRemoveTarget.name}" is connected. Removing it disconnects the host and it will not reconnect until registered again. Tabs and terminals for this host leave offdesk.`
-                : `"${hostRemoveTarget.name}" is offline. Removing it forgets the host and its tabs and terminals. Re-register to add it back.`
+                ? `"${hostRemoveTarget.name}" is connected. Removing it disconnects the machine and it will not reconnect until registered again. Tabs and terminals for this machine leave offdesk.`
+                : `"${hostRemoveTarget.name}" is offline. Removing it forgets the machine and its tabs and terminals. Re-register to add it back.`
             }
-            confirmLabel="Remove host"
+            confirmLabel="Remove machine"
             variant="danger"
             onConfirm={confirmRemoveHost}
             onCancel={() => setHostRemoveTarget(null)}

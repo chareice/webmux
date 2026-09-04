@@ -44,7 +44,7 @@ test("desktop host switcher can forget a registered host", async ({ browser }) =
 
   await page.getByTestId(`host-switcher-remove-${machineId}`).click();
   await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "Remove host" }).click();
+  await dialog.getByRole("button", { name: "Remove machine" }).click();
   await expect(host).toHaveCount(0);
 
   const machinesResponse = await page.request.get(

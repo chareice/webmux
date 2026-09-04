@@ -37,5 +37,5 @@ export function getTokenActionLabel({
     return "Generating…";
   }
 
-  return token ? "Regenerate Token" : "Generate Token";
+  return token ? "New token" : "Generate a token";
 }

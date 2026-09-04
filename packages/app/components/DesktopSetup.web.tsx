@@ -323,7 +323,20 @@ function SetupStep({ done, pending, title, sub }: { done: boolean; pending: bool
 
 // ── Hub ready: the code for the phone ─────────────────────────────
 
-function HubReadyScreen({ initial, onOpen }: { initial: HubLink | null; onOpen: (link: HubLink) => Promise<void> }) {
+/**
+ * Hub ready: the code for the phone. On first run its button opens the
+ * terminal; revisited from the Phone button or the menu bar, the same page
+ * with a way back (`onClose`).
+ */
+export function HubReadyScreen({
+  initial,
+  onOpen,
+  onClose,
+}: {
+  initial: HubLink | null;
+  onOpen?: (link: HubLink) => Promise<void>;
+  onClose?: () => void;
+}) {
   const [link, setLink] = useState<HubLink | null>(initial);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
@@ -350,20 +363,26 @@ function HubReadyScreen({ initial, onOpen }: { initial: HubLink | null; onOpen: 
           </Card>
           {error ? <Body style={{ color: colors.err }}>{error}</Body> : null}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <Button
-              disabled={!link || opening}
-              testId="hub-ready-open"
-              onClick={() => {
-                if (!link) return;
-                setOpening(true);
-                onOpen(link).catch((e: unknown) => {
-                  setError(String(e));
-                  setOpening(false);
-                });
-              }}
-            >
-              <TerminalIcon /> {opening ? "Opening…" : "Open my terminal"}
-            </Button>
+            {onClose ? (
+              <Button kind="sky" onClick={onClose} testId="hub-ready-back">
+                <TerminalIcon /> Back to the terminal
+              </Button>
+            ) : (
+              <Button
+                disabled={!link || opening}
+                testId="hub-ready-open"
+                onClick={() => {
+                  if (!link || !onOpen) return;
+                  setOpening(true);
+                  onOpen(link).catch((e: unknown) => {
+                    setError(String(e));
+                    setOpening(false);
+                  });
+                }}
+              >
+                <TerminalIcon /> {opening ? "Opening…" : "Open my terminal"}
+              </Button>
+            )}
           </div>
         </div>
         <PhoneCodePanel link={link} onLink={setLink} onError={setError} />
@@ -454,8 +473,10 @@ export function PhoneCodePanel({
       ? [{ interface: "chosen", address: currentAddress }, ...candidates]
       : candidates;
 
-  return (
-    <Card sticker={!compact} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: compact ? 20 : 28 }}>
+  // On Hub ready this is the sticker card beside the steps; inside a dialog
+  // or a Settings section it sits flat, the surface around it is the card.
+  const body = (
+    <>
       {!compact ? <Display size={22} style={{ textAlign: "center" }}>Scan this with your phone</Display> : null}
       <div
         style={{
@@ -543,12 +564,39 @@ export function PhoneCodePanel({
           {copied ? "Copied" : "Copy link"}
         </Button>
       </div>
-      <div style={{ fontFamily: fontDisplay, fontSize: 12.5, fontWeight: 600, color: colors.fg3, textAlign: "center" }}>
-        {link?.link
-          ? "The link signs in whoever has it. Keep it off shared screens."
-          : "This hub signs in through GitHub or Google, so the code is just the address."}
-      </div>
+      {link ? (
+        <div style={{ fontFamily: fontDisplay, fontSize: 12.5, fontWeight: 600, color: colors.fg3, textAlign: "center" }}>
+          {link.link
+            ? "The link signs in whoever has it. Keep it off shared screens."
+            : "This hub signs in through GitHub or Google, so the code is just the address."}
+        </div>
+      ) : null}
+    </>
+  );
+  const column = { display: "flex", flexDirection: "column", alignItems: "center", gap: 16 } as const;
+  if (compact) return <div style={column}>{body}</div>;
+  return (
+    <Card sticker style={{ ...column, padding: 28 }}>
+      {body}
     </Card>
+  );
+}
+
+/** The hub's own code, fetched here: for Settings and the Phone dialog. */
+export function HubPhoneCode() {
+  const [link, setLink] = useState<HubLink | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (link) return;
+    hubLink()
+      .then(setLink)
+      .catch((e: unknown) => setError(String(e)));
+  }, [link]);
+  return (
+    <div style={{ maxWidth: 440 }}>
+      {error ? <Body size={12} style={{ color: colors.err, marginBottom: 8 }}>{error}</Body> : null}
+      <PhoneCodePanel link={link} onLink={setLink} onError={setError} compact />
+    </div>
   );
 }
 
@@ -558,7 +606,6 @@ export function PhoneCodePanel({
 export function ThisMachineSection() {
   const [role, setRole] = useState<DesktopRole | null | undefined>(undefined);
   const [status, setStatus] = useState<HubStatus | null>(null);
-  const [link, setLink] = useState<HubLink | null>(null);
   const [showCode, setShowCode] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -571,12 +618,6 @@ export function ThisMachineSection() {
     if (role !== "hub") return;
     hubStatus().then(setStatus).catch(() => setStatus(null));
   }, [role]);
-  useEffect(() => {
-    if (!showCode || link) return;
-    hubLink()
-      .then(setLink)
-      .catch((e: unknown) => setError(String(e)));
-  }, [showCode, link]);
 
   const becomeHub = async () => {
     setBusy(true);
@@ -665,11 +706,7 @@ export function ThisMachineSection() {
         <Body size={12}>The database and your tmux sessions stay. Only the two services go.</Body>
       ) : null}
       {error ? <Body size={12} style={{ color: colors.err }}>{error}</Body> : null}
-      {showCode ? (
-        <div style={{ maxWidth: 420 }}>
-          <PhoneCodePanel link={link} onLink={setLink} onError={setError} compact />
-        </div>
-      ) : null}
+      {showCode ? <HubPhoneCode /> : null}
     </div>
   );
 }

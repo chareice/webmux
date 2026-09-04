@@ -5,6 +5,7 @@ import type {
   TerminalInfo,
 } from "@offdesk/shared";
 import { ChevronRight, Plus, X } from "lucide-react";
+import { fontDisplay } from "./Warm.web";
 import { colors } from "@/lib/colors";
 import { diskPercent } from "@/lib/resourceStats";
 
@@ -64,7 +65,7 @@ function HostSwitcherComponent({
         }}
       >
         <Logomark />
-        <span>No host</span>
+        <span>No machine</span>
       </div>
     );
   }
@@ -165,29 +166,30 @@ function HostSwitcherComponent({
             position: "absolute",
             top: "calc(100% + 6px)",
             ...(compact ? { right: 0 } : { left: 0 }),
-            minWidth: 240,
+            minWidth: 320,
             zIndex: 20,
             background: colors.bg1,
-            border: `1px solid ${colors.line}`,
-            borderRadius: 12,
-            padding: 8,
-            boxShadow: "0 20px 60px -20px black",
+            border: `1px solid ${colors.lineSoft}`,
+            borderRadius: 18,
+            padding: 10,
+            boxShadow: "0 18px 50px -20px rgb(43 35 64 / 0.45)",
             maxHeight: 360,
             overflow: "auto",
           }}
         >
           <div
             style={{
-              padding: "6px 8px 4px",
-              fontSize: 10,
-              color: colors.fg3,
+              padding: "6px 10px 4px",
+              fontFamily: fontDisplay,
+              fontSize: 11,
+              color: colors.accent,
               textTransform: "uppercase",
-              letterSpacing: "0.1em",
+              letterSpacing: "0.06em",
               fontWeight: 600,
-              marginBottom: 8,
+              marginBottom: 6,
             }}
           >
-            Hosts · {machines.length}
+            Machines · {machines.length}
           </div>
           {machines.map((m) => {
             const isActive = m.id === active.id;
@@ -214,8 +216,8 @@ function HostSwitcherComponent({
                   }}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "auto 1fr auto",
-                    gap: 8,
+                    gridTemplateColumns: "auto minmax(0, 1fr) auto",
+                    gap: 10,
                     alignItems: "center",
                     width: "100%",
                     textAlign: "left",
@@ -238,12 +240,14 @@ function HostSwitcherComponent({
                   >
                     <span
                       style={{
-                        fontSize: 13,
+                        fontFamily: fontDisplay,
+                        fontSize: 14,
                         fontWeight: 600,
                         color: colors.fg0,
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
+                        minWidth: 0,
                       }}
                     >
                       {m.name}
@@ -328,19 +332,21 @@ function HostSwitcherComponent({
                 justifyContent: "center",
                 gap: 8,
                 width: "100%",
-                marginTop: 4,
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: `1px solid ${colors.line}`,
-                background: "transparent",
+                marginTop: 6,
+                height: 40,
+                padding: "0 14px",
+                borderRadius: 999,
+                border: "2px solid rgb(43 35 64 / 0.15)",
+                background: colors.bg1,
                 color: colors.fg0,
-                fontSize: 12,
+                fontFamily: fontDisplay,
+                fontSize: 13,
                 fontWeight: 600,
                 cursor: "pointer",
               }}
             >
               <Plus size={14} />
-              Add host
+              Add a machine
             </button>
           )}
         </div>

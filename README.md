@@ -166,7 +166,7 @@ never resizes the desk.
 ### Adding a machine
 
 The machine the hub runs on is registered by the install. For every other
-machine you want to reach, open the hub in a browser and choose **Add host**
+machine you want to reach, open the hub in a browser and choose **Add a machine**
 in the machine switcher (a fresh hub with no machine yet lands on that page
 by itself). It shows one line, with a token filled in:
 

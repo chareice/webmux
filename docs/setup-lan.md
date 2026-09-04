@@ -93,7 +93,7 @@ hostname -I | awk '{print $1}' # Linux
 ## 2. Register another machine
 
 The machine the hub runs on was registered by the install. For every other
-one: open the hub in a browser and choose **Add host** in the machine
+one: open the hub in a browser and choose **Add a machine** in the machine
 switcher (a fresh hub with no machine lands there by itself). It shows one
 line with a registration token filled in:
 

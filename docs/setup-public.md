@@ -131,7 +131,7 @@ curl -fsSL https://offdesk.dev/install | sh -s -- --hub-url wss://offdesk.exampl
 The installer puts `offdesk-node` in `~/.local/bin`. To build it instead:
 `cargo build --release --bin offdesk-node`.
 
-`<token>` is a registration token the hub mints for one new machine: open the hub in a browser, **Add host** in the machine switcher (a fresh hub with no machine lands there by itself), and it shows this line with the token filled in. The line installs the agent, registers the machine and keeps the agent running as a service. It is single-use and expires after 24
+`<token>` is a registration token the hub mints for one new machine: open the hub in a browser, **Add a machine** in the machine switcher (a fresh hub with no machine lands there by itself), and it shows this line with the token filled in. The line installs the agent, registers the machine and keeps the agent running as a service. It is single-use and expires after 24
 hours. The machine agent dials out to the hub over WebSocket, so it needs no
 inbound port and no port forwarding of its own. That is why a laptop behind NAT
 works here.

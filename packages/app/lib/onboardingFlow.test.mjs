@@ -53,7 +53,7 @@ test("token generation runs on explicit request and refreshes expired tokens", (
 });
 
 test("token action label reflects explicit onboarding states", () => {
-  assert.equal(getTokenActionLabel({ loading: false, token: null }), "Generate Token");
+  assert.equal(getTokenActionLabel({ loading: false, token: null }), "Generate a token");
   assert.equal(getTokenActionLabel({ loading: true, token: null }), "Generating…");
-  assert.equal(getTokenActionLabel({ loading: false, token: "token-123" }), "Regenerate Token");
+  assert.equal(getTokenActionLabel({ loading: false, token: "token-123" }), "New token");
 });

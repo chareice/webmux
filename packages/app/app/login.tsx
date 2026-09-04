@@ -1,18 +1,11 @@
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Platform,
-  View,
-  Text,
-  Pressable,
-  TextInput,
-} from "react-native";
+import { Platform } from "react-native";
 import { getAuthProviders, redeemLoginCode, type AuthProviders } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { codeFromLink, tokenFromLink } from "../lib/desktopHub";
 import { isBundledOrigin, isTauri, isTauriMobile } from "../lib/platform";
 import { getServerUrl, setServerUrl } from "../lib/serverUrl";
-import { Body, Button, Card, Display, Eyebrow, fontDisplay, inputStyle } from "../components/Warm.web";
+import { Body, Button, Card, Display, Eyebrow, Wordmark, fontDisplay, inputStyle } from "../components/Warm.web";
 import { colors } from "../lib/colors";
 
 type OAuthProvider = "github" | "google";
@@ -65,21 +58,29 @@ export default function LoginScreen({
   // nothing is drawn: a button that appears and then vanishes is worse than a
   // moment of nothing, and a button that fails when pressed is worse still.
   const [providers, setProviders] = useState<AuthProviders | null>(null);
+  const [providersError, setProvidersError] = useState<string | null>(null);
+  const [providersAttempt, setProvidersAttempt] = useState(0);
   useEffect(() => {
     if (isDesktop || needsHub) return;
     let cancelled = false;
+    setProvidersError(null);
     getAuthProviders()
       .then((result) => {
         if (!cancelled) setProviders(result);
       })
       .catch(() => {
-        // An old hub without the endpoint: assume both, as before.
-        if (!cancelled) setProviders({ github: true, google: true, link: false });
+        // No answer means no hub behind this page (a dev server, a hub
+        // that is down) — not "assume GitHub and Google", which drew two
+        // buttons that could not work.
+        if (!cancelled) {
+          setProviders({ github: false, google: false, link: false });
+          setProvidersError("Could not ask this hub how it signs people in. Is it running?");
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [isDesktop, needsHub]);
+  }, [isDesktop, needsHub, providersAttempt]);
 
   const handleHubConnect = () => {
     setConnecting(true);
@@ -264,89 +265,83 @@ export default function LoginScreen({
       });
   };
 
+  // One frame for every sign-in: sand, a cream card, the wordmark.
+  const frame = (children: React.ReactNode) => (
+    <div
+      style={{
+        flex: 1,
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        background: colors.bg0,
+        boxSizing: "border-box",
+        overflow: "auto",
+      }}
+    >
+      <div style={{ margin: "auto", width: "100%", maxWidth: 520, padding: "32px 20px", boxSizing: "border-box" }}>
+        <Card style={{ display: "flex", flexDirection: "column", gap: 20, padding: 32 }}>{children}</Card>
+      </div>
+    </div>
+  );
+  const note = (text: string, tone: "muted" | "error" = "muted") => (
+    <Body size={13} style={{ color: tone === "error" ? colors.err : colors.fg2 }}>
+      {text}
+    </Body>
+  );
+
   if (needsHub) {
-    return (
-      <View className="flex-1 bg-background items-center justify-center p-6">
-        <View className="w-full max-w-sm bg-surface rounded-2xl p-8">
-          <Text className="text-foreground text-3xl font-bold text-center mb-2">
-            offdesk
-          </Text>
-          <Text className="text-foreground text-center mb-8 opacity-80">
-            Connect to your hub
-          </Text>
-
-          <View className="mb-6">
-            <Text className="text-foreground text-sm mb-2 opacity-60">
-              Hub address, or the whole sign-in link the hub printed
-            </Text>
-            <TextInput
-              value={serverUrlInput}
-              onChangeText={setServerUrlInput}
-              placeholder="http://192.168.1.10:4317/?token=…"
-              placeholderTextColor="#999"
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              inputMode="url"
-              className="bg-background border border-border rounded-lg px-3 py-2.5 text-foreground text-sm"
-            />
-          </View>
-
-          {hubError ? (
-            <View className="mb-4">
-              <Text className="text-foreground text-xs opacity-80">
-                {hubError}
-              </Text>
-              {/Local Network/.test(hubError) ? (
-                <Pressable
-                  onPress={() => void openSettings()}
-                  className="mt-2 self-start py-1.5 px-3 rounded-lg border border-border active:opacity-80"
-                >
-                  <Text className="text-foreground text-xs font-medium">Open Settings</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : savedHub ? (
-            <Text className="text-foreground text-xs mb-4 opacity-60">
-              Could not reach this hub on launch. Check that it is running and
-              that you are on the same network, or enter another address.
-            </Text>
-          ) : null}
-
-          <Pressable
-            onPress={handleHubConnect}
-            disabled={connecting || !serverUrlInput.trim()}
-            className={`py-3 px-4 rounded-lg items-center active:opacity-80 bg-foreground ${
-              connecting || !serverUrlInput.trim() ? "opacity-50" : ""
-            }`}
-          >
-            {connecting ? (
-              <ActivityIndicator color="#141413" />
-            ) : (
-              <Text className="font-semibold text-base text-background">
-                Connect
-              </Text>
-            )}
-          </Pressable>
-
-          <Pressable
-            onPress={() => void handleScanForHub()}
-            disabled={connecting}
-            className="py-3 px-4 rounded-lg items-center active:opacity-80 border border-border mt-3"
-          >
-            <Text className="text-foreground font-medium">Scan the code instead</Text>
-          </Pressable>
-          {scanError ? (
-            <Text className="text-foreground text-xs mt-3 opacity-80">{scanError}</Text>
-          ) : null}
-
-          <Text className="text-foreground text-xs text-center mt-4 opacity-40">
-            The hub shows a code on its terminal at install, behind the Phone
-            button, and from `offdesk-hub link`. Scan it, or type the address
-            and sign in on the hub once it loads.
-          </Text>
-        </View>
-      </View>
+    return frame(
+      <>
+        <Wordmark />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <Eyebrow>Welcome</Eyebrow>
+          <Display size={30}>Your terminal stays home.</Display>
+          <Body>
+            Point this at the code your hub shows: on the Mac's screen, or in its menu bar under Show the phone
+            code. That's the sign-in, nothing to type.
+          </Body>
+        </div>
+        <Button onClick={() => void handleScanForHub()} disabled={connecting}>
+          Scan the code
+        </Button>
+        {scanError ? note(scanError, "error") : null}
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ flexGrow: 1, height: 1, background: colors.line }} />
+          <span style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 600, color: colors.fg3 }}>No code handy?</span>
+          <div style={{ flexGrow: 1, height: 1, background: colors.line }} />
+        </div>
+        <input
+          type="url"
+          value={serverUrlInput}
+          onChange={(event) => setServerUrlInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") handleHubConnect();
+          }}
+          placeholder="192.168.1.10:4317, or the whole sign-in link"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          inputMode="url"
+          style={inputStyle}
+        />
+        {hubError ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {note(hubError, "error")}
+            {/Local Network/.test(hubError) ? (
+              <div>
+                <Button kind="sky" onClick={() => void openSettings()} style={{ height: 38, fontSize: 13 }}>
+                  Open Settings
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : savedHub ? (
+          note("Could not reach this hub on launch. Check that it is running and that you are on the same network, or enter another address.")
+        ) : null}
+        <Button kind="sky" onClick={handleHubConnect} disabled={connecting || !serverUrlInput.trim()}>
+          {connecting ? "Connecting…" : "Connect"}
+        </Button>
+      </>,
     );
   }
 
@@ -439,113 +434,88 @@ export default function LoginScreen({
     );
   }
 
-  return (
-    <View className="flex-1 bg-background items-center justify-center p-6">
-      <View className="w-full max-w-sm bg-surface rounded-2xl p-8">
-        <Text className="text-foreground text-3xl font-bold text-center mb-2">
-          offdesk
-        </Text>
-        <Text className="text-foreground text-center mb-8 opacity-80">
-          Sign in to continue
-        </Text>
+  const link = providers?.link ? (
+    <>
+      <Body>
+        This hub has no GitHub or Google sign-in, so the address alone does not get you in. It printed a link
+        when it was installed — also under Settings → Mobile app on the computer that runs it, as a code for
+        this phone's camera. Paste that link here:
+      </Body>
+      <input
+        type="url"
+        value={pastedLink}
+        onChange={(event) => {
+          setPastedLink(event.target.value);
+          setLinkError(null);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") handleOpenLink();
+        }}
+        placeholder="http://192.168.1.10:4317/?token=…"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        inputMode="url"
+        style={inputStyle}
+      />
+      {linkError ? note(linkError, "error") : null}
+      <Button onClick={handleOpenLink} disabled={!pastedLink.trim()}>
+        Open the link
+      </Button>
+      {inMobileApp ? (
+        <Button kind="sky" onClick={() => void handleScanForLink()}>
+          Scan the code instead
+        </Button>
+      ) : null}
+      {scanError && inMobileApp ? note(scanError, "error") : null}
+      {inMobileApp ? (
+        <Button kind="ghost" onClick={handleSwitchHub} style={{ alignSelf: "center", height: 36, fontSize: 13 }}>
+          Use a different hub
+        </Button>
+      ) : null}
+    </>
+  ) : null;
 
-        {providers?.link ? (
-          <View className="mb-6">
-            <Text className="text-foreground text-sm text-center opacity-80 leading-6 mb-5">
-              This hub has no GitHub or Google sign-in, so the address alone
-              does not get you in. It printed a link when it was installed —
-              also under Settings → Mobile app on the computer that runs it,
-              as a code for this phone's camera. Paste that link here:
-            </Text>
-            <TextInput
-              value={pastedLink}
-              onChangeText={(text) => {
-                setPastedLink(text);
-                setLinkError(null);
-              }}
-              placeholder="http://192.168.1.10:4317/?token=…"
-              placeholderTextColor="#999"
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              inputMode="url"
-              onSubmitEditing={handleOpenLink}
-              className="bg-background border border-border rounded-lg px-4 py-3 text-foreground mb-3"
-            />
-            {linkError ? (
-              <Text className="text-foreground text-xs mb-3 opacity-80">
-                {linkError}
-              </Text>
-            ) : null}
-            <Pressable
-              onPress={handleOpenLink}
-              disabled={!pastedLink.trim()}
-              className={`py-3 px-4 rounded-lg items-center active:opacity-80 bg-foreground ${
-                pastedLink.trim() ? "" : "opacity-50"
-              }`}
-            >
-              <Text className="text-background font-medium">Open the link</Text>
-            </Pressable>
-            {inMobileApp ? (
-              <Pressable
-                onPress={() => void handleScanForLink()}
-                className="py-3 px-4 rounded-lg items-center active:opacity-80 border border-border mt-3"
-              >
-                <Text className="text-foreground font-medium">Scan the code instead</Text>
-              </Pressable>
-            ) : null}
-            {scanError && inMobileApp ? (
-              <Text className="text-foreground text-xs mt-3 opacity-80">{scanError}</Text>
-            ) : null}
-            {inMobileApp ? (
-              <Pressable
-                onPress={handleSwitchHub}
-                className="py-3 px-4 rounded-lg items-center active:opacity-80 mt-3"
-              >
-                <Text className="text-foreground opacity-70">
-                  Use a different hub
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
+  const oauth = PROVIDERS.filter((provider) => (providers === null ? false : providers[provider.value]));
+
+  return frame(
+    <>
+      <Wordmark />
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <Eyebrow>Sign in</Eyebrow>
+        <Display size={30}>Your terminal stays home.</Display>
+        {providers === null ? <Body>Asking this hub how it signs people in…</Body> : null}
+        {providersError ? (
+          <Body size={13} style={{ color: colors.err }}>
+            {providersError}
+          </Body>
+        ) : providers && !providers.link && oauth.length === 0 ? (
+          <Body size={13}>This hub offers no way to sign in here. Its owner can add GitHub or Google sign-in, or hand you its link.</Body>
         ) : null}
-
-        <View className="gap-3">
-          {PROVIDERS.filter(
-            (provider) => providers === null ? false : providers[provider.value],
-          ).map((provider) => {
+      </div>
+      {providersError ? (
+        <Button kind="sky" onClick={() => setProvidersAttempt((n) => n + 1)}>
+          Try again
+        </Button>
+      ) : null}
+      {link}
+      {oauth.length > 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {oauth.map((provider, index) => {
             const active = activeProvider === provider.value;
-            const isGitHub = provider.value === "github";
-
             return (
-              <Pressable
+              <Button
                 key={provider.value}
-                onPress={() => handleWebLogin(provider.value)}
-                className={`py-3 px-4 rounded-lg items-center active:opacity-80 ${
-                  isGitHub
-                    ? "bg-foreground"
-                    : "bg-background border border-border"
-                } ${activeProvider ? "opacity-50" : ""}`}
+                kind={index === 0 ? "coral" : "sky"}
+                onClick={() => handleWebLogin(provider.value)}
                 disabled={activeProvider !== null}
               >
-                {active ? (
-                  <ActivityIndicator
-                    color={isGitHub ? "#141413" : "#faf9f5"}
-                  />
-                ) : (
-                  <Text
-                    className={`font-semibold text-base ${
-                      isGitHub ? "text-background" : "text-foreground"
-                    }`}
-                  >
-                    {provider.label}
-                  </Text>
-                )}
-              </Pressable>
+                {active ? "Opening…" : provider.label}
+              </Button>
             );
           })}
-        </View>
-      </View>
-    </View>
+        </div>
+      ) : null}
+    </>,
   );
 }
