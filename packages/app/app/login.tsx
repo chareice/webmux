@@ -58,21 +58,29 @@ export default function LoginScreen({
   // nothing is drawn: a button that appears and then vanishes is worse than a
   // moment of nothing, and a button that fails when pressed is worse still.
   const [providers, setProviders] = useState<AuthProviders | null>(null);
+  const [providersError, setProvidersError] = useState<string | null>(null);
+  const [providersAttempt, setProvidersAttempt] = useState(0);
   useEffect(() => {
     if (isDesktop || needsHub) return;
     let cancelled = false;
+    setProvidersError(null);
     getAuthProviders()
       .then((result) => {
         if (!cancelled) setProviders(result);
       })
       .catch(() => {
-        // An old hub without the endpoint: assume both, as before.
-        if (!cancelled) setProviders({ github: true, google: true, link: false });
+        // No answer means no hub behind this page (a dev server, a hub
+        // that is down) — not "assume GitHub and Google", which drew two
+        // buttons that could not work.
+        if (!cancelled) {
+          setProviders({ github: false, google: false, link: false });
+          setProvidersError("Could not ask this hub how it signs people in. Is it running?");
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [isDesktop, needsHub]);
+  }, [isDesktop, needsHub, providersAttempt]);
 
   const handleHubConnect = () => {
     setConnecting(true);
@@ -477,7 +485,19 @@ export default function LoginScreen({
         <Eyebrow>Sign in</Eyebrow>
         <Display size={30}>Your terminal stays home.</Display>
         {providers === null ? <Body>Asking this hub how it signs people in…</Body> : null}
+        {providersError ? (
+          <Body size={13} style={{ color: colors.err }}>
+            {providersError}
+          </Body>
+        ) : providers && !providers.link && oauth.length === 0 ? (
+          <Body size={13}>This hub offers no way to sign in here. Its owner can add GitHub or Google sign-in, or hand you its link.</Body>
+        ) : null}
       </div>
+      {providersError ? (
+        <Button kind="sky" onClick={() => setProvidersAttempt((n) => n + 1)}>
+          Try again
+        </Button>
+      ) : null}
       {link}
       {oauth.length > 0 ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
