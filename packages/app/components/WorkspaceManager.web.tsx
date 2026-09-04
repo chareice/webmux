@@ -150,7 +150,7 @@ function WorkspaceManagerComponent({
             </span>
             <div style={{ minWidth: 0 }}>
               <div id="workspace-manager-title" style={titleStyle}>
-                Workspaces
+                Tabs
               </div>
               <div style={subtitleStyle}>{machineName || "No host"}</div>
             </div>
@@ -159,7 +159,7 @@ function WorkspaceManagerComponent({
             ref={closeButtonRef}
             type="button"
             data-testid="workspace-manager-close"
-            aria-label="Close workspace manager"
+            aria-label="Close the tab list"
             title="Close"
             onClick={onClose}
             style={iconButtonStyle}
@@ -181,16 +181,16 @@ function WorkspaceManagerComponent({
             }}
           >
             <Plus size={14} />
-            New workspace
+            New tab
           </button>
           <span style={summaryStyle}>
-            {groups.length} {groups.length === 1 ? "workspace" : "workspaces"}
+            {groups.length} {groups.length === 1 ? "tab" : "tabs"}
           </span>
         </div>
 
         {!canManage && (
           <div data-testid="workspace-manager-view-only" style={viewOnlyStyle}>
-            View only — take control to change workspaces.
+            View only — take control to change tabs.
           </div>
         )}
 
@@ -198,7 +198,7 @@ function WorkspaceManagerComponent({
           {groups.length === 0 ? (
             <div data-testid="workspace-manager-empty" style={emptyStyle}>
               <FolderTree size={28} style={{ opacity: 0.35 }} />
-              <span>No workspaces yet</span>
+              <span>No tabs yet</span>
               <span style={{ color: colors.fg3 }}>
                 Create one, then start a terminal inside it.
               </span>
@@ -285,7 +285,7 @@ function WorkspaceManagerComponent({
 
                   <div style={terminalTreeStyle}>
                     {groupTerminals.length === 0 ? (
-                      <div style={emptyGroupStyle}>Empty workspace</div>
+                      <div style={emptyGroupStyle}>Empty tab</div>
                     ) : (
                       groupTerminals.map((terminal, terminalIndex) => {
                         const isTerminalActive = terminal.id === activeTerminalId;
@@ -325,13 +325,13 @@ function WorkspaceManagerComponent({
                             </button>
 
                             <label
-                              title="Move terminal to another workspace"
+                              title="Move the terminal to another tab"
                               style={moveLabelStyle}
                             >
                               <ArrowRightLeft size={13} aria-hidden />
                               <select
                                 data-testid={`workspace-manager-move-${terminal.id}`}
-                                aria-label={`Move ${displayTerminalTitle(terminal)} to workspace`}
+                                aria-label={`Move ${displayTerminalTitle(terminal)} to a tab`}
                                 value=""
                                 disabled={!canManage || moveTargets.length === 0}
                                 onChange={(event) => {
@@ -396,7 +396,7 @@ function WorkspaceManagerComponent({
         </div>
 
         <footer style={footerStyle}>
-          Workspaces organize terminals. Moving or deleting a workspace does not
+          A tab holds up to four terminals. Moving or deleting a tab does not
           close its terminals.
         </footer>
       </section>

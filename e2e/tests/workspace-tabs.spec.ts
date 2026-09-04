@@ -831,7 +831,7 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
   });
   await page
     .getByTestId("context-menu")
-    .getByRole("button", { name: "New workspace" })
+    .getByRole("button", { name: "New tab" })
     .click();
   await expect
     .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
@@ -861,12 +861,12 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
     .locator(`[data-testid='workspace-tab-${created.id}']`)
     .click({ button: "right" });
   await page
-    .getByRole("button", { name: `Close workspace "${created.name}"…` })
+    .getByRole("button", { name: `Close tab "${created.name}"…` })
     .click();
   // "Ungroup" is the non-destructive answer: the group row goes, the
   // terminal stays.
   await page
-    .getByRole("dialog", { name: `Close workspace "${created.name}"?` })
+    .getByRole("dialog", { name: `Close tab "${created.name}"?` })
     .getByRole("button", { name: "Ungroup" })
     .click();
 
@@ -896,12 +896,12 @@ test("tab context menu renames a workspace tab", async ({ page }) => {
     .click({ button: "right" });
   await page
     .getByTestId("context-menu")
-    .getByRole("button", { name: "Rename workspace" })
+    .getByRole("button", { name: "Rename tab" })
     .click();
 
   const renamed = `Renamed ${Date.now()}`;
-  const dialog = page.getByRole("dialog", { name: "Rename workspace" });
-  await dialog.getByRole("textbox", { name: "Workspace name" }).fill(renamed);
+  const dialog = page.getByRole("dialog", { name: "Rename tab" });
+  await dialog.getByRole("textbox", { name: "Tab name" }).fill(renamed);
   await dialog.getByRole("button", { name: "Rename", exact: true }).click();
 
   // Tab label updates and the new name is persisted server-side.
@@ -947,9 +947,9 @@ test("workspace manager organizes, renames, moves, reorders, and deletes", async
 
   await manager.getByTestId(`workspace-manager-rename-${second.id}`).click();
   const renamed = `Manager renamed ${Date.now()}`;
-  const renameDialog = page.getByRole("dialog", { name: "Rename workspace" });
+  const renameDialog = page.getByRole("dialog", { name: "Rename tab" });
   await renameDialog
-    .getByRole("textbox", { name: "Workspace name" })
+    .getByRole("textbox", { name: "Tab name" })
     .fill(renamed);
   await renameDialog.getByRole("button", { name: "Rename", exact: true }).click();
   await expect(

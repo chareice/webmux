@@ -265,12 +265,12 @@ function TabBarComponent({
       tabMenu
         ? [
             {
-              label: "New workspace",
+              label: "New tab",
               disabled: !isController,
               onClick: onNewGroup,
             },
             {
-              label: "Rename workspace",
+              label: "Rename tab",
               // Same gate as delete: cwd fallback groups have no persisted
               // row to rename, and only the controller may mutate tabs.
               disabled: !tabMenu.group.persistent || !isController,
@@ -278,7 +278,7 @@ function TabBarComponent({
             },
             { type: "separator" },
             {
-              label: `Close workspace "${tabMenu.group.label}"…`,
+              label: `Close tab "${tabMenu.group.label}"…`,
               // cwd fallback groups only exist while their panes do — there
               // is nothing to delete; persistent groups are user-owned rows.
               disabled: !tabMenu.group.persistent || !isController,
@@ -315,8 +315,8 @@ function TabBarComponent({
       <button
         type="button"
         data-testid="desktop-workspace-manager-button"
-        aria-label="Manage workspaces"
-        title="Manage workspaces"
+        aria-label="Tabs"
+        title="Tabs"
         onClick={() => setWorkspaceManagerOpen(true)}
         style={{
           alignSelf: "center",
@@ -464,8 +464,8 @@ function TabBarComponent({
           data-testid="tab-bar-new-group"
           onClick={onNewGroup}
           disabled={!isController}
-          title="New workspace"
-          aria-label="New workspace"
+          title="New tab"
+          aria-label="New tab"
           style={{
             alignSelf: "center",
             width: isTouch ? 40 : 26,

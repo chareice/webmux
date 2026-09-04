@@ -504,9 +504,9 @@ test("mobile workspace manager provides full workspace controls", async ({ page 
 
   await manager.getByTestId(`workspace-manager-rename-${second.id}`).click();
   const renamed = `Mobile renamed ${Date.now()}`;
-  const renameDialog = page.getByRole("dialog", { name: "Rename workspace" });
+  const renameDialog = page.getByRole("dialog", { name: "Rename tab" });
   await renameDialog
-    .getByRole("textbox", { name: "Workspace name" })
+    .getByRole("textbox", { name: "Tab name" })
     .fill(renamed);
   await renameDialog.getByRole("button", { name: "Rename", exact: true }).click();
   await expect(

@@ -570,7 +570,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
         >
           <MenuRow
             icon={<FolderTree size={17} />}
-            label="Manage workspaces"
+            label="Tabs"
             testid="mobile-workspace-manager-button"
             onClick={() => {
               setSessionSwitcherOpen(false);
