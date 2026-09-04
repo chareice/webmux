@@ -1,6 +1,6 @@
 {
   "productName": "offdesk",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "identifier": "dev.offdesk.desktop",
   "build": {
     "frontendDist": "../../app/dist",
