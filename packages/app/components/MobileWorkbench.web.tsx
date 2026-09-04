@@ -820,7 +820,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           })}
           <MenuRow
             icon={<Plus size={17} />}
-            label="Add host"
+            label="Add a machine"
             onClick={() => {
               setHostSheetOpen(false);
               onAddMachine();
@@ -951,7 +951,7 @@ function SessionSwitcherHeader({
         data-testid="mobile-host-button"
         onClick={onOpenHostSheet}
         disabled={!machine}
-        aria-label="Open hosts"
+        aria-label="Open machines"
         style={{
           minWidth: 0,
           flex: 1,
@@ -980,7 +980,7 @@ function SessionSwitcherHeader({
             fontWeight: 600,
           }}
         >
-          {machine?.name ?? "No host"}
+          {machine?.name ?? "No machine"}
         </span>
         <ChevronRight size={14} style={{ flexShrink: 0, color: colors.fg3 }} />
       </button>
