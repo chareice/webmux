@@ -271,7 +271,7 @@ terminals — those live only in tmux on the machine.
 | Linux x86_64 / aarch64 (musl) node binary | `Build & Release` on `v*` tags, via `cross` | `.github/workflows/build.yml` |
 | macOS x86_64 / aarch64 node binary | same workflow, `macos-latest` | same |
 | Hub container image, **linux/amd64 only** | `Publish Container Image` on push to main → `ghcr.io/<owner>/webmux-server` | `.github/workflows/container.yml` |
-| Desktop app: macOS (universal), Ubuntu 22.04, Windows | `Desktop Build` on `desktop-v*` tags, Tauri v2 | `.github/workflows/desktop.yml` |
+| Desktop app: macOS (universal), Ubuntu 22.04, Windows | `Desktop Build` on `desktop-v*` tags, Tauri v2. macOS and Linux bundle `offdesk-hub` and `offdesk-node` as sidecars (macOS `tmux` too) via `scripts/desktop-sidecars.sh` and `scripts/build-tmux-sidecar.sh`; Windows is a client only | `.github/workflows/desktop.yml` |
 | Android APK (arm64-v8a, armeabi-v7a, x86_64, universal) | `Build Android APK (Tauri)` on `app-v*` tags | `.github/workflows/mobile-android.yml` |
 | Web app | `expo export --platform web`, served by the hub | `packages/app/package.json`, `Dockerfile` |
 

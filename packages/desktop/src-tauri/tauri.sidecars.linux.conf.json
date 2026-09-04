@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/offdesk-hub",
+      "binaries/offdesk-node"
+    ]
+  }
+}

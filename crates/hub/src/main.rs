@@ -67,7 +67,13 @@ enum Command {
     },
     /// Print the sign-in link again — with the code for a phone's camera —
     /// and open it in the browser
-    Link,
+    Link {
+        /// Print JSON instead, for programs: the address, the link, and the
+        /// addresses a phone might reach this machine at. Never opens a
+        /// browser.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -201,6 +207,41 @@ fn run_link(args: &Args) {
     }
 }
 
+/// `offdesk-hub link --json`: the same facts as `link`, for the desktop app.
+/// `link` is null when the hub signs in through GitHub or Google. Not
+/// running, or never started, is an error, as for `link`.
+fn run_link_json(args: &Args) {
+    let listen = &args.listen;
+    let database = first_run::database_path(args.database.as_deref());
+    let Some(jwt_secret) = first_run::stored_jwt_secret(&database) else {
+        eprintln!("This hub has not started yet, so there is no key to sign a link with.");
+        std::process::exit(1);
+    };
+    if !first_run::wait_for_hub(listen, std::time::Duration::from_secs(1)) {
+        eprintln!("Nothing is listening on {listen}.");
+        std::process::exit(1);
+    }
+    let pool = match db::create_pool(&database) {
+        Ok(pool) => pool,
+        Err(error) => {
+            eprintln!("error: could not open {database}: {error}");
+            std::process::exit(1);
+        }
+    };
+    let base_url = env_or("OFFDESK_BASE_URL", "http://localhost:4317");
+    let candidates: Vec<serde_json::Value> = first_run::lan_candidates()
+        .into_iter()
+        .map(|(interface, address)| serde_json::json!({ "interface": interface, "address": address.to_string() }))
+        .collect();
+    let out = serde_json::json!({
+        "url": first_run::reachable_base_url(&base_url, listen),
+        "link": first_run::sign_in_link(&pool, &jwt_secret, &base_url, listen),
+        "short": first_run::short_link(&pool, &base_url, listen),
+        "candidates": candidates,
+    });
+    println!("{out}");
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub manager: Arc<MachineManager>,
@@ -251,8 +292,12 @@ async fn main() {
         run_service(*action, &args);
         return;
     }
-    if let Some(Command::Link) = &args.command {
-        run_link(&args);
+    if let Some(Command::Link { json }) = &args.command {
+        if *json {
+            run_link_json(&args);
+        } else {
+            run_link(&args);
+        }
         return;
     }
 

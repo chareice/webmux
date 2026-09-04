@@ -91,8 +91,11 @@ Each phase is its own PR with its own report under `docs/plans/`.
   the `reachable_base_url` logic in `crates/hub/src/first_run.rs` is the
   reference), `machines` (from the hub's API once the app is signed in).
 - The services' launchd plists must carry `PATH` with the sidecar
-  directory first; `offdesk-hub service install` gains a `--path-prepend`
-  flag (or reads `OFFDESK_PATH_PREPEND`) so the CLI path is unchanged.
+  directory first. No new flag: `service install` already bakes the
+  installing process's `PATH` into the unit (`crates/protocol/src/service.rs`),
+  and the hub's install runs the node's with the same environment, so the
+  app leads `PATH` with the sidecar directory when it runs the sidecar and
+  both services inherit it. `crates/*` change: `offdesk-hub link --json`.
 - Acceptance: on a Mac with no tmux and no offdesk, choosing "The one that
   stays on" ends on Hub ready with a scannable code; `launchctl list |
   grep offdesk` shows both services; quitting the app changes nothing on

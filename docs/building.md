@@ -77,3 +77,34 @@ project (`pnpm tauri ios build --open`) and picked the team.
 
 Releases go through TestFlight from `.github/workflows/mobile-ios.yml` on an
 `ios-v*` tag; the secrets it needs are listed at the top of that file.
+
+## The desktop app, with the hub inside
+
+The desktop app can make its machine the hub. It does that by shipping
+`offdesk-hub`, `offdesk-node` and, on macOS, `tmux` as Tauri sidecars and
+running the bundled `offdesk-hub service install` — the same thing the
+install script does, from binaries inside the app. The sidecar list is in
+`src-tauri/tauri.sidecars.macos.conf.json` and
+`src-tauri/tauri.sidecars.linux.conf.json`, merged in by the release build
+only, so a plain `pnpm tauri dev` needs none of them; in development the app
+falls back to an `offdesk-hub` on `PATH` or in `~/.local/bin`, which the
+install script leaves there. Windows gets no sidecars: it is a client only.
+
+To build the app the way the release does:
+
+```bash
+pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app build
+scripts/desktop-sidecars.sh                 # this machine's target; --universal on macOS for both
+scripts/build-tmux-sidecar.sh packages/desktop/src-tauri/binaries   # macOS only
+cd packages/desktop
+pnpm tauri build --config src-tauri/tauri.sidecars.macos.conf.json  # or .linux.
+```
+
+`desktop-sidecars.sh` builds the two crates in release mode (the hub with
+`embed-ui`, so the web UI must be built first) and names them with the
+target triple under `src-tauri/binaries/`, which is gitignored.
+`build-tmux-sidecar.sh` builds tmux 3.5a against a static libevent and a
+static utf8proc, both fetched by pinned checksum, linked otherwise only to
+what every macOS has in `/usr/lib`; it refuses to produce a binary that
+links anywhere else. Both scripts are what `.github/workflows/desktop.yml`
+runs.
