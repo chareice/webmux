@@ -146,6 +146,8 @@ In `packages/app`, behind `isTauriDesktop`:
 - README: same reorder; the Install section keeps the script in full.
 - The "get the app" buttons on Hub ready point at the App Store once the
   public link exists; until then, TestFlight and `/apk`.
+- Done 2026-09-04: `/mac`, `/windows`, `/linux`, `/desktop` on the site
+  follow the newest published `desktop-v*` release.
 
 ## Out of scope, deliberately
 
