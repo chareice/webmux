@@ -217,6 +217,7 @@ impl PtyManager {
             .status();
 
         // Forward selected environment variables into the tmux session.
+        ensure_utf8_locale();
         for var in &["CLAUDE_CODE_NO_FLICKER"] {
             if let Ok(val) = std::env::var(var) {
                 let _ = tmux_cmd()
@@ -483,6 +484,33 @@ fn set_term_env(cmd: &mut std::process::Command) {
     if std::env::var("TERM").is_err() {
         cmd.env("TERM", "xterm-256color");
     }
+    // A tmux server started with no UTF-8 locale hands every shell one, and
+    // zsh then prints a Chinese file name as $'\233' escapes. The service
+    // unit sets LANG; a node run from a shell or an app without one gets a
+    // default here, before the first tmux command can start the server.
+    cmd.env("LANG", utf8_locale(std::env::var("LANG").ok().as_deref()));
+}
+
+/// The locale a terminal runs with: what is set, when it is UTF-8, else
+/// en_US.UTF-8. Never C or POSIX, which is what launchd and a bare `sh` have.
+fn utf8_locale(current: Option<&str>) -> String {
+    match current {
+        Some(lang) if lang.to_ascii_lowercase().replace('-', "").contains("utf8") => lang.to_string(),
+        _ => "en_US.UTF-8".to_string(),
+    }
+}
+
+/// A tmux server that outlives its node keeps the environment it started
+/// with — one from before the service set LANG has none, and every shell it
+/// spawns from now on is broken in the same way. Set the server's global
+/// LANG on every terminal creation: cheap, idempotent, and the only way to
+/// reach a server that is already running. Fails harmlessly when no server
+/// is up yet; the one `new-session` starts inherits `set_term_env`'s LANG.
+fn ensure_utf8_locale() {
+    let lang = utf8_locale(std::env::var("LANG").ok().as_deref());
+    let _ = tmux_cmd()
+        .args(["-L", tmux_socket(), "set-environment", "-g", "LANG", &lang])
+        .output();
 }
 
 /// Build the command that runs `tmux new-session`. On systemd machines
@@ -959,6 +987,15 @@ fn resolve_cwd(cwd: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_locale_a_terminal_gets_is_always_utf8() {
+        assert_eq!(utf8_locale(Some("en_AU.UTF-8")), "en_AU.UTF-8");
+        assert_eq!(utf8_locale(Some("zh_CN.utf8")), "zh_CN.utf8");
+        assert_eq!(utf8_locale(Some("C")), "en_US.UTF-8");
+        assert_eq!(utf8_locale(Some("POSIX")), "en_US.UTF-8");
+        assert_eq!(utf8_locale(None), "en_US.UTF-8");
+    }
 
     #[test]
     fn tmux_config_contains_mouse_and_clipboard() {
