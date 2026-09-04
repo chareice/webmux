@@ -729,10 +729,10 @@ async function movePaneToTab(
   tabLabel: string,
 ): Promise<void> {
   await openPaneContextMenu(page, terminalId);
-  await page.getByRole("button", { name: "Move pane to tab" }).hover();
+  await page.getByRole("menuitem", { name: "Move pane to tab" }).hover();
   await page
     .getByTestId("context-menu")
-    .getByRole("button", { name: tabLabel, exact: true })
+    .getByRole("menuitem", { name: tabLabel, exact: true })
     .click();
   await expect(page.getByTestId("context-menu")).toHaveCount(0);
 }
@@ -831,7 +831,7 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
   });
   await page
     .getByTestId("context-menu")
-    .getByRole("button", { name: "New tab" })
+    .getByRole("menuitem", { name: "New tab" })
     .click();
   await expect
     .poll(async () => (await listWorkspaceGroupsViaApi(page)).length)
@@ -848,10 +848,10 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
   // Move the pane into the new tab, then delete the tab from its context
   // menu — the confirm dialog appears because it holds a pane.
   await openPaneContextMenu(page, terminalId);
-  await page.getByRole("button", { name: "Move pane to tab" }).hover();
+  await page.getByRole("menuitem", { name: "Move pane to tab" }).hover();
   await page
     .getByTestId("context-menu")
-    .getByRole("button", { name: created.name })
+    .getByRole("menuitem", { name: created.name })
     .click();
   // Emptied, the hub-created tab goes with its last pane.
   await expect
@@ -861,7 +861,7 @@ test("tab context menu creates and deletes workspace tabs", async ({ page }) => 
     .locator(`[data-testid='workspace-tab-${created.id}']`)
     .click({ button: "right" });
   await page
-    .getByRole("button", { name: `Close tab "${created.name}"…` })
+    .getByRole("menuitem", { name: `Close tab "${created.name}"…` })
     .click();
   // "Ungroup" is the non-destructive answer: the group row goes, the
   // terminal stays.
@@ -896,7 +896,7 @@ test("tab context menu renames a workspace tab", async ({ page }) => {
     .click({ button: "right" });
   await page
     .getByTestId("context-menu")
-    .getByRole("button", { name: "Rename tab" })
+    .getByRole("menuitem", { name: "Rename tab" })
     .click();
 
   const renamed = `Renamed ${Date.now()}`;
