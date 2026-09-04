@@ -3,6 +3,7 @@
     "windows": [
       {
         "label": "main",
+        "dragDropEnabled": false,
         "decorations": true,
         "titleBarStyle": "Overlay"
       }

@@ -89,6 +89,70 @@ test("single browser image paste injects one image path into the terminal", asyn
   await context.close();
 });
 
+test("dropping a document sends it once and injects one remote path", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+  });
+  const page = await context.newPage();
+  const filePasteFrames: Array<{
+    type?: string;
+    filename?: string;
+    mime?: string;
+  }> = [];
+
+  page.on("websocket", (socket: WebSocket) => {
+    if (!socket.url().includes("/ws/terminal/")) return;
+    socket.on("framesent", (frame) => {
+      if (typeof frame.payload !== "string") return;
+      const payload = JSON.parse(frame.payload) as {
+        type?: string;
+        filename?: string;
+        mime?: string;
+      };
+      if (payload.type === "image_paste") {
+        filePasteFrames.push(payload);
+      }
+    });
+  });
+
+  await openApp(page);
+  await resetMachineState(page);
+  await takeControlFromHeader(page);
+  await selectHomeWorkpath(page);
+
+  const readyNonce = String(Date.now());
+  const readyMarker = `IMAGE_PASTE_CAPTURE_READY_${readyNonce}`;
+  const terminalId = await createTerminalViaApi(page, {
+    cwd: "/root",
+    startupCommand: buildRawInputCaptureCommand(readyNonce),
+  });
+  await expandTerminalById(page, terminalId);
+  await expect(getImmersiveTerminal(page)).toBeVisible();
+  await expect
+    .poll(() => readTerminalBuffer(page, terminalId), { timeout: 20_000 })
+    .toContain(readyMarker);
+
+  await dispatchDocumentDrop(page);
+
+  await expect.poll(() => filePasteFrames.length).toBe(1);
+  expect(filePasteFrames[0]).toMatchObject({
+    filename: "brief.docx",
+    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+  await expect
+    .poll(() => readTerminalBuffer(page, terminalId), { timeout: 20_000 })
+    .toContain("CAPTURE_HEX:");
+
+  const capture = await readTerminalBuffer(page, terminalId);
+  // "brief.docx" in hex: the dropped file's remote path must reach the PTY
+  // exactly once, not once through DOM drop plus again through image handling.
+  expect(capture.match(/62726965662e646f6378/g) ?? []).toHaveLength(1);
+
+  await context.close();
+});
+
 async function focusTerminal(page: Page, terminalId: string): Promise<void> {
   await page.evaluate((tid) => {
     const map = (
@@ -127,6 +191,37 @@ async function dispatchClipboardImagePaste(page: Page): Promise<void> {
     target.dispatchEvent(
       new ClipboardEvent("paste", {
         clipboardData: data,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+}
+
+async function dispatchDocumentDrop(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const immersive = document.querySelector(
+      "[data-terminal-display-mode='immersive']",
+    );
+    if (!immersive) throw new Error("immersive terminal is not mounted");
+
+    const target = immersive.querySelector(".xterm") ?? immersive;
+    const data = new DataTransfer();
+    data.items.add(
+      new File(["offdesk-document"], "brief.docx", {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+    );
+    target.dispatchEvent(
+      new DragEvent("dragover", {
+        dataTransfer: data,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    target.dispatchEvent(
+      new DragEvent("drop", {
+        dataTransfer: data,
         bubbles: true,
         cancelable: true,
       }),

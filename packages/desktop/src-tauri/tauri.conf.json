@@ -1,6 +1,6 @@
 {
   "productName": "offdesk",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "identifier": "dev.offdesk.desktop",
   "build": {
     "frontendDist": "../../app/dist",
@@ -16,6 +16,7 @@
         "height": 800,
         "minWidth": 800,
         "minHeight": 600,
+        "dragDropEnabled": false,
         "decorations": false,
         "resizable": true
       }
