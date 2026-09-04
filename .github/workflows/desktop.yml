@@ -72,6 +72,53 @@ jobs:
         if: matrix.platform == 'macos-latest'
         run: scripts/build-tmux-sidecar.sh packages/desktop/src-tauri/binaries
 
+      # macOS signing and notarization. All four secrets present: the app,
+      # its sidecars and the dmg are signed with the Developer ID certificate
+      # and notarized through the App Store Connect key the iOS workflow
+      # already uses (APPLE_API_KEY_PATH is that key written to disk). Any of
+      # them missing: an unsigned build, as before — never a half-signed one.
+      #   APPLE_DEVELOPER_ID_CERTIFICATE      Developer ID Application .p12, base64
+      #   APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD
+      #   APP_STORE_CONNECT_API_KEY / _KEY_ID / _ISSUER_ID   (shared with iOS)
+      #   APPLE_DEVELOPMENT_TEAM              the Team ID (shared with iOS)
+      - name: Prepare macOS signing
+        if: matrix.platform == 'macos-latest'
+        env:
+          CERT: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          API_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: |
+          if [ -z "$CERT" ] || [ -z "$CERT_PASSWORD" ] || [ -z "$API_KEY" ] || [ -z "$API_KEY_ID" ] || [ -z "$API_ISSUER" ] || [ -z "$TEAM" ]; then
+            echo "Signing secrets are not all set; building unsigned."
+            exit 0
+          fi
+          key="$RUNNER_TEMP/AuthKey_$API_KEY_ID.p8"
+          echo "$API_KEY" | base64 --decode > "$key"
+          # The identity's name is read off the certificate itself, so the
+          # secret only has to be the .p12.
+          p12="$RUNNER_TEMP/developer-id.p12"
+          echo "$CERT" | base64 --decode > "$p12"
+          identity=$(openssl pkcs12 -in "$p12" -passin "pass:$CERT_PASSWORD" -nokeys -clcerts -legacy 2>/dev/null \
+            | openssl x509 -noout -subject -nameopt sep_multiline,utf8 2>/dev/null | sed -n 's/^ *CN=//p' | head -1)
+          if [ -z "$identity" ]; then
+            identity=$(openssl pkcs12 -in "$p12" -passin "pass:$CERT_PASSWORD" -nokeys -clcerts 2>/dev/null \
+              | openssl x509 -noout -subject -nameopt sep_multiline,utf8 2>/dev/null | sed -n 's/^ *CN=//p' | head -1)
+          fi
+          [ -n "$identity" ] || { echo "Could not read the certificate's name from the .p12" >&2; exit 1; }
+          echo "Signing as: $identity"
+          {
+            echo "APPLE_CERTIFICATE=$CERT"
+            echo "APPLE_CERTIFICATE_PASSWORD=$CERT_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$identity"
+            echo "APPLE_TEAM_ID=$TEAM"
+            echo "APPLE_API_ISSUER=$API_ISSUER"
+            echo "APPLE_API_KEY=$API_KEY_ID"
+            echo "APPLE_API_KEY_PATH=$key"
+          } >> "$GITHUB_ENV"
+
       - name: Build desktop app
         uses: tauri-apps/tauri-action@v0
         env:
