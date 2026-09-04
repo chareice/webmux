@@ -196,7 +196,8 @@ const rows = [
           </div>
           <p class="prose-body mt-4">
             One process on the machine that stays on. SQLite beside it, the web
-            UI baked in. It's the only address your phone ever needs.
+            UI baked in. It knows every machine you own, and it's the only
+            address a client ever needs.
           </p>
           <code class="mt-4 block font-mono text-[12px] text-faint">offdesk-hub</code>
         </div>
@@ -207,26 +208,31 @@ const rows = [
           </div>
           <p class="prose-body mt-4">
             On every machine you want to reach. It dials <em>out</em> to the
-            hub and keeps one socket open, so nothing needs a port or a public IP.
+            hub and keeps one socket open, so nothing needs a port or a public
+            IP. Every terminal is a tmux session on the machine that owns it:
+            it outlives the app, the network, and you walking away. Uninstall
+            offdesk and it's still there.
           </p>
-          <code class="mt-4 block font-mono text-[12px] text-faint">offdesk-node</code>
+          <code class="mt-4 block font-mono text-[12px] text-faint">offdesk-node · tmux</code>
         </div>
         <div class="card">
           <div class="flex items-center gap-3">
             <span class="step">3</span>
-            <h3 class="display text-2xl">Terminal</h3>
+            <h3 class="display text-2xl">Client</h3>
           </div>
           <p class="prose-body mt-4">
-            A tmux session on the machine that owns it. It outlives the app, the
-            network, and you walking away. Uninstall offdesk and it's still there.
+            Anything that talks to the hub: a browser tab, the phone app, the
+            desktop app, the CLI, another agent on another machine. A client
+            never touches a node directly, so whoever typed last holds the
+            keyboard and everyone else watches live.
           </p>
-          <code class="mt-4 block font-mono text-[12px] text-faint">tmux</code>
+          <code class="mt-4 block font-mono text-[12px] text-faint">browser · phone · desktop · offdesk</code>
         </div>
       </div>
       <p class="prose-body mt-8 max-w-2xl">
-        Two screens on one terminal: whoever typed last holds the keyboard,
-        everyone else watches live. A phone attaching never resizes the desk;
-        a phone typing does, and the desk gets a one-click fit back.
+        Two screens on one terminal are two clients of one hub, attached to
+        one tmux session. A phone attaching never resizes the desk; a phone
+        typing does, and the desk gets a one-click fit back.
       </p>
     </div>
   </section>

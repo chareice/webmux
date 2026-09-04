@@ -119,24 +119,30 @@ it in the volume, and losing the volume signs everybody out.
 
 ## How it works
 
-Three binaries. One outbound socket each. Nothing to keep awake but the hub.
+Three roles. One outbound socket each. Nothing to keep awake but the hub.
 
 1. **Hub** — `offdesk-hub`. One process on the machine that stays on, SQLite
-   beside it, the web UI baked in. It is the only address anyone needs, and the
-   only thing a phone ever talks to.
-2. **Node** — `offdesk-node`. On every machine you want to reach, the hub's own
-   machine included. It dials out to the hub and keeps one WebSocket open, so
-   nothing on it needs an inbound port or a public IP: a laptop behind a hotel
-   router and a NAS behind a home NAT both show up in one list.
-3. **Terminal** — tmux. Every terminal is a tmux session on the machine that
-   owns it. It outlives the app, the network, and you walking away. Uninstall
-   offdesk, ssh in, `tmux attach`, and your sessions are still there.
+   beside it, the web UI baked in. It knows every machine you own, and it is
+   the only address a client ever needs.
+2. **Node** — `offdesk-node`, and tmux. On every machine you want to reach,
+   the hub's own machine included. It dials out to the hub and keeps one
+   WebSocket open, so nothing on it needs an inbound port or a public IP: a
+   laptop behind a hotel router and a NAS behind a home NAT both show up in
+   one list. Every terminal is a tmux session on the machine that owns it. It
+   outlives the app, the network, and you walking away. Uninstall offdesk,
+   ssh in, `tmux attach`, and your sessions are still there.
+3. **Client** — anything that talks to the hub. A browser tab, the iPhone or
+   Android app, the desktop app, the `offdesk` CLI, another agent on another
+   machine. A client never touches a node directly; it asks the hub for a
+   machine, and the hub brokers bytes between it and tmux. That is why two
+   screens can share one terminal: whoever typed last holds the keyboard,
+   everyone else watches live.
 
 ```
-   phone / browser            your hub                  your machines
+      clients                   hub                       nodes
   ┌────────────────┐      ┌──────────────┐        ┌──────────────────────┐
-  │  xterm.js in a │      │ offdesk-hub  │        │ offdesk-node         │
-  │  browser tab   │◄────►│              │◄──────►│   tmux ── claude     │
+  │ browser, phone │      │ offdesk-hub  │        │ offdesk-node         │
+  │ desktop app    │◄────►│              │◄──────►│   tmux ── claude     │
   └────────────────┘  WS  │  Axum + WS   │   WS   │   tmux ── vim        │
                           │  SQLite      │        │   tmux ── htop       │
   ┌────────────────┐      │              │        └──────────────────────┘
@@ -145,8 +151,8 @@ Three binaries. One outbound socket each. Nothing to keep awake but the hub.
   └────────────────┘      └──────────────┘   WS   └──────────────────────┘
 ```
 
-Browsers, phones, and the CLI all connect to the hub, and the hub brokers
-bytes between them and tmux.
+Two screens on one terminal is the same picture twice: the desk's browser and
+the phone are both clients of the one hub, attached to the one tmux session.
 
 **Who may type.** The desk and the phone attach to the same tmux session and
 see the same bytes. The control lease decides who may type: it is held per
