@@ -289,6 +289,82 @@ export default function LoginScreen({
     </Body>
   );
 
+  // The phone app with a hub it could not reach: name what is in the way
+  // before offering the address field again. iOS answers a refused Local
+  // Network permission with "no route to host", which mobile_hub.rs turns
+  // into a message naming the switches; anything else is the hub or the
+  // network.
+  const [retyping, setRetyping] = useState(false);
+  const blockedMessage = hubError ?? (savedHub && !retyping ? "launch" : null);
+  const permissionBlocked = blockedMessage !== null && /Local Network/.test(blockedMessage);
+  const handleRetry = () => {
+    setHubError(null);
+    handleHubConnect();
+  };
+
+  if (needsHub && blockedMessage && !retyping) {
+    const address = (() => {
+      try {
+        return new URL(serverUrlInput.includes("://") ? serverUrlInput : `http://${serverUrlInput}`).host;
+      } catch {
+        return serverUrlInput;
+      }
+    })();
+    const step = (n: string, title: string, sub: string) => (
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: 16, borderRadius: 20, background: colors.bg0, border: `1px solid ${colors.lineSoft}` }}>
+        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: "50%", border: `5px solid ${colors.accent}`, background: colors.bg1, fontFamily: fontDisplay, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>{n}</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ fontFamily: fontDisplay, fontSize: 16, fontWeight: 600, color: colors.fg0 }}>{title}</div>
+          <Body size={14}>{sub}</Body>
+        </div>
+      </div>
+    );
+    return frame(
+      <>
+        <Wordmark />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <Eyebrow>Can't reach the hub</Eyebrow>
+          <Display size={28}>
+            {permissionBlocked
+              ? "The hub is there. This phone isn't allowed to see it yet."
+              : "Nothing answered at that address."}
+          </Display>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 12, background: colors.bg0, border: `1px solid ${colors.lineSoft}` }}>
+            <span style={{ width: 9, height: 9, borderRadius: "50%", border: `2px dashed ${colors.fg3}`, flexShrink: 0 }} />
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: colors.fg2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{address}</span>
+            <span style={{ fontFamily: fontDisplay, fontSize: 12, fontWeight: 600, color: colors.fg3, marginLeft: "auto", flexShrink: 0 }}>
+              {blockedMessage === "launch" ? "not reached on launch" : "no answer"}
+            </span>
+          </div>
+        </div>
+        {permissionBlocked ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Body size={14} style={{ fontFamily: fontDisplay, fontWeight: 600 }}>Two switches on a phone can block a hub on your own Wi-Fi:</Body>
+            {step("1", "Local Network", "Settings → Apps → offdesk → Local Network. iOS asks once, and a No sticks until you flip it here.")}
+            {step("2", "Wireless Data", "On phones sold in China: Settings → offdesk → Wireless Data → WLAN & Cellular.")}
+          </div>
+        ) : (
+          <Body size={14}>
+            {blockedMessage === "launch"
+              ? "Check that the hub is running and that this phone is on the same network as it."
+              : blockedMessage}
+          </Body>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {permissionBlocked ? (
+            <Button onClick={() => void openSettings()}>Open Settings</Button>
+          ) : null}
+          <Button kind={permissionBlocked ? "sky" : "coral"} onClick={handleRetry} disabled={connecting}>
+            {connecting ? "Trying…" : "Try again"}
+          </Button>
+          <Button kind="ghost" onClick={() => setRetyping(true)} style={{ alignSelf: "center", height: 40, fontSize: 14 }}>
+            Use another address
+          </Button>
+        </div>
+      </>,
+    );
+  }
+
   if (needsHub) {
     return frame(
       <>
@@ -324,20 +400,6 @@ export default function LoginScreen({
           inputMode="url"
           style={inputStyle}
         />
-        {hubError ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {note(hubError, "error")}
-            {/Local Network/.test(hubError) ? (
-              <div>
-                <Button kind="sky" onClick={() => void openSettings()} style={{ height: 38, fontSize: 13 }}>
-                  Open Settings
-                </Button>
-              </div>
-            ) : null}
-          </div>
-        ) : savedHub ? (
-          note("Could not reach this hub on launch. Check that it is running and that you are on the same network, or enter another address.")
-        ) : null}
         <Button kind="sky" onClick={handleHubConnect} disabled={connecting || !serverUrlInput.trim()}>
           {connecting ? "Connecting…" : "Connect"}
         </Button>

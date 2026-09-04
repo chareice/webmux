@@ -24,7 +24,9 @@ import type {
 import {
   ChevronRight,
   CircuitBoard,
+  Eye,
   FolderTree,
+  Keyboard as KeyboardIcon,
   Lock,
   LockOpen,
   Plus,
@@ -42,6 +44,7 @@ import {
 } from "@/lib/mobileSessionSwitcher";
 import type { WorkspaceGroup } from "@/lib/terminalWorkspaceLayout";
 import { WorkspaceManager } from "./WorkspaceManager.web";
+import { Button, fontDisplay } from "./Warm.web";
 
 interface MobileWorkbenchProps {
   machines: MachineInfo[];
@@ -372,12 +375,14 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           }
         }}
         style={{
-          height: 40,
+          // 44px, the compact strip's height in DESIGN.md: taller than that and
+          // a desktop-sized terminal no longer fits a phone at scale 1.
+          height: 44,
           flexShrink: 0,
           display: "flex",
           alignItems: "center",
           gap: 8,
-          padding: "0 8px 0 10px",
+          padding: "0 8px 0 12px",
           background: colors.bg1,
           borderBottom: `1px solid ${colors.lineSoft}`,
           cursor: "pointer",
@@ -391,8 +396,9 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             flex: 1,
             minWidth: 0,
             display: "flex",
-            alignItems: "center",
-            gap: 5,
+            flexDirection: "column",
+            justifyContent: "center",
+            gap: 1,
             overflow: "hidden",
             whiteSpace: "nowrap",
           }}
@@ -401,42 +407,73 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             <>
               <span
                 style={{
-                  flex: "0 1 110px",
-                  minWidth: 0,
-                  maxWidth: "32vw",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  color: colors.fg2,
-                  fontSize: 12,
-                }}
-              >
-                {activeChip.group.label}
-              </span>
-              <span aria-hidden style={{ color: colors.fg3, flexShrink: 0 }}>
-                ·
-              </span>
-              <span
-                style={{
-                  flex: "1 1 12ch",
-                  minWidth: "12ch",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   color: colors.fg0,
-                  fontSize: 13,
-                  fontWeight: 600,
+                  fontFamily: fontDisplay,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  lineHeight: 1.1,
                 }}
               >
                 {displayTerminalTitle(activeChip.terminal)}
               </span>
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  color: colors.fg3,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10.5,
+                  lineHeight: 1.15,
+                }}
+              >
+                {activeChip.group.label} · {activeMachine?.name ?? ""}
+              </span>
             </>
           ) : (
             <span
-              style={{ color: colors.fg2, fontSize: 12, overflow: "hidden" }}
+              style={{ color: colors.fg2, fontFamily: fontDisplay, fontSize: 14, fontWeight: 600, overflow: "hidden" }}
             >
               No terminal
             </span>
           )}
         </div>
+
+        {activeMachine ? (
+          <span
+            data-testid="mobile-title-bar-control"
+            style={{
+              flexShrink: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              height: 26,
+              padding: "0 9px",
+              borderRadius: 999,
+              background: colors.bg0,
+              border: `1px solid ${colors.lineSoft}`,
+              color: colors.fg2,
+              fontFamily: fontDisplay,
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {viewOnlyLocked ? (
+              <>
+                <Lock size={13} /> View only
+              </>
+            ) : deviceId !== null && controlLeases[activeMachine.id] === deviceId ? (
+              <>
+                <KeyboardIcon size={13} /> Keyboard
+              </>
+            ) : (
+              <>
+                <Eye size={13} /> Watching
+              </>
+            )}
+          </span>
+        ) : null}
 
         <span
           onClick={(event) => event.stopPropagation()}
@@ -455,10 +492,10 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             style={{
               width: 34,
               height: 34,
-              borderRadius: 6,
-              border: `1px solid ${colors.lineSoft}`,
-              background: "transparent",
-              color: colors.fg2,
+              borderRadius: 999,
+              border: `1.5px solid ${colors.line}`,
+              background: colors.bg1,
+              color: colors.fg0,
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
@@ -556,9 +593,14 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           header={
             <SessionSwitcherHeader
               machine={activeMachine}
+              machines={machines}
+              machineOnline={machineOnline}
               online={activeMachine ? machineOnline(activeMachine) : false}
               stats={activeStats}
               rttMs={rttMs}
+              onSelectMachine={(id) => {
+                onSelectMachine(id);
+              }}
               onOpenHostSheet={() => {
                 setSessionSwitcherOpen(false);
                 setHostSheetOpen(true);
@@ -568,40 +610,52 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
           testid="mobile-session-switcher"
           onClose={() => setSessionSwitcherOpen(false)}
         >
-          <MenuRow
-            icon={<FolderTree size={17} />}
-            label="Tabs"
-            testid="mobile-workspace-manager-button"
-            onClick={() => {
-              setSessionSwitcherOpen(false);
-              setWorkspaceManagerOpen(true);
-            }}
-          />
-          <MenuRow
-            icon={<Plus size={17} />}
-            label="New terminal"
-            disabled={!canCreateTerminal}
-            testid="mobile-session-switcher-new-terminal"
-            onClick={() => {
-              setSessionSwitcherOpen(false);
-              onNewTerminal(activeGroup);
-            }}
-          />
+          <div style={{ display: "flex", gap: 10, padding: "4px 16px 10px" }}>
+            <Button
+              kind="coral"
+              testId="mobile-session-switcher-new-terminal"
+              disabled={!canCreateTerminal}
+              onClick={() => {
+                setSessionSwitcherOpen(false);
+                onNewTerminal(activeGroup);
+              }}
+              style={{ flex: 1, height: 44 }}
+            >
+              <Plus size={16} /> New terminal
+            </Button>
+            <Button
+              kind="sky"
+              testId="mobile-workspace-manager-button"
+              onClick={() => {
+                setSessionSwitcherOpen(false);
+                setWorkspaceManagerOpen(true);
+              }}
+              style={{ height: 44 }}
+            >
+              <FolderTree size={16} /> Tabs
+            </Button>
+          </div>
           {sessionGroups.map(({ group, panes }) => (
-            <section key={group.id}>
+            <section key={group.id} style={{ padding: "0 16px 6px" }}>
               <div
                 data-testid={`mobile-session-group-${group.id}`}
                 style={{
-                  padding: "14px 18px 6px",
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  padding: "12px 6px 6px",
+                  fontFamily: fontDisplay,
                   color: colors.fg2,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  letterSpacing: 0.4,
-                  textTransform: "uppercase",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  letterSpacing: "0.04em",
                 }}
               >
-                {group.label} · {panes.length}{" "}
-                {panes.length === 1 ? "pane" : "panes"}
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.label}</span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: colors.fg3, whiteSpace: "nowrap" }}>
+                  {" · "}
+                  {panes.length} {panes.length === 1 ? "pane" : "panes"}
+                </span>
               </div>
               {panes.map(({ terminal }) => {
                 const active = terminal.id === activeTerminalId;
@@ -614,10 +668,12 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                     style={{
                       display: "flex",
                       alignItems: "stretch",
-                      background: active ? colors.bg2 : "transparent",
-                      borderLeft: active
-                        ? `3px solid ${colors.accent}`
-                        : "3px solid transparent",
+                      minHeight: 52,
+                      marginBottom: 6,
+                      borderRadius: 14,
+                      background: active ? colors.bg3 : colors.bg1,
+                      border: `1px solid ${active ? colors.line : colors.lineSoft}`,
+                      overflow: "hidden",
                     }}
                   >
                     <button
@@ -632,7 +688,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                         display: "block",
                         flex: 1,
                         minWidth: 0,
-                        padding: "11px 8px 11px 18px",
+                        padding: "10px 8px 10px 14px",
                         color: colors.fg1,
                         textAlign: "left",
                         background: "transparent",
@@ -644,8 +700,9 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                         style={{
                           display: "block",
                           color: colors.fg0,
-                          fontSize: 14,
-                          fontWeight: active ? 700 : 500,
+                          fontFamily: fontDisplay,
+                          fontSize: 15.5,
+                          fontWeight: active ? 700 : 600,
                           whiteSpace: "normal",
                           overflowWrap: "anywhere",
                         }}
@@ -719,7 +776,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
 
       {/* Host sheet */}
       {hostSheetOpen && (
-        <Sheet title="Hosts" onClose={() => setHostSheetOpen(false)}>
+        <Sheet title="Machines" onClose={() => setHostSheetOpen(false)}>
           {machines.map((m) => {
             const isActive = m.id === activeMachine?.id;
             const controlling =
@@ -915,16 +972,22 @@ export const MobileWorkbench = memo(MobileWorkbenchComponent);
 
 function SessionSwitcherHeader({
   machine,
+  machines,
+  machineOnline,
   online,
   stats,
   rttMs,
   onOpenHostSheet,
+  onSelectMachine,
 }: {
   machine: MachineInfo | null;
+  machines: MachineInfo[];
+  machineOnline: (machine: MachineInfo) => boolean;
   online: boolean;
   stats: ResourceStats | undefined;
   rttMs: number | null;
   onOpenHostSheet: () => void;
+  onSelectMachine: (id: string) => void;
 }) {
   const cpu = stats ? Math.round(stats.cpu_percent) : null;
   const mem =
@@ -932,15 +995,19 @@ function SessionSwitcherHeader({
       ? Math.round((stats.memory_used / stats.memory_total) * 100)
       : null;
   const disk = diskPercent(stats);
+  // A chip per machine, the active one first and open to its sheet; the
+  // meters ride on the active chip.
+  const others = machines.filter((m) => m.id !== machine?.id);
   return (
     <div
       data-testid="mobile-session-header"
       style={{
         display: "flex",
-        alignItems: "center",
-        gap: 10,
+        alignItems: "stretch",
+        gap: 8,
         minWidth: 0,
-        padding: "4px 16px 10px",
+        padding: "2px 16px 6px",
+        overflowX: "auto",
         fontFamily: "var(--font-mono)",
         fontSize: 10,
         color: colors.fg3,
@@ -953,56 +1020,78 @@ function SessionSwitcherHeader({
         disabled={!machine}
         aria-label="Open machines"
         style={{
-          minWidth: 0,
-          flex: 1,
+          flexShrink: 0,
+          minWidth: 140,
           display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: 0,
-          border: "none",
-          background: "transparent",
+          flexDirection: "column",
+          gap: 4,
+          padding: "10px 14px",
+          borderRadius: 16,
+          border: `1px solid ${colors.line}`,
+          background: colors.bg0,
           color: colors.fg0,
           cursor: machine ? "pointer" : "default",
           textAlign: "left",
         }}
       >
-        <span data-testid="mobile-session-header-dot" style={{ display: "flex" }}>
-          <HostDot online={online} isController={false} />
+        <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+          <span data-testid="mobile-session-header-dot" style={{ display: "flex" }}>
+            <HostDot online={online} isController={false} />
+          </span>
+          <span
+            style={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontFamily: fontDisplay,
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            {machine?.name ?? "No machine"}
+          </span>
+          <ChevronRight size={14} style={{ flexShrink: 0, color: colors.fg3 }} />
         </span>
-        <span
-          style={{
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            fontFamily: "var(--font-sans)",
-            fontSize: 13,
-            fontWeight: 600,
-          }}
-        >
-          {machine?.name ?? "No machine"}
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span data-testid="mobile-session-header-rtt" style={{ color: colors.fg1 }}>
+            {rttMs === null ? "—" : `${Math.round(rttMs)}ms`}
+          </span>
+          <HeaderMetric label="cpu" percent={cpu} testid="mobile-session-header-cpu" />
+          <HeaderMetric label="mem" percent={mem} testid="mobile-session-header-mem" />
+          <HeaderMetric label="disk" percent={disk} title={diskTooltip(stats)} testid="mobile-session-header-disk" />
         </span>
-        <ChevronRight size={14} style={{ flexShrink: 0, color: colors.fg3 }} />
       </button>
-      <span data-testid="mobile-session-header-rtt" style={{ color: colors.fg1 }}>
-        {rttMs === null ? "—" : `${Math.round(rttMs)}ms`}
-      </span>
-      <HeaderMetric
-        label="cpu"
-        percent={cpu}
-        testid="mobile-session-header-cpu"
-      />
-      <HeaderMetric
-        label="mem"
-        percent={mem}
-        testid="mobile-session-header-mem"
-      />
-      <HeaderMetric
-        label="disk"
-        percent={disk}
-        title={diskTooltip(stats)}
-        testid="mobile-session-header-disk"
-      />
+      {others.map((m) => {
+        const up = machineOnline(m);
+        return (
+          <button
+            key={m.id}
+            type="button"
+            data-testid={`mobile-session-header-machine-${m.id}`}
+            onClick={() => onSelectMachine(m.id)}
+            style={{
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "0 14px",
+              borderRadius: 16,
+              border: `1px ${up ? "solid" : "dashed"} ${colors.line}`,
+              background: "transparent",
+              color: up ? colors.fg0 : colors.fg3,
+              cursor: "pointer",
+              fontFamily: fontDisplay,
+              fontSize: 14,
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <HostDot online={up} isController={false} />
+            {m.name}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1110,7 +1199,7 @@ function Sheet({
         position: "absolute",
         inset: 0,
         zIndex: 30,
-        background: "rgba(0, 0, 0, 0.5)",
+        background: "rgb(43 35 64 / 0.45)",
         display: "flex",
         alignItems: "flex-end",
         animation: "offdeskFadeIn 120ms ease-out",
@@ -1121,10 +1210,9 @@ function Sheet({
         style={{
           width: "100%",
           background: colors.bg1,
-          borderTop: `1px solid ${colors.line}`,
-          borderTopLeftRadius: 16,
-          borderTopRightRadius: 16,
-          maxHeight: "80%",
+          borderTopLeftRadius: 28,
+          borderTopRightRadius: 28,
+          maxHeight: "85%",
           display: "flex",
           flexDirection: "column",
           paddingBottom: "max(10px, env(safe-area-inset-bottom))",
@@ -1150,9 +1238,10 @@ function Sheet({
         {header ?? (title && (
           <div
             style={{
-              padding: "4px 16px 8px",
-              fontSize: 13,
-              fontWeight: 600,
+              padding: "4px 20px 10px",
+              fontFamily: fontDisplay,
+              fontSize: 18,
+              fontWeight: 700,
               color: colors.fg0,
             }}
           >
@@ -1191,7 +1280,8 @@ function MenuRow({
         alignItems: "center",
         gap: 12,
         width: "100%",
-        padding: "14px 18px",
+        minHeight: 52,
+        padding: "12px 20px",
         color: danger ? colors.err : disabled ? colors.fg3 : colors.fg0,
         textAlign: "left",
         borderBottom: `1px solid ${colors.lineSoft}`,
@@ -1202,7 +1292,7 @@ function MenuRow({
       }}
     >
       {icon}
-      <span style={{ fontSize: 14, fontWeight: 500 }}>{label}</span>
+      <span style={{ fontFamily: fontDisplay, fontSize: 15, fontWeight: 600 }}>{label}</span>
       <span style={{ flex: 1 }} />
     </button>
   );
