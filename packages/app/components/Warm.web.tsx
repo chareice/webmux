@@ -197,6 +197,29 @@ export const inputStyle: CSSProperties = {
   boxSizing: "border-box",
 };
 
+/** The donut from the site's wordmark, at any size. */
+export function Logo({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <circle cx="50" cy="50" r="27" fill="none" stroke="#ff6b57" strokeWidth="22" />
+      <path d="M26 22l9-6" stroke="#38b6e3" strokeWidth="7" strokeLinecap="round" />
+      <path d="M68 25l7 7" stroke="#ff8fb1" strokeWidth="7" strokeLinecap="round" />
+      <path d="M15 56l-3 9" stroke="#ffc857" strokeWidth="7" strokeLinecap="round" />
+      <path d="M60 80l10 2" stroke="#5ed3c1" strokeWidth="7" strokeLinecap="round" />
+      <path d="M40 84l-8 4" stroke="#ff8fb1" strokeWidth="7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function Wordmark({ size = 20 }: { size?: number }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <Logo size={size + 8} />
+      <span style={{ fontFamily: fontDisplay, fontSize: size, fontWeight: 700, color: colors.fg0 }}>offdesk</span>
+    </div>
+  );
+}
+
 export function Check({ size = 16, color = colors.fg0 }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
