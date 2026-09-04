@@ -76,6 +76,32 @@ fn hub_binary() -> Result<(PathBuf, Option<PathBuf>), String> {
             return Ok((beside, Some(dir)));
         }
     }
+    // `tauri dev` has no sidecars. The crates built in this checkout are the
+    // version this app expects; the one the install script left on PATH may
+    // be older. Debug builds only.
+    #[cfg(debug_assertions)]
+    {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let triple = format!(
+            "{}-{}",
+            std::env::consts::ARCH,
+            if cfg!(target_os = "macos") { "apple-darwin" } else { "unknown-linux-gnu" }
+        );
+        // Whichever was built most recently: `--target` builds land under
+        // target/<triple>, plain ones under target/{debug,release}.
+        let newest = [
+            root.join("target").join(&triple).join("release/offdesk-hub"),
+            root.join("target/release/offdesk-hub"),
+            root.join("target/debug/offdesk-hub"),
+        ]
+        .into_iter()
+        .filter(|path| path.is_file())
+        .max_by_key(|path| path.metadata().and_then(|m| m.modified()).ok());
+        if let Some(path) = newest {
+            let dir = path.parent().map(Path::to_path_buf);
+            return Ok((path, dir));
+        }
+    }
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|path| std::env::split_paths(&path).collect())
         .unwrap_or_default();
@@ -124,6 +150,15 @@ fn run(mut command: Command, what: &str) -> Result<String, String> {
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
+    // clap's complaint about `--json` means the hub on this machine predates
+    // this app. Say that, not "try --help".
+    if stderr.contains("unexpected argument '--json'") {
+        return Err(
+            "the offdesk-hub on this machine is older than this app and cannot answer it; \
+             update it (curl -fsSL https://offdesk.dev/install | sh) or use the bundled app"
+                .into(),
+        );
+    }
     let reason = stderr
         .lines()
         .chain(stdout.lines())

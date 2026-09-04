@@ -543,11 +543,13 @@ export function PhoneCodePanel({
           {copied ? "Copied" : "Copy link"}
         </Button>
       </div>
-      <div style={{ fontFamily: fontDisplay, fontSize: 12.5, fontWeight: 600, color: colors.fg3, textAlign: "center" }}>
-        {link?.link
-          ? "The link signs in whoever has it. Keep it off shared screens."
-          : "This hub signs in through GitHub or Google, so the code is just the address."}
-      </div>
+      {link ? (
+        <div style={{ fontFamily: fontDisplay, fontSize: 12.5, fontWeight: 600, color: colors.fg3, textAlign: "center" }}>
+          {link.link
+            ? "The link signs in whoever has it. Keep it off shared screens."
+            : "This hub signs in through GitHub or Google, so the code is just the address."}
+        </div>
+      ) : null}
     </Card>
   );
 }
