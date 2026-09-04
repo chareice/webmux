@@ -454,8 +454,10 @@ export function PhoneCodePanel({
       ? [{ interface: "chosen", address: currentAddress }, ...candidates]
       : candidates;
 
-  return (
-    <Card sticker={!compact} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: compact ? 20 : 28 }}>
+  // On Hub ready this is the sticker card beside the steps; inside a dialog
+  // or a Settings section it sits flat, the surface around it is the card.
+  const body = (
+    <>
       {!compact ? <Display size={22} style={{ textAlign: "center" }}>Scan this with your phone</Display> : null}
       <div
         style={{
@@ -550,6 +552,13 @@ export function PhoneCodePanel({
             : "This hub signs in through GitHub or Google, so the code is just the address."}
         </div>
       ) : null}
+    </>
+  );
+  const column = { display: "flex", flexDirection: "column", alignItems: "center", gap: 16 } as const;
+  if (compact) return <div style={column}>{body}</div>;
+  return (
+    <Card sticker style={{ ...column, padding: 28 }}>
+      {body}
     </Card>
   );
 }
