@@ -185,7 +185,7 @@ export function ExtendedKeyBar({
             gap: 6,
             background: colors.accent,
             border: 'none',
-            color: '#120904',
+            color: colors.onAccent,
             fontSize: 13,
             fontWeight: 700,
             cursor: copying ? 'wait' : 'pointer',

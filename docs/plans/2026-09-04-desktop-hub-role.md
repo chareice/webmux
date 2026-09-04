@@ -110,11 +110,16 @@ In `packages/app`, behind `isTauriDesktop`:
   the-link path is already there). Hub ready is reachable later from
   Settings and from the menu bar.
 - Menu bar (`HubPanel.dc.html`): start as a native tray menu in `tray.rs`
-  with the same items — address (copies), machines, Show the phone code,
-  Add a machine, Open offdesk, Start at login, Quit. A custom popover
+  with the same items — Open offdesk, Show the phone code, Add a machine,
+  Copy hub address, Quit. No machines list and no Start-at-login toggle
+  in the native menu: the services already start at login, and the list
+  needs a signed-in hub call the tray does not have. A custom popover
   window is a follow-up, not part of this phase.
-- Workspace (`Workspace.dc.html`): the sidebar from
-  `2026-08-29-sidebar-ia.md` restyled to the warm chrome; no IA change.
+- Workspace (`Workspace.dc.html`): the desktop chrome as it is after the
+  2026-09-01 terminal-first reset — the top TabBar and the Workspace
+  Manager, not the sidebar the wireframe drew — restyled to the warm
+  chrome; no IA change. (The wireframe predates reading that reset; the
+  reset's decision stands.)
 - Theme: the token port from decision 7, applied to the existing screens
   in the same PR so the app is not two-toned.
 - Acceptance: the Playwright suite's desktop specs pass against the new

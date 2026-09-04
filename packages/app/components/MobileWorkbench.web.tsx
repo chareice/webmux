@@ -531,7 +531,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                   style={{
                     marginTop: 14,
                     background: colors.accent,
-                    color: "#120904",
+                    color: colors.onAccent,
                     border: "none",
                     borderRadius: 999,
                     padding: "8px 14px",

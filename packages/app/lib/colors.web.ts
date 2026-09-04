@@ -1,5 +1,5 @@
 // CSS-variable-based color constants for inline styles.
-// Dark-only after the design refresh — see global.css for source tokens.
+// The site's palette — see global.css for source tokens.
 export const colors = {
   // New design tokens — preferred for new components.
   bg0: 'rgb(var(--color-bg-0))',
@@ -18,6 +18,7 @@ export const colors = {
   info: 'rgb(var(--color-info))',
   violet: 'rgb(var(--color-violet))',
   termBg: 'rgb(var(--color-term-bg))',
+  onAccent: 'rgb(var(--color-on-accent))',
 
   // Legacy keys — kept so untouched components keep working.
   background: 'rgb(var(--color-background))',
@@ -43,7 +44,7 @@ export const colorAlpha = {
   accentLine: 'rgb(var(--color-accent) / 0.35)',   // chip/border stroke
   dangerSoft: 'rgb(var(--color-err) / 0.25)',
   dangerLine: 'rgb(var(--color-err) / 0.5)',
-  overlay: 'rgb(0 0 0 / 0.58)',
+  overlay: 'rgb(43 35 64 / 0.45)',
 
   // Legacy.
   accentSubtle: 'rgb(var(--color-accent) / 0.08)',
@@ -54,7 +55,7 @@ export const colorAlpha = {
   accentBorder: 'rgb(var(--color-accent) / 0.25)',
   backgroundDim: 'rgb(var(--color-background) / 0.15)',
   backgroundOverlay: 'rgb(var(--color-background) / 0.2)',
-  backgroundShadow: 'rgb(var(--color-background) / 0.4)',
+  backgroundShadow: 'rgb(43 35 64 / 0.25)',
   backgroundOpaque96: 'rgb(var(--color-background) / 0.96)',
   backgroundOpaque98: 'rgb(var(--color-background) / 0.98)',
   backgroundSecondaryOpaque96: 'rgb(var(--color-background-secondary) / 0.96)',

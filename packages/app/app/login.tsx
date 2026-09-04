@@ -7,10 +7,13 @@ import {
   Pressable,
   TextInput,
 } from "react-native";
-import { getAuthProviders, type AuthProviders } from "../lib/api";
+import { getAuthProviders, redeemLoginCode, type AuthProviders } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { codeFromLink, tokenFromLink } from "../lib/desktopHub";
 import { isBundledOrigin, isTauri, isTauriMobile } from "../lib/platform";
 import { getServerUrl, setServerUrl } from "../lib/serverUrl";
+import { Body, Button, Card, Display, Eyebrow, fontDisplay, inputStyle } from "../components/Warm.web";
+import { colors } from "../lib/colors";
 
 type OAuthProvider = "github" | "google";
 
@@ -19,8 +22,13 @@ const PROVIDERS: { value: OAuthProvider; label: string }[] = [
   { value: "google", label: "Sign in with Google" },
 ];
 
-export default function LoginScreen() {
-  const { login } = useAuth();
+export default function LoginScreen({
+  onBecomeHub,
+}: {
+  /** Desktop app only: the other answer to the first-run question. */
+  onBecomeHub?: () => void;
+} = {}) {
+  const { login, loginWithToken } = useAuth();
   const [connecting, setConnecting] = useState(false);
   const [activeProvider, setActiveProvider] = useState<OAuthProvider | null>(
     null,
@@ -212,6 +220,37 @@ export default function LoginScreen() {
     });
   };
 
+  // The desktop app, handed the link the hub printed: the origin is the hub,
+  // and the token (or the code the QR carries) is the sign-in. Nothing else
+  // to type, and no browser round-trip.
+  const [desktopLink, setDesktopLink] = useState("");
+  const [desktopLinkError, setDesktopLinkError] = useState<string | null>(null);
+  const handleDesktopLink = () => {
+    const raw = desktopLink.trim();
+    let origin: string;
+    try {
+      origin = new URL(raw).origin;
+    } catch {
+      setDesktopLinkError("That is not a link. Paste the whole thing, starting with http.");
+      return;
+    }
+    const token = tokenFromLink(raw);
+    const code = codeFromLink(raw);
+    if (!token && !code) {
+      setDesktopLinkError("That link has no ?token= or ?code= in it. Copy the whole line the hub printed.");
+      return;
+    }
+    setDesktopLinkError(null);
+    setConnecting(true);
+    const signIn = token
+      ? loginWithToken(origin, token)
+      : redeemLoginCode(origin, code as string).then((redeemed) => loginWithToken(origin, redeemed));
+    signIn.catch((error: unknown) => {
+      setDesktopLinkError(String(error));
+      setConnecting(false);
+    });
+  };
+
   const handleWebLogin = (provider: OAuthProvider) => {
     setActiveProvider(provider);
     void login(provider)
@@ -312,52 +351,91 @@ export default function LoginScreen() {
   }
 
   if (isDesktop) {
+    const rule = (
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ flexGrow: 1, height: 1, background: colors.line }} />
+        <span style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 600, color: colors.fg3 }}>
+          or, with a hub address and an account
+        </span>
+        <div style={{ flexGrow: 1, height: 1, background: colors.line }} />
+      </div>
+    );
     return (
-      <View className="flex-1 bg-background items-center justify-center p-6">
-        <View className="w-full max-w-sm bg-surface rounded-2xl p-8">
-          <Text className="text-foreground text-3xl font-bold text-center mb-2">
-            offdesk
-          </Text>
-          <Text className="text-foreground text-center mb-8 opacity-80">
-            Connect to your server
-          </Text>
+      <div
+        style={{
+          flex: 1,
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 40,
+          background: colors.bg0,
+          boxSizing: "border-box",
+          overflow: "auto",
+        }}
+      >
+        <Card style={{ width: "100%", maxWidth: 560, display: "flex", flexDirection: "column", gap: 22, padding: 40 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <Eyebrow color={colors.info}>Just connecting</Eyebrow>
+            <Display size={34}>Point it at your hub</Display>
+            <Body>Paste the link the hub printed. It has the sign-in on it, so nothing else to type.</Body>
+          </div>
+          <input
+            type="text"
+            value={desktopLink}
+            onChange={(event) => {
+              setDesktopLink(event.target.value);
+              setDesktopLinkError(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") handleDesktopLink();
+            }}
+            placeholder="http://192.168.1.10:4317/?token=…"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            data-testid="desktop-link-input"
+            style={inputStyle}
+          />
+          <Body size={13.5}>
+            Where to find it again: on the hub's machine, the menu bar icon shows it, and so does{" "}
+            <code style={{ background: "rgb(43 35 64 / 0.06)", padding: "2px 6px", borderRadius: 6 }}>offdesk link</code>{" "}
+            in any terminal there.
+          </Body>
+          {desktopLinkError ? <Body size={13} style={{ color: colors.err }}>{desktopLinkError}</Body> : null}
+          <Button onClick={handleDesktopLink} disabled={connecting || !desktopLink.trim()} testId="desktop-link-connect">
+            {connecting ? "Connecting…" : "Connect"}
+          </Button>
 
-          <View className="mb-6">
-            <Text className="text-foreground text-sm mb-2 opacity-60">
-              Server URL
-            </Text>
-            <TextInput
-              value={serverUrlInput}
-              onChangeText={setServerUrlInput}
-              placeholder="https://your-server:4317"
-              placeholderTextColor="#999"
-              autoCapitalize="none"
-              autoCorrect={false}
-              className="bg-background border border-border rounded-lg px-3 py-2.5 text-foreground text-sm"
-            />
-          </View>
+          {rule}
 
-          <Pressable
-            onPress={handleDesktopConnect}
-            disabled={connecting || !serverUrlInput.trim()}
-            className={`py-3 px-4 rounded-lg items-center active:opacity-80 bg-foreground ${
-              connecting || !serverUrlInput.trim() ? "opacity-50" : ""
-            }`}
-          >
-            {connecting ? (
-              <ActivityIndicator color="#141413" />
-            ) : (
-              <Text className="font-semibold text-base text-background">
-                Sign in via Browser
-              </Text>
-            )}
-          </Pressable>
-
-          <Text className="text-foreground text-xs text-center mt-4 opacity-40">
-            Opens your browser to sign in or reuse an existing session
-          </Text>
-        </View>
-      </View>
+          <input
+            type="text"
+            value={serverUrlInput}
+            onChange={(event) => setServerUrlInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") handleDesktopConnect();
+            }}
+            placeholder="https://hub.example.dev"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            data-testid="desktop-server-url"
+            style={inputStyle}
+          />
+          <Button kind="sky" onClick={handleDesktopConnect} disabled={connecting || !serverUrlInput.trim()}>
+            Sign in in the browser
+          </Button>
+          <div style={{ fontFamily: fontDisplay, fontSize: 12.5, fontWeight: 600, color: colors.fg3 }}>
+            Only hubs reachable from outside your network have GitHub or Google sign-in. At home, the link is the sign-in.
+          </div>
+          {onBecomeHub ? (
+            <Button kind="ghost" onClick={onBecomeHub} style={{ alignSelf: "center", height: 36, fontSize: 13 }} testId="login-become-hub">
+              This is the machine that stays on, actually
+            </Button>
+          ) : null}
+        </Card>
+      </div>
     );
   }
 

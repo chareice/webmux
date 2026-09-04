@@ -217,7 +217,7 @@ fn parse_link(stdout: &str) -> Result<HubLink, String> {
     serde_json::from_str(line).map_err(|e| format!("offdesk-hub link printed something else: {e}"))
 }
 
-fn read_link(base_url: Option<&str>) -> Result<HubLink, String> {
+pub fn read_link(base_url: Option<&str>) -> Result<HubLink, String> {
     let stdout = run(
         hub_command(&["link", "--json"], base_url)?,
         "offdesk-hub link",

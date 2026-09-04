@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { colors } from "@/lib/colors";
+import { colors, colorAlpha } from "@/lib/colors";
 import { MobileAppPanel } from "./MobileAppPanel.web";
+import { ThisMachineSection } from "./DesktopSetup.web";
 import { isTauri, isTauriMobile } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import {
@@ -814,7 +815,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                       border: `1px solid ${
                         recording ? colors.accent : colors.border
                       }`,
-                      background: recording ? "#2a1a0f" : colors.surface,
+                      background: recording ? colorAlpha.accentSoft : colors.surface,
                       color: recording
                         ? colors.accent
                         : colors.foregroundSecondary,
@@ -985,6 +986,14 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
           </section>
         )}
 
+        {/* This machine — the desktop app's role, and the hub when it is one */}
+        {isTauri() && !isTauriMobile() && (
+          <section style={{ marginBottom: 32 }}>
+            <SectionTitle>This machine</SectionTitle>
+            <ThisMachineSection />
+          </section>
+        )}
+
         {/* Connection Section — Tauri desktop only */}
         {isTauri() && !isTauriMobile() && (
           <section style={{ marginBottom: 32 }}>
@@ -1011,7 +1020,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                     background: colors.accent,
                     border: "none",
                     borderRadius: 6,
-                    color: "#fff",
+                    color: colors.onAccent,
                     cursor: "pointer",
                     padding: "8px 16px",
                     fontSize: 13,
@@ -1064,7 +1073,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                 background: colors.accent,
                 border: "none",
                 borderRadius: 6,
-                color: "#fff",
+                color: colors.onAccent,
                 cursor: newTokenName.trim() ? "pointer" : "default",
                 opacity: newTokenName.trim() ? 1 : 0.5,
                 padding: "8px 16px",
