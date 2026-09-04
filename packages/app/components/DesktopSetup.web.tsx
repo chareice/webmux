@@ -323,7 +323,20 @@ function SetupStep({ done, pending, title, sub }: { done: boolean; pending: bool
 
 // ── Hub ready: the code for the phone ─────────────────────────────
 
-function HubReadyScreen({ initial, onOpen }: { initial: HubLink | null; onOpen: (link: HubLink) => Promise<void> }) {
+/**
+ * Hub ready: the code for the phone. On first run its button opens the
+ * terminal; revisited from the Phone button or the menu bar, the same page
+ * with a way back (`onClose`).
+ */
+export function HubReadyScreen({
+  initial,
+  onOpen,
+  onClose,
+}: {
+  initial: HubLink | null;
+  onOpen?: (link: HubLink) => Promise<void>;
+  onClose?: () => void;
+}) {
   const [link, setLink] = useState<HubLink | null>(initial);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
@@ -350,20 +363,26 @@ function HubReadyScreen({ initial, onOpen }: { initial: HubLink | null; onOpen: 
           </Card>
           {error ? <Body style={{ color: colors.err }}>{error}</Body> : null}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <Button
-              disabled={!link || opening}
-              testId="hub-ready-open"
-              onClick={() => {
-                if (!link) return;
-                setOpening(true);
-                onOpen(link).catch((e: unknown) => {
-                  setError(String(e));
-                  setOpening(false);
-                });
-              }}
-            >
-              <TerminalIcon /> {opening ? "Opening…" : "Open my terminal"}
-            </Button>
+            {onClose ? (
+              <Button kind="sky" onClick={onClose} testId="hub-ready-back">
+                <TerminalIcon /> Back to the terminal
+              </Button>
+            ) : (
+              <Button
+                disabled={!link || opening}
+                testId="hub-ready-open"
+                onClick={() => {
+                  if (!link || !onOpen) return;
+                  setOpening(true);
+                  onOpen(link).catch((e: unknown) => {
+                    setError(String(e));
+                    setOpening(false);
+                  });
+                }}
+              >
+                <TerminalIcon /> {opening ? "Opening…" : "Open my terminal"}
+              </Button>
+            )}
           </div>
         </div>
         <PhoneCodePanel link={link} onLink={setLink} onError={setError} />

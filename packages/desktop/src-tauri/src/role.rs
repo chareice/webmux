@@ -173,7 +173,7 @@ fn run(mut command: Command, what: &str) -> Result<String, String> {
     let lines = || stderr.lines().chain(stdout.lines()).map(str::trim).filter(|line| !line.is_empty());
     let reason = lines()
         .find(|line| line.starts_with("error"))
-        .or_else(|| lines().last())
+        .or_else(|| lines().next_back())
         .unwrap_or("it failed without saying why")
         .trim_start_matches("error:")
         .trim()

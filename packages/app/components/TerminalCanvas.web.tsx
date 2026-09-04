@@ -263,7 +263,7 @@ function TerminalCanvasInner() {
     const unlisteners: Array<() => void> = [];
     void import("@tauri-apps/api/event").then(({ listen }) => {
       if (disposed) return;
-      void listen("offdesk://show-phone-code", () => setShowSettings(true)).then((un) => unlisteners.push(un));
+      void listen("offdesk://show-phone-code", () => setPhoneOpen(true)).then((un) => unlisteners.push(un));
       void listen("offdesk://add-machine", () => setAddMachineOpen(true)).then((un) => unlisteners.push(un));
     });
     return () => {

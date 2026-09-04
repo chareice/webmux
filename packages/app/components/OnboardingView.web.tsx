@@ -9,7 +9,9 @@ import {
 import { isRegistrationTokenFresh } from "@/lib/tokenExpiry";
 import { colors } from "@/lib/colors";
 import { getServerUrl } from "@/lib/serverUrl";
+import { desktopRole, isDesktopShell } from "@/lib/desktopHub";
 import { MobileAppPanel } from "./MobileAppPanel.web";
+import { HubReadyScreen } from "./DesktopSetup.web";
 
 // The hub a new machine should dial: in a browser tab the page came from
 // the hub, so its own origin; in the desktop app the page is bundled and
@@ -439,6 +441,24 @@ export function MachineOnboardingDialog({
 /// The phone, reachable from anywhere in the app — not only from the page a
 /// fresh hub opens with, which a hub with a machine never shows again.
 export function MobileAppDialog({ onClose }: { onClose: () => void }) {
+  // On the machine that is the hub, the desktop app has a whole page for
+  // this — the one first run ends on — so the Phone button opens that, with
+  // a way back. The dialog below is for a hub's page in a browser.
+  const [isHub, setIsHub] = useState<boolean | null>(() => (isDesktopShell() ? null : false));
+  useEffect(() => {
+    if (!isDesktopShell()) return;
+    desktopRole()
+      .then((role) => setIsHub(role === "hub"))
+      .catch(() => setIsHub(false));
+  }, []);
+  if (isHub === null) return null;
+  if (isHub) {
+    return (
+      <div data-testid="phone-dialog" style={{ position: "fixed", inset: 0, zIndex: 80, display: "flex", overflow: "auto" }}>
+        <HubReadyScreen initial={null} onClose={onClose} />
+      </div>
+    );
+  }
   return (
     <div
       data-testid="phone-dialog"
