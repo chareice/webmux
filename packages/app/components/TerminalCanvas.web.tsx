@@ -58,6 +58,7 @@ import {
 } from "@/lib/bootstrapState";
 import { getPersistentDeviceId } from "@/lib/deviceId";
 import { colors } from "@/lib/colors";
+import { isTauri, isTauriMobile } from "@/lib/platform";
 import { useDisplayMode, useVisualViewportHeight } from "@/lib/hooks";
 import { KeyBarSlotProvider, WorkspaceKeyBarSlot } from "@/lib/keyBarSlot";
 import {
@@ -253,6 +254,23 @@ function TerminalCanvasInner() {
   const [showSettings, setShowSettings] = useState(false);
   const [addMachineOpen, setAddMachineOpen] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
+
+  // The menu bar item on the hub machine opens the window and says what it
+  // wants shown; see packages/desktop/src-tauri/src/tray.rs.
+  useEffect(() => {
+    if (!isTauri() || isTauriMobile()) return;
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    void import("@tauri-apps/api/event").then(({ listen }) => {
+      if (disposed) return;
+      void listen("offdesk://show-phone-code", () => setShowSettings(true)).then((un) => unlisteners.push(un));
+      void listen("offdesk://add-machine", () => setAddMachineOpen(true)).then((un) => unlisteners.push(un));
+    });
+    return () => {
+      disposed = true;
+      unlisteners.forEach((un) => un());
+    };
+  }, []);
   // A one-time nudge on the desk: the phone is the point of the product,
   // and nothing on this screen said where it was.
   const PHONE_HINT_KEY = "offdesk:phone-hint-dismissed";
@@ -1810,7 +1828,7 @@ function TerminalCanvasInner() {
               padding: "4px 10px",
               borderRadius: 6,
               background: colors.accent,
-              color: "#120904",
+              color: colors.onAccent,
               fontSize: 12,
               fontWeight: 700,
               fontFamily: "var(--font-mono)",
@@ -1929,7 +1947,7 @@ function EmptyState({
             style={{
               marginTop: 14,
               background: colors.accent,
-              color: "#120904",
+              color: colors.onAccent,
               border: "none",
               borderRadius: 999,
               padding: "8px 14px",

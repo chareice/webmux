@@ -116,7 +116,7 @@ export function MobileAppPanel() {
           dangerouslySetInnerHTML={qrSvg ? { __html: qrSvg } : undefined}
         >
           {qrSvg ? undefined : (
-            <span style={{ fontSize: 11, color: "#77776f" }}>no address</span>
+            <span style={{ fontSize: 11, color: colors.foregroundMuted }}>no address</span>
           )}
         </div>
 

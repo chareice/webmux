@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hub-install"
+description = "Enables the hub_install command without any pre-configured scope."
+commands.allow = ["hub_install"]
+
+[[permission]]
+identifier = "deny-hub-install"
+description = "Denies the hub_install command without any pre-configured scope."
+commands.deny = ["hub_install"]

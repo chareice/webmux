@@ -3,9 +3,16 @@
     "windows": [
       {
         "label": "main",
+        "title": "offdesk",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
         "dragDropEnabled": false,
         "decorations": true,
-        "titleBarStyle": "Overlay"
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ]
   }

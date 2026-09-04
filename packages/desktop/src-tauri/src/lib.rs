@@ -7,6 +7,8 @@ mod mobile_hub;
 #[cfg(desktop)]
 mod oauth;
 #[cfg(desktop)]
+mod role;
+#[cfg(desktop)]
 mod tray;
 
 #[cfg(any(desktop, mobile))]
@@ -61,7 +63,15 @@ fn configure_desktop<R: tauri::Runtime>(
 
     builder
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![oauth::start_oauth_listener])
+        .invoke_handler(tauri::generate_handler![
+            oauth::start_oauth_listener,
+            role::desktop_role,
+            role::set_desktop_role,
+            role::hub_status,
+            role::hub_link,
+            role::hub_install,
+            role::hub_uninstall
+        ])
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_shortcut(shortcut)

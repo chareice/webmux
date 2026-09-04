@@ -1,9 +1,11 @@
 # offdesk Design System
 
-This documents the system the app actually ships. Dark-only, cool-neutral,
-terminal-first. Canonical tokens live in `packages/app/global.css` (CSS custom
-properties, sRGB triplets derived from oklch at hue 260°) and are consumed via
-Tailwind (`tailwind.config.ts`) and `packages/app/lib/colors.web.ts`.
+This documents the system the app actually ships. The site's palette,
+indoors: warm chrome, dark terminal, terminal-first. Canonical tokens live in
+`packages/app/global.css` (CSS custom properties, sRGB triplets; the hex
+values are `site/src/styles/global.css`'s) and are consumed via Tailwind
+(`tailwind.config.ts`), `packages/app/lib/colors.web.ts`, and the literal
+copies in `packages/app/lib/theme.tsx` for React Native inline styles.
 
 ## Principles
 
@@ -14,11 +16,14 @@ Tailwind (`tailwind.config.ts`) and `packages/app/lib/colors.web.ts`.
    `docs/plans/2026-08-13-fold-touch-workspace.md` and
    `docs/superpowers/specs/2026-07-18-raw-terminal-ux-redesign-design.md`.
    Anything that competes with the terminal for attention is a bug.
-2. **Dark-only, deliberately.** The canvas approaches the terminal background;
-   surfaces elevate by small lightness steps at a constant cool hue (260°).
-3. **One warm accent.** Amber `--color-accent` marks focus, activity, and brand
-   moments. Semantic colors (ok/warn/err/info) are reserved for state — they
-   never decorate.
+2. **Dark is for the terminal, not the chrome.** The terminal body is the
+   night-dark the site draws terminals in; everything around it is sand and
+   cream, so the terminal reads as the object on the desk. (Until
+   2026-09-04 the chrome was dark too; the desktop-hub plan,
+   `docs/plans/2026-09-04-desktop-hub-role.md`, changed that.)
+3. **One accent.** Coral `--color-accent` is the one thing to press; cream
+   text sits on it (`--color-on-accent`). Semantic colors (ok/warn/err/info)
+   are reserved for state — they never decorate.
 4. **Real data or no data.** Meters and stats render only live values; no
    placeholder/mock series.
 
@@ -26,27 +31,34 @@ Tailwind (`tailwind.config.ts`) and `packages/app/lib/colors.web.ts`.
 
 | Token | sRGB | Role |
 |---|---|---|
-| `--color-bg-0` | `11 12 15` | canvas |
-| `--color-bg-1` | `17 19 22` | elevated (bars, sheets) |
-| `--color-bg-2` | `23 26 29` | surface (cards, menus) |
-| `--color-bg-3` | `31 34 38` | surface hover / pressed |
-| `--color-term-bg` | `5 6 10` | terminal body (darkest) |
-| `--color-line` | `39 41 45` | solid border |
-| `--color-line-soft` | `27 29 32` | subtle divider |
-| `--color-fg-0..3` | `247 248 251` → `91 94 98` | text scale (primary → faint) |
-| `--color-accent` | `251 157 89` | warm amber — focus/brand |
-| `--color-ok` | `99 209 143` | success / online / running |
-| `--color-warn` | `234 191 58` | warning |
-| `--color-err` | `250 104 99` | error / destructive |
-| `--color-info` | `105 193 252` | focus ring, informational |
-| `--color-violet` | `187 154 244` | auxiliary series |
+| `--color-bg-0` | `255 244 227` | canvas (sand) |
+| `--color-bg-1` | `255 251 244` | elevated (bars, sheets) (cream) |
+| `--color-bg-2` | `255 251 244` | surface (cards, menus) (cream) |
+| `--color-bg-3` | `255 233 204` | surface hover / pressed (sand-2) |
+| `--color-term-bg` | `30 27 46` | terminal body (`#1e1b2e`) |
+| `--color-line` | `230 207 174` | solid border |
+| `--color-line-soft` | `241 222 198` | subtle divider |
+| `--color-fg-0..3` | `43 35 64` → `157 149 179` | text scale (ink → faint) |
+| `--color-accent` | `255 107 87` | coral — the one thing to press |
+| `--color-on-accent` | `255 251 244` | cream, on coral |
+| `--color-ok` | `31 158 140` | success / online / running (lagoon, darkened to read on cream) |
+| `--color-warn` | `210 154 18` | warning (sun, same) |
+| `--color-err` | `232 84 63` | error / destructive (coral-2) |
+| `--color-info` | `31 143 194` | focus ring, informational (sea, same) |
+| `--color-violet` | `124 92 191` | auxiliary series |
 
 Alpha composition uses `rgb(var(--x) / a)`. Focus-visible = 2px `info` ring;
-text selection = accent at 20%.
+text selection = accent at 20%. The xterm theme (`lib/colors.shared.ts`) is
+the site's terminal: `#1e1b2e` body, `#f3eee6` text, coral cursor, sun
+selection.
 
 ## Typography
 
-- UI sans: `Geist` → system stack. Features `ss01`, `cv11`.
+- Display (titles, buttons, eyebrows): `Fredoka Variable` → ui-rounded →
+  system. UI sans: `Nunito Variable` → ui-rounded → system. Both ship in
+  `packages/app/public/fonts` so a hub with no internet has them; the site's
+  vocabulary for them is `components/Warm.web.tsx` (pill buttons with a hard
+  coral shadow, 28px cards, the coral "donut" step badge).
 - Mono (terminal + all metrics/ids): `Maple Mono NF CN` → `Noto Sans Mono CJK
   SC` → `JetBrains Mono` → platform mono. User-overridable in Settings.
 - Sizes: UI 12–13.5px; terminal size user-set; uppercase micro-labels get
@@ -61,7 +73,8 @@ cannot flip chrome); non-touch keeps `innerWidth ≤ 768`. History and the
 retired large-touch workspace: `docs/plans/2026-08-13-fold-touch-workspace.md`.
 
 - **Desktop / Fold-inner tab bar** (34px mouse, ≥40px touch): active tab fills
-  with `term-bg` so it merges into the terminal; inactive tabs transparent,
+  with `term-bg` so it merges into the terminal (the one dark thing in the
+  bar); inactive tabs transparent,
   hover `bg-2`. Right meta: online dot + host + RTT + cpu/mem micro-meters
   (30×4px bars, `bg-3` track, `fg-2` fill). Large+touch also pins one
   ExtendedKeyBar at the bottom of the main column (portaled from the focused
@@ -81,5 +94,7 @@ Fades/slides 150–350ms ease-out; status dots may pulse at 1.6s. Respect
 
 ## History
 
-The previous parchment/terracotta concept (Claude-inspired, light theme) was
-never implemented and is retired; git history has the old file.
+The dark-only, cool-neutral (hue 260°, amber accent) system shipped from the
+design refresh until 2026-09-04, when the chrome took the site's palette;
+git history has the old tokens. The earlier parchment/terracotta concept
+was never implemented.

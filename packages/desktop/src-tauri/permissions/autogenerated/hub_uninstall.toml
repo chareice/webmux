@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hub-uninstall"
+description = "Enables the hub_uninstall command without any pre-configured scope."
+commands.allow = ["hub_uninstall"]
+
+[[permission]]
+identifier = "deny-hub-uninstall"
+description = "Denies the hub_uninstall command without any pre-configured scope."
+commands.deny = ["hub_uninstall"]

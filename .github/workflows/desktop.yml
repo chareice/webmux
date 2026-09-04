@@ -14,11 +14,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # macOS and Linux ship offdesk-hub and offdesk-node inside the app
+        # (macOS tmux too), so the app can make its machine the hub. The
+        # sidecar list lives in a config the release build merges in, so a
+        # plain `tauri dev` needs none of them. Windows is a client only.
         include:
           - platform: macos-latest
-            args: "--target universal-apple-darwin"
+            args: "--target universal-apple-darwin --config src-tauri/tauri.sidecars.macos.conf.json"
+            sidecars: "--universal"
           - platform: ubuntu-22.04
-            args: ""
+            args: "--config src-tauri/tauri.sidecars.linux.conf.json"
+            sidecars: ""
           - platform: windows-latest
             args: ""
 
@@ -51,6 +57,20 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The hub sidecar bakes the web UI in, so the UI is built before it;
+      # tauri-action's beforeBuildCommand builds it again, to the same result.
+      - name: Build the web UI for the hub sidecar
+        if: matrix.platform != 'windows-latest'
+        run: pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app build
+
+      - name: Build the offdesk-hub and offdesk-node sidecars
+        if: matrix.platform != 'windows-latest'
+        run: scripts/desktop-sidecars.sh ${{ matrix.sidecars }}
+
+      - name: Build the tmux sidecar
+        if: matrix.platform == 'macos-latest'
+        run: scripts/build-tmux-sidecar.sh packages/desktop/src-tauri/binaries
 
       - name: Build desktop app
         uses: tauri-apps/tauri-action@v0

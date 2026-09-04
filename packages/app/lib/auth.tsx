@@ -15,7 +15,7 @@ import { router } from "expo-router";
 import { configure, devLogin, getMe, redeemLoginCode } from "./api";
 import type { User } from "@offdesk/shared";
 import { storage } from "./storage";
-import { getServerUrl } from "./serverUrl";
+import { getServerUrl, setServerUrl } from "./serverUrl";
 import { isTauri, isTauriMobile } from "./platform";
 
 export type { User };
@@ -30,6 +30,13 @@ export interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (provider?: "github" | "google") => Promise<void>;
+  /**
+   * Sign in with a token already in hand — the one on the hub's own link,
+   * which the desktop app has when it just made this machine the hub, or
+   * when someone pasted the link. `serverUrl` first, then the token, so the
+   * session is validated against the hub it belongs to.
+   */
+  loginWithToken: (serverUrl: string, token: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -337,6 +344,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [currentServerUrl]);
 
+  const loginWithToken = useCallback(async (serverUrl: string, newToken: string) => {
+    setServerUrl(serverUrl);
+    await storage.set(TOKEN_KEY, newToken);
+    configure(currentServerUrl(), newToken);
+    setIsLoading(true);
+    setToken(newToken);
+  }, [currentServerUrl]);
+
   const logout = useCallback(async () => {
     await storage.remove(TOKEN_KEY);
     configure(currentServerUrl(), null);
@@ -345,8 +360,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [currentServerUrl]);
 
   const value = useMemo<AuthContextType>(
-    () => ({ user, token, isLoading, isAuthenticated, login, logout }),
-    [user, token, isLoading, isAuthenticated, login, logout],
+    () => ({ user, token, isLoading, isAuthenticated, login, loginWithToken, logout }),
+    [user, token, isLoading, isAuthenticated, login, loginWithToken, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

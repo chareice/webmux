@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-role"
+description = "Enables the desktop_role command without any pre-configured scope."
+commands.allow = ["desktop_role"]
+
+[[permission]]
+identifier = "deny-desktop-role"
+description = "Denies the desktop_role command without any pre-configured scope."
+commands.deny = ["desktop_role"]

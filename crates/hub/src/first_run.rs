@@ -460,6 +460,34 @@ fn pick_lan_address(
         .map(|c| c.1)
 }
 
+/// Every address a phone might reach this machine at, best first, for a
+/// picker: what `reachable_base_url` would choose, then the LAN ones, then
+/// tunnels and tailnets. Loopback, link-local and fake-IP ranges are not
+/// addresses anyone reaches.
+pub fn lan_candidates() -> Vec<(String, Ipv4Addr)> {
+    let interfaces = interface_addresses();
+    let best = pick_lan_address(interfaces.clone(), route_address());
+    order_candidates(interfaces, best)
+}
+
+fn order_candidates(interfaces: Vec<(String, Ipv4Addr)>, best: Option<Ipv4Addr>) -> Vec<(String, Ipv4Addr)> {
+    let mut usable: Vec<(String, Ipv4Addr)> = interfaces
+        .into_iter()
+        .filter(|(name, ip)| {
+            !name.starts_with("lo") && !ip.is_loopback() && !ip.is_link_local() && !is_benchmark_range(*ip)
+        })
+        .collect();
+    let on_the_lan = |c: &(String, Ipv4Addr)| c.1.is_private() && !is_virtual(&c.0);
+    usable.sort_by(|a, b| on_the_lan(b).cmp(&on_the_lan(a)).then_with(|| a.0.cmp(&b.0)));
+    if let Some(best) = best {
+        if let Some(position) = usable.iter().position(|c| c.1 == best) {
+            let chosen = usable.remove(position);
+            usable.insert(0, chosen);
+        }
+    }
+    usable
+}
+
 /// Interfaces that do not lead to the Wi-Fi: tunnels, VM and container
 /// bridges, Apple's peer-to-peer links.
 fn is_virtual(name: &str) -> bool {
@@ -779,6 +807,21 @@ mod tests {
             pick_lan_address(interfaces, None),
             Some(Ipv4Addr::new(192, 168, 64, 1))
         );
+    }
+
+    #[test]
+    fn the_picker_leads_with_the_chosen_address_and_hides_what_nobody_reaches() {
+        let interfaces = vec![
+            ("utun3".to_string(), Ipv4Addr::new(100, 64, 0, 7)),
+            ("lo0".to_string(), Ipv4Addr::new(127, 0, 0, 1)),
+            ("en5".to_string(), Ipv4Addr::new(10, 0, 0, 5)),
+            ("en0".to_string(), Ipv4Addr::new(192, 168, 1, 10)),
+            ("utun4".to_string(), Ipv4Addr::new(198, 18, 0, 1)),
+            ("awdl0".to_string(), Ipv4Addr::new(169, 254, 3, 3)),
+        ];
+        let ordered = order_candidates(interfaces, Some(Ipv4Addr::new(10, 0, 0, 5)));
+        let names: Vec<&str> = ordered.iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(names, ["en5", "en0", "utun3"]);
     }
 
     #[test]

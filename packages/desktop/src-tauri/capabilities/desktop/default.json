@@ -19,6 +19,12 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "process:default",
-    "allow-start-oauth-listener"
+    "allow-start-oauth-listener",
+    "allow-desktop-role",
+    "allow-set-desktop-role",
+    "allow-hub-status",
+    "allow-hub-link",
+    "allow-hub-install",
+    "allow-hub-uninstall"
   ]
 }

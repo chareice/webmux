@@ -5,8 +5,15 @@ import { Slot } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { AuthProvider, useAuth } from "../lib/auth";
+import { isDesktopShell } from "../lib/desktopHub";
 import { ThemeProvider } from "../lib/theme";
 import LoginScreen from "./login";
+import { DesktopGate } from "../components/DesktopSetup.web";
+
+// Decided once: the shell a page runs in does not change while it is open,
+// and Tauri's bridge is there before any script runs. Reading it per render
+// would let a bridge installed later (a test's stub) swap the whole tree.
+const DESKTOP_SHELL = isDesktopShell();
 
 interface AppErrorBoundaryProps {
   children: ReactNode;
@@ -43,18 +50,18 @@ class AppErrorBoundary extends Component<
     }
 
     return (
-      <View className="flex-1 min-h-screen bg-zinc-950 items-center justify-center px-6 py-10">
+      <View className="flex-1 min-h-screen bg-background items-center justify-center px-6 py-10">
         <View className="w-full max-w-2xl items-center gap-4">
-          <Text className="text-2xl font-semibold text-zinc-100">Something went wrong</Text>
+          <Text className="text-2xl font-semibold text-foreground">Something went wrong</Text>
           <Pressable
             accessibilityRole="button"
-            className="rounded-md bg-orange-400 px-5 py-3"
+            className="rounded-md bg-accent px-5 py-3"
             onPress={this.reload}
           >
-            <Text className="font-semibold text-zinc-950">Reload</Text>
+            <Text className="font-semibold text-on-accent">Reload</Text>
           </Pressable>
-          <View className="mt-4 w-full rounded-md bg-zinc-900 p-4">
-            <Text className="font-mono text-xs text-zinc-400">
+          <View className="mt-4 w-full rounded-md bg-surface p-4">
+            <Text className="font-mono text-xs text-foreground-muted">
               {error.message}
               {error.stack ? `\n\n${error.stack}` : ""}
             </Text>
@@ -68,10 +75,20 @@ class AppErrorBoundary extends Component<
 function AuthGate() {
   const { isLoading, isAuthenticated } = useAuth();
 
+  // The desktop app asks which machine this is before anything else, and
+  // may have a hub to set up before there is anything to sign in to.
+  if (DESKTOP_SHELL) {
+    return (
+      <DesktopGate>
+        <Slot />
+      </DesktopGate>
+    );
+  }
+
   if (isLoading) {
     return (
       <View className="flex-1 bg-background items-center justify-center">
-        <ActivityIndicator size="large" color="#fb9d59" />
+        <ActivityIndicator size="large" color="#ff6b57" />
       </View>
     );
   }

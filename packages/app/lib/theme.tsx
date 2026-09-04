@@ -6,7 +6,7 @@ import React, {
 import { Platform } from "react-native";
 
 type Theme = "light" | "dark" | "system";
-type ResolvedTheme = "dark";
+type ResolvedTheme = "light";
 
 interface ThemeContextValue {
   theme: Theme;
@@ -14,28 +14,28 @@ interface ThemeContextValue {
   setTheme: (theme: Theme) => void;
 }
 
-// Dark-only after the design refresh. The context stays in place so existing
-// callers (SettingsPage, xterm theme hooks) keep compiling — but setTheme is
-// a no-op and resolvedTheme is always "dark".
+// One look, the site's: warm chrome, dark terminal. The context stays in
+// place so existing callers (SettingsPage, xterm theme hooks) keep compiling —
+// but setTheme is a no-op and resolvedTheme is always "light".
 const FORCED: ThemeContextValue = {
-  theme: "dark",
-  resolvedTheme: "dark",
-  setTheme: () => { /* dark-only */ },
+  theme: "light",
+  resolvedTheme: "light",
+  setTheme: () => { /* one look */ },
 };
 
 const ThemeContext = createContext<ThemeContextValue>(FORCED);
 
-function applyDark() {
+function applyLight() {
   if (Platform.OS !== "web") return;
   if (typeof document === "undefined") return;
   const el = document.documentElement;
-  el.classList.add("dark");
-  el.style.colorScheme = "dark";
+  el.classList.remove("dark");
+  el.style.colorScheme = "light";
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    applyDark();
+    applyLight();
   }, []);
   return <ThemeContext.Provider value={FORCED}>{children}</ThemeContext.Provider>;
 }
@@ -46,76 +46,77 @@ export function useTheme(): ThemeContextValue {
 
 // Concrete color values for RN inline styles. RNW silently drops CSS-var
 // strings in <Text>/<View>, so native-side components need literals.
-const darkColors = {
-  // New design tokens.
-  bg0: "#0b0c0f",
-  bg1: "#111316",
-  bg2: "#171a1d",
-  bg3: "#1f2226",
-  line: "#27292d",
-  lineSoft: "#1b1d20",
-  fg0: "#f7f8fb",
-  fg1: "#ccced1",
-  fg2: "#909297",
-  fg3: "#5b5e62",
-  ok: "#63d18f",
-  warn: "#eabf3a",
-  err: "#fa6863",
-  info: "#69c1fc",
-  violet: "#bb9af4",
-  termBg: "#05060a",
+const lightColors = {
+  // New design tokens — the same values as global.css.
+  bg0: "#fff4e3",
+  bg1: "#fffbf4",
+  bg2: "#fffbf4",
+  bg3: "#ffe9cc",
+  line: "#e6cfae",
+  lineSoft: "#f1dec6",
+  fg0: "#2b2340",
+  fg1: "#4a4160",
+  fg2: "#6e6486",
+  fg3: "#9d95b3",
+  ok: "#1f9e8c",
+  warn: "#d29a12",
+  err: "#e8543f",
+  info: "#1f8fc2",
+  violet: "#7c5cbf",
+  termBg: "#1e1b2e",
+  onAccent: "#fffbf4",
 
   // Legacy keys.
-  background: "#0b0c0f",
-  backgroundSecondary: "#111316",
-  surface: "#171a1d",
-  surfaceHover: "#1f2226",
-  foreground: "#f7f8fb",
-  foregroundSecondary: "#ccced1",
-  foregroundMuted: "#909297",
-  accent: "#fb9d59",
-  accentDim: "#fb9d59",
-  danger: "#fa6863",
-  warning: "#eabf3a",
-  success: "#63d18f",
-  border: "#27292d",
-  borderActive: "#fb9d59",
+  background: "#fff4e3",
+  backgroundSecondary: "#fffbf4",
+  surface: "#fffbf4",
+  surfaceHover: "#ffe9cc",
+  foreground: "#2b2340",
+  foregroundSecondary: "#4a4160",
+  foregroundMuted: "#6e6486",
+  accent: "#ff6b57",
+  accentDim: "#ff6b57",
+  danger: "#e8543f",
+  warning: "#d29a12",
+  success: "#1f9e8c",
+  border: "#e6cfae",
+  borderActive: "#ff6b57",
 } as const;
 
-const darkAlpha = {
-  accentSoft: "rgba(251, 157, 89, 0.14)",
-  accentLine: "rgba(251, 157, 89, 0.35)",
-  dangerSoft: "rgba(250, 104, 99, 0.25)",
-  dangerLine: "rgba(250, 104, 99, 0.5)",
-  overlay: "rgba(0, 0, 0, 0.58)",
+const lightAlpha = {
+  accentSoft: "rgba(255, 107, 87, 0.14)",
+  accentLine: "rgba(255, 107, 87, 0.35)",
+  dangerSoft: "rgba(232, 84, 63, 0.18)",
+  dangerLine: "rgba(232, 84, 63, 0.5)",
+  overlay: "rgba(43, 35, 64, 0.45)",
 
-  accentSubtle: "rgba(251, 157, 89, 0.08)",
-  accentLight: "rgba(251, 157, 89, 0.1)",
-  accentLight12: "rgba(251, 157, 89, 0.12)",
-  accentMedium15: "rgba(251, 157, 89, 0.15)",
-  accentMedium: "rgba(251, 157, 89, 0.2)",
-  accentBorder: "rgba(251, 157, 89, 0.25)",
-  backgroundDim: "rgba(11, 12, 15, 0.15)",
-  backgroundOverlay: "rgba(11, 12, 15, 0.2)",
-  backgroundShadow: "rgba(0, 0, 0, 0.4)",
-  backgroundOpaque96: "rgba(11, 12, 15, 0.96)",
-  backgroundOpaque98: "rgba(11, 12, 15, 0.98)",
-  backgroundSecondaryOpaque96: "rgba(17, 19, 22, 0.96)",
-  surfaceOpaque94: "rgba(23, 26, 29, 0.94)",
-  foregroundOverlay: "rgba(247, 248, 251, 0.15)",
-  foregroundSubtle: "rgba(247, 248, 251, 0.35)",
-  warningSubtle: "rgba(234, 191, 58, 0.08)",
-  warningLight12: "rgba(234, 191, 58, 0.12)",
-  warningBorder: "rgba(234, 191, 58, 0.2)",
-  warningBorder22: "rgba(234, 191, 58, 0.22)",
-  mutedLight: "rgba(144, 146, 151, 0.15)",
-  mutedMedium: "rgba(144, 146, 151, 0.3)",
+  accentSubtle: "rgba(255, 107, 87, 0.08)",
+  accentLight: "rgba(255, 107, 87, 0.1)",
+  accentLight12: "rgba(255, 107, 87, 0.12)",
+  accentMedium15: "rgba(255, 107, 87, 0.15)",
+  accentMedium: "rgba(255, 107, 87, 0.2)",
+  accentBorder: "rgba(255, 107, 87, 0.25)",
+  backgroundDim: "rgba(255, 244, 227, 0.15)",
+  backgroundOverlay: "rgba(255, 244, 227, 0.2)",
+  backgroundShadow: "rgba(43, 35, 64, 0.25)",
+  backgroundOpaque96: "rgba(255, 244, 227, 0.96)",
+  backgroundOpaque98: "rgba(255, 244, 227, 0.98)",
+  backgroundSecondaryOpaque96: "rgba(255, 251, 244, 0.96)",
+  surfaceOpaque94: "rgba(255, 251, 244, 0.94)",
+  foregroundOverlay: "rgba(43, 35, 64, 0.15)",
+  foregroundSubtle: "rgba(43, 35, 64, 0.35)",
+  warningSubtle: "rgba(210, 154, 18, 0.08)",
+  warningLight12: "rgba(210, 154, 18, 0.12)",
+  warningBorder: "rgba(210, 154, 18, 0.2)",
+  warningBorder22: "rgba(210, 154, 18, 0.22)",
+  mutedLight: "rgba(110, 100, 134, 0.15)",
+  mutedMedium: "rgba(110, 100, 134, 0.3)",
 } as const;
 
 export function useColors() {
-  return darkColors;
+  return lightColors;
 }
 
 export function useColorAlpha() {
-  return darkAlpha;
+  return lightAlpha;
 }

@@ -91,8 +91,11 @@ Each phase is its own PR with its own report under `docs/plans/`.
   the `reachable_base_url` logic in `crates/hub/src/first_run.rs` is the
   reference), `machines` (from the hub's API once the app is signed in).
 - The services' launchd plists must carry `PATH` with the sidecar
-  directory first; `offdesk-hub service install` gains a `--path-prepend`
-  flag (or reads `OFFDESK_PATH_PREPEND`) so the CLI path is unchanged.
+  directory first. No new flag: `service install` already bakes the
+  installing process's `PATH` into the unit (`crates/protocol/src/service.rs`),
+  and the hub's install runs the node's with the same environment, so the
+  app leads `PATH` with the sidecar directory when it runs the sidecar and
+  both services inherit it. `crates/*` change: `offdesk-hub link --json`.
 - Acceptance: on a Mac with no tmux and no offdesk, choosing "The one that
   stays on" ends on Hub ready with a scannable code; `launchctl list |
   grep offdesk` shows both services; quitting the app changes nothing on
@@ -107,11 +110,16 @@ In `packages/app`, behind `isTauriDesktop`:
   the-link path is already there). Hub ready is reachable later from
   Settings and from the menu bar.
 - Menu bar (`HubPanel.dc.html`): start as a native tray menu in `tray.rs`
-  with the same items — address (copies), machines, Show the phone code,
-  Add a machine, Open offdesk, Start at login, Quit. A custom popover
+  with the same items — Open offdesk, Show the phone code, Add a machine,
+  Copy hub address, Quit. No machines list and no Start-at-login toggle
+  in the native menu: the services already start at login, and the list
+  needs a signed-in hub call the tray does not have. A custom popover
   window is a follow-up, not part of this phase.
-- Workspace (`Workspace.dc.html`): the sidebar from
-  `2026-08-29-sidebar-ia.md` restyled to the warm chrome; no IA change.
+- Workspace (`Workspace.dc.html`): the desktop chrome as it is after the
+  2026-09-01 terminal-first reset — the top TabBar and the Workspace
+  Manager, not the sidebar the wireframe drew — restyled to the warm
+  chrome; no IA change. (The wireframe predates reading that reset; the
+  reset's decision stands.)
 - Theme: the token port from decision 7, applied to the existing screens
   in the same PR so the app is not two-toned.
 - Acceptance: the Playwright suite's desktop specs pass against the new

@@ -3,36 +3,40 @@
 @tailwind utilities;
 
 @layer base {
+  /* The site's palette, indoors: sand and cream for the chrome, ink for the
+     words, coral for the one thing to press. The terminal stays night-dark;
+     see --color-term-bg. Stored as space-separated sRGB triplets so
+     `rgb(var(--x) / <alpha>)` works with both Tailwind and inline styles.
+     Source of truth for the hex values: site/src/styles/global.css. */
   :root {
-    /* Design-refresh palette. Dark-only. Values are sRGB triplets converted
-       from the source oklch() tokens (neutrals at hue 260°, warm amber for
-       accent). Stored as space-separated triplets so
-       `rgb(var(--x) / <alpha>)` works with both Tailwind and inline styles. */
-    --color-bg-0: 11 12 15;              /* oklch(0.155 0.006 260) — canvas */
-    --color-bg-1: 17 19 22;              /* oklch(0.185 0.007 260) — elevated */
-    --color-bg-2: 23 26 29;              /* oklch(0.215 0.008 260) — surface */
-    --color-bg-3: 31 34 38;              /* oklch(0.25  0.008 260) — surface hover */
-    --color-line: 39 41 45;              /* oklch(0.28  0.008 260) — solid border */
-    --color-line-soft: 27 29 32;         /* oklch(0.23  0.007 260) — subtle divider */
+    --color-bg-0: 255 244 227;           /* #fff4e3 sand — canvas */
+    --color-bg-1: 255 251 244;           /* #fffbf4 cream — elevated (bars, sheets) */
+    --color-bg-2: 255 251 244;           /* #fffbf4 cream — surface (cards, menus) */
+    --color-bg-3: 255 233 204;           /* #ffe9cc sand-2 — surface hover / pressed */
+    --color-line: 230 207 174;           /* #e6cfae — solid border */
+    --color-line-soft: 241 222 198;      /* #f1dec6 — subtle divider */
 
-    /* Typography uses locally available fonts first, then system fallbacks. */
-    --font-sans: 'Geist', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    /* Fredoka for what is said once (titles, buttons), Nunito for the rest;
+       both ship in public/fonts so a hub with no internet still has them. */
+    --font-display: 'Fredoka Variable', 'Fredoka', ui-rounded, 'Nunito Variable', system-ui, sans-serif;
+    --font-sans: 'Nunito Variable', 'Nunito', ui-rounded, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-mono: 'Maple Mono NF CN', 'Noto Sans Mono CJK SC', 'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
 
-    --color-fg-0: 247 248 251;           /* oklch(0.98 0.004 260) */
-    --color-fg-1: 204 206 209;           /* oklch(0.85 0.005 260) */
-    --color-fg-2: 144 146 151;           /* oklch(0.66 0.007 260) */
-    --color-fg-3: 91 94 98;              /* oklch(0.48 0.008 260) */
+    --color-fg-0: 43 35 64;              /* #2b2340 ink */
+    --color-fg-1: 74 65 96;              /* #4a4160 ink-2 */
+    --color-fg-2: 110 100 134;           /* #6e6486 muted */
+    --color-fg-3: 157 149 179;           /* #9d95b3 faint */
 
-    --color-accent: 251 157 89;          /* oklch(0.78 0.14 55)  — warm amber */
-    --color-ok: 99 209 143;              /* oklch(0.78 0.14 155) */
-    --color-warn: 234 191 58;            /* oklch(0.82 0.15 90) */
-    --color-err: 250 104 99;             /* oklch(0.70 0.18 25) */
-    --color-info: 105 193 252;           /* oklch(0.78 0.12 240) */
-    --color-violet: 187 154 244;         /* oklch(0.75 0.13 300) */
+    --color-accent: 255 107 87;          /* #ff6b57 coral */
+    --color-on-accent: 255 251 244;      /* cream, on coral */
+    --color-ok: 31 158 140;              /* lagoon, dark enough to read on cream */
+    --color-warn: 210 154 18;            /* sun, same */
+    --color-err: 232 84 63;              /* #e8543f coral-2 */
+    --color-info: 31 143 194;            /* sea, same */
+    --color-violet: 124 92 191;
 
-    /* Terminal body — slightly darker than bg-0 for card contrast. */
-    --color-term-bg: 5 6 10;
+    /* Terminal body — the night-dark the site draws terminals in. */
+    --color-term-bg: 30 27 46;           /* #1e1b2e */
 
     /* Legacy aliases — existing components reference these via colors.web.ts.
        Forwarded to the new tokens so the refactor can land in stages. */
@@ -52,13 +56,28 @@
   }
 }
 
+@font-face {
+  font-family: 'Fredoka Variable';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('/fonts/fredoka-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'Nunito Variable';
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url('/fonts/nunito-latin-wght-normal.woff2') format('woff2-variations');
+}
+
 html, body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   background-color: rgb(var(--color-bg-0));
   color: rgb(var(--color-fg-1));
   min-height: 100%;
-  font-feature-settings: 'ss01', 'cv11';
 }
 
 body {

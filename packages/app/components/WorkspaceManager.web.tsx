@@ -503,7 +503,7 @@ const primaryButtonStyle: CSSProperties = {
   border: "none",
   borderRadius: 7,
   background: colors.accent,
-  color: "#120904",
+  color: colors.onAccent,
   fontSize: 12,
   fontWeight: 700,
 };
