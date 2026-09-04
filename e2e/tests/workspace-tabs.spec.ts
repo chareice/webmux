@@ -956,9 +956,8 @@ test("workspace manager organizes, renames, moves, reorders, and deletes", async
     manager.getByTestId(`workspace-manager-group-${second.id}`),
   ).toContainText(renamed);
 
-  await manager
-    .getByTestId(`workspace-manager-move-${terminalId}`)
-    .selectOption(second.id);
+  await manager.getByTestId(`workspace-manager-move-${terminalId}`).click();
+  await page.getByRole("menuitem", { name: renamed }).click();
   await expect
     .poll(async () =>
       (await listTerminals(page)).find((terminal) => terminal.id === terminalId)
