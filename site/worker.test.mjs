@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker, { apkTarget, newestAppRelease } from "./worker.js";
+import worker, { apkTarget, desktopTarget, newestAppRelease, newestDesktopRelease } from "./worker.js";
 
 const releases = [
   { tag_name: "v0.18.1", html_url: "https://github.com/zalify/offdesk/releases/tag/v0.18.1", assets: [] },
@@ -13,7 +13,17 @@ const releases = [
     ],
   },
   { tag_name: "app-v0.4.10", draft: true, html_url: "draft", assets: [] },
-  { tag_name: "desktop-v0.3.16", html_url: "desktop", assets: [] },
+  { tag_name: "desktop-v0.3.16", html_url: "desktop-old", assets: [] },
+  {
+    tag_name: "desktop-v0.5.0",
+    html_url: "https://github.com/zalify/offdesk/releases/tag/desktop-v0.5.0",
+    assets: [
+      { name: "offdesk_0.5.0_universal.dmg", browser_download_url: "https://github.com/zalify/offdesk/releases/download/desktop-v0.5.0/offdesk_0.5.0_universal.dmg" },
+      { name: "offdesk_0.5.0_x64_en-US.msi", browser_download_url: "https://github.com/zalify/offdesk/releases/download/desktop-v0.5.0/offdesk_0.5.0_x64_en-US.msi" },
+      { name: "offdesk_0.5.0_amd64.AppImage", browser_download_url: "https://github.com/zalify/offdesk/releases/download/desktop-v0.5.0/offdesk_0.5.0_amd64.AppImage" },
+    ],
+  },
+  { tag_name: "desktop-v0.5.1", draft: true, html_url: "draft", assets: [] },
   {
     tag_name: "app-v0.4.1",
     html_url: "https://github.com/zalify/offdesk/releases/tag/app-v0.4.1",
@@ -35,6 +45,17 @@ test("/apk is the arm64 file; /apk/universal the universal one; /apk/release the
   assert.equal(apkTarget(releases, "release"), releases[1].html_url);
 });
 
+test("the newest desktop-v release wins, and a draft never does", () => {
+  assert.equal(newestDesktopRelease(releases).tag_name, "desktop-v0.5.0");
+});
+
+test("/mac is the dmg, /windows the msi, /linux the AppImage, /desktop the page", () => {
+  assert.match(desktopTarget(releases, "mac"), /0\.5\.0_universal\.dmg$/);
+  assert.match(desktopTarget(releases, "windows"), /\.msi$/);
+  assert.match(desktopTarget(releases, "linux"), /\.AppImage$/);
+  assert.equal(desktopTarget(releases, "release"), releases[4].html_url);
+});
+
 test("a flavour the release does not carry falls back to the release page", () => {
   assert.equal(apkTarget(releases, "x86_64"), releases[1].html_url);
 });
@@ -51,6 +72,9 @@ test("the worker redirects /apk and leaves every other path to the static assets
     assert.equal(page.headers.get("location"), releases[1].html_url);
     const nope = await worker.fetch(new Request("https://offdesk.dev/apk/ios"), env);
     assert.equal(nope.status, 404);
+    const mac = await worker.fetch(new Request("https://offdesk.dev/mac"), env);
+    assert.equal(mac.status, 302);
+    assert.match(mac.headers.get("location"), /_universal\.dmg$/);
     const site = await worker.fetch(new Request("https://offdesk.dev/"), env);
     assert.equal(await site.text(), "static");
   } finally {

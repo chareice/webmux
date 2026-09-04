@@ -34,7 +34,17 @@ Questions, setups that did not work, things you want it to do:
 ## Install
 
 On the machine that stays on — a Mac, a NAS — which is usually also the first
-machine you want to reach:
+machine you want to reach.
+
+**On a Mac:** download the app from [offdesk.dev/mac](https://offdesk.dev/mac)
+(signed and notarized, one dmg for Apple silicon and Intel). Open it and it
+asks one question: is this the machine that stays on? Say yes and it installs
+the hub, the node and tmux as services that run at login and restart if they
+stop, registers this machine, and shows the code your phone scans. The app
+stays in the menu bar, where the code, the address and **Add a machine** live.
+Say no and it is a client of a hub somewhere else, like the phone.
+
+**On a NAS, a VPS, or anything without a screen:**
 
 ```bash
 curl -fsSL https://offdesk.dev/install | sh
@@ -237,8 +247,11 @@ Three packaged clients also ship:
   the Phone button, or `offdesk-hub link` — and is signed in; one APK works
   with any hub, nothing about a hub is compiled into it. The address can also
   be typed, and the sign-in link pasted.
-- **Desktop** — macOS (universal), Windows, and Linux, with an auto-updater.
-  Built from `desktop-v*` tags. Set your hub URL in Settings.
+- **Desktop** — macOS ([offdesk.dev/mac](https://offdesk.dev/mac), signed
+  and notarized), Windows ([/windows](https://offdesk.dev/windows)) and Linux
+  ([/linux](https://offdesk.dev/linux)), with an auto-updater. On a Mac it can
+  be the hub — see Install; on Windows and Linux it is a client, and asks for
+  the hub's link. Built from `desktop-v*` tags.
 
 To build any of them yourself: [docs/building.md](docs/building.md).
 

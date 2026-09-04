@@ -10,6 +10,11 @@ be reachable from outside your home.
 
 ## 1. Run the hub
 
+On a Mac, the app does this step for you: download it from
+[offdesk.dev/mac](https://offdesk.dev/mac), open it, and say this is the
+machine that stays on. It installs the same services the line below does and
+shows the code. The rest of this page is the same either way.
+
 On the machine that will hold the URL — the Mac that stays on, or the NAS:
 
 ```bash

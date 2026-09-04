@@ -96,16 +96,21 @@ const rows = [
             <span class="step mt-0.5">1</span>
             <div class="min-w-0 flex-1">
               <p class="font-display text-[17px] font-semibold text-ink">
-                On the machine that stays on, run this
+                On the Mac that stays on, install the app
+              </p>
+              <div class="mt-2.5 flex flex-wrap items-center gap-3">
+                <a href="/mac" class="btn-coral px-5 py-2.5 text-[14px]">Download for Mac</a>
+                <span class="font-display text-[13px] font-semibold text-muted">Signed and notarized. Apple silicon and Intel.</span>
+              </div>
+              <p class="prose-body mt-2 text-[14.5px]">
+                Open it, say this is the machine that stays on, and it becomes your hub:
+                runs at login, restarts if it stops. No account, no cloud. On a NAS or a
+                server with no screen, one line does the same:
               </p>
               <div class="cmd mt-2.5">
                 <pre class="min-w-0 flex-1 overflow-x-auto whitespace-pre"><code><span class="cmd-prompt">$ </span>{install}</code></pre>
                 <button type="button" class="cmd-copy" data-copy={install} aria-label="Copy the install command">Copy</button>
               </div>
-              <p class="prose-body mt-2 text-[14.5px]">
-                Installs everything, starts the hub as a service that survives reboots,
-                registers this machine. A Mac or a NAS on your Wi-Fi is perfect. No account, no cloud.
-              </p>
             </div>
           </li>
           <li class="flex gap-4">
@@ -116,7 +121,8 @@ const rows = [
               </p>
               <p class="prose-body mt-1 text-[14.5px]">
                 With the iPhone or Android app, or just the phone's camera. That's the sign-in.
-                Need it again later? <span class="inline-code">offdesk link</span>.
+                Need it again later? The app's menu bar item shows it, and so does
+                <span class="inline-code">offdesk link</span>.
               </p>
             </div>
           </li>
@@ -135,8 +141,8 @@ const rows = [
         </ol>
 
         <div class="mt-5 flex flex-wrap items-center gap-3">
-          <a href="#phone" class="btn-coral px-5 py-2.5 text-[14px]">iPhone app</a>
-          <a href={apk} class="btn-coral px-5 py-2.5 text-[14px]">Android app</a>
+          <a href="#phone" class="btn-sky px-5 py-2.5 text-[14px]">iPhone app</a>
+          <a href={apk} class="btn-sky px-5 py-2.5 text-[14px]">Android app</a>
           <a href={docs} class="btn-sky px-5 py-2.5 text-[14px]">Read the docs</a>
           <span class="font-display text-[13px] font-semibold text-muted">or any browser on the phone</span>
         </div>
