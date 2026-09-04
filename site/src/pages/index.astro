@@ -143,6 +143,7 @@ const rows = [
         <div class="mt-5 flex flex-wrap items-center gap-3">
           <a href="#phone" class="btn-sky px-5 py-2.5 text-[14px]">iPhone app</a>
           <a href={apk} class="btn-sky px-5 py-2.5 text-[14px]">Android app</a>
+          <a href="#download" class="btn-sky px-5 py-2.5 text-[14px]">All downloads</a>
           <a href={docs} class="btn-sky px-5 py-2.5 text-[14px]">Read the docs</a>
           <span class="font-display text-[13px] font-semibold text-muted">or any browser on the phone</span>
         </div>
@@ -186,6 +187,80 @@ const rows = [
       <path d="M0 30 C 180 60, 360 0, 540 30 S 900 60, 1080 30 S 1350 0, 1440 30 L1440 60 L0 60 Z" fill="#fffbf4" />
     </svg>
   </div>
+
+  <!-- Download: every client, one place -->
+  <section id="download" class="bg-cream">
+    <div class="mx-auto max-w-6xl px-6 py-16 md:py-24">
+      <p class="eyebrow">Download</p>
+      <h2 class="display mt-3 max-w-2xl text-4xl md:text-5xl">
+        One app for the desk, one for the phone.
+      </h2>
+      <p class="prose-lead mt-4 max-w-2xl">
+        The desktop app is the hub on a Mac, and a client everywhere. The phone
+        apps wrap the same terminal the browser shows.
+      </p>
+      <div class="mt-12 grid gap-6 md:grid-cols-3">
+        <div class="card">
+          <h3 class="display text-2xl">macOS</h3>
+          <p class="prose-body mt-3">
+            One dmg for Apple silicon and Intel. Signed with a Developer ID and
+            notarized, so it opens like anything from the App Store. On the Mac
+            that stays on it becomes your hub; anywhere else it is a client.
+          </p>
+          <a href="/mac" class="btn-coral mt-6 px-5 py-2.5 text-[14px]">Download for Mac</a>
+          <p class="mt-3 font-mono text-[12px] text-faint">macOS 11 or later · universal · .dmg</p>
+        </div>
+        <div class="card">
+          <h3 class="display text-2xl">Windows</h3>
+          <p class="prose-body mt-3">
+            A client: it opens the terminals on a hub somewhere else. Paste the
+            link the hub printed, or sign in. A Windows machine cannot be the
+            hub, which needs tmux.
+          </p>
+          <a href="/windows" class="btn-sky mt-6 px-5 py-2.5 text-[14px]">Download for Windows</a>
+          <p class="mt-3 font-mono text-[12px] text-faint">x64 · .msi</p>
+        </div>
+        <div class="card">
+          <h3 class="display text-2xl">Linux</h3>
+          <p class="prose-body mt-3">
+            A client, as on Windows. For a Linux box that should be the hub,
+            the one-line install is the way: it runs the hub as a service.
+          </p>
+          <a href="/linux" class="btn-sky mt-6 px-5 py-2.5 text-[14px]">Download for Linux</a>
+          <p class="mt-3 font-mono text-[12px] text-faint">x64 · .AppImage · .deb and .rpm on <a href="/desktop" class="text-sea">the release page</a></p>
+        </div>
+      </div>
+      <div class="mt-6 grid gap-6 md:grid-cols-3">
+        <div class="card">
+          <h3 class="display text-2xl">iPhone</h3>
+          <p class="prose-body mt-3">
+            On TestFlight while Apple reviews the first public build. A seat is a
+            message away on <a href="https://discord.gg/aFUu6VMzc">Discord</a>. Until
+            then, Safari is the whole client: scan the code and you are in.
+          </p>
+        </div>
+        <div class="card">
+          <h3 class="display text-2xl">Android</h3>
+          <p class="prose-body mt-3">
+            An APK to sideload. Take <span class="inline-code">arm64-v8a</span> on
+            a modern phone, <a href="/apk/universal">universal</a> if unsure.
+          </p>
+          <a href={apk} class="btn-sky mt-6 px-5 py-2.5 text-[14px]">Download the APK</a>
+        </div>
+        <div class="card">
+          <h3 class="display text-2xl">Hub, node and CLI</h3>
+          <p class="prose-body mt-3">
+            The three binaries, for a NAS, a VPS, or any machine without a
+            screen. Linux and macOS, x64 and arm64.
+          </p>
+          <div class="cmd mt-6">
+            <pre class="min-w-0 flex-1 overflow-x-auto whitespace-pre"><code><span class="cmd-prompt">$ </span>{install}</code></pre>
+            <button type="button" class="cmd-copy" data-copy={install} aria-label="Copy the install command">Copy</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- How it works -->
   <section id="how" class="bg-cream">
