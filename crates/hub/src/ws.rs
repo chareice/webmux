@@ -293,6 +293,7 @@ async fn handle_terminal_ws(
     let did = device_id.clone();
     let uid = user_id.clone();
     let aid_for_in = attach_id.clone();
+    let router_for_in = state.router.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
@@ -342,6 +343,28 @@ async fn handle_terminal_ws(
                                 manager
                                     .apply_optimistic_resize(&mid, &tid_for_in, cols, rows)
                                     .await;
+                                // The window follows this client; every other
+                                // full view of the terminal follows the window.
+                                // Their own resizes are dropped (they are not
+                                // the controller), and a client left at its
+                                // old size is painted the window in one corner
+                                // and dots everywhere else — which a view set
+                                // to the window's size sees as only dots.
+                                for other in router_for_in.main_attaches_of(&mid, &tid_for_in) {
+                                    if other == aid_for_in {
+                                        continue;
+                                    }
+                                    let _ = manager
+                                        .send_to_machine(
+                                            &mid,
+                                            HubToMachine::AttachResize {
+                                                attach_id: other,
+                                                cols,
+                                                rows,
+                                            },
+                                        )
+                                        .await;
+                                }
                                 Some(HubToMachine::AttachResize {
                                     attach_id: aid_for_in.clone(),
                                     cols,
@@ -469,7 +492,7 @@ async fn handle_terminal_previews_ws(socket: WebSocket, user_id: Option<String>,
 
                                 let attach_id = uuid::Uuid::new_v4().to_string();
                                 let (attach_tx, mut attach_rx) = mpsc::channel::<Bytes>(64);
-                                state.router.register(
+                                state.router.register_preview(
                                     attach_id.clone(),
                                     machine_id.clone(),
                                     terminal_id.clone(),
