@@ -554,13 +554,30 @@ export function PhoneCodePanel({
   );
 }
 
+/** The hub's own code, fetched here: for Settings and the Phone dialog. */
+export function HubPhoneCode() {
+  const [link, setLink] = useState<HubLink | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (link) return;
+    hubLink()
+      .then(setLink)
+      .catch((e: unknown) => setError(String(e)));
+  }, [link]);
+  return (
+    <div style={{ maxWidth: 440 }}>
+      {error ? <Body size={12} style={{ color: colors.err, marginBottom: 8 }}>{error}</Body> : null}
+      <PhoneCodePanel link={link} onLink={setLink} onError={setError} compact />
+    </div>
+  );
+}
+
 // ── Settings → This machine ───────────────────────────────────────
 
 /** The desktop app's role, and the hub's state when it is the hub. */
 export function ThisMachineSection() {
   const [role, setRole] = useState<DesktopRole | null | undefined>(undefined);
   const [status, setStatus] = useState<HubStatus | null>(null);
-  const [link, setLink] = useState<HubLink | null>(null);
   const [showCode, setShowCode] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -573,12 +590,6 @@ export function ThisMachineSection() {
     if (role !== "hub") return;
     hubStatus().then(setStatus).catch(() => setStatus(null));
   }, [role]);
-  useEffect(() => {
-    if (!showCode || link) return;
-    hubLink()
-      .then(setLink)
-      .catch((e: unknown) => setError(String(e)));
-  }, [showCode, link]);
 
   const becomeHub = async () => {
     setBusy(true);
@@ -667,11 +678,7 @@ export function ThisMachineSection() {
         <Body size={12}>The database and your tmux sessions stay. Only the two services go.</Body>
       ) : null}
       {error ? <Body size={12} style={{ color: colors.err }}>{error}</Body> : null}
-      {showCode ? (
-        <div style={{ maxWidth: 420 }}>
-          <PhoneCodePanel link={link} onLink={setLink} onError={setError} compact />
-        </div>
-      ) : null}
+      {showCode ? <HubPhoneCode /> : null}
     </div>
   );
 }

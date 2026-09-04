@@ -3,6 +3,9 @@ import * as QRCode from "qrcode";
 
 import { getAuthProviders, mintLoginCode } from "@/lib/api";
 import { colors } from "@/lib/colors";
+import { desktopRole, isDesktopShell } from "@/lib/desktopHub";
+import { getServerUrl } from "@/lib/serverUrl";
+import { HubPhoneCode } from "./DesktopSetup.web";
 
 /**
  * Getting offdesk onto a phone: the hub's address as a QR code, and where to
@@ -12,11 +15,21 @@ import { colors } from "@/lib/colors";
  * and in Settings, which is where they will look for it later.
  */
 export function MobileAppPanel() {
-  // Defaults to the address this page came from, which is right whenever the
-  // browser reached the hub the way a phone would, and wrong on a laptop
-  // looking at localhost — so it stays editable.
+  // The desktop app on the machine that is the hub has the hub's own code,
+  // with the addresses a phone can reach; that panel is the one to show.
+  const [isHub, setIsHub] = useState<boolean | null>(() => (isDesktopShell() ? null : false));
+  useEffect(() => {
+    if (!isDesktopShell()) return;
+    desktopRole()
+      .then((role) => setIsHub(role === "hub"))
+      .catch(() => setIsHub(false));
+  }, []);
+
+  // Defaults to the hub this app is connected to, else the address this page
+  // came from — right whenever the browser reached the hub the way a phone
+  // would, and wrong on a laptop looking at localhost, so it stays editable.
   const [shareUrl, setShareUrl] = useState(() =>
-    typeof window === "undefined" ? "" : window.location.origin,
+    getServerUrl() || (typeof window === "undefined" ? "" : window.location.origin),
   );
   const [qrSvg, setQrSvg] = useState<string | null>(null);
 
@@ -81,15 +94,18 @@ export function MobileAppPanel() {
     };
   }, [shareUrl, encoded]);
 
+  if (isHub === null) return null;
+  if (isHub) return <HubPhoneCode />;
+
   return (
     <div>
       <div
         style={{ fontSize: 11, color: colors.foregroundMuted, marginBottom: 12 }}
       >
         Scan this code with your phone's camera and the hub opens in its
-        browser, signed in. In the Android app, tap "Scan the code instead" on
-        its first screen and point it here — same result, with native
-        notifications.
+        browser, signed in. In the iPhone or Android app, tap "Scan the code
+        instead" on its first screen and point it here — same result, with
+        native notifications.
       </div>
 
       <div
@@ -208,8 +224,9 @@ export function MobileAppPanel() {
           >
             Take <code>arm64-v8a</code> on a modern phone, or{" "}
             <code>universal</code> if you are unsure. Sideloading needs "install
-            from unknown sources". There is no iOS build yet — on iPhone, open
-            this hub in Safari.
+            from unknown sources". The iPhone app is on TestFlight — a seat is
+            a message away on Discord — and until then Safari is the whole
+            client.
           </div>
         </div>
       </div>

@@ -8,10 +8,15 @@ import {
 } from "@/lib/onboardingFlow";
 import { isRegistrationTokenFresh } from "@/lib/tokenExpiry";
 import { colors } from "@/lib/colors";
+import { getServerUrl } from "@/lib/serverUrl";
 import { MobileAppPanel } from "./MobileAppPanel.web";
 
+// The hub a new machine should dial: in a browser tab the page came from
+// the hub, so its own origin; in the desktop app the page is bundled and
+// the hub is whatever the app is connected to.
 function getHubUrl(): string {
-  const { protocol, host } = window.location;
+  const stored = getServerUrl();
+  const { protocol, host } = stored ? new URL(stored) : window.location;
   const wsProtocol = protocol === "https:" ? "wss:" : "ws:";
   return `${wsProtocol}//${host}/ws/machine`;
 }
