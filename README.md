@@ -31,6 +31,20 @@ home, and your phone opens the same terminal, mid-scroll — not a summary of it
 Questions, setups that did not work, things you want it to do:
 [Discord](https://discord.gg/aFUu6VMzc).
 
+## Download
+
+| | | |
+|---|---|---|
+| **macOS** | [offdesk.dev/mac](https://offdesk.dev/mac) | One dmg for Apple silicon and Intel, signed and notarized. Can be the hub. |
+| **Windows** | [offdesk.dev/windows](https://offdesk.dev/windows) | x64 `.msi`. A client. |
+| **Linux** | [offdesk.dev/linux](https://offdesk.dev/linux) | x64 `.AppImage`; `.deb` and `.rpm` on [the release page](https://offdesk.dev/desktop). A client. |
+| **iPhone** | TestFlight, a seat via [Discord](https://discord.gg/aFUu6VMzc) | Or Safari, which is the whole client. |
+| **Android** | [offdesk.dev/apk](https://offdesk.dev/apk) | `arm64-v8a`; [`/apk/universal`](https://offdesk.dev/apk/universal) if unsure. |
+| **Hub, node, CLI** | `curl -fsSL https://offdesk.dev/install \| sh` | Linux and macOS, x64 and arm64. For a NAS, a VPS, anything without a screen. |
+
+Every link follows the newest release of that kind. Windows and Linux desktop
+apps are clients only: the hub needs tmux, which they do not have.
+
 ## Install
 
 On the machine that stays on — a Mac, a NAS — which is usually also the first
