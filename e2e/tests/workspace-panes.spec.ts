@@ -46,7 +46,7 @@ test("splitting a fallback terminal keeps both panes in one tab", async ({
   await expect(page.locator("[data-testid^='workspace-tab-']")).toHaveCount(1);
 
   await openPaneContextMenu(page, firstId);
-  await page.getByRole("button", { name: "Split right" }).click();
+  await page.getByRole("menuitem", { name: "Split right" }).click();
 
   await expect.poll(async () => (await listTerminals(page)).length).toBe(2);
   await expect(page.locator("[data-testid^='workspace-pane-']")).toHaveCount(2);
@@ -175,8 +175,8 @@ test("a tab caps at four panes and new terminals overflow into a new tab", async
   // The context menu greys the split entries out on a full tab.
   const activeId = page.url().split("#/t/")[1];
   await openPaneContextMenu(page, activeId);
-  await expect(page.getByRole("button", { name: "Split right" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Split down" })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "Split right" })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "Split down" })).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("context-menu")).toHaveCount(0);
 
@@ -283,7 +283,7 @@ test("desktop workspace stays open when closing an inactive pane", async ({
 
   // Close the (now inactive) first pane via its right-click context menu.
   await openPaneContextMenu(page, firstId);
-  await page.getByRole("button", { name: "Close pane" }).click();
+  await page.getByRole("menuitem", { name: "Close pane" }).click();
   await expect(page.getByTestId("context-menu")).toHaveCount(0);
 
   await expect.poll(async () => (await listTerminals(page)).length).toBe(1);

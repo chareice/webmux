@@ -235,7 +235,7 @@ export async function fitPaneViaContextMenu(
   terminalId: string,
 ): Promise<void> {
   await openPaneContextMenu(page, terminalId);
-  await page.getByRole("button", { name: "Fit to window" }).click();
+  await page.getByRole("menuitem", { name: "Fit to window" }).click();
   await expect(page.getByTestId("context-menu")).toHaveCount(0);
 }
 

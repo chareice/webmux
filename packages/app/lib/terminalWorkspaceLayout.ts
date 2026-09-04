@@ -1018,14 +1018,13 @@ function terminalExists(terminals: TerminalInfo[], id: string): boolean {
   return terminals.some((terminal) => terminal.id === id);
 }
 
-// A home directory is "~", not the user's login name: a tab called
-// "zourenyuan" next to a workspace called "zourenyuan" reads as the same
-// thing twice, and nobody thinks of their home directory by that name.
+// A home directory is "~", not the user's login name: a terminal called
+// "zourenyuan" in a tab called "zourenyuan" reads as the same thing twice, and nobody thinks of their home directory by that name.
 const HOME_DIRECTORY = /^\/(?:Users|home)\/[^/]+\/?$|^\/root\/?$/;
 
 export function labelFromCwd(cwd: string): string {
   const cleaned = cwd.replace(/\/+$/, "");
   if (HOME_DIRECTORY.test(cleaned)) return "~";
   const tail = cleaned.split("/").filter(Boolean).at(-1);
-  return tail || cwd || "workspace";
+  return tail || cwd || "tab";
 }

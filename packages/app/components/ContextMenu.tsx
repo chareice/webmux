@@ -101,6 +101,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     const hasChildren = Boolean(entry.children?.length);
     const button = (
       <button
+        role="menuitem"
         onClick={() => {
           if (entry.disabled || hasChildren) return;
           entry.onClick();
@@ -198,6 +199,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
 
   return createPortal(
     <div
+      role="menu"
       ref={menuRef}
       data-testid="context-menu"
       style={{

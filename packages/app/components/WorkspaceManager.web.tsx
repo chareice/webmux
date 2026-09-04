@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { TerminalInfo } from "@offdesk/shared";
 import { MAX_PANES_PER_TAB } from "@offdesk/shared";
@@ -14,6 +14,8 @@ import {
   X,
 } from "lucide-react";
 import { colors, colorAlpha } from "@/lib/colors";
+import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
+import { fontDisplay } from "./Warm.web";
 import { displayTerminalTitle } from "@/lib/displayTerminalTitle";
 import {
   collectPaneTerminalIds,
@@ -68,6 +70,27 @@ function WorkspaceManagerComponent({
   onMoveTerminal,
   onCloseTerminal,
 }: WorkspaceManagerProps) {
+  // "Move" opens a menu of the other tabs, anchored under the button.
+  const [moveMenu, setMoveMenu] = useState<{
+    terminal: TerminalInfo;
+    targets: WorkspaceGroup[];
+    x: number;
+    y: number;
+  } | null>(null);
+  const moveMenuItems = useMemo<ContextMenuEntry[]>(
+    () =>
+      moveMenu
+        ? moveMenu.targets.map((target) => ({
+            label: target.label,
+            onClick: () => {
+              onMoveTerminal(moveMenu.terminal, target);
+              setMoveMenu(null);
+            },
+          }))
+        : [],
+    [moveMenu, onMoveTerminal],
+  );
+
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -150,7 +173,7 @@ function WorkspaceManagerComponent({
             </span>
             <div style={{ minWidth: 0 }}>
               <div id="workspace-manager-title" style={titleStyle}>
-                Workspaces
+                Tabs
               </div>
               <div style={subtitleStyle}>{machineName || "No host"}</div>
             </div>
@@ -159,7 +182,7 @@ function WorkspaceManagerComponent({
             ref={closeButtonRef}
             type="button"
             data-testid="workspace-manager-close"
-            aria-label="Close workspace manager"
+            aria-label="Close the tab list"
             title="Close"
             onClick={onClose}
             style={iconButtonStyle}
@@ -181,16 +204,16 @@ function WorkspaceManagerComponent({
             }}
           >
             <Plus size={14} />
-            New workspace
+            New tab
           </button>
           <span style={summaryStyle}>
-            {groups.length} {groups.length === 1 ? "workspace" : "workspaces"}
+            {groups.length} {groups.length === 1 ? "tab" : "tabs"}
           </span>
         </div>
 
         {!canManage && (
           <div data-testid="workspace-manager-view-only" style={viewOnlyStyle}>
-            View only — take control to change workspaces.
+            View only — take control to change tabs.
           </div>
         )}
 
@@ -198,7 +221,7 @@ function WorkspaceManagerComponent({
           {groups.length === 0 ? (
             <div data-testid="workspace-manager-empty" style={emptyStyle}>
               <FolderTree size={28} style={{ opacity: 0.35 }} />
-              <span>No workspaces yet</span>
+              <span>No tabs yet</span>
               <span style={{ color: colors.fg3 }}>
                 Create one, then start a terminal inside it.
               </span>
@@ -285,7 +308,7 @@ function WorkspaceManagerComponent({
 
                   <div style={terminalTreeStyle}>
                     {groupTerminals.length === 0 ? (
-                      <div style={emptyGroupStyle}>Empty workspace</div>
+                      <div style={emptyGroupStyle}>Empty tab</div>
                     ) : (
                       groupTerminals.map((terminal, terminalIndex) => {
                         const isTerminalActive = terminal.id === activeTerminalId;
@@ -324,36 +347,32 @@ function WorkspaceManagerComponent({
                               </span>
                             </button>
 
-                            <label
-                              title="Move terminal to another workspace"
-                              style={moveLabelStyle}
-                            >
-                              <ArrowRightLeft size={13} aria-hidden />
-                              <select
+                            {moveTargets.length > 0 ? (
+                              <button
+                                type="button"
                                 data-testid={`workspace-manager-move-${terminal.id}`}
-                                aria-label={`Move ${displayTerminalTitle(terminal)} to workspace`}
-                                value=""
-                                disabled={!canManage || moveTargets.length === 0}
-                                onChange={(event) => {
-                                  const target = moveTargets.find(
-                                    (candidate) =>
-                                      candidate.workspaceGroupId === event.target.value,
-                                  );
-                                  if (target) onMoveTerminal(terminal, target);
+                                aria-label={`Move ${displayTerminalTitle(terminal)} to another tab`}
+                                aria-haspopup="menu"
+                                disabled={!canManage}
+                                onClick={(event) => {
+                                  const rect = event.currentTarget.getBoundingClientRect();
+                                  setMoveMenu({
+                                    terminal,
+                                    targets: moveTargets,
+                                    x: rect.left,
+                                    y: rect.bottom + 4,
+                                  });
                                 }}
-                                style={moveSelectStyle}
+                                style={{
+                                  ...moveButtonStyle,
+                                  cursor: canManage ? "pointer" : "not-allowed",
+                                  opacity: canManage ? 1 : 0.35,
+                                }}
                               >
-                                <option value="">Move…</option>
-                                {moveTargets.map((target) => (
-                                  <option
-                                    key={target.id}
-                                    value={target.workspaceGroupId ?? ""}
-                                  >
-                                    {target.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
+                                <ArrowRightLeft size={12} aria-hidden />
+                                Move
+                              </button>
+                            ) : null}
 
                             <ManagerIconButton
                               label={`Close ${displayTerminalTitle(terminal)}`}
@@ -395,8 +414,12 @@ function WorkspaceManagerComponent({
           )}
         </div>
 
+        {moveMenu ? (
+          <ContextMenu x={moveMenu.x} y={moveMenu.y} items={moveMenuItems} onClose={() => setMoveMenu(null)} />
+        ) : null}
+
         <footer style={footerStyle}>
-          Workspaces organize terminals. Moving or deleting a workspace does not
+          A tab holds up to four terminals. Moving or deleting a tab does not
           close its terminals.
         </footer>
       </section>
@@ -675,24 +698,20 @@ const terminalCwdStyle: CSSProperties = {
   fontSize: 9,
 };
 
-const moveLabelStyle: CSSProperties = {
-  width: 72,
-  display: "flex",
-  alignItems: "center",
-  gap: 2,
-  color: colors.fg3,
-};
-
-const moveSelectStyle: CSSProperties = {
-  minWidth: 0,
-  width: 54,
+const moveButtonStyle: CSSProperties = {
   height: 28,
-  padding: "0 2px",
+  flexShrink: 0,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 5,
+  padding: "0 10px",
   border: `1px solid ${colors.lineSoft}`,
-  borderRadius: 5,
+  borderRadius: 999,
   background: colors.bg1,
-  color: colors.fg2,
-  fontSize: 10,
+  color: colors.fg1,
+  fontFamily: fontDisplay,
+  fontSize: 12,
+  fontWeight: 600,
 };
 
 const emptyGroupStyle: CSSProperties = {

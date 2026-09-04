@@ -1461,8 +1461,8 @@ function TerminalCanvasInner() {
       {
         id: "new-tab",
         section: "actions",
-        label: "New workspace",
-        keywords: "group workspace",
+        label: "New tab",
+        keywords: "group workspace tab",
         disabled: !isActiveController,
         action: () => void handleNewGroup(),
       },
@@ -1862,7 +1862,7 @@ function TerminalCanvasInner() {
         {groupDeleteConfirmation && (
           <ConfirmDialog
             open
-            title={`Close workspace "${groupDeleteConfirmation.label}"?`}
+            title={`Close tab "${groupDeleteConfirmation.label}"?`}
             message={`It has ${groupDeleteConfirmation.paneCount} terminal${groupDeleteConfirmation.paneCount === 1 ? "" : "s"}. Ungroup keeps them running and moves them to the tab for their directory. Close ends them.`}
             confirmLabel={`Close ${groupDeleteConfirmation.paneCount} terminal${groupDeleteConfirmation.paneCount === 1 ? "" : "s"}`}
             variant="danger"
