@@ -134,7 +134,9 @@ fn hub_command(args: &[&str], base_url: Option<&str>) -> Result<Command, String>
             "PATH",
             prepend_path(dir.as_deref(), std::env::var("PATH").ok().as_deref()),
         )
-        .env("OFFDESK_NO_OPEN", "1");
+        // clap reads a boolean flag's env as "true" / "false"; a "1" is an
+        // error before the hub does anything.
+        .env("OFFDESK_NO_OPEN", "true");
     if let Some(base_url) = base_url.map(str::trim).filter(|url| !url.is_empty()) {
         command.env("OFFDESK_BASE_URL", base_url);
     }
@@ -150,6 +152,13 @@ fn run(mut command: Command, what: &str) -> Result<String, String> {
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
+    // On the terminal that started the app (a dev run, or a shell), so a
+    // failure can be read in full rather than as its last line.
+    eprintln!(
+        "[offdesk] {what} failed ({}): {:?}\n{stderr}",
+        output.status,
+        command.get_program()
+    );
     // clap's complaint about `--json` means the hub on this machine predates
     // this app. Say that, not "try --help".
     if stderr.contains("unexpected argument '--json'") {
@@ -159,11 +168,14 @@ fn run(mut command: Command, what: &str) -> Result<String, String> {
                 .into(),
         );
     }
-    let reason = stderr
-        .lines()
-        .chain(stdout.lines())
-        .rfind(|line| !line.trim().is_empty())
+    // clap puts the reason on its first line and "try --help" on its last;
+    // an `error:` line wins, otherwise the last thing said.
+    let lines = || stderr.lines().chain(stdout.lines()).map(str::trim).filter(|line| !line.is_empty());
+    let reason = lines()
+        .find(|line| line.starts_with("error"))
+        .or_else(|| lines().last())
         .unwrap_or("it failed without saying why")
+        .trim_start_matches("error:")
         .trim()
         .to_string();
     Err(format!("{what}: {reason}"))
@@ -329,6 +341,19 @@ mod tests {
     }
 
     #[test]
+    fn the_hub_is_told_not_to_open_a_browser_in_words_clap_accepts() {
+        let Ok(command) = hub_command(&["link", "--json"], Some("http://10.0.0.5:4317")) else {
+            return; // no hub on this machine; nothing to inspect
+        };
+        let envs: Vec<(String, String)> = command
+            .get_envs()
+            .filter_map(|(k, v)| Some((k.to_string_lossy().into_owned(), v?.to_string_lossy().into_owned())))
+            .collect();
+        assert!(envs.contains(&("OFFDESK_NO_OPEN".into(), "true".into())), "{envs:?}");
+        assert!(envs.contains(&("OFFDESK_BASE_URL".into(), "http://10.0.0.5:4317".into())), "{envs:?}");
+    }
+
+    #[test]
     fn the_link_is_read_off_the_json_line() {
         let printed = "\n{\"url\":\"http://192.168.1.10:4317\",\"link\":\"http://192.168.1.10:4317/?token=abc\",\"short\":\"http://192.168.1.10:4317/?code=XYZ\",\"candidates\":[{\"interface\":\"en0\",\"address\":\"192.168.1.10\"}]}\n";
         let link = parse_link(printed).unwrap();
@@ -372,5 +397,15 @@ mod tests {
             assert!(hub.ends_with(".config/systemd/user/offdesk-hub.service"));
             assert!(node.ends_with(".config/systemd/user/offdesk-node.service"));
         }
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod dev_tests {
+    #[test]
+    fn a_dev_build_finds_the_hub_this_checkout_built() {
+        let (binary, dir) = super::hub_binary().expect("a hub");
+        eprintln!("hub_binary -> {} (dir {:?})", binary.display(), dir);
+        assert!(binary.to_string_lossy().contains("/target/"), "{}", binary.display());
     }
 }
