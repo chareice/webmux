@@ -24,7 +24,7 @@ test("local text and images survive mode changes and reload without sending keys
   const framesBeforeTyping = frames.length;
   await page.getByTestId("composer-input").fill("请查看这张图片\n第二行");
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=", "base64");
-  await page.locator('[data-testid="local-composer"] input[type=file]').setInputFiles({ name: "example.png", mimeType: "image/png", buffer: png });
+  await page.getByTestId("composer-photo-input").setInputFiles({ name: "example.png", mimeType: "image/png", buffer: png });
   await expect(page.getByRole("img", { name: "example.png" })).toBeVisible();
   await page.getByRole("button", { name: "Direct input", exact: true }).click();
   await expect(page.getByTestId("composer-input")).toHaveCount(0);
@@ -162,7 +162,7 @@ test("a large image reaches the machine before one complete bracketed paste and 
   // Base64 exceeds the former 16 MiB WebSocket frame limit.
   const bytes = Buffer.alloc(14 * 1024 * 1024, 97);
   await page.getByTestId("composer-input").fill(text);
-  await page.locator('[data-testid="local-composer"] input[type=file]').setInputFiles({ name: "large.png", mimeType: "image/png", buffer: bytes });
+  await page.getByTestId("composer-photo-input").setInputFiles({ name: "large.png", mimeType: "image/png", buffer: bytes });
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Delivered to terminal", { timeout: 30_000 });

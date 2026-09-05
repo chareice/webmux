@@ -598,11 +598,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const sendImageFile = useCallback(
       async (file: Blob & { name?: string }): Promise<void> => {
         if (!canTypeRef.current) {
-          throw new Error("Unlock view only to attach an image.");
+          throw new Error("Unlock view only to attach a file.");
         }
         if (file.size > MAX_IMAGE_PASTE_BYTES) {
           const mb = Math.round(MAX_IMAGE_PASTE_BYTES / (1024 * 1024));
-          throw new Error(`Image too large (max ${mb} MB).`);
+          throw new Error(`File too large (max ${mb} MB).`);
         }
         // Mobile browsers commonly close the WebSocket while a file picker
         // sits in the foreground. Wait for the reconnect to land before

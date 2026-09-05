@@ -9,6 +9,8 @@ pub const MAX_COMPOSER_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
 pub struct ComposerAttachment {
     pub data: String,
     pub mime: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +31,7 @@ impl ComposerMessage {
             return Err("Message is too large".into());
         }
         if self.text.trim().is_empty() && self.attachments.is_empty() {
-            return Err("Write a message or attach an image".into());
+            return Err("Write a message or attach a file".into());
         }
         // Text is a paste, never a source of terminal escape/control commands.
         if self
@@ -41,16 +43,13 @@ impl ComposerMessage {
         }
         let mut encoded_size = 0usize;
         for attachment in &self.attachments {
-            if !matches!(
-                attachment.mime.as_str(),
-                "image/png" | "image/jpeg" | "image/webp" | "image/gif"
-            ) {
-                return Err("Use PNG, JPEG, WebP or GIF images".into());
+            if attachment.mime.len() > 255 || attachment.filename.as_ref().is_some_and(|name| name.len() > 1024) {
+                return Err("Attachment metadata is too long".into());
             }
             encoded_size = encoded_size.saturating_add(attachment.data.len());
         }
         if encoded_size > MAX_COMPOSER_ATTACHMENT_BYTES * 4 / 3 + 16 {
-            return Err("Images must total at most 20 MB".into());
+            return Err("Files must total at most 20 MB".into());
         }
         Ok(())
     }
@@ -91,5 +90,22 @@ mod tests {
         assert!(message(&"中".repeat(MAX_COMPOSER_TEXT / 3 + 1))
             .validate()
             .is_err());
+    }
+
+    #[test]
+    fn named_documents_and_legacy_image_messages_are_supported() {
+        let mut document = message("");
+        document.attachments.push(ComposerAttachment {
+            data: "ZG9jdW1lbnQ=".into(),
+            mime: "application/octet-stream".into(),
+            filename: Some("客户 report.pdf".into()),
+        });
+        assert!(document.validate().is_ok());
+        let legacy: ComposerAttachment = serde_json::from_str(
+            r#"{"data":"aW1hZ2U=","mime":"image/png"}"#,
+        ).unwrap();
+        assert!(legacy.filename.is_none());
+        document.attachments[0].filename = Some("x".repeat(1025));
+        assert!(document.validate().is_err());
     }
 }

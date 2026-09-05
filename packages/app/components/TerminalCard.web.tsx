@@ -254,20 +254,10 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   }, [canType, setCtrlLatch]);
 
   const handleAttachFile = useCallback(async (file: File) => {
-    if (!canType) return;
-    try {
-      await termViewRef.current?.sendImageFile(file);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("[offdesk] attach file failed", err);
-      // Mobile users can't see console.warn — alert is the only surface
-      // we have until there's a toast system. Without it the failure looks
-      // identical to a successful upload that produced no terminal echo.
-      const msg = err instanceof Error ? err.message : "Image upload failed.";
-      if (typeof window !== "undefined") {
-        window.alert(msg);
-      }
-    }
+    if (!canType) throw new Error("Unlock view only to attach a file.");
+    const view = termViewRef.current;
+    if (!view) throw new Error("Reconnect to the terminal before attaching a file.");
+    await view.sendImageFile(file);
   }, [canType]);
 
   const handleToggleKeyboard = useCallback(() => {

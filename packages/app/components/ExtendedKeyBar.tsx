@@ -1,3 +1,4 @@
+import { AttachmentPicker, formatAttachmentSize } from "./AttachmentPicker";
 import { useEffect, useRef, useState } from "react";
 import { colors, colorAlpha } from "@/lib/colors";
 
@@ -86,12 +87,15 @@ export function ExtendedKeyBar({
   onToggleCtrl,
 }: ExtendedKeyBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const documentInputRef = useRef<HTMLInputElement>(null);
+  const [choosingAttachment, setChoosingAttachment] = useState(false);
+  const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [copying, setCopying] = useState(false);
 
   const handleAttachClick = () => {
     if (!isController || uploading) return;
-    fileInputRef.current?.click();
+    setChoosingAttachment(true);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -100,8 +104,13 @@ export function ExtendedKeyBar({
     e.target.value = "";
     if (!file || !onAttachFile) return;
     setUploading(true);
+    const description = `${file.name} (${formatAttachmentSize(file.size)})`;
+    setAttachmentStatus(`Sending ${description}…`);
     try {
       await onAttachFile(file);
+      setAttachmentStatus(`Submitted ${description}. Check the terminal for its path.`);
+    } catch (error) {
+      setAttachmentStatus(error instanceof Error ? error.message : "Could not send the file. Try again.");
     } finally {
       setUploading(false);
     }
@@ -211,6 +220,10 @@ export function ExtendedKeyBar({
       flexShrink: 0,
       touchAction: 'none',
     }}>
+      {attachmentStatus && <div role="status" style={{ display: "flex", gap: 8, padding: "6px 10px", alignItems: "center", fontSize: 12 }}>
+        <span style={{ flex: 1, overflowWrap: "anywhere" }}>{attachmentStatus}</span>
+        <button aria-label="Dismiss attachment status" onClick={() => setAttachmentStatus(null)} style={{ background: "none", border: "none", color: colors.foreground, minHeight: 32 }}>Dismiss</button>
+      </div>}
       {/* Row 1 — pinned: utility cluster left, Esc/⇧Tab/↑/↓/^C right. */}
       <div style={{
         display: 'flex',
@@ -275,8 +288,8 @@ export function ExtendedKeyBar({
                 cursor: isController && !uploading ? 'pointer' : 'not-allowed',
                 flexShrink: 0,
               }}
-              title={uploading ? 'Uploading…' : 'Attach image'}
-              aria-label={uploading ? 'Uploading attachment' : 'Attach image'}
+              title={uploading ? 'Uploading…' : 'Attach photo or file'}
+              aria-label={uploading ? 'Uploading attachment' : 'Attach photo or file'}
               data-testid="extended-keybar-attach"
             >
               {uploading ? (
@@ -310,6 +323,8 @@ export function ExtendedKeyBar({
               onChange={handleFileChange}
               data-testid="extended-keybar-file-input"
             />
+            <input ref={documentInputRef} type="file" hidden onChange={handleFileChange} data-testid="extended-keybar-document-input" />
+            {choosingAttachment && <AttachmentPicker onPhotos={() => fileInputRef.current?.click()} onFiles={() => documentInputRef.current?.click()} onClose={() => setChoosingAttachment(false)} />}
           </>
         )}
 

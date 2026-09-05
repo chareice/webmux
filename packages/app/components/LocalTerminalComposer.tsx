@@ -1,3 +1,4 @@
+import { AttachmentPicker, formatAttachmentSize } from "./AttachmentPicker";
 import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useAuth } from "@/lib/auth";
 import { colors } from "@/lib/colors";
@@ -43,6 +44,8 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
   const latency = useContext(HubLatencyContext);
   const input = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const documentInput = useRef<HTMLInputElement>(null);
+  const [choosingAttachment, setChoosingAttachment] = useState(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
@@ -52,7 +55,7 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
       const restored = await Promise.all(saved.fileIds.map(async id => ({ id, file: await loadComposerFile(id) })));
       if (!active) return;
       if (restored.some(f => !f.file)) {
-        setError("Some saved images are unavailable. Attach them again before sending.");
+        setError("Some saved files are unavailable. Attach them again before sending.");
         saved = { ...saved, fileIds: restored.filter(f => f.file).map(f => f.id) };
       }
       draftRef.current = saved;
@@ -126,10 +129,7 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
     if (!current || busyRef.current || current.pending) return;
     setError(null);
     if (files.length + chosen.length > 4 || files.reduce((n, f) => n + f.file.size, 0) + chosen.reduce((n, f) => n + f.size, 0) > MAX_BYTES) {
-      setError("Attach up to 4 images, totaling at most 20 MB."); return;
-    }
-    if (chosen.some(file => !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type))) {
-      setError("Choose PNG, JPEG, WebP or GIF images."); return;
+      setError("Attach up to 4 files, totaling at most 20 MB."); return;
     }
     busyRef.current = true; setBusy(true);
     const additions = chosen.map(file => ({ id: newComposerId(), file }));
@@ -141,7 +141,7 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
       }
       setFiles(old => [...old, ...additions]);
       update({ ...draftRef.current!, fileIds: [...draftRef.current!.fileIds, ...additions.map(f => f.id)] });
-    } catch { setError("Could not save the images. Your draft has been kept."); }
+    } catch { setError("Could not save the files. Your draft has been kept."); }
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   };
   const send = async () => {
@@ -151,7 +151,7 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
     try {
       const message = current.pending ?? {
         id: newComposerId(), text: current.text,
-        attachments: await Promise.all(files.map(async f => ({ mime: f.file.type, data: await fileBase64(f.file) }))),
+        attachments: await Promise.all(files.map(async f => ({ filename: f.file.name, mime: f.file.type || "application/octet-stream", data: await fileBase64(f.file) }))),
       };
       const sending = { ...current, pending: message };
       // Persist the exact ID/content BEFORE dispatch; reload/retry only queries
@@ -198,13 +198,15 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
         onChange={e => update({ ...draftRef.current!, text: e.target.value })}
         onPaste={e => { const pasted = Array.from(e.clipboardData.files); if (pasted.length) { e.preventDefault(); void attach(pasted); } }}
         style={{ boxSizing: "border-box", width: "100%", resize: "vertical", minHeight: 70, maxHeight: expanded ? "45dvh" : "30dvh", background: colors.surface, color: colors.foreground, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 10, fontSize: 16, fontFamily: "inherit" }} />
-      <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>{files.map(({ id, file }) => <ImagePreview key={id} file={file} disabled={locked} onRemove={() => {
+      <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>{files.map(({ id, file }) => <AttachmentPreview key={id} file={file} disabled={locked} onRemove={() => {
         update({ ...draftRef.current!, fileIds: draftRef.current!.fileIds.filter(f => f !== id) });
         setFiles(old => old.filter(f => f.id !== id)); void removeComposerFile(id).catch(() => {});
       }} />)}</div>
       <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
-        <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={e => { void attach(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
-        <button style={button} disabled={locked} onClick={() => fileInput.current?.click()}>Attach image</button>
+        <input data-testid="composer-photo-input" ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={e => { void attach(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+        <input data-testid="composer-document-input" ref={documentInput} type="file" multiple hidden onChange={e => { void attach(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+        <button style={button} disabled={locked} onClick={() => setChoosingAttachment(true)}>Attach</button>
+        {choosingAttachment && <AttachmentPicker onPhotos={() => fileInput.current?.click()} onFiles={() => documentInput.current?.click()} onClose={() => setChoosingAttachment(false)} />}
         <button style={button} disabled={busy} onClick={() => mode(false)}>Terminal controls</button>
         <button style={{ ...button, marginLeft: "auto", background: colors.accent, color: colors.onAccent }} disabled={!canSend || busy || (!draft.pending && !draft.text.trim() && !files.length)} onClick={() => void send()}>{busy ? "Sending…" : draft.pending ? "Check delivery" : "Send"}</button>
       </div>
@@ -217,11 +219,14 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
   </div>;
 }
 
-function ImagePreview({ file, disabled, onRemove }: { file: File; disabled: boolean; onRemove: () => void }) {
+function AttachmentPreview({ file, disabled, onRemove }: { file: File; disabled: boolean; onRemove: () => void }) {
   const [url, setUrl] = useState<string>();
   useEffect(() => { const next = URL.createObjectURL(file); setUrl(next); return () => URL.revokeObjectURL(next); }, [file]);
   return <div style={{ position: "relative", flexShrink: 0, marginTop: 6 }}>
-    <img src={url} alt={file.name || "Attached image"} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 6 }} />
-    <button aria-label={`Remove ${file.name || "image"}`} disabled={disabled} onClick={onRemove} style={{ ...button, minHeight: 24, padding: "1px 6px", position: "absolute", right: 0, top: 0 }}>×</button>
+    {["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)
+      ? <img src={url} alt={file.name || "Attached image"} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 6 }} />
+      : <div style={{ padding: "12px 26px 12px 10px", border: `1px solid ${colors.border}`, borderRadius: 6, maxWidth: 200, overflowWrap: "anywhere", fontSize: 12 }}>{file.name || "File"}</div>}
+    <div style={{ fontSize: 11, color: colors.foregroundMuted, maxWidth: 200, overflowWrap: "anywhere" }}>{formatAttachmentSize(file.size)}</div>
+    <button aria-label={`Remove ${file.name || "file"}`} disabled={disabled} onClick={onRemove} style={{ ...button, minHeight: 24, padding: "1px 6px", position: "absolute", right: 0, top: 0 }}>×</button>
   </div>;
 }
