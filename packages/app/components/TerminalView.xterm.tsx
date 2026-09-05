@@ -1315,9 +1315,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       if (!term) return;
       let disposed = false;
       let revision = 0;
-      const update = async () => {
+      let applied = readTerminalFontPreferences();
+      const update = async (allowFit: boolean) => {
         const current = ++revision;
         const { fontFamily, fontSize } = readTerminalFontPreferences();
+        const changed = fontFamily !== applied.fontFamily || fontSize !== applied.fontSize;
         // Load before measuring. Otherwise a newly downloaded webfont retains
         // the fallback font's cell metrics and clips/overlaps terminal output.
         try { await document.fonts?.load(`${fontSize}px ${fontFamily}`); } catch { /* use fallback */ }
@@ -1330,10 +1332,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         term.clearTextureAtlas();
         term.refresh(0, term.rows - 1);
         scheduleMeasure();
-        fitToContainer({ skipIfUnchanged: true });
+        applied = { fontFamily, fontSize };
+        // Opening/reconnecting a view must preserve the remote PTY size.
+        // Only an actual preference change authorizes a new fit here.
+        if (allowFit && changed) fitToContainer({ skipIfUnchanged: true });
       };
-      void update();
-      const unsubscribe = subscribeFontPreferences(() => { void update(); });
+      void update(false);
+      const unsubscribe = subscribeFontPreferences(() => { void update(true); });
       return () => { disposed = true; unsubscribe(); };
     }, [fitToContainer, scheduleMeasure]);
 
