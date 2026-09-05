@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { colors, colorAlpha } from "@/lib/colors";
+import { useTheme, type Theme } from "@/lib/theme";
 import { MobileAppPanel } from "./MobileAppPanel.web";
 import { ThisMachineSection } from "./DesktopSetup.web";
 import { isTauri, isTauriMobile } from "@/lib/platform";
@@ -272,6 +273,7 @@ function formatTokenDate(ms: number | null): string {
 }
 
 export function SettingsPage({ onClose }: SettingsPageProps) {
+  const { theme, setTheme } = useTheme();
   // Terminal font settings
   const [terminalFont, setTerminalFont] = useState(
     () => localStorage.getItem("offdesk:terminal-font-family") || "",
@@ -684,6 +686,38 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         {/* Appearance Section */}
         <section style={{ marginBottom: 32 }}>
           <SectionTitle>Appearance</SectionTitle>
+
+          <SettingRow label="Theme" description="Saved on this device. Terminal colors stay the same.">
+            <div role="group" aria-label="Theme" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {([
+                ["light", "Light"],
+                ["dark", "Dark"],
+                ["system", "System"],
+              ] as const).map(([value, label]: readonly [Theme, string]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={theme === value}
+                  onClick={() => setTheme(value)}
+                  style={{
+                    flex: 1,
+                    minHeight: 44,
+                    padding: "10px 16px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme === value ? colors.accent : colors.border}`,
+                    background: theme === value ? colorAlpha.accentSoft : colors.surface,
+                    color: theme === value ? colors.accent : colors.foregroundSecondary,
+                    font: "inherit",
+                    fontSize: 13,
+                    fontWeight: theme === value ? 700 : 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </SettingRow>
 
           <SettingRow
             label="UI Font"

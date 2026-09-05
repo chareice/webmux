@@ -410,7 +410,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
             pointerEvents: "all",
           }}
         >
-          <span style={{ color: colors.foregroundSecondary, fontSize: 14 }}>
+          <span style={{ color: terminalTheme.foreground, fontSize: 14 }}>
             Waiting for reconnection…
           </span>
         </div>
@@ -454,7 +454,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                 borderRadius: 999,
                 background: "rgba(20, 20, 24, 0.88)",
                 border: `1px solid ${colors.border}`,
-                color: colors.foregroundSecondary,
+                color: terminalTheme.foreground,
                 fontSize: 10,
               }}
             >
@@ -478,7 +478,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
             justifyContent: "space-between",
             padding: "4px 8px",
             borderBottom: `1px solid ${colors.border}`,
-            background: "rgba(0,0,0,0.2)",
+            background: colors.bg1,
             cursor: "pointer",
           }}
           onClick={handleCardClick}
@@ -673,6 +673,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
             {isTab && isTouch && selectMode && selectSnapshot && (
               <pre
                 ref={selectOverlayRef}
+                className="terminal-select-overlay"
                 data-testid="terminal-select-overlay"
                 style={{
                   position: "absolute",
