@@ -47,6 +47,7 @@ test("desktop settings, theme, update recovery and menus work in a small window"
   await requestMachineControl(page);
   const terminalId = await createTerminalViaApi(page, { cwd: "/tmp", startupCommand: "printf 'Desktop audit\\n'; sleep 600" });
   await expandTerminalById(page, terminalId);
+  await expect(page.getByTestId("tab-bar-new-group")).toBeInViewport();
   await expect(page.getByTestId("app-title-bar")).toHaveCount(1);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Dark", exact: true }).click();
@@ -85,6 +86,7 @@ test("desktop settings, theme, update recovery and menus work in a small window"
   await page.getByTestId("workspace-manager-close").click();
   await page.getByTestId("tab-bar-phone").click();
   await expect(page.getByTestId("phone-dialog")).toBeVisible();
+  await expect(page.getByRole("link", { name: "iPhone · TestFlight" })).toHaveAttribute("href", "https://testflight.apple.com/join/rV4ktaGv");
   await page.screenshot({ path: testInfo.outputPath("desktop-phone-dark.png") });
   await page.getByTestId("phone-dialog").getByRole("button", { name: "Close", exact: true }).click();
   await page.screenshot({ path: testInfo.outputPath("desktop-workbench-dark.png") });

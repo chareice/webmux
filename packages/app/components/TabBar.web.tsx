@@ -461,6 +461,7 @@ function TabBarComponent({
             </div>
           );
         })}
+      </div>
         <button
           type="button"
           data-testid="tab-bar-new-group"
@@ -487,7 +488,6 @@ function TabBarComponent({
         >
           <Plus size={14} />
         </button>
-      </div>
 
       {tabMenu && (
         <ContextMenu

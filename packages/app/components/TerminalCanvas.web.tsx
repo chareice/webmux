@@ -260,6 +260,7 @@ function TerminalCanvasInner() {
     const openSettings = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "," && !event.altKey && !event.shiftKey) {
         event.preventDefault();
+        event.stopPropagation();
         setShowSettings(true);
       }
     };
