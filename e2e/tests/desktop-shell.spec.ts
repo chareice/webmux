@@ -29,7 +29,7 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
             if (state.pairDelay) await new Promise(resolve => setTimeout(resolve, state.pairDelay));
             state.pairCompleted++;
             if (error) throw new Error(error);
-            return { pairing_uri: "offdesk://pair?v=1&hub=" + encodeURIComponent(hub_url) + "&key=" + "A".repeat(43) + "&code=" + "B".repeat(43), hub_url, expires_at: Date.now() + 300000, connection_check: { identity_verified: true, handshake_ms: 850, legacy_routes_hidden: false } };
+            return { pairing_uri: "offdesk://pair?v=2&hub=" + encodeURIComponent(hub_url) + "&key=" + "A".repeat(43) + "&code=" + "B".repeat(43), hub_url, expires_at: Date.now() + 300000, connection_check: { identity_verified: true, handshake_ms: 850, legacy_routes_hidden: false } };
           }
           if (command === "hub_link") {
             if (state.linkFailures > 0) { state.linkFailures--; throw new Error("Hub restarting"); }
