@@ -1,5 +1,5 @@
 import { test, expect, devices } from '@playwright/test';
-import { createTerminalViaApi, getAuthHeaders, readTerminalBuffer, resetMachineState, takeControlFromHeader } from './helpers';
+import { createTerminalViaApi, expandTerminalById, getAuthHeaders, readTerminalBuffer, resetMachineState, takeControlFromHeader } from './helpers';
 
 test.use({ ignoreHTTPSErrors: true });
 
@@ -56,7 +56,8 @@ test('web preview: browser launch, isolated native handoff, Vite and Next hot up
   // emulate only the OS opener boundary. The native API runs after page load
   // so this does not turn the Web test's auth setup into a desktop-shell setup.
   const linkTerminal = await createTerminalViaApi(page, { startupCommand: "printf 'http://localhost:5128/\\n'" });
-  await page.getByTestId("tab-bar").getByRole("button", { name: "root shell", exact: true }).last().click();
+  await expandTerminalById(page, linkTerminal);
+  await expect(page.getByTestId(`terminal-card-${linkTerminal}`)).toBeVisible();
   await expect.poll(() => readTerminalBuffer(page, linkTerminal)).toContain('http://localhost:5128/');
   await page.evaluate(() => {
     (window as any).__previewOpened = [];
