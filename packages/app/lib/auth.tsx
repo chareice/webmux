@@ -1,3 +1,4 @@
+import { restoreSecureConnection, isSecureConnection, forgetSecureConnection } from "./secureTransport";
 import {
   createContext,
   useCallback,
@@ -194,6 +195,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const restore = async () => {
       try {
+        // Encrypted sessions always restore through native Rust on bundled
+        // assets, before any legacy token or development login is considered.
+        try {
+          const secure = await restoreSecureConnection();
+          if (secure) {
+            setServerUrl(secure.endpoint.hub_url);
+            configure(secure.endpoint.hub_url, "secure-session");
+            const me = await getMe();
+            if (!cancelled) { setUser(me); setToken("secure-session"); setIsLoading(false); }
+            return;
+          }
+        } catch {
+          if (isSecureConnection()) { if (!cancelled) setIsLoading(false); return; }
+        }
         // 1. A token that arrived on the URL — an OAuth callback, or the
         //    hub's own sign-in link. Already off the address bar; see above.
         //    A scanned code is one step further back: redeem it for the
@@ -244,8 +259,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // 3. On web in dev mode, try automatic dev login
-        if (Platform.OS === "web") {
+        // 3. Development login belongs to a browser-served Hub. The
+        // bundled App has no Hub to contact before the user chooses one.
+        if (Platform.OS === "web" && !isTauri()) {
           try {
             const result = await devLogin();
             if (result?.token) {
@@ -353,6 +369,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [currentServerUrl]);
 
   const logout = useCallback(async () => {
+    if (isSecureConnection()) await forgetSecureConnection();
     await storage.remove(TOKEN_KEY);
     configure(currentServerUrl(), null);
     setToken(null);

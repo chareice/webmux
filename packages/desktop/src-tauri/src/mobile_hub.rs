@@ -126,6 +126,7 @@ pub fn grant_and_load<R: Runtime>(app: &AppHandle<R>, hub_url: &str) -> Result<(
 /// files: the setup screen may call this, a hub may not.
 #[tauri::command]
 pub fn set_mobile_hub_url<R: Runtime>(app: AppHandle<R>, url: String) -> Result<String, String> {
+    if crate::secure::configured(&app) { return Err("Forget the encrypted connection before choosing a different Hub".into()); }
     let parsed = hub_url::parse(&url)?;
     // What gets remembered is the hub — its origin. A link scanned off the
     // hub's page can carry `?token=…`, which the web UI reads, stores and

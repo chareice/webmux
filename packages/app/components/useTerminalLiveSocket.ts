@@ -1,3 +1,4 @@
+import { openSocket } from "@/lib/secureTransport";
 import { useEffect, type RefObject } from "react";
 import type { Terminal } from "@xterm/xterm";
 
@@ -52,7 +53,7 @@ export function useTerminalLiveSocket({
     if (!term || !wsUrl) return;
     let disposed = false;
 
-    const ws = new WebSocket(wsUrl);
+    const ws = openSocket(wsUrl);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 

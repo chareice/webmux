@@ -1,3 +1,4 @@
+import { isSecureConnection } from "@/lib/secureTransport";
 import { useEffect, useState } from "react";
 import * as QRCode from "qrcode";
 
@@ -40,6 +41,7 @@ export function MobileAppPanel() {
   // phone can sign in on its own, and the code stays a plain address.
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   useEffect(() => {
+    if (isSecureConnection()) return;
     let cancelled = false;
     getAuthProviders()
       .then((providers) => (providers.link ? mintLoginCode() : null))
@@ -94,6 +96,7 @@ export function MobileAppPanel() {
     };
   }, [shareUrl, encoded]);
 
+  if (isSecureConnection() && !isHub) return <p style={{ color: colors.foregroundMuted, fontSize: 13 }}>To pair another encrypted App, create a new pairing code on the Hub’s own screen.</p>;
   if (isHub === null) return null;
   if (isHub) return <HubPhoneCode />;
 

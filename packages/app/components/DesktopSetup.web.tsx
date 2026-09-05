@@ -1,3 +1,5 @@
+import { SecurePairingPanel } from "./SecureConnectionPanel";
+import { isSecureConnection } from "../lib/secureTransport";
 // The desktop app's first run, and the machine that stays on.
 //
 // One question — is this the machine that stays on? — and two answers. "Yes"
@@ -129,6 +131,7 @@ export function DesktopGate({ children }: { children: ReactNode }) {
     [login, loginWithToken],
   );
 
+  if (isSecureConnection() && !isLoading) return isAuthenticated ? <>{children}</> : <DesktopSetupFrame><LoginScreen /></DesktopSetupFrame>;
   if (role === undefined) return <DesktopSetupFrame><Spinner /></DesktopSetupFrame>;
   if (role === null) return <DesktopSetupFrame><FirstRun onPick={pick} /></DesktopSetupFrame>;
 
@@ -597,6 +600,7 @@ export function PhoneCodePanel({
           {copied ? "Copied" : "Copy link"}
         </Button>
       </div>
+      {link ? <SecurePairingPanel baseUrl={link.url} /> : null}
       {link ? (
         <div style={{ fontFamily: fontDisplay, fontSize: 12.5, fontWeight: 600, color: colors.fg3, textAlign: "center" }}>
           {link.link

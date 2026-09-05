@@ -1,0 +1,357 @@
+//! The bundled UI's encrypted connection. Remote Hub origins are never granted
+//! these commands. Keys live in the OS credential store, not WebView storage.
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use offdesk_secure::{
+    client::Client,
+    messages::{Authenticate, Response},
+    pairing::{Endpoint, PairingDescriptor},
+    Identity,
+};
+use serde::{Deserialize, Serialize};
+use tauri::{ipc::Channel, AppHandle, Manager, Runtime, State};
+use tokio::sync::Mutex;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+
+#[derive(Default)]
+pub struct SecureState(Mutex<Option<Client>>);
+#[derive(Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
+struct Credential {
+    #[zeroize(skip)]
+    endpoint: Endpoint,
+    private_key: String,
+    code: Option<String>,
+    #[zeroize(skip)]
+    device_id: Option<String>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Status {
+    pub endpoint: Endpoint,
+    pub device_id: Option<String>,
+}
+fn marker<R: Runtime>(app: &AppHandle<R>) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|_| "Could not find the App config directory")?
+        .join("secure-connection.json"))
+}
+/// Even an unreadable marker keeps startup on trusted bundled assets. Never
+/// fall back to a previously saved remote webpage after a Keychain failure.
+#[cfg(mobile)]
+pub fn configured<R: Runtime>(app: &AppHandle<R>) -> bool {
+    marker(app)
+        .map(|path| path.try_exists().unwrap_or(true))
+        .unwrap_or(true)
+}
+fn read_status<R: Runtime>(app: &AppHandle<R>) -> Result<Option<Status>, String> {
+    let path = marker(app)?;
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|_| "Saved encrypted connection is damaged. Forget it and pair again.".into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err("Could not read the saved encrypted connection".into()),
+    }
+}
+fn save_status<R: Runtime>(app: &AppHandle<R>, status: &Status) -> Result<(), String> {
+    let path = marker(app)?;
+    std::fs::create_dir_all(path.parent().ok_or("Missing config directory")?)
+        .map_err(|_| "Could not create the config directory")?;
+    let temporary = path.with_extension("pending");
+    std::fs::write(
+        &temporary,
+        serde_json::to_vec(status).map_err(|_| "Invalid connection")?,
+    )
+    .map_err(|_| "Could not save the connection")?;
+    std::fs::rename(temporary, path).map_err(|_| "Could not save the connection".into())
+}
+fn store_read<R: Runtime>(app: &AppHandle<R>, slot: &str) -> Result<Option<Credential>, String> {
+    #[cfg(target_os = "android")]
+    let bytes = app
+        .state::<tauri_plugin_offdesk_keystore::Keystore<R>>()
+        .read(slot)?
+        .map(|s| s.into_bytes());
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    let bytes = {
+        let _ = app;
+        match security_framework::passwords::generic_password(apple_options(slot)) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.code() == -25300 => None,
+            Err(_) => {
+                return Err(
+                    "Could not unlock the device Keychain. Unlock your device and try again."
+                        .into(),
+                )
+            }
+        }
+    };
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    let bytes = {
+        let _ = app;
+        let entry = keyring::Entry::new("dev.offdesk.secure.v1", slot)
+            .map_err(|_| "Could not open the device credential store")?;
+        match entry.get_secret() {
+            Ok(bytes) => Some(bytes),
+            Err(keyring::Error::NoEntry) => None,
+            Err(_) => return Err(
+                "Could not unlock the device credential store. Unlock your device and try again."
+                    .into(),
+            ),
+        }
+    };
+    bytes
+        .map(|bytes| {
+            serde_json::from_slice(&Zeroizing::new(bytes)).map_err(|_| {
+                "Saved device key is damaged. Forget this connection and pair again.".into()
+            })
+        })
+        .transpose()
+}
+fn store_write<R: Runtime>(
+    app: &AppHandle<R>,
+    slot: &str,
+    value: Option<&Credential>,
+) -> Result<(), String> {
+    let bytes = value
+        .map(serde_json::to_vec)
+        .transpose()
+        .map_err(|_| "Could not encode the device credential")?
+        .map(Zeroizing::new);
+    #[cfg(target_os = "android")]
+    {
+        let text = bytes
+            .as_ref()
+            .map(|b| std::str::from_utf8(b))
+            .transpose()
+            .map_err(|_| "Invalid device credential")?;
+        app.state::<tauri_plugin_offdesk_keystore::Keystore<R>>()
+            .write(slot, text)
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let _ = app;
+        use security_framework::{
+            access_control::{ProtectionMode, SecAccessControl},
+            passwords,
+        };
+        let result = if let Some(bytes) = bytes {
+            let mut options = apple_options(slot);
+            let access = SecAccessControl::create_with_protection(
+                Some(ProtectionMode::AccessibleWhenUnlockedThisDeviceOnly),
+                0,
+            )
+            .map_err(|_| "Could not configure Keychain protection")?;
+            options.set_access_control(access);
+            passwords::set_generic_password_options(&bytes, options)
+        } else {
+            passwords::delete_generic_password_options(apple_options(slot))
+        };
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) if error.code() == -25300 => Ok(()),
+            Err(_) => Err(
+                "Could not save the device Keychain credential. Unlock your device and try again."
+                    .into(),
+            ),
+        }
+    }
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        let _ = app;
+        let entry = keyring::Entry::new("dev.offdesk.secure.v1", slot)
+            .map_err(|_| "Could not open the device credential store")?;
+        let result = match bytes {
+            Some(bytes) => entry.set_secret(&bytes),
+            None => entry.delete_credential(),
+        };
+        match result {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(_) => Err(
+                "Could not save the device credential. Unlock your device and try again.".into(),
+            ),
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn apple_options(slot: &str) -> security_framework::passwords::PasswordOptions {
+    let mut options = security_framework::passwords::PasswordOptions::new_generic_password(
+        "dev.offdesk.secure.v1",
+        slot,
+    );
+    options.set_access_synchronized(Some(false));
+    options
+}
+
+fn identity(credential: &Credential) -> Result<Identity, String> {
+    let bytes = Zeroizing::new(
+        URL_SAFE_NO_PAD
+            .decode(&credential.private_key)
+            .map_err(|_| "Invalid device key")?,
+    );
+    Identity::from_private(&bytes).map_err(|_| "Invalid device key".into())
+}
+async fn connected<R: Runtime>(app: &AppHandle<R>, state: &SecureState) -> Result<Client, String> {
+    let mut session = state.0.lock().await;
+    if let Some(client) = session.as_ref().filter(|c| !c.is_closed()) {
+        return Ok(client.clone());
+    }
+    let credential =
+        store_read(app, "connection")?.ok_or("Pair this device from your Hub before connecting")?;
+    let status =
+        read_status(app)?.ok_or("Missing encrypted connection. Pair again from your Hub.")?;
+    if status.endpoint != credential.endpoint {
+        return Err("Encrypted connection identity changed. Pair again from your Hub.".into());
+    }
+    let (client, _) = Client::connect(
+        &credential.endpoint,
+        &identity(&credential)?,
+        Authenticate::Resume,
+    )
+    .await?;
+    *session = Some(client.clone());
+    Ok(client)
+}
+#[tauri::command]
+pub async fn secure_status<R: Runtime>(app: AppHandle<R>) -> Result<Option<Status>, String> {
+    read_status(&app)
+}
+#[tauri::command]
+pub async fn secure_pair<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, SecureState>,
+    uri: String,
+    device_name: String,
+) -> Result<Status, String> {
+    let uri = Zeroizing::new(uri);
+    let descriptor = PairingDescriptor::parse(&uri)?;
+    let mut session = state.0.lock().await;
+    // Save the candidate before sending it. If the Pair acknowledgement is
+    // lost, rescanning that QR reuses the same identity instead of consuming
+    // a one-use code with a second device key.
+    let existing = store_read(&app, "candidate")?;
+    let mut credential = match existing {
+        Some(candidate)
+            if candidate.endpoint == descriptor.endpoint
+                && candidate.code.as_deref() == Some(&descriptor.code) =>
+        {
+            candidate
+        }
+        _ => {
+            let identity = Identity::generate().map_err(|e| e.to_string())?;
+            Credential {
+                endpoint: descriptor.endpoint.clone(),
+                private_key: URL_SAFE_NO_PAD.encode(identity.private_for_storage()),
+                code: Some(descriptor.code.clone()),
+                device_id: None,
+            }
+        }
+    };
+    store_write(&app, "candidate", Some(&credential))?;
+    let (client, device_id) = Client::connect(
+        &credential.endpoint,
+        &identity(&credential)?,
+        Authenticate::Pair {
+            code: descriptor.code,
+            device_name,
+        },
+    )
+    .await?;
+    credential.code = None;
+    credential.device_id = Some(device_id.clone());
+    let status = Status {
+        endpoint: credential.endpoint.clone(),
+        device_id: Some(device_id),
+    };
+    // Write the non-secret mode marker first. An interrupted credential-store
+    // write leaves a recoverable pairing screen, never a remote-page fallback.
+    if let Err(error) =
+        save_status(&app, &status).and_then(|_| store_write(&app, "connection", Some(&credential)))
+    {
+        client.close();
+        return Err(error);
+    }
+    if let Some(previous) = session.replace(client) {
+        previous.close();
+    }
+    let _ = store_write(&app, "candidate", None);
+    Ok(status)
+}
+#[tauri::command]
+pub async fn secure_forget<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, SecureState>,
+) -> Result<(), String> {
+    let mut session = state.0.lock().await;
+    if let Some(client) = session.take() {
+        client.close();
+    }
+    store_write(&app, "connection", None)?;
+    store_write(&app, "candidate", None)?;
+    match std::fs::remove_file(marker(&app)?) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err("Could not forget the encrypted connection".into()),
+    }
+}
+#[tauri::command]
+pub async fn secure_request<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, SecureState>,
+    method: String,
+    path: String,
+    body: Option<String>,
+) -> Result<Response, String> {
+    connected(&app, &state)
+        .await?
+        .request(method, path, body)
+        .await
+}
+#[tauri::command]
+pub async fn secure_socket_open<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, SecureState>,
+    id: String,
+    path: String,
+    events: Channel<Response>,
+) -> Result<(), String> {
+    let client = connected(&app, &state).await?;
+    let mut receiver = client.open_socket(id.clone(), path).await?;
+    tauri::async_runtime::spawn(async move {
+        while let Some(response) = receiver.recv().await {
+            if events.send(response).is_err() {
+                break;
+            }
+        }
+        let _ = client.close_socket(id.clone()).await;
+        let _ = events.send(Response::Closed { id });
+    });
+    Ok(())
+}
+#[tauri::command]
+pub async fn secure_socket_send(
+    state: State<'_, SecureState>,
+    id: String,
+    data: String,
+    binary: bool,
+) -> Result<(), String> {
+    let client = state
+        .0
+        .lock()
+        .await
+        .clone()
+        .ok_or("Encrypted connection is closed")?;
+    if binary {
+        client.socket_binary(id, data).await
+    } else {
+        client.socket_text(id, data).await
+    }
+}
+#[tauri::command]
+pub async fn secure_socket_close(state: State<'_, SecureState>, id: String) -> Result<(), String> {
+    let client = state.0.lock().await.clone();
+    if let Some(client) = client {
+        client.close_socket(id).await?;
+    }
+    Ok(())
+}

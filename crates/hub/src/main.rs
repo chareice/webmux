@@ -1,3 +1,4 @@
+mod secure;
 mod composer;
 mod attach_router;
 mod auth;
@@ -14,6 +15,7 @@ use axum::http::{header, HeaderValue};
 use axum::{http::StatusCode, response::IntoResponse, routing::any, Router};
 use clap::{Parser, Subcommand};
 use std::path::Path;
+use std::future::IntoFuture;
 use std::sync::Arc;
 use tower::{service_fn, ServiceBuilder, ServiceExt};
 use tower_http::cors::CorsLayer;
@@ -33,6 +35,11 @@ struct Args {
     /// Listen address
     #[arg(long, default_value = "0.0.0.0:4317", global = true)]
     listen: String,
+
+    /// Optional listener exposing only the encrypted App transport. Point an
+    /// opaque relay here, not at the normal UI/API listener.
+    #[arg(long, env = "OFFDESK_SECURE_LISTEN", global = true)]
+    secure_listen: Option<String>,
 
     /// Let the machine idle-sleep while the hub runs. By default the hub
     /// keeps its host awake (macOS), because a hub whose host is asleep is a
@@ -60,6 +67,14 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Create a short-lived QR code for an encrypted App connection
+    Pair {
+        #[arg(long)]
+        json: bool,
+        /// Account to pair with on a multi-user Hub
+        #[arg(long)]
+        user_id: Option<String>,
+    },
     /// Run the hub at login, restarted if it stops — a launchd agent on macOS,
     /// a systemd user service on Linux
     Service {
@@ -108,7 +123,8 @@ fn service_spec(listen: &str, allow_idle_sleep: bool) -> offdesk_protocol::servi
 fn run_service(action: ServiceCommand, args: &Args) {
     use offdesk_protocol::service as svc;
     let listen = &args.listen;
-    let spec = service_spec(listen, args.allow_idle_sleep);
+    let mut spec = service_spec(listen, args.allow_idle_sleep);
+    if let Some(address) = &args.secure_listen { spec.args.extend(["--secure-listen".into(), address.clone()]); }
     let outcome = match action {
         ServiceCommand::Install => svc::install(&spec).and_then(|()| {
             // Installing is the whole first step now: the hub is up, this
@@ -166,6 +182,33 @@ fn run_service(action: ServiceCommand, args: &Args) {
 /// Nothing is created or changed — the hub's own key signs a session for its
 /// owner, the same as at install. It has to be run on the machine the hub
 /// runs on; that is where the key is.
+fn run_pair(args: &Args, json: bool, user_id: Option<&str>) -> Result<(), String> {
+    let database = first_run::database_path(args.database.as_deref());
+    if !secure::store::key_path(&database).exists() {
+        return Err("Start an updated Hub before creating an encrypted pairing code".into());
+    }
+    let pool = db::create_pool(&database).map_err(|e| e.to_string())?;
+    let user_id = match user_id {
+        Some(user) => user.to_string(),
+        None => first_run::owner_user_id(&pool).ok_or("For a multi-user Hub, choose the account with --user-id")?,
+    };
+    let identity = secure::store::load_identity(&database)?;
+    let base = env_or("OFFDESK_BASE_URL", "http://localhost:4317");
+    let base = env_or("OFFDESK_SECURE_BASE_URL", &first_run::reachable_base_url(&base, &args.listen));
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    let (descriptor, expires_at) = secure::store::mint(&conn, &user_id, &base, &identity, db::now_ms())?;
+    let uri = descriptor.to_url()?;
+    if json {
+        println!("{}", serde_json::json!({ "pairing_uri": uri, "hub_url": descriptor.endpoint.hub_url,
+            "public_key": descriptor.endpoint.public_key, "expires_at": expires_at }));
+    } else {
+        println!("Scan this in the offdesk App to pair an encrypted connection. Expires in five minutes.\n");
+        if let Some(qr) = first_run::qr_code(&uri) { println!("{qr}"); }
+        println!("{uri}\n\nThis code grants access to your Hub. Keep it private.");
+    }
+    Ok(())
+}
+
 fn run_link(args: &Args) {
     let listen = &args.listen;
     let database = first_run::database_path(args.database.as_deref());
@@ -293,6 +336,13 @@ async fn main() {
         run_service(*action, &args);
         return;
     }
+    if let Some(Command::Pair { json, user_id }) = &args.command {
+        if let Err(error) = run_pair(&args, *json, user_id.as_deref()) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if let Some(Command::Link { json }) = &args.command {
         if *json {
             run_link_json(&args);
@@ -357,13 +407,13 @@ async fn main() {
 
     state.manager.start_seq_flush_task();
 
-    let app = routes::router()
-        .merge(ws::router())
+    let inner = routes::router().merge(ws::router()).with_state(state.clone());
+    let encrypted = secure::router(state.clone(), inner.clone(), &database).expect("Could not initialize encrypted connections");
+    let app = inner.merge(encrypted.clone())
         .route("/api", any(api_not_found))
         .route("/api/{*path}", any(api_not_found))
         .layer(CorsLayer::permissive())
-        .fallback_service(ui_service(args.static_dir.as_deref()))
-        .with_state(state);
+        .fallback_service(ui_service(args.static_dir.as_deref()));
 
     let listener = match tokio::net::TcpListener::bind(&args.listen).await {
         Ok(listener) => listener,
@@ -416,7 +466,17 @@ async fn main() {
     let listener = axum::serve::ListenerExt::tap_io(listener, |io| {
         let _ = io.set_nodelay(true);
     });
-    axum::serve(listener, app).await.unwrap();
+    if let Some(address) = &args.secure_listen {
+        let secure_listener = tokio::net::TcpListener::bind(address).await.expect("Could not bind the encrypted-only listener");
+        let secure_listener = axum::serve::ListenerExt::tap_io(secure_listener, |io| { let _ = io.set_nodelay(true); });
+        tracing::info!("Encrypted-only transport listening on {address}");
+        // A failed encrypted listener stops the process so the service manager
+        // can restart it; never continue with a silently unavailable tunnel.
+        tokio::select! {
+            result = axum::serve(listener, app).into_future() => result.unwrap(),
+            result = axum::serve(secure_listener, encrypted).into_future() => result.unwrap(),
+        }
+    } else { axum::serve(listener, app).await.unwrap(); }
 }
 
 fn cache_control_for_static<B>(res: &http::Response<B>) -> Option<HeaderValue> {

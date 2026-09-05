@@ -2,6 +2,7 @@
 // app has a hub address to parse.
 #[allow(dead_code)]
 mod hub_url;
+mod secure;
 #[cfg(mobile)]
 mod mobile_hub;
 #[cfg(desktop)]
@@ -17,11 +18,15 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        .manage(secure::SecureState::default())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_process::init());
+
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tauri_plugin_offdesk_keystore::init());
 
     #[cfg(desktop)]
     let builder = configure_desktop(builder);
@@ -34,7 +39,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             mobile_hub::mobile_hub_url,
             mobile_hub::set_mobile_hub_url,
-            mobile_hub::clear_mobile_hub_url
+            mobile_hub::clear_mobile_hub_url,
+            secure::secure_status,
+            secure::secure_pair,
+            secure::secure_forget,
+            secure::secure_request,
+            secure::secure_socket_open,
+            secure::secure_socket_send,
+            secure::secure_socket_close
         ]);
 
     builder
@@ -70,7 +82,15 @@ fn configure_desktop<R: tauri::Runtime>(
             role::hub_status,
             role::hub_link,
             role::hub_install,
-            role::hub_uninstall
+            role::hub_uninstall,
+            role::hub_pair,
+            secure::secure_status,
+            secure::secure_pair,
+            secure::secure_forget,
+            secure::secure_request,
+            secure::secure_socket_open,
+            secure::secure_socket_send,
+            secure::secure_socket_close
         ])
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -126,6 +146,7 @@ fn setup_mobile(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // bundled assets are never more than a launch shell. Without one the
     // shell *is* the app until the user enters an address, so staying put is
     // the setup screen rather than a failure.
+    if secure::configured(handle) { return Ok(()); }
     let Some(hub_url) = mobile_hub::configured_hub_url(handle) else {
         return Ok(());
     };
