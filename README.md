@@ -275,8 +275,13 @@ offdesk does not wrap an agent or speak its protocol. It hands you the terminal
 the agent is already running in, with your own subscription, your own config,
 your own dotfiles. Anything that runs in tmux runs here: Claude Code, Codex,
 OpenCode, Gemini CLI, Aider, vim, htop, a build that takes an hour. No
-agent-specific integration, so there is nothing to add when the next agent
-ships — and nothing to be locked into.
+agent-specific integration is required for terminal access.
+
+On Linux and macOS, the node also recognizes local Codex session names for
+the terminal list, even when Codex only puts the project name in its terminal
+title. This needs no Codex configuration change. It reads metadata for the
+session held open by that pane's Codex process; if the session cannot be
+identified or its metadata is unavailable, the normal terminal title is used.
 
 ## For agents
 

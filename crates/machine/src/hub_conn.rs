@@ -322,7 +322,15 @@ impl HubConnection {
             > = std::collections::HashMap::new();
             loop {
                 interval.tick().await;
-                let pane_infos = pty_for_titles.pane_infos();
+                let poll_pty = pty_for_titles.clone();
+                let pane_infos =
+                    match tokio::task::spawn_blocking(move || poll_pty.pane_infos()).await {
+                        Ok(panes) => panes,
+                        Err(error) => {
+                            tracing::warn!("terminal metadata poll failed: {error}");
+                            continue;
+                        }
+                    };
                 let terminal_ids = pty_for_titles.list_terminal_ids();
                 // Drop dedup state for terminals that no longer exist so the
                 // maps can't grow without bound over a long connection.
@@ -661,6 +669,7 @@ async fn handle_hub_message(
                 .open(attach_id.clone(), terminal_id, cols, rows)
                 .await;
             let send_tx = send_tx.clone();
+            let title_pty = pty.clone();
             tokio::spawn(async move {
                 let mut scanner = OscTitleScanner::new();
                 let mut last_observed_title: Option<String> = None;
@@ -669,6 +678,7 @@ async fn handle_hub_message(
                     match ev {
                         AttachEvent::Output(bytes) => {
                             for title in scanner.push(&bytes) {
+                                let title = title_pty.resolve_osc_title(&scanner_terminal_id, title);
                                 if last_observed_title.as_deref() == Some(title.as_str()) {
                                     continue;
                                 }
@@ -678,8 +688,10 @@ async fn handle_hub_message(
                                 }
                                 let send_title = send_tx.clone();
                                 let terminal_id = scanner_terminal_id.clone();
+                                let title_pty = title_pty.clone();
                                 debounce_task = Some(tokio::spawn(async move {
                                     tokio::time::sleep(Duration::from_millis(300)).await;
+                                    let title = title_pty.resolve_osc_title(&terminal_id, title);
                                     let _ = send_title
                                         .send(OutboundHubMessage::Json(
                                             MachineToHub::TerminalTitle {

@@ -1340,6 +1340,7 @@ dependencies = [
  "offdesk-protocol",
  "portable-pty",
  "reqwest",
+ "rusqlite",
  "rustls",
  "serde",
  "serde_json",

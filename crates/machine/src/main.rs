@@ -4,6 +4,7 @@ mod config;
 mod hub_conn;
 mod keep_awake;
 mod osc_title;
+mod codex_title;
 mod pty;
 mod service;
 mod session_watcher;
