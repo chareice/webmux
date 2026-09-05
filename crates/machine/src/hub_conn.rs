@@ -132,7 +132,7 @@ impl HubConnection {
             name: self.machine_name.clone(),
             os: std::env::consts::OS.to_string(),
             home_dir: dirs_home(),
-            capabilities: vec![DEFLATE_RAW_V1.to_string()],
+            capabilities: vec![DEFLATE_RAW_V1.to_string(), offdesk_protocol::preview::CAPABILITY.to_string()],
         };
         let msg = serde_json::to_string(&register).unwrap();
         ws_tx
@@ -423,12 +423,24 @@ impl HubConnection {
         let send_tx_recv = send_tx.clone();
         let attach_mgr_recv = attach_mgr.clone();
         let acp_manager_recv = acp_manager.clone();
+        let preview_hub = self.hub_url.clone();
         let mut recv_task = tokio::spawn(async move {
+            let mut previews = tokio::task::JoinSet::new();
             loop {
+                while previews.try_join_next().is_some() {}
                 match tokio::time::timeout(Duration::from_secs(90), ws_rx.next()).await {
                     Ok(Some(Ok(msg))) => match msg {
                         Message::Text(text) => {
                             if let Ok(hub_msg) = serde_json::from_str::<HubToMachine>(&text) {
+                                if let HubToMachine::OpenPreviewStream { stream_id, ticket, port, address_family, expires_at } = hub_msg {
+                                    if previews.len() < 32 {
+                                        let hub = preview_hub.clone();
+                                        previews.spawn(async move {
+                                            let _ = crate::preview::connect(&hub, &stream_id, &ticket, port, address_family, expires_at).await;
+                                        });
+                                    }
+                                    continue;
+                                }
                                 handle_hub_message(
                                     hub_msg,
                                     &pty_recv,
@@ -491,6 +503,7 @@ async fn handle_hub_message(
     acp_manager: &Arc<AcpManager>,
 ) {
     match msg {
+        HubToMachine::OpenPreviewStream { .. } => {}, // handled by connection-owned JoinSet
         HubToMachine::CreateTerminal {
             request_id,
             cwd,

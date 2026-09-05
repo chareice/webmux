@@ -1301,9 +1301,13 @@ dependencies = [
  "futures",
  "hex",
  "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "jsonwebtoken",
  "libc",
  "mime_guess",
+ "offdesk-preview-transport",
  "offdesk-protocol",
  "portable-pty",
  "qrcode",
@@ -1318,10 +1322,12 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "url",
  "urlencoding",
  "uuid",
  "vt100",
@@ -1336,6 +1342,7 @@ dependencies = [
  "dirs",
  "futures",
  "hostname",
+ "offdesk-preview-transport",
  "offdesk-protocol",
  "portable-pty",
  "reqwest",
@@ -1350,6 +1357,17 @@ dependencies = [
  "url",
  "uuid",
  "vt100",
+]
+
+[[package]]
+name = "offdesk-preview-transport"
+version = "0.19.2"
+dependencies = [
+ "futures",
+ "offdesk-protocol",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
 ]
 
 [[package]]
@@ -2340,6 +2358,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

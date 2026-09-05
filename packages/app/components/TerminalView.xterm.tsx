@@ -1,3 +1,4 @@
+import { openWebPreview, parseLocalPreview } from "@/lib/webPreview";
 import {
   useEffect,
   useRef,
@@ -454,6 +455,23 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     inputTransformRef,
     style,
   }, ref) {
+    const previewTap = useRef<{ url: string; at: number; pending: boolean } | null>(null);
+    const openTerminalLink = useCallback((url: string) => {
+      const local = parseLocalPreview(url);
+      if (!local) { openExternalUrl(url); return; }
+      const previous = previewTap.current;
+      if (previous?.url === url && (previous.pending || Date.now() - previous.at < 600)) return;
+      const tap = { url, at: Date.now(), pending: true };
+      previewTap.current = tap;
+      void openWebPreview(machineId, terminalId, local).catch(error => {
+        const toast = document.createElement("div");
+        toast.setAttribute("role", "alert");
+        toast.style.cssText = "position:fixed;top:16px;left:16px;right:16px;z-index:99999;background:#292929;color:white;padding:16px;border-radius:8px";
+        toast.textContent = error instanceof Error ? error.message : "Could not open preview";
+        document.body.appendChild(toast);
+        window.setTimeout(() => toast.remove(), 8000);
+      }).finally(() => { tap.pending = false; });
+    }, [machineId, terminalId]);
     const viewportRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
@@ -783,7 +801,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         // OSC 8 hyperlinks have no default click action in xterm.js;
         // WebLinksAddon only covers plain-text URLs.
         linkHandler: {
-          activate: (_event, url) => openExternalUrl(url),
+          activate: (_event, url) => openTerminalLink(url),
           hover: (_event, url) => {
             hoveredLink = url;
           },
@@ -807,7 +825,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       term.loadAddon(
         new WebLinksAddon(
           (_event, url) => {
-            openExternalUrl(url);
+            openTerminalLink(url);
           },
           {
             hover: (_event, url) => {
@@ -1225,7 +1243,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
           !tapInterruptedMomentum
         ) {
           stopMomentum();
-          openExternalUrl(hoveredLink);
+          openTerminalLink(hoveredLink);
         }
       };
       const onTouchMove = (e: TouchEvent) => {
