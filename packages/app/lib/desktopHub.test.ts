@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { baseUrlFor, codeFromLink, hubIsReady, portOf, tokenFromLink } from "./desktopHub";
+import { baseUrlFor, codeFromLink, hubAddressOptions, hubIsReady, portOf, tokenFromLink } from "./desktopHub";
+
+describe("phone addresses", () => {
+  it("retains HTTPS and the tunnel port when switching back from LAN", () => {
+    const publicUrl = "https://hub.example.com:8443";
+    expect(hubAddressOptions({
+      url: "http://192.168.1.2:4317", public_url: publicUrl,
+      local_url: "http://127.0.0.1:4317", link: null, short: null,
+      candidates: [{ interface: "en0", address: "192.168.1.2" }],
+    })).toEqual([
+      { url: publicUrl, label: "Internet" },
+      { url: "http://192.168.1.2:4317", label: "en0" },
+    ]);
+  });
+
+  it("brackets IPv6 LAN addresses", () => {
+    expect(baseUrlFor("fd00::2", "4317")).toBe("http://[fd00::2]:4317");
+  });
+});
 
 describe("the sign-in link", () => {
   it("gives up its token", () => {

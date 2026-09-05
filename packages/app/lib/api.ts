@@ -16,6 +16,12 @@ import { generateDeviceId } from "./deviceIdShared";
 let _baseUrl = "";
 let _token: string | null = null;
 
+export class ApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(`${status}: ${message}`);
+  }
+}
+
 export function configure(baseUrl: string, token: string | null) {
   _baseUrl = baseUrl;
   _token = token;
@@ -25,6 +31,7 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -36,11 +43,12 @@ async function request<T>(
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${res.status}: ${text}`);
+    throw new ApiError(res.status, text);
   }
 
   const text = await res.text();
@@ -49,7 +57,7 @@ async function request<T>(
 }
 
 // Auth
-export const getMe = () => request<User>("GET", "/api/auth/me");
+export const getMe = (signal?: AbortSignal) => request<User>("GET", "/api/auth/me", undefined, signal);
 export const devLogin = () =>
   request<{ token: string }>("GET", "/api/auth/dev");
 
