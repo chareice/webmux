@@ -1,3 +1,4 @@
+import { notifyFontPreferencesChanged } from "@/lib/fontPreferences";
 import { SecureDevicesPanel } from "./SecureConnectionPanel";
 import { isSecureConnection, secureConnectionStatus } from "../lib/secureTransport";
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -58,7 +59,10 @@ async function getShellVersion(): Promise<string> {
 
 // Common UI (proportional) fonts
 const UI_FONTS = [
-  "System Default",
+  "App Default",
+  "System UI",
+  "Nunito Variable",
+  "Fredoka Variable",
   "Inter",
   "Roboto",
   "Segoe UI",
@@ -101,11 +105,13 @@ interface SettingsPageProps {
 
 // Reusable select with custom input fallback
 function FontSelect({
+  label,
   value,
   options,
   emptyLabel,
   onChange,
 }: {
+  label: string;
   value: string;
   options: string[];
   emptyLabel: string;
@@ -121,6 +127,7 @@ function FontSelect({
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
           placeholder="Enter font name..."
           style={{
             flex: 1,
@@ -157,6 +164,7 @@ function FontSelect({
   return (
     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
       <select
+        aria-label={label}
         value={value || options[0]}
         onChange={(e) => {
           const v = e.target.value;
@@ -177,7 +185,7 @@ function FontSelect({
       >
         {options.map((opt) => (
           <option key={opt} value={opt}>
-            {opt === options[0] ? emptyLabel : opt}
+            {opt === options[0] ? emptyLabel : ["Nunito Variable", "Fredoka Variable", "JetBrains Mono"].includes(opt) ? `${opt} (included)` : opt}
           </option>
         ))}
       </select>
@@ -381,15 +389,6 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     [],
   );
 
-  // Apply UI font to document
-  useEffect(() => {
-    if (uiFont) {
-      document.documentElement.style.fontFamily = `'${uiFont}', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
-    } else {
-      document.documentElement.style.fontFamily = "";
-    }
-  }, [uiFont]);
-
   // Save terminal font
   const handleTerminalFontChange = useCallback((value: string) => {
     setTerminalFont(value);
@@ -398,6 +397,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     } else {
       localStorage.removeItem("offdesk:terminal-font-family");
     }
+    notifyFontPreferencesChanged();
   }, []);
 
   const handleTerminalFontSizeChange = useCallback(
@@ -410,6 +410,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
       } else if (!v) {
         localStorage.removeItem("offdesk:terminal-font-size");
       }
+      notifyFontPreferencesChanged();
     },
     [],
   );
@@ -422,6 +423,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
     } else {
       localStorage.removeItem("offdesk:ui-font-family");
     }
+    notifyFontPreferencesChanged();
   }, []);
 
   const handleUiFontSizeChange = useCallback(
@@ -431,11 +433,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
       const size = parseInt(v, 10);
       if (size >= 10 && size <= 20) {
         localStorage.setItem("offdesk:ui-font-size", String(size));
-        document.documentElement.style.fontSize = `${size}px`;
       } else if (!v) {
         localStorage.removeItem("offdesk:ui-font-size");
-        document.documentElement.style.fontSize = "";
       }
+      notifyFontPreferencesChanged();
     },
     [],
   );
@@ -732,12 +733,13 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
 
           <SettingRow
             label="UI Font"
-            description="Font used for the interface (tabs, dialogs, palette)"
+            description="Applies immediately to the interface. Included fonts work on every device; other fonts must be installed locally."
           >
             <FontSelect
+              label="UI Font"
               value={uiFont}
               options={UI_FONTS}
-              emptyLabel="System Default"
+              emptyLabel="App Default"
               onChange={handleUiFontChange}
             />
           </SettingRow>
@@ -761,9 +763,10 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
 
           <SettingRow
             label="Terminal Font"
-            description="Monospace font used inside terminal windows"
+            description="Applies to open terminals immediately. JetBrains Mono is included; other fonts must be installed on this device. Chinese characters use a system fallback."
           >
             <FontSelect
+              label="Terminal Font"
               value={terminalFont}
               options={TERMINAL_FONTS}
               emptyLabel="Auto Detect"
@@ -774,6 +777,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
           <SettingRow label="Terminal Font Size">
             <input
               type="number"
+              aria-label="Terminal Font Size"
               value={terminalFontSize}
               onChange={handleTerminalFontSizeChange}
               placeholder="14"
@@ -1301,8 +1305,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             marginTop: 8,
           }}
         >
-          Some settings (terminal font) take effect after
-          creating a new terminal or reloading the page.
+          Font changes are saved on this device and apply without reloading.
         </div>
       </div>
     </div>

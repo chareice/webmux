@@ -1,6 +1,7 @@
 import "../global.css";
 import "../lib/legacyStorageMigration";
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, useLayoutEffect, type ErrorInfo, type ReactNode } from "react";
+import { applyUiFontPreferences, subscribeFontPreferences } from "../lib/fontPreferences";
 import { Slot } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
@@ -101,6 +102,10 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
+  useLayoutEffect(() => {
+    applyUiFontPreferences();
+    return subscribeFontPreferences(applyUiFontPreferences);
+  }, []);
   return (
     <AppErrorBoundary>
       <SafeAreaProvider>

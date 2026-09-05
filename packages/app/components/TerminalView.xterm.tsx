@@ -47,7 +47,7 @@ import {
 } from "@/lib/terminalInputBatcher";
 import { createWheelDirectionGate } from "@/lib/terminalWheelGate";
 import { activateGpuRenderer } from "@/lib/terminalGpuRenderer";
-import { resolveTerminalFontFamily } from "@/lib/terminalFonts";
+import { readTerminalFontPreferences, subscribeFontPreferences } from "@/lib/fontPreferences";
 
 const TERM_COLS = 120;
 const TERM_ROWS = 36;
@@ -759,10 +759,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       const container = containerRef.current;
       if (!container) return;
 
-      const userFont = localStorage.getItem("offdesk:terminal-font-family");
-      const userFontSize = localStorage.getItem("offdesk:terminal-font-size");
-      const fontFamily = resolveTerminalFontFamily(userFont);
-      const fontSize = userFontSize ? Math.max(10, Math.min(24, parseInt(userFontSize, 10) || 14)) : 14;
+      const { fontFamily, fontSize } = readTerminalFontPreferences();
 
       // The link currently under the pointer, kept by the hover/leave
       // callbacks below. Android WebViews do not synthesize the compat
@@ -1311,6 +1308,34 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Terminal created once on mount
     }, []);
+
+    // Keep the live terminal and its buffer/socket while preferences change.
+    useEffect(() => {
+      const term = termRef.current;
+      if (!term) return;
+      let disposed = false;
+      let revision = 0;
+      const update = async () => {
+        const current = ++revision;
+        const { fontFamily, fontSize } = readTerminalFontPreferences();
+        // Load before measuring. Otherwise a newly downloaded webfont retains
+        // the fallback font's cell metrics and clips/overlaps terminal output.
+        try { await document.fonts?.load(`${fontSize}px ${fontFamily}`); } catch { /* use fallback */ }
+        if (disposed || current !== revision || termRef.current !== term) return;
+        // An equivalent spelling forces xterm's public option-change path to
+        // remeasure even when the configured family was already set at mount.
+        term.options.fontFamily = `${fontFamily} `;
+        term.options.fontFamily = fontFamily;
+        term.options.fontSize = fontSize;
+        term.clearTextureAtlas();
+        term.refresh(0, term.rows - 1);
+        scheduleMeasure();
+        fitToContainer({ skipIfUnchanged: true });
+      };
+      void update();
+      const unsubscribe = subscribeFontPreferences(() => { void update(); });
+      return () => { disposed = true; unsubscribe(); };
+    }, [fitToContainer, scheduleMeasure]);
 
     useTerminalLiveSocket({
       onControlMessage: composerTransport.receive,

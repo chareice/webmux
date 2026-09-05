@@ -195,3 +195,12 @@ body {
   from { transform: translateX(-100%); }
   to   { transform: translateX(265%); }
 }
+
+/* JetBrains Mono v2.304, bundled under the adjacent SIL OFL license. */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+}
