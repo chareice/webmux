@@ -150,14 +150,15 @@ async fn revoke(
 }
 
 fn private(response: &mut Response) {
-    response.headers_mut().insert(
+    private_headers(response.headers_mut());
+}
+fn private_headers(headers: &mut axum::http::HeaderMap) {
+    headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, no-store"),
     );
-    response
-        .headers_mut()
-        .insert("cdn-cache-control", HeaderValue::from_static("no-store"));
-    response.headers_mut().insert(
+    headers.insert("cdn-cache-control", HeaderValue::from_static("no-store"));
+    headers.insert(
         "x-robots-tag",
         HeaderValue::from_static("noindex, nofollow"),
     );
@@ -222,7 +223,7 @@ pub async fn dispatch(State(state): State<AppState>, request: Request, next: Nex
     let Some(lease) = state.web_previews.find(host) else {
         let mut response = (
             StatusCode::GONE,
-            "Preview expired or unavailable. Open it again from Offdesk.",
+            "Preview expired or unavailable. Open it again from offdesk.",
         )
             .into_response();
         private(&mut response);
@@ -270,7 +271,7 @@ async fn redeem(lease: Arc<registry::Lease>, request: Request<Body>) -> Response
     let Some(cookie) = lease.redeem(&code.code) else {
         return (
             StatusCode::UNAUTHORIZED,
-            "Launch link expired or already used. Open a new preview from Offdesk.",
+            "Launch link expired or already used. Open a new preview from offdesk.",
         )
             .into_response();
     };

@@ -1,6 +1,6 @@
 # Private web previews through your Hub
 
-Open a development website from your phone, including away from home. Offdesk
+Open a development website from your phone, including away from home. offdesk
 relays requests through the Hub to the node's loopback HTTP port. The machine
 must stay awake and connected; no inbound port forwarding on that machine is
 required. The Hub and node must both include `preview-tcp-v1` support.
@@ -43,8 +43,8 @@ write parent-domain cookies. Do not treat a preview as an application sandbox.
   active previews and has **Close preview** buttons.
 - The Web client opens a trusted Hub launcher. Android/Desktop use the native
   browser opener and a one-use launch code; the external browser never receives
-  the Hub's login token. A browser popup blocker may require allowing this Hub
-  to open a new tab and clicking again.
+  the Hub's login token. If the new tab does not open, use the retained **open preview here** link
+  in the dialog or terminal message. This link contains no authentication code.
 - A preview expires after two hours. Launch codes expire in sixty seconds and
   cannot be shared/replayed. Refresh works within an authenticated lease; to
   authenticate another browser, create a new preview. Closing a preview revokes

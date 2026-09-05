@@ -30,6 +30,8 @@ test('web preview: browser launch, isolated native handoff, Vite and Next hot up
   const opened = page.context().waitForEvent('page');
   await page.getByRole('button', { name: 'Open in browser' }).click();
   const vite = await opened;
+  await expect(page.getByRole("link", { name: "open preview here" })).toBeVisible();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(vite.getByRole('heading', { name: 'Vite preview ready' })).toBeVisible({ timeout: 20_000 });
   expect(new URL(vite.url()).hostname).toMatch(/^p-[a-f0-9]+\.preview\.test$/);
   expect(await vite.evaluate(() => localStorage.getItem('offdesk:token'))).toBeNull();
@@ -53,6 +55,9 @@ test('web preview: browser launch, isolated native handoff, Vite and Next hot up
   // Exercise localhost recognition through real xterm's link handler, then
   // emulate only the OS opener boundary. The native API runs after page load
   // so this does not turn the Web test's auth setup into a desktop-shell setup.
+  const linkTerminal = await createTerminalViaApi(page, { startupCommand: "printf 'http://localhost:5128/\\n'" });
+  await page.getByTestId("tab-bar").getByRole("button", { name: "root shell", exact: true }).last().click();
+  await expect.poll(() => readTerminalBuffer(page, linkTerminal)).toContain('http://localhost:5128/');
   await page.evaluate(() => {
     (window as any).__previewOpened = [];
     (window as any).__TAURI_INTERNALS__ = { invoke: async (cmd: string, args: any) => {
@@ -60,8 +65,6 @@ test('web preview: browser launch, isolated native handoff, Vite and Next hot up
       throw new Error('Unsupported test native command');
     } };
   });
-  const linkTerminal = await createTerminalViaApi(page, { startupCommand: "printf 'http://localhost:5128/\\n'" });
-  await expect.poll(() => readTerminalBuffer(page, linkTerminal)).toContain('http://localhost:5128/');
   const target = await page.evaluate(id => {
     const term = (window as any).__offdeskTerminals?.get(id);
     const screen = document.querySelector(`[data-testid="terminal-card-${id}"] .xterm-screen`);

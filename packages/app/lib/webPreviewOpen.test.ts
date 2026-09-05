@@ -15,6 +15,13 @@ describe('preview browser opening', () => {
     expect(deps.create).not.toHaveBeenCalled();
     await pending;
   });
+  it.each(['null', 'throw'])('retains a credential-free clickable launcher when popup opening returns %s', async mode => {
+    vi.stubGlobal('window', { open: () => { if (mode === 'throw') throw new Error('blocked'); return null; } });
+    const fallback = await openWebPreview('machine', 'terminal', local);
+    expect(fallback).toMatch(/^https:\/\/hub.test\/__offdesk_preview__\/launch\?/);
+    expect(fallback).not.toContain('code=');
+    expect(deps.create).not.toHaveBeenCalled();
+  });
   it('hands only the limited launch URL to the native opener', async () => {
     deps.native = true;
     deps.create.mockResolvedValue({ preview: { id: 'lease' }, launch_url: 'https://p.preview.test/bootstrap#code=limited' });

@@ -26,7 +26,7 @@ export function launcherUrl(base: string, machine: string, terminal: string, loc
 
 async function nativeOpen(url: string): Promise<void> {
   const bridge = (window as unknown as { __TAURI_INTERNALS__?: { invoke: (cmd: string, args: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
-  if (!bridge) throw new Error("Could not open your browser. Please update the Offdesk app.");
+  if (!bridge) throw new Error("Could not open your browser. Please update the offdesk app.");
   for (const [cmd, args] of [["plugin:opener|open_url", { url }], ["plugin:shell|open", { path: url }]] as const) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -35,15 +35,17 @@ async function nativeOpen(url: string): Promise<void> {
     } catch { /* Never display or log a launch URL or native error containing its code. */ }
     finally { clearTimeout(timer); }
   }
-  throw new Error("Could not open your browser. Please update the Offdesk app and try again.");
+  throw new Error("Could not open your browser. Please update the offdesk app and try again.");
 }
 
-export async function openWebPreview(machine: string, terminal: string, local: LocalPreview): Promise<void> {
+export async function openWebPreview(machine: string, terminal: string, local: LocalPreview): Promise<string | undefined> {
   if (!isTauri()) {
     // Remain inside the click's user activation. This trusted Hub page uses
     // that browser's Hub login; it does not put the Bearer in a URL.
-    window.open(launcherUrl(api.getBaseUrl(), machine, terminal, local), "_blank", "noopener,noreferrer");
-    return;
+    const url = launcherUrl(api.getBaseUrl(), machine, terminal, local);
+    // noopener can return null even on success. Always retain a safe retry link.
+    try { window.open(url, "_blank", "noopener,noreferrer"); } catch { /* The caller displays the link. */ }
+    return url;
   }
   const created = await api.createWebPreview(machine, { ...local, terminal_id: terminal });
   try { await nativeOpen(created.launch_url); }

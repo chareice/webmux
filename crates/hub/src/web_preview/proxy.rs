@@ -252,15 +252,7 @@ pub fn response_headers(headers: &mut HeaderMap, lease: &Lease, websocket: bool)
         headers.remove(k);
     }
     headers.remove("clear-site-data");
-    headers.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("private, no-store"),
-    );
-    headers.insert("cdn-cache-control", HeaderValue::from_static("no-store"));
-    headers.insert(
-        "x-robots-tag",
-        HeaderValue::from_static("noindex, nofollow"),
-    );
+    super::private_headers(headers);
     if websocket {
         headers.insert(header::CONNECTION, HeaderValue::from_static("Upgrade"));
         headers.insert(header::UPGRADE, HeaderValue::from_static("websocket"));
@@ -284,7 +276,7 @@ pub async fn forward(
     if !cookie(request.headers()).is_some_and(|c| lease.authenticated(&c)) {
         return (
             StatusCode::UNAUTHORIZED,
-            "Preview expired or not signed in. Open it again from Offdesk.",
+            "Preview expired or not signed in. Open it again from offdesk.",
         )
             .into_response();
     }

@@ -17,7 +17,7 @@ import type { TerminalViewRef, TerminalViewProps } from "./TerminalView.types";
 import { measureTerminalSurface, readXtermCellMetrics } from "./terminalXtermMetrics";
 import { useTerminalFitController } from "./useTerminalFitController";
 import { useTerminalLiveSocket } from "./useTerminalLiveSocket";
-import { terminalTheme } from "@/lib/colors";
+import { terminalTheme, colors, colorAlpha } from "@/lib/colors";
 import {
   shouldSendClipboardImagePaste,
   type ImagePasteDedupeRecord,
@@ -455,6 +455,14 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     inputTransformRef,
     style,
   }, ref) {
+    const [previewNotice, setPreviewNotice] = useState<{ message: string; url?: string } | null>(null);
+    useEffect(() => {
+      // Actionable retry links persist until dismissed so popup-blocked users
+      // can still open the preview. Only transient errors expire automatically.
+      if (!previewNotice || previewNotice.url) return;
+      const timer = window.setTimeout(() => setPreviewNotice(null), 8000);
+      return () => window.clearTimeout(timer);
+    }, [previewNotice]);
     const previewTap = useRef<{ url: string; at: number; pending: boolean } | null>(null);
     const openTerminalLink = useCallback((url: string) => {
       const local = parseLocalPreview(url);
@@ -463,13 +471,10 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       if (previous?.url === url && (previous.pending || Date.now() - previous.at < 600)) return;
       const tap = { url, at: Date.now(), pending: true };
       previewTap.current = tap;
-      void openWebPreview(machineId, terminalId, local).catch(error => {
-        const toast = document.createElement("div");
-        toast.setAttribute("role", "alert");
-        toast.style.cssText = "position:fixed;top:16px;left:16px;right:16px;z-index:99999;background:#292929;color:white;padding:16px;border-radius:8px";
-        toast.textContent = error instanceof Error ? error.message : "Could not open preview";
-        document.body.appendChild(toast);
-        window.setTimeout(() => toast.remove(), 8000);
+      void openWebPreview(machineId, terminalId, local).then(url => {
+        if (url) setPreviewNotice({ message: "If the preview did not open,", url });
+      }).catch(error => {
+        setPreviewNotice({ message: error instanceof Error ? error.message : "Could not open preview" });
       }).finally(() => { tap.pending = false; });
     }, [machineId, terminalId]);
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -1354,6 +1359,13 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         : "100%";
 
     return (
+      <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+      {previewNotice && <div role="status" style={{ flexShrink: 0, padding: "8px 12px", background: colors.surface, color: colors.foreground }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 8, borderRadius: 6, background: colorAlpha.warningSubtle }}>
+          <span style={{ flex: 1 }}>{previewNotice.message} {previewNotice.url && <a href={previewNotice.url} target="_blank" rel="noopener noreferrer" style={{ color: colors.accent }}>open preview here</a>}</span>
+          <button aria-label="Dismiss preview message" onClick={() => setPreviewNotice(null)} style={{ color: colors.foreground, background: "transparent", border: 0, cursor: "pointer", padding: 8 }}>×</button>
+        </div>
+      </div>}
       <div
         ref={viewportRef}
         data-terminal-display-mode={displayMode}
@@ -1361,7 +1373,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         data-terminal-view-justify={liveJustifyContent}
         style={{
           width: "100%",
-          height: "100%",
+          flex: 1,
+          minHeight: 0,
           display: "flex",
           justifyContent:
             displayMode === "immersive" ? liveJustifyContent : "flex-start",
@@ -1386,6 +1399,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
             }}
           />
         </div>
+      </div>
       </div>
     );
   },
