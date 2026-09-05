@@ -1,3 +1,4 @@
+import { WebPreviewDialog } from "./WebPreviewDialog";
 import {
   memo,
   useCallback,
@@ -215,6 +216,7 @@ function TerminalWorkspaceComponent({
   // depending on the state value (which would churn their identities).
   const maximizedTerminalIdRef = useRef<string | null>(null);
   maximizedTerminalIdRef.current = maximizedTerminalId;
+  const [webPreviewTerminal, setWebPreviewTerminal] = useState<TerminalInfo | null>(null);
   const [paneMenu, setPaneMenu] = useState<{
     terminalId: string;
     x: number;
@@ -927,6 +929,7 @@ function TerminalWorkspaceComponent({
     : null;
   const paneMenuItems: ContextMenuEntry[] = paneMenuTerminal
     ? [
+        { label: "Open web preview", onClick: () => setWebPreviewTerminal(paneMenuTerminal) },
         {
           label: "Split right",
           shortcut: formatPrefixBinding("splitRight"),
@@ -1151,6 +1154,7 @@ function TerminalWorkspaceComponent({
           />
         )}
       </div>
+      {webPreviewTerminal && <WebPreviewDialog machineId={webPreviewTerminal.machine_id} terminalId={webPreviewTerminal.id} onClose={() => setWebPreviewTerminal(null)} />}
       {paneMenu && paneMenuTerminal && (
         <ContextMenu
           x={paneMenu.x}

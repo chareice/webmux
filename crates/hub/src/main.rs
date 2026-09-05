@@ -7,6 +7,7 @@ pub mod db;
 mod machine_manager;
 mod routes;
 mod ws;
+mod web_preview;
 
 use axum::body::Body;
 use axum::http::{header, HeaderValue};
@@ -246,6 +247,7 @@ fn run_link_json(args: &Args) {
 pub struct AppState {
     pub manager: Arc<MachineManager>,
     pub router: Arc<HubRouter>,
+    pub web_previews: Arc<web_preview::registry::Registry>,
     pub db: DbPool,
     pub jwt_secret: String,
     pub base_url: String,
@@ -339,6 +341,10 @@ async fn main() {
     let state = AppState {
         manager: Arc::new(MachineManager::new(pool.clone())),
         router: Arc::new(HubRouter::new()),
+        web_previews: Arc::new(match std::env::var("OFFDESK_PREVIEW_DOMAIN") {
+            Ok(domain) if !domain.is_empty() => web_preview::registry::Registry::configured(web_preview::registry::Config::new(&domain, &env_or("OFFDESK_BASE_URL", "http://localhost:4317")).expect("Invalid preview configuration")),
+            _ => web_preview::registry::Registry::default(),
+        }),
         db: pool,
         jwt_secret: jwt_secret.clone(),
         base_url: env_or("OFFDESK_BASE_URL", "http://localhost:4317"),
@@ -358,11 +364,13 @@ async fn main() {
 
     let app = routes::router()
         .merge(ws::router())
+        .merge(web_preview::router())
         .route("/api", any(api_not_found))
         .route("/api/{*path}", any(api_not_found))
         .layer(CorsLayer::permissive())
         .fallback_service(ui_service(args.static_dir.as_deref()))
-        .with_state(state);
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(state, web_preview::dispatch));
 
     let listener = match tokio::net::TcpListener::bind(&args.listen).await {
         Ok(listener) => listener,
