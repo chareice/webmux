@@ -1,7 +1,7 @@
 export interface ComposerMessage {
   id: string;
   text: string;
-  attachments: { data: string; mime: string }[];
+  attachments: { data: string; mime: string; filename?: string }[];
 }
 export interface ComposerReceipt {
   id: string;

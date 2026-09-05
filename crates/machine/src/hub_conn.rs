@@ -924,10 +924,10 @@ fn prepare_composer(message: &offdesk_protocol::ComposerMessage) -> Result<Strin
         use base64::Engine;
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&attachment.data)
-            .map_err(|_| "An image is incomplete or invalid. Attach it again.".to_string())?;
+            .map_err(|_| "A file is incomplete or invalid. Attach it again.".to_string())?;
         total += bytes.len();
         if total > offdesk_protocol::composer::MAX_COMPOSER_ATTACHMENT_BYTES {
-            return Err("Images exceed 20 MB".into());
+            return Err("Files exceed 20 MB".into());
         }
         decoded.push(bytes);
     }
@@ -949,9 +949,12 @@ fn prepare_composer(message: &offdesk_protocol::ComposerMessage) -> Result<Strin
                     "image/jpeg" => "jpg",
                     "image/webp" => "webp",
                     "image/gif" => "gif",
-                    _ => "png",
+                    "image/png" => "png",
+                    _ => "bin",
                 };
-                let path = dir.join(format!("image-{index}.{ext}"));
+                let name = message.attachments[index].filename.as_deref()
+                    .map(safe_attachment_name).unwrap_or_else(|| format!("image-{index}.{ext}"));
+                let path = dir.join(format!("{index}-{name}"));
                 let mut file = std::fs::OpenOptions::new()
                     .write(true)
                     .create_new(true)
@@ -961,7 +964,7 @@ fn prepare_composer(message: &offdesk_protocol::ComposerMessage) -> Result<Strin
                 if !text.is_empty() {
                     text.push('\n');
                 }
-                text.push_str(&path.to_string_lossy());
+                text.push_str(&attachment_path_text(&path));
             }
             Ok(())
         })();
@@ -973,51 +976,49 @@ fn prepare_composer(message: &offdesk_protocol::ComposerMessage) -> Result<Strin
     Ok(format!("\x1b[200~{text}\x1b[201~"))
 }
 
-fn handle_image_paste(base64_data: &str, _mime: &str, filename: &str) -> Result<String, String> {
-    use std::io::Write;
-
-    // Decode base64
-    let data = base64_decode(base64_data).map_err(|e| format!("Base64 decode failed: {}", e))?;
-
-    // Save to temp file
-    let tmp_dir = std::env::temp_dir();
-    let path = tmp_dir.join(filename);
-    let mut file =
-        std::fs::File::create(&path).map_err(|e| format!("Failed to create temp file: {}", e))?;
-    file.write_all(&data)
-        .map_err(|e| format!("Failed to write temp file: {}", e))?;
-
-    let path_str = path.to_string_lossy().to_string();
-
-    Ok(format!("\x1b[200~{}\x1b[201~", path_str))
+fn safe_attachment_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let cleaned: String = base.chars().filter(|c| !c.is_control()).take(180).collect();
+    let cleaned = cleaned.trim_start_matches('.').trim();
+    if cleaned.is_empty() { "attachment.bin".into() } else { cleaned.into() }
 }
 
-fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    // Simple base64 decoder
-    let table: Vec<u8> =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_vec();
-    let mut output = Vec::new();
-    let mut buf: u32 = 0;
-    let mut bits: u32 = 0;
-
-    for &byte in input.as_bytes() {
-        if byte == b'=' || byte == b'\n' || byte == b'\r' || byte == b' ' {
-            continue;
-        }
-        let val = table
-            .iter()
-            .position(|&b| b == byte)
-            .ok_or_else(|| format!("Invalid base64 char: {}", byte as char))?
-            as u32;
-        buf = (buf << 6) | val;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            output.push((buf >> bits) as u8);
-            buf &= (1 << bits) - 1;
-        }
+fn attachment_path_text(path: &std::path::Path) -> String {
+    let text = path.to_string_lossy();
+    if text.chars().all(|c| c.is_alphanumeric() || matches!(c, '/' | '_' | '-' | '.')) {
+        text.into_owned()
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
     }
-    Ok(output)
+}
+
+fn handle_image_paste(base64_data: &str, _mime: &str, filename: &str) -> Result<String, String> {
+    use base64::Engine;
+    use std::io::Write;
+    const MAX_BYTES: usize = 25 * 1024 * 1024;
+    if base64_data.len() > MAX_BYTES * 4 / 3 + 16 { return Err("File exceeds 25 MB".into()); }
+    let data = base64::engine::general_purpose::STANDARD.decode(base64_data)
+        .map_err(|e| format!("Base64 decode failed: {e}"))?;
+    if data.len() > MAX_BYTES { return Err("File exceeds 25 MB".into()); }
+    // Each upload has a private, unique directory. Never trust a client path,
+    // overwrite an existing file, or follow a pre-created temporary symlink.
+    let dir = std::env::temp_dir().join(format!("offdesk-upload-{}", uuid::Uuid::new_v4()));
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(&dir).map_err(|e| format!("Could not save attachment: {e}"))?;
+    let path = dir.join(safe_attachment_name(filename));
+    let result = (|| -> Result<String, String> {
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path)
+            .map_err(|e| format!("Could not create attachment: {e}"))?;
+        file.write_all(&data).map_err(|e| format!("Could not write attachment: {e}"))?;
+        Ok(format!("\x1b[200~{}\x1b[201~", attachment_path_text(&path)))
+    })();
+    if result.is_err() { let _ = std::fs::remove_dir_all(&dir); }
+    result
 }
 
 fn read_directory(path: &str) -> Result<Vec<DirEntry>, String> {
@@ -1065,6 +1066,7 @@ mod tests {
             text: "第一行\r\n第二行".into(),
             attachments: vec![offdesk_protocol::ComposerAttachment {
                 mime: "image/png".into(),
+                filename: None,
                 data: "b2ZmZGVzaw==".into(),
             }],
         };
@@ -1092,6 +1094,7 @@ mod tests {
             .attachments
             .push(offdesk_protocol::ComposerAttachment {
                 mime: "image/png".into(),
+                filename: None,
                 data: "truncated!".into(),
             });
         assert!(prepare_composer(&invalid).is_err());
@@ -1109,23 +1112,21 @@ mod tests {
 
     #[test]
     fn image_paste_returns_bracketed_path_for_single_attach_write() {
-        let filename = format!("offdesk-image-paste-test-{}.png", std::process::id());
-        let path = std::env::temp_dir().join(&filename);
-        let _ = std::fs::remove_file(&path);
-
-        let paste = handle_image_paste("b2ZmZGVzaw==", "image/png", &filename)
-            .expect("image paste should be prepared");
-
-        assert_eq!(
-            std::fs::read(&path).expect("image file should exist"),
-            b"offdesk"
-        );
-        assert_eq!(
-            paste,
-            format!("\x1b[200~{}\x1b[201~", path.to_string_lossy())
-        );
-
-        let _ = std::fs::remove_file(path);
+        let paste = handle_image_paste("b2ZmZGVzaw==", "application/pdf", "../../report.pdf")
+            .expect("file paste should be prepared");
+        let path = std::path::PathBuf::from(paste.strip_prefix("\x1b[200~").unwrap().strip_suffix("\x1b[201~").unwrap());
+        assert_eq!(path.file_name().unwrap(), "report.pdf");
+        assert!(path.parent().unwrap().file_name().unwrap().to_string_lossy().starts_with("offdesk-upload-"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"offdesk");
+        let second = handle_image_paste("bmV3", "application/pdf", "report.pdf").unwrap();
+        assert_ne!(paste, second);
+        assert_eq!(std::fs::read(&path).unwrap(), b"offdesk");
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        let other = second.strip_prefix("\x1b[200~").unwrap().strip_suffix("\x1b[201~").unwrap();
+        std::fs::remove_dir_all(std::path::Path::new(other).parent().unwrap()).unwrap();
+        assert_eq!(safe_attachment_name("C:\\folder\\..\\notes.txt"), "notes.txt");
+        assert_eq!(safe_attachment_name("..\x1b\r\n"), "attachment.bin");
+        assert_eq!(attachment_path_text(std::path::Path::new("/tmp/my report's.pdf")), "'/tmp/my report'\\''s.pdf'");
     }
 
     #[test]
