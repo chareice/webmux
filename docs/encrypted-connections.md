@@ -64,7 +64,8 @@ reachability from Wi-Fi presence or a successful HTTP page load. **Check again**
 refreshes availability; unavailable routes are disabled. Switching verifies again
 before saving the address and reconnecting terminal streams. It preserves device
 credentials, terminal sessions and editor drafts, never replays pending input,
-and declines while outgoing input/files or API requests are in flight. If both
+and declines while outgoing input/files or API mutations are in flight. Stalled
+read-only requests do not prevent leaving an unreachable route. If both
 routes are offline, the pairing and saved addresses remain available for retry.
 Route selection is manual in this version.
 

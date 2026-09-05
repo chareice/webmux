@@ -15,6 +15,17 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 #[derive(Default)]
 pub struct SecureState(Mutex<Option<Client>>, RwLock<()>, Mutex<()>);
+impl SecureState {
+    async fn request_gate(&self, method: &str) -> Option<tokio::sync::RwLockReadGuard<'_, ()>> {
+        // A stalled settings/bootstrap read must not trap someone on a dead
+        // LAN route. Mutations retain the gate until their receipt or timeout.
+        if method == "GET" {
+            None
+        } else {
+            Some(self.1.read().await)
+        }
+    }
+}
 #[derive(Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 struct Credential {
     #[zeroize(skip)]
@@ -490,7 +501,7 @@ pub async fn secure_request<R: Runtime>(
     path: String,
     body: Option<String>,
 ) -> Result<Response, String> {
-    let _gate = state.1.read().await;
+    let _gate = state.request_gate(&method).await;
     connected(&app, &state)
         .await?
         .request(method, path, body)
@@ -607,6 +618,17 @@ mod route_tests {
             device_id: status.device_id.clone(),
         };
         (status, credential)
+    }
+    #[tokio::test]
+    async fn stale_reads_allow_switching_while_mutations_hold_the_gate() {
+        let state = SecureState::default();
+        let read = state.request_gate("GET").await;
+        assert!(state.1.try_write().is_ok());
+        drop(read);
+        let mutation = state.request_gate("POST").await;
+        assert!(state.1.try_write().is_err());
+        drop(mutation);
+        assert!(state.1.try_write().is_ok());
     }
     #[test]
     fn existing_pairing_migrates_without_replacing_its_keychain_credential() {
