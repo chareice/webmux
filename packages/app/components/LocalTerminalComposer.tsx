@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { colors } from "@/lib/colors";
 import { getServerUrl } from "@/lib/serverUrl";
 import { HubLatencyContext } from "@/lib/hubLatency";
+import { readClipboardText } from "@/lib/readClipboardText";
 import { newComposerId } from "@/lib/composerTransport";
 import { loadComposerDraft, saveComposerDraft, loadComposerFile, saveComposerFile, removeComposerFile, type ComposerDraft } from "@/lib/composerDrafts";
 import type { ComposerMessage, ComposerReceipt } from "@/lib/composerTransport";
@@ -36,6 +37,7 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
   const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [suggestLocal, setSuggestLocal] = useState(false);
   const [suggestionDismissed, setSuggestionDismissed] = useState(false);
   const latency = useContext(HubLatencyContext);
@@ -88,6 +90,36 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
     setSuggestionDismissed(true);
     onModeChange(local);
     if (local) requestAnimationFrame(() => input.current?.focus());
+  };
+  const paste = async () => {
+    const current = draftRef.current;
+    if (!current || busyRef.current || current.pending) return;
+    const start = current.mode === "local" ? input.current?.selectionStart ?? current.text.length : current.text.length;
+    const end = current.mode === "local" ? input.current?.selectionEnd ?? start : start;
+    busyRef.current = true; setBusy(true); setError(null);
+    // Read during the click's activation; switch to a reviewable draft even
+    // if the browser denies clipboard access, so native Paste remains usable.
+    const reading = readClipboardText();
+    const localDraft = { ...current, mode: "local" as const };
+    update(localDraft); onModeChange(true);
+    let caret = start;
+    try {
+      const text = await reading;
+      if (!mounted.current || draftRef.current !== localDraft) return;
+      if (!text) { setError("The clipboard has no text."); return; }
+      const next = current.text.slice(0, start) + text + current.text.slice(end);
+      if (next.length > 65536) { setError("This text is too long. Paste a smaller section (up to 65,536 characters)."); return; }
+      update({ ...localDraft, text: next });
+      caret = start + text.length;
+    } catch {
+      if (mounted.current) setError("Could not read the clipboard. Long-press the input box and choose Paste, or use Cmd/Ctrl+V.");
+    } finally {
+      busyRef.current = false;
+      if (mounted.current) {
+        setBusy(false);
+        requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(caret, caret); });
+      }
+    }
   };
   const attach = async (chosen: File[]) => {
     const current = draftRef.current;
@@ -152,16 +184,20 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
         <button style={button} disabled={!draft || busy} aria-pressed={!local} onClick={() => mode(false)}>Direct input</button>
         <button style={{ ...button, borderColor: local ? colors.accent : colors.border }} disabled={!draft || busy} aria-pressed={local} onClick={() => mode(true)}>Local editor</button>
       </div>
+      <button style={button} disabled={!draft || locked} onClick={() => void paste()} title="Paste text into the local editor to review before sending">Paste</button>
       {local && <button style={button} disabled={!canSend || busy} title="Use the agent’s remote slash-command menu" onClick={() => { mode(false); onDirectAction("/"); }}>/ Commands</button>}
     </div>
     {!local && suggestLocal && !suggestionDismissed && <p style={{ color: colors.foregroundSecondary, fontSize: 12, margin: "6px 0" }}>Slow connection? Try the local editor for instant typing.</p>}
     {local && draft && <>
-      <div style={{ fontSize: 11, color: colors.foregroundMuted, margin: "6px 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>To {title} · <span data-testid="composer-save-status">{saved ? "Saved on this device" : "Saving…"}</span></div>
-      <textarea ref={input} aria-label="Message to terminal" data-testid="composer-input" value={draft.text} disabled={locked} rows={3} maxLength={65536}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0" }}>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: colors.foregroundMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>To {title} · <span data-testid="composer-save-status">{saved ? "Saved on this device" : "Saving…"}</span></div>
+        <button style={button} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "Collapse editor" : "Expand editor"}</button>
+      </div>
+      <textarea ref={input} aria-label="Message to terminal" data-testid="composer-input" value={draft.text} disabled={locked} rows={expanded ? 8 : 3} maxLength={65536}
         placeholder="Write here, then send to the terminal…"
         onChange={e => update({ ...draftRef.current!, text: e.target.value })}
         onPaste={e => { const pasted = Array.from(e.clipboardData.files); if (pasted.length) { e.preventDefault(); void attach(pasted); } }}
-        style={{ boxSizing: "border-box", width: "100%", resize: "vertical", minHeight: 70, maxHeight: "30dvh", background: colors.surface, color: colors.foreground, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 10, fontSize: 16, fontFamily: "inherit" }} />
+        style={{ boxSizing: "border-box", width: "100%", resize: "vertical", minHeight: 70, maxHeight: expanded ? "45dvh" : "30dvh", background: colors.surface, color: colors.foreground, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 10, fontSize: 16, fontFamily: "inherit" }} />
       <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>{files.map(({ id, file }) => <ImagePreview key={id} file={file} disabled={locked} onRemove={() => {
         update({ ...draftRef.current!, fileIds: draftRef.current!.fileIds.filter(f => f !== id) });
         setFiles(old => old.filter(f => f.id !== id)); void removeComposerFile(id).catch(() => {});

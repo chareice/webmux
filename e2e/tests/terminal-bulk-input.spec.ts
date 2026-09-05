@@ -1,0 +1,122 @@
+import { test, expect, devices } from "@playwright/test";
+import { openApp, resetMachineState, requestMachineControl, createTerminalViaApi, expandTerminalById, readTerminalBuffer } from "./helpers";
+
+// CI keeps its normal Chromium/container path. WebKit is opt-in for host
+// debugging of the iOS/macOS report, not a replacement for container E2E.
+test.use({ browserName: process.env.OFFDESK_DEBUG_WEBKIT ? "webkit" : "chromium" });
+for (const device of ["iPhone 14", "Desktop Safari"]) {
+  test.describe(device, () => {
+    const { defaultBrowserType: _browserType, ...contextOptions } = devices[device];
+    test.use(contextOptions);
+
+test("bulk input and legacy keypress preserve a whole dictated paragraph", async ({ page }) => {
+  const inputs: string[] = [];
+  page.on("websocket", socket => socket.on("framesent", frame => {
+    if (typeof frame.payload !== "string") return;
+    try {
+      const message = JSON.parse(frame.payload);
+      if (message.type === "input") inputs.push(message.data);
+    } catch { /* binary output */ }
+  }));
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  const id = await createTerminalViaApi(page, { cwd: "/tmp", startupCommand: "env BASH_SILENCE_DEPRECATION_WARNING=1 bash --noprofile --norc" });
+  await expandTerminalById(page, id);
+  await expect.poll(() => readTerminalBuffer(page, id)).toMatch(/bash-\d+\.\d+[#$]/);
+  const textarea = page.locator(".xterm-helper-textarea").first();
+  await textarea.focus();
+  inputs.length = 0;
+  const text = "这是一次语音输入测试，请保留整段文字，包括重复词测试测试、English 和标点。";
+  await page.keyboard.insertText(text);
+  await expect.poll(() => inputs.join("")).toBe(text);
+  inputs.length = 0;
+  // Legacy keypress carries the full string in key, while charCode only
+  // represents its first UTF-16 unit. This explicitly exercises that event
+  // shape; keyboard.insertText above exercises the real engine pipeline.
+  await textarea.evaluate((element, text) => element.dispatchEvent(new KeyboardEvent("keypress", {
+    bubbles: true, cancelable: true, key: text, charCode: text.charCodeAt(0), which: text.charCodeAt(0),
+  })), text);
+  await expect.poll(() => inputs.join("").replace(/\x1b\[20[01]~/g, "")).toBe(text);
+});
+
+test("Paste opens a complete editable draft without sending terminal input", async ({ page }, testInfo) => {
+  test.skip(device !== "iPhone 14", "The local editor is currently mobile-only.");
+  const text = "整段粘贴文字，保留重复词测试测试。\nSecond line 🦊";
+  await page.addInitScript(text => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => text } });
+  }, text);
+  const inputs: string[] = [];
+  page.on("websocket", socket => socket.on("framesent", frame => {
+    if (typeof frame.payload === "string") {
+      try { const message = JSON.parse(frame.payload); if (["input", "composer"].includes(message.type)) inputs.push(frame.payload); } catch {}
+    }
+  }));
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  const id = await createTerminalViaApi(page, { cwd: "/tmp" });
+  await expandTerminalById(page, id);
+  await expect(page.getByRole("button", { name: "Paste", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Paste", exact: true }).click();
+  const editor = page.getByTestId("composer-input");
+  await expect(editor).toHaveValue(text);
+  await page.getByRole("button", { name: "Expand editor", exact: true }).click();
+  await expect(editor).toHaveAttribute("rows", "8");
+  await page.screenshot({ path: testInfo.outputPath("expanded-paste-editor.png") });
+  await expect(page.getByTestId("composer-save-status")).toHaveText("Saved on this device");
+  await editor.fill("Before [replace] after");
+  await editor.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(7, 16));
+  await page.getByRole("button", { name: "Paste", exact: true }).click();
+  await expect(editor).toHaveValue("Before " + text + " after");
+  expect(inputs.filter(raw => { const m = JSON.parse(raw); return m.type === "composer" || !/^(?:\x1b\](?:10|11);rgb:[0-9a-f/]+\x1b\\)+$/i.test(m.data); })).toEqual([]);
+});
+
+test("denied clipboard access keeps the draft and exposes manual Paste", async ({ page }) => {
+  test.skip(device !== "iPhone 14", "The local editor is currently mobile-only.");
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => { throw new DOMException("Denied", "NotAllowedError"); } } });
+  });
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  const id = await createTerminalViaApi(page, { cwd: "/tmp" });
+  await expandTerminalById(page, id);
+  await page.getByRole("button", { name: "Local editor", exact: true }).click();
+  await page.getByTestId("composer-input").fill("Keep this draft");
+  await page.getByRole("button", { name: "Paste", exact: true }).click();
+  await expect(page.getByText(/Could not read the clipboard/)).toBeVisible();
+  await expect(page.getByTestId("composer-input")).toHaveValue("Keep this draft");
+  await expect(page.getByTestId("composer-input")).toBeEnabled();
+});
+
+test("terminal Enter preserves focus after the OS dismisses the keyboard", async ({ page }) => {
+  test.skip(device !== "iPhone 14", "Mobile key bar behavior.");
+  const commands: string[] = [];
+  page.on("websocket", socket => socket.on("framesent", frame => {
+    if (typeof frame.payload !== "string") return;
+    try { const m = JSON.parse(frame.payload); if (m.type === "command_input") commands.push(m.data); } catch {}
+  }));
+  await openApp(page);
+  await resetMachineState(page);
+  await requestMachineControl(page);
+  const id = await createTerminalViaApi(page, { cwd: "/tmp" });
+  await expandTerminalById(page, id);
+  await page.getByTitle("Show keyboard", { exact: true }).click();
+  const textarea = page.locator(".xterm-helper-textarea").first();
+  await expect(textarea).toBeFocused();
+  // Models dismissing the OS keyboard outside our toggle: the app's old
+  // keyboardVisible flag remains true. Key-bar input must not refocus it.
+  await textarea.evaluate((el: HTMLTextAreaElement) => el.blur());
+  const enter = page.getByTestId("extended-keybar-enter");
+  await enter.click();
+  await expect.poll(() => commands.join("")).toBe("\r");
+  await expect(textarea).not.toBeFocused();
+  await textarea.focus();
+  await enter.click();
+  await expect.poll(() => commands.join("")).toBe("\r\r");
+  await expect(textarea).toBeFocused();
+});
+
+  });
+}
