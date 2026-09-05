@@ -1,3 +1,4 @@
+import { HubLatencyContext } from "@/lib/hubLatency";
 // Mobile workbench shell (P1). Rendered when the viewport is below 768px.
 // Permanent chrome is exactly two elements: the session title bar on top and
 // the extended key bar at the bottom (the key bar renders inside
@@ -583,7 +584,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
             </div>
           </div>
         ) : (
-          children
+          <HubLatencyContext.Provider value={rttMs}>{children}</HubLatencyContext.Provider>
         )}
       </div>
 

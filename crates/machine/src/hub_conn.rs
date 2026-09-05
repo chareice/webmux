@@ -1,13 +1,16 @@
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
-use std::sync::Arc;
-use std::time::Duration;
 use offdesk_protocol::{
     compression::{AttachCompressor, DEFLATE_RAW_V1},
     encode_attach_output_frame, DirEntry, HubToMachine, MachineToHub, TerminalTitleSource,
 };
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{
+    connect_async_with_config,
+    tungstenite::{protocol::WebSocketConfig, Message},
+};
 
 use crate::acp::AcpManager;
 use crate::attach::{AttachEvent, AttachManager};
@@ -23,23 +26,35 @@ const SEND_BATCH_LIMIT: usize = 64;
 
 enum OutboundHubMessage {
     Json(MachineToHub),
-    AttachOutput { attach_id: String, data: Bytes },
+    AttachOutput {
+        attach_id: String,
+        data: Bytes,
+    },
     /// Turn deflate-raw-v1 on/off for one attach in the send loop. Flows
     /// through the same channel as output so it is ordered against that
     /// attach's AttachOutput chunks: the send task creates the per-attach
     /// compressor before the first compressed chunk and drops it after the
     /// last one.
-    AttachCompression { attach_id: String, enable: bool },
+    AttachCompression {
+        attach_id: String,
+        enable: bool,
+    },
 }
 
 /// One WebSocket message ready to feed to the sink.
 #[derive(Debug, PartialEq)]
 enum WireMessage {
     Json(String),
-    AttachFrame { attach_id: String, payload: Vec<u8> },
+    AttachFrame {
+        attach_id: String,
+        payload: Vec<u8>,
+    },
     /// Pass-through of OutboundHubMessage::AttachCompression; consumed by the
     /// send loop, never sent on the wire. Acts as a merge barrier.
-    AttachCompression { attach_id: String, enable: bool },
+    AttachCompression {
+        attach_id: String,
+        enable: bool,
+    },
 }
 
 /// Flatten a drained send batch into wire messages, merging *adjacent*
@@ -104,7 +119,10 @@ impl HubConnection {
     }
 
     async fn connect_once(&self) -> Result<(), String> {
-        let (ws_stream, _) = connect_async(&self.hub_url)
+        let config = WebSocketConfig::default()
+            .max_message_size(Some(32 * 1024 * 1024))
+            .max_frame_size(Some(32 * 1024 * 1024));
+        let (ws_stream, _) = connect_async_with_config(&self.hub_url, Some(config), false)
             .await
             .map_err(|e| format!("WebSocket connect failed: {}", e))?;
 
@@ -132,7 +150,10 @@ impl HubConnection {
             name: self.machine_name.clone(),
             os: std::env::consts::OS.to_string(),
             home_dir: dirs_home(),
-            capabilities: vec![DEFLATE_RAW_V1.to_string()],
+            capabilities: vec![
+                DEFLATE_RAW_V1.to_string(),
+                offdesk_protocol::composer::COMPOSER_V1.to_string(),
+            ],
         };
         let msg = serde_json::to_string(&register).unwrap();
         ws_tx
@@ -311,9 +332,9 @@ impl HubConnection {
                     let pane_info = pane_infos.get(&terminal_id);
                     let title_update = match pane_info.and_then(|info| info.title.as_ref()) {
                         Some(title) => Some((title.clone(), TerminalTitleSource::Osc)),
-                        None => fallback_title(
-                            pane_info.and_then(|info| info.current_command.clone()),
-                        ),
+                        None => {
+                            fallback_title(pane_info.and_then(|info| info.current_command.clone()))
+                        }
                     };
                     // Never report an empty title: it would only flip the
                     // hub-side title_source and storm TerminalUpdated events.
@@ -716,6 +737,34 @@ async fn handle_hub_message(
         HubToMachine::RefreshAttach { attach_id } => {
             attach_mgr.refresh(&attach_id).await;
         }
+        HubToMachine::AttachComposer {
+            request_id,
+            attach_id,
+            message,
+        } => {
+            let attach_mgr = attach_mgr.clone();
+            let send_tx = send_tx.clone();
+            tokio::spawn(async move {
+                use offdesk_protocol::{ComposerReceipt, ComposerStatus};
+                let id = message.id.clone();
+                let prepared = tokio::task::spawn_blocking(move || prepare_composer(&message))
+                    .await
+                    .unwrap_or_else(|_| Err("Could not prepare attachments".into()));
+                let receipt = match prepared {
+                Err(detail) => ComposerReceipt { id: id.clone(), status: ComposerStatus::Failed, detail },
+                Ok(paste) => match attach_mgr.write_composer(&attach_id, Bytes::from(paste)).await {
+                    Ok(()) => ComposerReceipt { id: id.clone(), status: ComposerStatus::Delivered, detail: "Delivered to the terminal. Execution is not confirmed.".into() },
+                    Err(status) => ComposerReceipt { id: id.clone(), status, detail: "Terminal delivery failed or could not be confirmed. Check the terminal before sending again.".into() },
+                },
+            };
+                let _ = send_tx
+                    .send(OutboundHubMessage::Json(MachineToHub::ComposerResult {
+                        request_id,
+                        receipt,
+                    }))
+                    .await;
+            });
+        }
         HubToMachine::AttachInput { attach_id, data } => {
             attach_mgr
                 .write_input(&attach_id, Bytes::from(data.into_bytes()))
@@ -784,7 +833,14 @@ async fn handle_hub_message(
             model_id,
         } => {
             acp_manager
-                .start_session(session_id, agent_kind, cwd, auto_run, resume_acp_session_id, model_id)
+                .start_session(
+                    session_id,
+                    agent_kind,
+                    cwd,
+                    auto_run,
+                    resume_acp_session_id,
+                    model_id,
+                )
                 .await;
         }
         HubToMachine::AgentSessionPrompt { session_id, text } => {
@@ -822,6 +878,64 @@ fn fallback_title(process_name: Option<String>) -> Option<(String, TerminalTitle
     process_name
         .filter(|name| !name.is_empty())
         .map(|name| (name, TerminalTitleSource::Process))
+}
+
+fn prepare_composer(message: &offdesk_protocol::ComposerMessage) -> Result<String, String> {
+    use std::io::Write;
+    message.validate()?;
+    let mut decoded = Vec::new();
+    let mut total = 0;
+    for attachment in &message.attachments {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&attachment.data)
+            .map_err(|_| "An image is incomplete or invalid. Attach it again.".to_string())?;
+        total += bytes.len();
+        if total > offdesk_protocol::composer::MAX_COMPOSER_ATTACHMENT_BYTES {
+            return Err("Images exceed 20 MB".into());
+        }
+        decoded.push(bytes);
+    }
+    let mut text = message.text.replace("\r\n", "\n").replace('\r', "\n");
+    if !decoded.is_empty() {
+        let dir = std::env::temp_dir().join(format!("offdesk-composer-{}", uuid::Uuid::new_v4()));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder
+            .create(&dir)
+            .map_err(|e| format!("Could not save attachments: {e}"))?;
+        let saved = (|| -> Result<(), String> {
+            for (index, bytes) in decoded.iter().enumerate() {
+                let ext = match message.attachments[index].mime.as_str() {
+                    "image/jpeg" => "jpg",
+                    "image/webp" => "webp",
+                    "image/gif" => "gif",
+                    _ => "png",
+                };
+                let path = dir.join(format!("image-{index}.{ext}"));
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&path)
+                    .map_err(|e| e.to_string())?;
+                file.write_all(bytes).map_err(|e| e.to_string())?;
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str(&path.to_string_lossy());
+            }
+            Ok(())
+        })();
+        if let Err(error) = saved {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(error);
+        }
+    }
+    Ok(format!("\x1b[200~{text}\x1b[201~"))
 }
 
 fn handle_image_paste(base64_data: &str, _mime: &str, filename: &str) -> Result<String, String> {
@@ -908,6 +1022,45 @@ fn dirs_home() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composer_prepares_all_images_before_terminal_input() {
+        let message = offdesk_protocol::ComposerMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            text: "第一行\r\n第二行".into(),
+            attachments: vec![offdesk_protocol::ComposerAttachment {
+                mime: "image/png".into(),
+                data: "b2ZmZGVzaw==".into(),
+            }],
+        };
+        let paste = prepare_composer(&message).unwrap();
+        assert!(paste.starts_with("\x1b[200~第一行\n第二行\n"));
+        let path = paste
+            .strip_suffix("\x1b[201~")
+            .unwrap()
+            .lines()
+            .last()
+            .unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), b"offdesk");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let parent = std::path::Path::new(path).parent().unwrap();
+            assert_eq!(
+                std::fs::metadata(parent).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
+        std::fs::remove_dir_all(std::path::Path::new(path).parent().unwrap()).unwrap();
+        let mut invalid = message;
+        invalid
+            .attachments
+            .push(offdesk_protocol::ComposerAttachment {
+                mime: "image/png".into(),
+                data: "truncated!".into(),
+            });
+        assert!(prepare_composer(&invalid).is_err());
+    }
 
     #[test]
     fn fallback_title_skips_absent_and_empty_process_names() {

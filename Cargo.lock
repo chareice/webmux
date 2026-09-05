@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "offdesk-cli"
-version = "0.19.6"
+version = "0.19.7"
 dependencies = [
  "clap",
  "dirs",
@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "offdesk-hub"
-version = "0.19.6"
+version = "0.19.7"
 dependencies = [
  "axum",
  "bcrypt",
@@ -1329,8 +1329,9 @@ dependencies = [
 
 [[package]]
 name = "offdesk-machine"
-version = "0.19.6"
+version = "0.19.7"
 dependencies = [
+ "base64",
  "bytes",
  "clap",
  "dirs",
@@ -1354,13 +1355,14 @@ dependencies = [
 
 [[package]]
 name = "offdesk-protocol"
-version = "0.19.6"
+version = "0.19.7"
 dependencies = [
  "bytes",
  "dirs",
  "flate2",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

@@ -1,3 +1,5 @@
+import { LocalTerminalComposer } from "./LocalTerminalComposer";
+import type { ComposerMessage } from "@/lib/composerTransport";
 import { lazy, memo, Suspense, useRef, useCallback, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import { createPortal } from "react-dom";
 import type { TerminalInfo } from "@offdesk/shared";
@@ -74,6 +76,17 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   onReleaseControl,
 }, ref) {
   const termViewRef = useRef<TerminalViewRef>(null);
+  const [localInput, setLocalInput] = useState(false);
+  const sendComposer = useCallback((message: ComposerMessage) => {
+    const view = termViewRef.current;
+    if (!view) return Promise.reject(new Error("Reconnect to the terminal before sending."));
+    return view.sendComposer(message);
+  }, []);
+  const directComposerAction = useCallback((data: string) => {
+    termViewRef.current?.sendCommandInput(data);
+    requestAnimationFrame(() => termViewRef.current?.focus());
+  }, []);
+  useEffect(() => { if (localInput) { termViewRef.current?.blur(); setKeyboardVisible(false); } }, [localInput]);
   const selectOverlayRef = useRef<HTMLPreElement>(null);
   const fitRefRetryTimer = useRef<number | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -644,6 +657,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                   displayMode={isTab ? "immersive" : "card"}
                   isController={isController}
                   canType={canType}
+                  directInputEnabled={!localInput}
                   canResizeTerminal={isTab && isController}
                   onReconnectingChange={setTerminalReconnecting}
                   inputTransformRef={inputTransformRef}
@@ -715,7 +729,12 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
 
         {/* Compact phone: inline key bar. Large+touch: portal into the
             workspace bottom slot so one bar operates on the focused pane. */}
-        {isTab && isCompact && keyBar}
+        {isTab && isCompact && (
+          <LocalTerminalComposer key={terminal.id} machineId={terminal.machine_id} terminalId={terminal.id}
+            title={displayTerminalTitle(terminal)} canSend={canType && isController && terminal.reachable && !terminalReconnecting}
+            onModeChange={setLocalInput} onDirectAction={directComposerAction} onSend={sendComposer} />
+        )}
+        {isTab && isCompact && !localInput && keyBar}
         {isTab &&
           isTouch &&
           !isCompact &&

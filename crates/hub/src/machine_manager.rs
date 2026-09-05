@@ -28,6 +28,7 @@ pub struct EventEnvelope {
 type PendingResponse = oneshot::Sender<Result<PendingResult, String>>;
 
 pub enum PendingResult {
+    Composer(offdesk_protocol::ComposerReceipt),
     TerminalCreated {
         terminal_id: String,
         title: String,
@@ -897,6 +898,42 @@ impl MachineManager {
             .map_err(|_| "Machine disconnected".to_string())
     }
 
+    pub async fn submit_composer(
+        &self,
+        machine_id: &str,
+        attach_id: String,
+        message: offdesk_protocol::ComposerMessage,
+    ) -> offdesk_protocol::ComposerReceipt {
+        use offdesk_protocol::{ComposerReceipt, ComposerStatus};
+        let id = message.id.clone();
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let rx = self.register_pending(&request_id).await;
+        if let Err(detail) = self
+            .send_to_machine(
+                machine_id,
+                HubToMachine::AttachComposer {
+                    request_id: request_id.clone(),
+                    attach_id,
+                    message,
+                },
+            )
+            .await
+        {
+            self.remove_pending(&request_id).await;
+            return ComposerReceipt {
+                id,
+                status: ComposerStatus::Failed,
+                detail,
+            };
+        }
+        let result = tokio::time::timeout(Duration::from_secs(30), rx).await;
+        self.remove_pending(&request_id).await;
+        match result {
+            Ok(Ok(Ok(PendingResult::Composer(receipt)))) if receipt.id == id => receipt,
+            _ => ComposerReceipt { id, status: ComposerStatus::Unknown, detail: "Delivery could not be confirmed. Check the terminal before sending anything again.".into() },
+        }
+    }
+
     /// Look up the (cols, rows) of a terminal. The hub-side WS handler uses
     /// this to open a new tmux attach at the right initial size.
     pub async fn terminal_dimensions(
@@ -1329,6 +1366,14 @@ impl MachineManager {
                         has_foreground_process,
                         process_name,
                     }));
+                }
+            }
+            MachineToHub::ComposerResult {
+                request_id,
+                receipt,
+            } => {
+                if let Some(tx) = self.pending.lock().await.remove(&request_id) {
+                    let _ = tx.send(Ok(PendingResult::Composer(receipt)));
                 }
             }
             MachineToHub::Pong => {}

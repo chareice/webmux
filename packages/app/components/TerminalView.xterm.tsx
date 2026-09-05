@@ -1,3 +1,4 @@
+import { createComposerTransport } from "@/lib/composerTransport";
 import {
   useEffect,
   useRef,
@@ -448,6 +449,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     displayMode = "immersive",
     isController,
     canType,
+    directInputEnabled = true,
     canResizeTerminal,
     onTitleChange,
     onReconnectingChange,
@@ -458,9 +460,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
+    const [composerTransport] = useState(() => createComposerTransport(() => wsRef.current));
     const fitRef = useRef<FitAddon | null>(null);
     const isControllerRef = useRef(isController ?? true);
     const canTypeRef = useRef(canType ?? isController ?? true);
+    const directInputRef = useRef(directInputEnabled);
+    useEffect(() => {
+      directInputRef.current = directInputEnabled;
+      if (termRef.current) termRef.current.options.disableStdin = !directInputEnabled;
+    }, [directInputEnabled]);
     const canResizeTerminalRef = useRef(canResizeTerminal ?? false);
     const measureRafRef = useRef<number | null>(null);
     const recentClipboardImagePasteRef =
@@ -687,6 +695,11 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     useImperativeHandle(
       ref,
       () => ({
+        sendComposer(message) {
+          if (!canTypeRef.current || !isControllerRef.current) return Promise.reject(new Error("Take control before sending."));
+          inputBatcherRef.current?.flush();
+          return composerTransport.send(message);
+        },
         sendInput(data: string) {
           // Route through the same batcher as onData input so key-bar bytes
           // stay ordered with keyboard bytes. The ref is only null before
@@ -737,7 +750,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         getSelection,
         getSelectionSnapshot,
       }),
-      [fitToContainer, measureLayout, sendImageFile, setMouseTrackingEnabled, getSelection, getSelectionSnapshot],
+      [composerTransport, fitToContainer, measureLayout, sendImageFile, setMouseTrackingEnabled, getSelection, getSelectionSnapshot],
     );
 
     // Create terminal once on mount — never recreated during reconnections
@@ -761,6 +774,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       let hoveredLink: string | null = null;
 
       const term = new Terminal({
+        disableStdin: !directInputRef.current,
         cols,
         rows,
         fontSize,
@@ -892,6 +906,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       });
       inputBatcherRef.current = batcher;
       term.onData((data) => {
+        if (!directInputRef.current) return;
         const userInput = filterBrowserGeneratedTerminalInput(data);
         if (!userInput) return;
         const transformed =
@@ -1298,6 +1313,8 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
     }, []);
 
     useTerminalLiveSocket({
+      onControlMessage: composerTransport.receive,
+      onSocketClose: composerTransport.close,
       termRef,
       wsRef,
       wsUrl,
