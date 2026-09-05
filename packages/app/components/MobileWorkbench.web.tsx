@@ -1,4 +1,5 @@
 import { HubLatencyContext } from "@/lib/hubLatency";
+import { MobileTerminalAttention } from "./MobileTerminalAttention.web";
 // Mobile workbench shell (P1). Rendered when the viewport is below 768px.
 // Permanent chrome is exactly two elements: the session title bar on top and
 // the extended key bar at the bottom (the key bar renders inside
@@ -536,6 +537,15 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
       </div>
 
       {/* Terminal area (edge swipes switch terminals in strip order) */}
+      <MobileTerminalAttention terminals={terminals} machines={machines}
+        activeTerminalId={activeTerminalId}
+        groupLabels={new Map(chips.map(({ terminal, group }) => [terminal.id, group.label]))}
+        onPick={(id) => {
+          const terminal = terminals.find(t => t.id === id);
+          if (!terminal) return;
+          onSelectMachine(terminal.machine_id);
+          onPickTerminal(id);
+        }} />
       <div
         ref={terminalAreaRef}
         data-testid="mobile-terminal-area"
@@ -709,6 +719,9 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
                         }}
                       >
                         {displayTerminalTitle(terminal)}
+                        {terminal.reachable && terminal.attention === "confirmation" && (
+                          <span style={{ display: "block", fontFamily: "inherit", color: colors.accent, fontSize: 11 }}>Confirmation requested</span>
+                        )}
                       </span>
                       <span
                         style={{

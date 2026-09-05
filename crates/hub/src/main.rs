@@ -1,4 +1,5 @@
 mod secure;
+mod tunnel_check;
 mod composer;
 mod attach_router;
 mod auth;
@@ -71,9 +72,23 @@ enum Command {
     Pair {
         #[arg(long)]
         json: bool,
+        /// Verify this address reaches this Hub before creating the code
+        #[arg(long)]
+        check: bool,
         /// Account to pair with on a multi-user Hub
         #[arg(long)]
         user_id: Option<String>,
+    },
+    /// Verify a tunnel against this Hub's local identity, without pairing
+    TunnelCheck {
+        /// Public Hub origin; defaults to OFFDESK_SECURE_BASE_URL / OFFDESK_BASE_URL
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        json: bool,
+        /// Also require HTTPS and 404 on sampled ordinary routes
+        #[arg(long)]
+        require_encrypted_only: bool,
     },
     /// Run the hub at login, restarted if it stops — a launchd agent on macOS,
     /// a systemd user service on Linux
@@ -182,7 +197,7 @@ fn run_service(action: ServiceCommand, args: &Args) {
 /// Nothing is created or changed — the hub's own key signs a session for its
 /// owner, the same as at install. It has to be run on the machine the hub
 /// runs on; that is where the key is.
-fn run_pair(args: &Args, json: bool, user_id: Option<&str>) -> Result<(), String> {
+async fn run_pair(args: &Args, json: bool, user_id: Option<&str>, check: bool) -> Result<(), String> {
     let database = first_run::database_path(args.database.as_deref());
     if !secure::store::key_path(&database).exists() {
         return Err("Start an updated Hub before creating an encrypted pairing code".into());
@@ -195,13 +210,24 @@ fn run_pair(args: &Args, json: bool, user_id: Option<&str>) -> Result<(), String
     let identity = secure::store::load_identity(&database)?;
     let base = env_or("OFFDESK_BASE_URL", "http://localhost:4317");
     let base = env_or("OFFDESK_SECURE_BASE_URL", &first_run::reachable_base_url(&base, &args.listen));
+    let connection_check = if check {
+        let endpoint = tunnel_check::local_endpoint(&database, &base)?;
+        let report = tunnel_check::check(&endpoint).await;
+        if let Some(failure) = report.failure {
+            return Err(failure.message().into());
+        }
+        Some(report)
+    } else { None };
+    // Mint only after the network check; waiting never consumes the code's TTL.
     let conn = pool.get().map_err(|e| e.to_string())?;
     let (descriptor, expires_at) = secure::store::mint(&conn, &user_id, &base, &identity, db::now_ms())?;
     let uri = descriptor.to_url()?;
     if json {
         println!("{}", serde_json::json!({ "pairing_uri": uri, "hub_url": descriptor.endpoint.hub_url,
-            "public_key": descriptor.endpoint.public_key, "expires_at": expires_at }));
+            "public_key": descriptor.endpoint.public_key, "expires_at": expires_at,
+            "connection_check": connection_check }));
     } else {
+        if let Some(report) = &connection_check { tunnel_check::print_report(report, false); }
         println!("Scan this in the offdesk App to pair an encrypted connection. Expires in five minutes.\n");
         if let Some(qr) = first_run::qr_code(&uri) { println!("{qr}"); }
         println!("{uri}\n\nThis code grants access to your Hub. Keep it private.");
@@ -336,8 +362,26 @@ async fn main() {
         run_service(*action, &args);
         return;
     }
-    if let Some(Command::Pair { json, user_id }) = &args.command {
-        if let Err(error) = run_pair(&args, *json, user_id.as_deref()) {
+    if let Some(Command::TunnelCheck { url, json, require_encrypted_only }) = &args.command {
+        let database = first_run::database_path(args.database.as_deref());
+        let base = env_or("OFFDESK_BASE_URL", "http://localhost:4317");
+        let base = url.clone().unwrap_or_else(|| env_or("OFFDESK_SECURE_BASE_URL", &first_run::reachable_base_url(&base, &args.listen)));
+        let endpoint = match tunnel_check::local_endpoint(&database, &base) {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                if *json { println!("{}", serde_json::json!({ "error": error })); }
+                else { eprintln!("{error}"); }
+                std::process::exit(1);
+            }
+        };
+        let report = tunnel_check::check(&endpoint).await;
+        tunnel_check::print_report(&report, *json);
+        if !report.passed(*require_encrypted_only) { std::process::exit(1); }
+        return;
+    }
+    if let Some(Command::Pair { json, user_id, check }) = &args.command {
+        if let Err(error) = run_pair(&args, *json, user_id.as_deref(), *check).await {
+            if *json { println!("{}", serde_json::json!({ "error": error })); }
             eprintln!("{error}");
             std::process::exit(1);
         }

@@ -258,6 +258,7 @@ impl HubConnection {
                 workspace_group_id: None,
                 cols: s.cols,
                 rows: s.rows,
+                attention: None,
                 reachable: true,
             })
             .collect();
@@ -304,8 +305,9 @@ impl HubConnection {
         // the hub's precedence (OSC beats process) does the rest. The
         // foreground process name remains the fallback for untitled panes;
         // it now rides in the same `list-panes -a` poll (`current_command`),
-        // so one tick costs one tmux subprocess total instead of one per
-        // untitled terminal. Titles and cwds are reported only when they
+        // so metadata needs one tmux subprocess rather than one per untitled
+        // terminal. Attention checks additionally capture candidate agent panes.
+        // Titles, cwds and attention are reported only when they
         // change — every report used to trigger a synchronous SQLite write
         // on the hub — and the dedup maps reset with each hub connection,
         // so a reconnected hub always gets a full refresh.
@@ -320,23 +322,44 @@ impl HubConnection {
                 String,
                 (String, TerminalTitleSource),
             > = std::collections::HashMap::new();
+            let mut last_sent_attention = std::collections::HashMap::new();
             loop {
                 interval.tick().await;
                 let poll_pty = pty_for_titles.clone();
-                let pane_infos =
-                    match tokio::task::spawn_blocking(move || poll_pty.pane_infos()).await {
-                        Ok(panes) => panes,
-                        Err(error) => {
-                            tracing::warn!("terminal metadata poll failed: {error}");
-                            continue;
-                        }
-                    };
+                let (pane_infos, attentions) = match tokio::task::spawn_blocking(move || {
+                    let panes = poll_pty.pane_infos();
+                    let attention = poll_pty.terminal_attentions(&panes);
+                    (panes, attention)
+                })
+                .await
+                {
+                    Ok(panes) => panes,
+                    Err(error) => {
+                        tracing::warn!("terminal metadata poll failed: {error}");
+                        continue;
+                    }
+                };
                 let terminal_ids = pty_for_titles.list_terminal_ids();
                 // Drop dedup state for terminals that no longer exist so the
                 // maps can't grow without bound over a long connection.
                 last_sent_cwd.retain(|id, _| terminal_ids.contains(id));
                 last_sent_title.retain(|id, _| terminal_ids.contains(id));
+                last_sent_attention.retain(|id, _| terminal_ids.contains(id));
                 for terminal_id in terminal_ids {
+                    let attention = attentions.get(&terminal_id).copied().flatten();
+                    if last_sent_attention.get(&terminal_id) != Some(&attention) {
+                        if send_tx_for_titles
+                            .send(OutboundHubMessage::Json(MachineToHub::TerminalAttention {
+                                terminal_id: terminal_id.clone(),
+                                attention,
+                            }))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                        last_sent_attention.insert(terminal_id.clone(), attention);
+                    }
                     let pane_info = pane_infos.get(&terminal_id);
                     let title_update = match pane_info.and_then(|info| info.title.as_ref()) {
                         Some(title) => Some((title.clone(), TerminalTitleSource::Osc)),

@@ -8,7 +8,7 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
     let role = initialRole;
     let callbackId = 0;
     const callbacks = new Map<number, (data: unknown) => void>();
-    const state = { updater: "current", calls: [] as string[], listening: true, linkFailures: 0, linkRequests: [] as string[] };
+    const state = { updater: "current", calls: [] as string[], listening: true, linkFailures: 0, linkRequests: [] as string[], pairError: "", pairDelay: 0, pairCompleted: 0 };
     Object.assign(window, { __desktopTest: state });
     Object.assign(window, {
       __TAURI_INTERNALS__: {
@@ -25,7 +25,11 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
           if (command === "hub_status") return { supported: true, bundled: true, hub_installed: true, node_installed: true, listening: state.listening };
           if (command === "hub_pair") {
             const hub_url = args?.baseUrl ?? "https://hub.example.com:8443";
-            return { pairing_uri: "offdesk://pair?v=2&hub=" + encodeURIComponent(hub_url) + "&key=" + "A".repeat(43) + "&code=" + "B".repeat(43), hub_url, expires_at: Date.now() + 300000 };
+            const error = state.pairError;
+            if (state.pairDelay) await new Promise(resolve => setTimeout(resolve, state.pairDelay));
+            state.pairCompleted++;
+            if (error) throw new Error(error);
+            return { pairing_uri: "offdesk://pair?v=2&hub=" + encodeURIComponent(hub_url) + "&key=" + "A".repeat(43) + "&code=" + "B".repeat(43), hub_url, expires_at: Date.now() + 300000, connection_check: { identity_verified: true, handshake_ms: 850, legacy_routes_hidden: false } };
           }
           if (command === "hub_link") {
             if (state.linkFailures > 0) { state.linkFailures--; throw new Error("Hub restarting"); }
@@ -173,6 +177,11 @@ test("hub phone dialog offers tunnel and LAN QR codes without covering the deskt
   ]);
   await dialog.getByRole("button", { name: "Pair an encrypted device", exact: true }).click();
   await expect(dialog.getByLabel("Encrypted device pairing QR code")).toBeVisible();
+  await expect.poll(async () => {
+    const box = await dialog.getByLabel("Encrypted device pairing QR code").boundingBox();
+    return box !== null && box.y >= 20 && box.y + box.height <= 580;
+  }).toBe(true);
+  await expect(dialog.getByTestId("secure-pairing-panel").getByRole("status")).toContainText("Hub verified · 850 ms handshake from this Mac");
   await expect(dialog.getByRole("button", { name: "Copy pairing link", exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("desktop-encrypted-pairing.png") });
   await picker.selectOption("http://192.168.1.10:4317");
@@ -181,6 +190,36 @@ test("hub phone dialog offers tunnel and LAN QR codes without covering the deskt
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByTestId("tab-bar")).toBeVisible();
+});
+
+test("encrypted pairing reports failures and discards a slow check after the address changes", async ({ page }) => {
+  await desktopBridge(page, "hub");
+  await page.setViewportSize({ width: 800, height: 600 });
+  await openApp(page);
+  await page.getByTestId("tab-bar-phone").click();
+  const dialog = page.getByTestId("phone-dialog");
+  const panel = dialog.getByTestId("secure-pairing-panel");
+  const picker = dialog.getByTestId("hub-address-picker");
+  await expect(picker).toHaveValue("https://hub.example.com:8443");
+  await page.evaluate(() => { (window as any).__desktopTest.pairError = "This address could not be verified as this Hub."; });
+  await panel.getByRole("button", { name: "Pair an encrypted device", exact: true }).click();
+  await expect(panel.getByRole("alert")).toContainText("could not be verified");
+  await expect(panel.getByLabel("Encrypted device pairing QR code")).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as any).__desktopTest.pairError = "";
+    (window as any).__desktopTest.pairDelay = 3000;
+  });
+  await panel.getByRole("button", { name: "Pair an encrypted device", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Checking connection…", exact: true })).toBeDisabled();
+  await picker.selectOption("http://192.168.1.10:4317");
+  await page.evaluate(() => { (window as any).__desktopTest.pairDelay = 0; });
+  await expect(panel.getByRole("alert")).toHaveCount(0);
+  await panel.getByRole("button", { name: "Pair an encrypted device", exact: true }).click();
+  await expect(panel.getByText("http://192.168.1.10:4317", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__desktopTest.pairCompleted)).toBe(3);
+  await expect(panel.getByText("https://hub.example.com:8443", { exact: true })).toHaveCount(0);
+  await expect(panel.getByText("http://192.168.1.10:4317", { exact: true })).toBeVisible();
+  await expect(panel.getByLabel("Encrypted device pairing QR code")).toBeVisible();
 });
 
 test("desktop startup recovers after a hub restart without losing login", async ({ page }) => {
