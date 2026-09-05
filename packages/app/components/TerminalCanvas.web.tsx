@@ -769,7 +769,13 @@ function TerminalCanvasInner() {
     if (!bootstrapReady || handoffLandingHandledRef.current) return;
     handoffLandingHandledRef.current = true;
 
-    if (window.location.hash.startsWith("#/t/")) return;
+    if (window.location.hash.startsWith("#/t/")) {
+      // A shortcut may point to another machine. Restore that machine too;
+      // otherwise reloading leaves the selected pane outside the active tab list.
+      const linked = terminals.find(t => t.id === window.location.hash.slice(4));
+      if (linked) setActiveMachineId(linked.machine_id);
+      return;
+    }
     const terminalId = browserState.lastFocusedTerminalId;
     if (!terminalId) return;
     const terminal = terminals.find((item) => item.id === terminalId);
@@ -1628,8 +1634,9 @@ function TerminalCanvasInner() {
               onDisengageViewOnly={handleDisengageViewOnly}
               onOpenSettings={() => setShowSettings(true)}
             >
-              {scopedTerminals.length > 0 && workspaceTerminal ? (
+              {scopedTerminals.length > 0 && workspaceTerminal?.machine_id === activeMachine?.id && workspaceTerminal ? (
                 <TerminalWorkspace
+                  key={workspaceTerminal.machine_id}
                   terminal={workspaceTerminal}
                   siblings={scopedTerminals}
                   workspaceGroups={activeMachineWorkspaceGroups}
