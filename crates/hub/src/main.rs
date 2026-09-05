@@ -1,3 +1,4 @@
+mod composer;
 mod attach_router;
 mod auth;
 mod first_run;

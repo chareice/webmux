@@ -28,3 +28,4 @@ reqwest = { workspace = true }
 sysinfo = { workspace = true }
 bytes.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+base64 = "0.22"

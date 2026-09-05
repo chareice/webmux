@@ -30,6 +30,7 @@ pub fn create_pool(path: &str) -> Result<DbPool, Box<dyn std::error::Error>> {
 }
 
 pub fn init_db(conn: &Connection) -> rusqlite::Result<()> {
+    crate::composer::init(conn)?;
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS users (

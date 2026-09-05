@@ -1,4 +1,6 @@
+pub mod composer;
 use bytes::Bytes;
+pub use composer::{ComposerAttachment, ComposerMessage, ComposerReceipt, ComposerStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -272,6 +274,12 @@ pub struct BrowserStateSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum HubToMachine {
+    #[serde(rename = "attach_composer")]
+    AttachComposer {
+        request_id: String,
+        attach_id: String,
+        message: ComposerMessage,
+    },
     #[serde(rename = "create_terminal")]
     CreateTerminal {
         request_id: String,
@@ -379,6 +387,11 @@ pub enum HubToMachine {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum MachineToHub {
+    #[serde(rename = "composer_result")]
+    ComposerResult {
+        request_id: String,
+        receipt: ComposerReceipt,
+    },
     #[serde(rename = "register")]
     Register {
         machine_id: String,
@@ -1016,6 +1029,11 @@ mod tests {
 /// The move only happens when the new directory does not exist yet, so it
 /// can never clobber a fresh config.
 pub fn config_dir() -> std::path::PathBuf {
+    // Allows isolated development/test daemons without touching user services,
+    // credentials or tmux session metadata. No legacy migration in this mode.
+    if let Some(path) = std::env::var_os("OFFDESK_CONFIG_DIR").filter(|p| !p.is_empty()) {
+        return std::path::PathBuf::from(path);
+    }
     let base = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     let dir = base.join("offdesk");
     static MIGRATED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
