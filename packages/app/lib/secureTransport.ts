@@ -20,10 +20,12 @@ let socketOrigin: string | null = null;
 export function refreshConnectionRoutes(): Promise<RouteReport> {
   if (!enabled) return Promise.reject(new Error("Pair this device first"));
   return routeRefresh ??= invoke<RouteReport>("secure_routes").then(report => {
+    if (!enabled || status?.device_id !== report.status.device_id || status?.endpoint.public_key !== report.status.endpoint.public_key) throw new Error("The paired Hub changed. Check connections again.");
     status = report.status; routeReport = report; notifyRoutes(); return report;
   }).finally(() => { routeRefresh = null; });
 }
 export async function switchConnectionRoute(url: string): Promise<void> {
+  if (routeRefresh) await routeRefresh;
   if ([...sockets].some(socket => socket.bufferedAmount > 0)) throw new Error("Finish sending the current input or file, then try again");
   const updated = await invoke<SecureStatus>("secure_switch_route", { url });
   status = updated;

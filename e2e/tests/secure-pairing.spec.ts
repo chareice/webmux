@@ -33,22 +33,22 @@ async function bundledPhone(page: Page, initial: "new" | "paired" | "damaged" | 
       unregisterCallback: () => {},
       invoke: async (command: string, args: any) => {
         state.calls.push(command);
-        if (command === "secure_status") { if (state.damaged) throw new Error("Hub identity could not be verified"); return state.configured ? status : null; }
+        if (command === "secure_status") { if (state.damaged) throw new Error("Hub identity could not be verified"); return state.configured ? structuredClone(status) : null; }
         if (command === "secure_routes") {
           if (state.damaged) throw new Error("Cannot read saved connection routes");
-          return { status, routes: state.routes, discovery_available: true };
+          return structuredClone({ status, routes: state.routes, discovery_available: true });
         }
         if (command === "secure_switch_route") {
           if (state.switchError) throw new Error(state.switchError);
           if (!state.routes.some(route => route.hub_url === args.url && route.available)) throw new Error("Unreachable");
           status.endpoint.hub_url = args.url; state.userError = "";
           for (const socket of sockets.splice(0)) queueMicrotask(() => socket.events.onmessage({ type: "closed", id: socket.id }));
-          return status;
+          return structuredClone(status);
         }
         if (command === "mobile_hub_url") return null;
         if (command === "secure_pair") {
           if (!args.uri.startsWith("offdesk://pair?")) throw new Error("Invalid code");
-          state.configured = true; sessionStorage.setItem("test:paired", "true"); return status;
+          state.configured = true; sessionStorage.setItem("test:paired", "true"); return structuredClone(status);
         }
         if (command === "secure_forget") { state.configured = false; state.damaged = false; sessionStorage.removeItem("test:paired"); return; }
         if (command === "secure_request") {
