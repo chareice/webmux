@@ -465,7 +465,7 @@ function MobileWorkbenchComponent(props: MobileWorkbenchProps) {
               </>
             ) : deviceId !== null && controlLeases[activeMachine.id] === deviceId ? (
               <>
-                <KeyboardIcon size={13} /> Keyboard
+                <KeyboardIcon size={13} /> In control
               </>
             ) : (
               <>
