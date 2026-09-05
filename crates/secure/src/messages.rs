@@ -36,7 +36,8 @@ pub enum Request {
     },
     Binary {
         id: String,
-        data: String,
+        #[serde(with = "base64_data")]
+        data: Vec<u8>,
     },
     Close {
         id: String,
@@ -62,7 +63,8 @@ pub enum Response {
     },
     Binary {
         id: String,
-        data: String,
+        #[serde(with = "base64_data")]
+        data: Vec<u8>,
     },
     Closed {
         id: String,
@@ -83,5 +85,20 @@ impl Response {
             | Self::Closed { id }
             | Self::Error { id, .. } => id,
         }
+    }
+}
+
+// Base64 remains only at the native JSON IPC boundary; the encrypted network
+// codec carries these bytes directly rather than serializing them into JSON.
+mod base64_data {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(data: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&STANDARD.encode(data))
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+        STANDARD
+            .decode(String::deserialize(deserializer)?)
+            .map_err(serde::de::Error::custom)
     }
 }

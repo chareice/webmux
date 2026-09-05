@@ -37,6 +37,8 @@ import {
 import { createSelectionAutoCopyController } from "@/lib/selectionAutoCopy";
 import { createTerminalClipboardProvider } from "@/lib/terminalClipboard";
 import { isTauri } from "@/lib/platform";
+import { bulkKeypressText } from "@/lib/terminalBulkKey";
+import { readClipboardText } from "@/lib/readClipboardText";
 import { createExternalUrlOpener } from "@/lib/terminalLinks";
 import { useDisplayMode } from "@/lib/hooks";
 import { usePrefixKey } from "@/lib/prefixKeyContext";
@@ -587,30 +589,7 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
       }
     }, []);
 
-    const clipboardRead = useCallback(async (): Promise<string> => {
-      if (isTauri()) {
-        const internals = (window as unknown as {
-          __TAURI_INTERNALS__?: {
-            invoke: <T = unknown>(
-              cmd: string,
-              args?: Record<string, unknown>,
-            ) => Promise<T>;
-          };
-        }).__TAURI_INTERNALS__;
-        if (internals?.invoke) {
-          try {
-            const text = await internals.invoke<string>(
-              "plugin:clipboard-manager|read_text",
-            );
-            return typeof text === "string" ? text : "";
-          } catch (err) {
-            // eslint-disable-next-line no-console
-            console.warn("[offdesk] tauri clipboard read failed", err);
-          }
-        }
-      }
-      return navigator.clipboard.readText();
-    }, []);
+    const clipboardRead = readClipboardText;
 
     // Forward a picked file (mobile attach button, drag-drop, etc.) over
     // the live WS using the same `image_paste` protocol that clipboard
@@ -953,6 +932,15 @@ export const TerminalView = forwardRef<TerminalViewRef, TerminalViewProps>(
         // keeps it for hardware keyboards.
         const { prefixKey: pk, isCompact: compact } = prefixKeyRef.current;
         if (!compact && pk.isPrefixKeyEvent(event)) {
+          return false;
+        }
+
+        const bulk = bulkKeypressText(event);
+        if (bulk !== null) {
+          event.preventDefault();
+          // A dictation service can put an entire paragraph in `key`.
+          // xterm's legacy handler reads only charCode and loses the tail.
+          term.paste(bulk);
           return false;
         }
 

@@ -12,7 +12,8 @@ use axum::{
     routing::{delete, get},
     Json, Router,
 };
-use base64::{engine::general_purpose::STANDARD, Engine};
+#[cfg(test)]
+use base64::Engine;
 use futures::{SinkExt, StreamExt};
 use offdesk_secure::{
     messages::{Authenticate, AuthenticationResult, Request, Response},
@@ -188,24 +189,12 @@ async fn serve(
     device: store::Device,
     key: [u8; 32],
 ) {
-    let (mut writer, mut reader) = socket.split();
+    let (writer, mut reader) = socket.split();
     let channel = Arc::new(Mutex::new(channel));
-    let (out_tx, mut out_rx) = mpsc::channel::<Response>(32);
+    let (out_tx, out_rx) = offdesk_secure::outbound::queue();
     let write_channel = channel.clone();
     let mut write_task = tokio::spawn(async move {
-        while let Some(response) = out_rx.recv().await {
-            let Ok(bytes) = serde_json::to_vec(&response) else {
-                break;
-            };
-            let Ok(records) = write_channel.lock().await.encode(&bytes) else {
-                break;
-            };
-            for record in records {
-                if writer.send(Message::Binary(record.into())).await.is_err() {
-                    return;
-                }
-            }
-        }
+        let _ = out_rx.run(writer, write_channel, |record| Message::Binary(record.into())).await;
     });
     let token = crate::auth::sign_jwt(&device.user_id, &state.app.jwt_secret);
     let sockets: Sockets = Arc::new(Mutex::new(HashMap::new()));
@@ -229,7 +218,7 @@ async fn serve(
                 let Ok(messages) = channel.lock().await.decode(&records) else { break; };
                 let mut valid = true;
                 for bytes in messages {
-                    let Ok(request) = serde_json::from_slice::<Request>(&bytes) else { valid = false; break; };
+                    let Ok(request) = offdesk_secure::wire::request(&bytes) else { valid = false; break; };
                     dispatch(request, &state, &token, &sockets, &out_tx, &http_slots, &mut tasks).await;
                 }
                 if !valid { break; }
@@ -241,7 +230,7 @@ async fn serve(
     sockets.lock().await.clear();
 }
 
-async fn error(out: &mpsc::Sender<Response>, id: String, message: &str) {
+async fn error(out: &offdesk_secure::outbound::Sender, id: String, message: &str) {
     let _ = out.try_send(Response::Error {
         id,
         message: message.into(),
@@ -280,7 +269,7 @@ async fn dispatch(
     state: &SecureState,
     token: &str,
     sockets: &Sockets,
-    out: &mpsc::Sender<Response>,
+    out: &offdesk_secure::outbound::Sender,
     slots: &Arc<Semaphore>,
     tasks: &mut JoinSet<()>,
 ) {
@@ -394,7 +383,7 @@ async fn dispatch(
                                 use tokio_tungstenite::tungstenite::Message as WsMessage;
                                 let response = match message {
                                     Some(Ok(WsMessage::Text(data))) => Response::Text { id: id.clone(), data: data.to_string() },
-                                    Some(Ok(WsMessage::Binary(data))) => Response::Binary { id: id.clone(), data: STANDARD.encode(data) },
+                                    Some(Ok(WsMessage::Binary(data))) => Response::Binary { id: id.clone(), data: data.to_vec() },
                                     Some(Ok(WsMessage::Ping(_))) | Some(Ok(WsMessage::Pong(_))) => continue,
                                     _ => break,
                                 };
@@ -423,10 +412,10 @@ async fn dispatch(
         }
         Request::Binary { id, data } => {
             let sender = sockets.lock().await.get(&id).cloned();
-            if let (Some(sender), Ok(bytes)) = (sender, STANDARD.decode(data)) {
+            if let Some(sender) = sender {
                 if sender
                     .try_send(tokio_tungstenite::tungstenite::Message::Binary(
-                        bytes.into(),
+                        data.into(),
                     ))
                     .is_err()
                 {
@@ -483,6 +472,13 @@ mod tests {
         };
         let inner = crate::routes::router()
             .merge(crate::ws::router())
+            .route("/ws/terminal/secure-test-echo", get(|ws: WebSocketUpgrade| async {
+                ws.on_upgrade(|mut socket| async move {
+                    while let Some(Ok(Message::Binary(bytes))) = socket.next().await {
+                        if socket.send(Message::Binary(bytes)).await.is_err() { break; }
+                    }
+                })
+            }))
             .with_state(state.clone());
         let encrypted = router(state, inner, database).unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -612,6 +608,13 @@ mod tests {
         })
         .await
         .unwrap();
+        let mut binary = client.open_socket("binary".into(), "/ws/terminal/secure-test-echo".into()).await.unwrap();
+        assert!(matches!(binary.recv().await, Some(Response::Opened { .. })));
+        let bytes: Vec<u8> = (0..100 * 1024).map(|n| (n % 256) as u8).collect();
+        client.socket_binary("binary".into(), base64::engine::general_purpose::STANDARD.encode(&bytes)).await.unwrap();
+        let answer = tokio::time::timeout(Duration::from_secs(5), binary.recv()).await.unwrap();
+        assert!(matches!(answer, Some(Response::Binary { data, .. }) if data == bytes));
+        client.close_socket("binary".into()).await.unwrap();
         client.close();
         let (resumed, _) = Client::connect(&endpoint, &phone, Authenticate::Resume)
             .await

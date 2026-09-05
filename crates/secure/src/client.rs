@@ -20,7 +20,7 @@ use tokio_tungstenite::tungstenite::{protocol::WebSocketConfig, Message};
 
 type Pending = oneshot::Sender<Result<Response, String>>;
 struct Inner {
-    outbound: mpsc::Sender<Request>,
+    outbound: crate::outbound::Sender,
     pending: Mutex<HashMap<String, Pending>>,
     sockets: Mutex<HashMap<String, mpsc::Sender<Response>>>,
     stop: watch::Sender<bool>,
@@ -104,7 +104,13 @@ impl Client {
             AuthenticationResult::Ready { device_id } => device_id,
             AuthenticationResult::Rejected { message } => return Err(message),
         };
-        let (outbound, mut outgoing) = mpsc::channel::<Request>(64);
+        Ok((Self::start(socket, channel), device_id))
+    }
+    fn start<S>(socket: tokio_tungstenite::WebSocketStream<S>, channel: Channel) -> Self
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
+        let (outbound, outgoing) = crate::outbound::queue();
         let (stop, mut write_stop) = watch::channel(false);
         let inner = Arc::new(Inner {
             outbound,
@@ -118,41 +124,14 @@ impl Client {
         let client = Self {
             inner: inner.clone(),
         };
-        let (mut writer, mut reader) = socket.split();
+        let (writer, mut reader) = socket.split();
         let channel = Arc::new(Mutex::new(channel));
         let write_channel = channel.clone();
         let write_inner = inner.clone();
         tokio::spawn(async move {
-            loop {
-                if write_inner.closed.load(Ordering::SeqCst) {
-                    break;
-                }
-                let request = tokio::select! {
-                    _ = write_stop.changed() => break,
-                    request = outgoing.recv() => match request { Some(request) => request, None => break },
-                };
-                let bytes = match serde_json::to_vec(&request) {
-                    Ok(bytes) => bytes,
-                    Err(_) => break,
-                };
-                let records = match write_channel.lock().await.encode(&bytes) {
-                    Ok(records) => records,
-                    Err(_) => break,
-                };
-                let mut failed = false;
-                for record in records {
-                    let result = tokio::select! {
-                        _ = write_stop.changed() => { failed = true; break; },
-                        result = writer.send(Message::Binary(record.into())) => result,
-                    };
-                    if result.is_err() {
-                        failed = true;
-                        break;
-                    }
-                }
-                if failed {
-                    break;
-                }
+            tokio::select! {
+                _ = write_stop.changed() => {},
+                _ = outgoing.run(writer, write_channel, |record| Message::Binary(record.into())) => {},
             }
             fail(&write_inner).await;
         });
@@ -217,7 +196,7 @@ impl Client {
                     .store(inner.started.elapsed().as_secs(), Ordering::Relaxed);
                 let mut failed = false;
                 for bytes in messages {
-                    let response: Response = match serde_json::from_slice(&bytes) {
+                    let response: Response = match crate::wire::response(&bytes) {
                         Ok(response) => response,
                         Err(_) => {
                             failed = true;
@@ -256,7 +235,7 @@ impl Client {
             }
             fail(&inner).await;
         });
-        Ok((client, device_id))
+        client
     }
     pub fn is_closed(&self) -> bool {
         self.inner.closed.load(Ordering::SeqCst)
@@ -337,6 +316,10 @@ impl Client {
         self.send(Request::Text { id, data }).await
     }
     pub async fn socket_binary(&self, id: String, data: String) -> Result<(), String> {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let data = STANDARD
+            .decode(data)
+            .map_err(|_| "Invalid binary socket data")?;
         self.send(Request::Binary { id, data }).await
     }
     pub async fn close_socket(&self, id: String) -> Result<(), String> {
@@ -397,7 +380,7 @@ mod tests {
             while let Some(Ok(Message::Binary(record))) = socket.next().await {
                 for message in channel.decode(&record).unwrap() {
                     if matches!(
-                        serde_json::from_slice::<Request>(&message).unwrap(),
+                        crate::wire::request(&message).unwrap(),
                         Request::Http { .. }
                     ) {
                         seen.notify_one();
@@ -442,6 +425,146 @@ mod tests {
         tokio::time::advance(Duration::from_secs(41)).await;
         assert!(request.await.unwrap().is_err());
         assert!(client.is_closed());
+        server.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn slow_large_upload_keeps_authenticated_heartbeats_and_other_streams_responsive() {
+        use crate::wire::WireMessage;
+        use tokio_tungstenite::{tungstenite::protocol::Role, WebSocketStream};
+        // A 20 MiB image represented as base64 in the existing terminal JSON
+        // frame takes >100s at 2 Mbps. Virtual time makes this deterministic;
+        // a 1 KiB duplex prevents an unbounded OS buffer hiding backpressure.
+        let image_text_len = (20 * 1024 * 1024usize).div_ceil(3) * 4;
+        let (client_io, hub_io) = tokio::io::duplex(1024);
+        let client_socket = WebSocketStream::from_raw_socket(client_io, Role::Client, None).await;
+        let mut hub_socket = WebSocketStream::from_raw_socket(hub_io, Role::Server, None).await;
+        let (client_channel, mut hub_channel) = crate::tests::handshake();
+        let client = Client::start(client_socket, client_channel);
+        let started = Instant::now();
+        let first_fragment = Arc::new(tokio::sync::Notify::new());
+        let first = first_fragment.clone();
+        let measurements = Arc::new(Mutex::new(Vec::<(&'static str, Duration)>::new()));
+        let measured = measurements.clone();
+        let (complete, completed) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let mut complete = Some(complete);
+            let mut saw_image = false;
+            while let Some(Ok(Message::Binary(record))) = hub_socket.next().await {
+                let wire_time = Duration::from_secs_f64(record.len() as f64 * 8.0 / 2_000_000.0);
+                tokio::time::sleep(wire_time).await;
+                let messages = hub_channel.decode(&record).unwrap();
+                if messages.is_empty() {
+                    first.notify_one();
+                }
+                for bytes in messages {
+                    let response = match crate::wire::request(&bytes).unwrap() {
+                        Request::Ping { id } => {
+                            measured.lock().await.push(("ping", started.elapsed()));
+                            Some(Response::Pong { id })
+                        }
+                        Request::Http { id, .. } => Some(Response::Http {
+                            id,
+                            status: 200,
+                            body: "{}".into(),
+                        }),
+                        Request::Text { id, data }
+                            if id == "upload" && data.len() == image_text_len =>
+                        {
+                            saw_image = true;
+                            measured.lock().await.push(("image", started.elapsed()));
+                            None
+                        }
+                        Request::Text { id, data } if id == "upload" && data == "Enter" => {
+                            assert!(
+                                saw_image,
+                                "Enter must not overtake its image on the same terminal"
+                            );
+                            let _ = complete.take().unwrap().send(());
+                            None
+                        }
+                        Request::Text { id, data } if id == "other" && data == "x" => {
+                            measured.lock().await.push(("key", started.elapsed()));
+                            None
+                        }
+                        _ => panic!("unexpected request"),
+                    };
+                    if let Some(response) = response {
+                        // Include an 800ms response delay, in addition to the
+                        // rate-limited uplink, for encrypted Ping/Pong and HTTP.
+                        tokio::time::sleep(Duration::from_millis(800)).await;
+                        for reply in hub_channel.encode(&response.encode().unwrap()).unwrap() {
+                            hub_socket
+                                .send(Message::Binary(reply.into()))
+                                .await
+                                .unwrap();
+                        }
+                    }
+                }
+            }
+        });
+        client
+            .socket_text("upload".into(), "A".repeat(image_text_len))
+            .await
+            .unwrap();
+        first_fragment.notified().await;
+        let input_at = started.elapsed();
+        client
+            .socket_text("upload".into(), "Enter".into())
+            .await
+            .unwrap();
+        client
+            .socket_text("other".into(), "x".into())
+            .await
+            .unwrap();
+        let http_start = Instant::now();
+        assert!(matches!(
+            client
+                .request("GET".into(), "/api/auth/me".into(), None)
+                .await
+                .unwrap(),
+            Response::Http { status: 200, .. }
+        ));
+        let http_elapsed = http_start.elapsed();
+        assert!(
+            http_elapsed < Duration::from_secs(3),
+            "HTTP waited {http_elapsed:?}"
+        );
+        tokio::time::timeout(Duration::from_secs(180), completed)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            !client.is_closed(),
+            "a progressing upload must not hit the 65s watchdog"
+        );
+        let measurements = measurements.lock().await;
+        let image_elapsed = measurements
+            .iter()
+            .find(|(kind, _)| *kind == "image")
+            .unwrap()
+            .1;
+        let key_elapsed = measurements
+            .iter()
+            .find(|(kind, _)| *kind == "key")
+            .unwrap()
+            .1
+            - input_at;
+        let pings = measurements
+            .iter()
+            .filter(|(kind, _)| *kind == "ping")
+            .count();
+        assert!(image_elapsed > Duration::from_secs(100));
+        assert!(
+            key_elapsed < Duration::from_secs(3),
+            "other-terminal input waited {key_elapsed:?}"
+        );
+        assert!(
+            pings >= 20,
+            "authenticated heartbeats must pass throughout the upload"
+        );
+        eprintln!("2 Mbps virtual uplink + 800ms replies: upload={image_elapsed:?}, other-terminal key={key_elapsed:?}, HTTP={http_elapsed:?}, authenticated heartbeats={pings}");
+        client.close();
         server.abort();
     }
 }

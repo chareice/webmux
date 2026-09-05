@@ -308,6 +308,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (Platform.OS === "web" && !isTauri()) redirectTokenToDesktop(token);
       } catch (error) {
         if (cancelled) return;
+        // Native failures (changed key, revoked device, locked credentials or
+        // an interrupted first getMe) are not HTTP 401s. Preserve the pinned
+        // connection and leave loading so LoginScreen can offer recovery,
+        // just as the startup restore path does. Never retry indefinitely or
+        // fall back to ordinary authentication after encrypted pairing.
+        if (isSecureConnection()) {
+          setToken(null);
+          setUser(null);
+          setIsLoading(false);
+          return;
+        }
         // A restart, timeout or gateway failure is not a revoked session.
         if (error instanceof ApiError && error.status === 401) {
           await storage.remove(TOKEN_KEY);
