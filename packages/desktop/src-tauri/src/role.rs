@@ -460,9 +460,20 @@ mod dev_tests {
 pub async fn hub_pair(base_url: Option<String>) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let public_url = configured_public_url();
-        let mut command = hub_command(&["pair", "--json"], base_url.as_deref().or(public_url.as_deref()))?;
+        let selected_url = base_url.as_deref().or(public_url.as_deref());
+        let mut command = hub_command(&["pair", "--json", "--check"], selected_url)?;
+        // The address selected on screen must also be the one checked/minted,
+        // even when a shell-launched App inherited a secure-origin override.
+        if let Some(url) = selected_url { command.env("OFFDESK_SECURE_BASE_URL", url); }
         let output = command.output().map_err(|_| "Could not create a pairing code")?;
-        if !output.status.success() { return Err("Could not create an encrypted pairing code. Update the Hub and try again.".into()); }
+        if !output.status.success() {
+            if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                if let Some(error) = value.get("error").and_then(|value| value.as_str()) {
+                    return Err(error.to_owned());
+                }
+            }
+            return Err("Could not create an encrypted pairing code. Update the Hub and try again.".into());
+        }
         serde_json::from_slice(&output.stdout).map_err(|_| "Invalid Hub pairing response".into())
     }).await.map_err(|_| "Pairing request interrupted".to_string())?
 }
