@@ -205,7 +205,7 @@ export function MobileAppPanel() {
               display: "inline-block",
               background: colors.accent,
               borderRadius: 6,
-              color: colors.background,
+              color: colors.onAccent,
               padding: "8px 16px",
               fontSize: 13,
               fontWeight: 600,

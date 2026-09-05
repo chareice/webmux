@@ -255,6 +255,18 @@ function TerminalCanvasInner() {
   const [addMachineOpen, setAddMachineOpen] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
 
+  useEffect(() => {
+    if (!isTauri() || isTauriMobile()) return;
+    const openSettings = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "," && !event.altKey && !event.shiftKey) {
+        event.preventDefault();
+        setShowSettings(true);
+      }
+    };
+    window.addEventListener("keydown", openSettings, true);
+    return () => window.removeEventListener("keydown", openSettings, true);
+  }, []);
+
   // The menu bar item on the hub machine opens the window and says what it
   // wants shown; see packages/desktop/src-tauri/src/tray.rs.
   useEffect(() => {
@@ -265,6 +277,7 @@ function TerminalCanvasInner() {
       if (disposed) return;
       void listen("offdesk://show-phone-code", () => setPhoneOpen(true)).then((un) => unlisteners.push(un));
       void listen("offdesk://add-machine", () => setAddMachineOpen(true)).then((un) => unlisteners.push(un));
+      void listen("offdesk://settings", () => setShowSettings(true)).then((un) => unlisteners.push(un));
     });
     return () => {
       disposed = true;
@@ -1562,7 +1575,7 @@ function TerminalCanvasInner() {
         background: colors.bg0,
       }}
     >
-      <AppTitleBar isMobile={isCompact} />
+      <AppTitleBar isMobile={isCompact} onOpenSettings={machines.length === 0 ? () => setShowSettings(true) : undefined} />
 
       <TerminalPreviewMuxProvider deviceId={deviceId}>
         <div
@@ -1681,6 +1694,7 @@ function TerminalCanvasInner() {
                 onSelectMachine={setActiveMachineId}
                 onAddMachine={() => setAddMachineOpen(true)}
                 onOpenPhone={() => setPhoneOpen(true)}
+                onOpenSettings={() => setShowSettings(true)}
                 onRemoveHost={handleRemoveHost}
                 onRequestControl={() => {
                   if (activeMachine) void handleRequestControl(activeMachine.id);
@@ -1716,7 +1730,7 @@ function TerminalCanvasInner() {
                       background: colors.accent,
                       border: "none",
                       borderRadius: 6,
-                      color: colors.background,
+                      color: colors.onAccent,
                       cursor: "pointer",
                       fontSize: 12,
                       fontWeight: 600,

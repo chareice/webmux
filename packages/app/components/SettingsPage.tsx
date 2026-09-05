@@ -3,6 +3,8 @@ import { colors, colorAlpha } from "@/lib/colors";
 import { useTheme, type Theme } from "@/lib/theme";
 import { MobileAppPanel } from "./MobileAppPanel.web";
 import { ThisMachineSection } from "./DesktopSetup.web";
+import { UpdateNotification } from "./UpdateNotification";
+import { useAuth } from "@/lib/auth";
 import { isTauri, isTauriMobile } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import {
@@ -273,6 +275,7 @@ function formatTokenDate(ms: number | null): string {
 }
 
 export function SettingsPage({ onClose }: SettingsPageProps) {
+  const { logout } = useAuth();
   const { theme, setTheme } = useTheme();
   // Terminal font settings
   const [terminalFont, setTerminalFont] = useState(
@@ -328,6 +331,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
 
   // Server URL (desktop only)
   const [serverUrl, setServerUrlState] = useState(() => getServerUrl());
+  const [serverUrlError, setServerUrlError] = useState<string | null>(null);
   const [prefixBindings, setPrefixBindings] = useState(() =>
     loadPrefixBindings(),
   );
@@ -535,10 +539,22 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   }, [createdToken]);
 
   // Server URL
-  const handleServerUrlSave = useCallback(() => {
-    setServerUrl(serverUrl);
-    window.location.reload();
-  }, [serverUrl]);
+  const handleServerUrlSave = useCallback(async () => {
+    try {
+      const parsed = new URL(serverUrl.trim());
+      if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
+        throw new Error("Enter an http:// or https:// hub address without sign-in credentials.");
+      }
+      const next = parsed.toString().replace(/\/+$/, "");
+      if (next === getServerUrl()) return;
+      // A saved login belongs to the old hub. Never send it to the new one.
+      await logout();
+      setServerUrl(next);
+      window.location.reload();
+    } catch (e) {
+      setServerUrlError(e instanceof TypeError ? "Enter a valid http:// or https:// hub address." : String(e));
+    }
+  }, [serverUrl, logout]);
 
   // The mobile app is pointed at one hub at a time. Letting go of it drops
   // the app back to its own setup screen, where the next address is typed by
@@ -1035,13 +1051,14 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
 
             <SettingRow
               label="Server URL"
-              description="WebSocket server address for terminal connections"
+              description="Changing hubs signs this app out. Paste an http:// or https:// address."
             >
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <input
                   type="text"
+                  aria-label="Server URL"
                   value={serverUrl}
-                  onChange={(e) => setServerUrlState(e.target.value)}
+                  onChange={(e) => { setServerUrlState(e.target.value); setServerUrlError(null); }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleServerUrlSave();
                   }}
@@ -1065,6 +1082,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                 </button>
               </div>
             </SettingRow>
+            {serverUrlError && <div role="alert" style={{ color: colors.err, fontSize: 12 }}>{serverUrlError}</div>}
           </section>
         )}
 
@@ -1270,6 +1288,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
               <div>Shell version: {shellVersion ?? "loading…"}</div>
             )}
           </div>
+          <UpdateNotification inline />
         </section>
 
         {/* Reload notice */}
