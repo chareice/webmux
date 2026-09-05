@@ -1,11 +1,11 @@
 {
   "productName": "offdesk",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "identifier": "dev.offdesk.desktop",
   "build": {
     "frontendDist": "../../app/dist",
     "devUrl": "http://localhost:8081",
-    "beforeBuildCommand": "pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app build",
+    "beforeBuildCommand": "pnpm --filter @offdesk/desktop build:web",
     "beforeDevCommand": "pnpm --filter @offdesk/shared build && pnpm --filter @offdesk/app dev:web"
   },
   "app": {

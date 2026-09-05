@@ -5,7 +5,6 @@ import {
   mobileOpenHostSheet,
   mobileTakeControl,
   openApp,
-  pressPrefixKey,
   requestMachineControl,
   resetMachineState,
 } from "./helpers";
@@ -17,8 +16,7 @@ async function openSettings(page: Page) {
     await mobileOpenHostSheet(page);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
   } else {
-    await pressPrefixKey(page, "k");
-    await page.getByTestId("command-palette-row-settings").click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
   }
   await expect(page.getByRole("group", { name: "Theme", exact: true })).toBeVisible();
 }

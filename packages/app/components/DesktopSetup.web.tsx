@@ -28,6 +28,7 @@ import {
 } from "@/lib/desktopHub";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
 import LoginScreen from "../app/login";
+import { AppTitleBar } from "./AppTitleBar.web";
 import { Body, Button, Card, Check, Display, Donut, Eyebrow, Spinner, fontDisplay } from "./Warm.web";
 
 const IPHONE_URL = "https://offdesk.dev/#phone";
@@ -125,33 +126,44 @@ export function DesktopGate({ children }: { children: ReactNode }) {
     [login, loginWithToken],
   );
 
-  if (role === undefined) return <Spinner />;
-  if (role === null) return <FirstRun onPick={pick} />;
+  if (role === undefined) return <DesktopSetupFrame><Spinner /></DesktopSetupFrame>;
+  if (role === null) return <DesktopSetupFrame><FirstRun onPick={pick} /></DesktopSetupFrame>;
 
   if (role === "hub") {
-    if (!status) return <Spinner />;
+    if (!status) return <DesktopSetupFrame><Spinner /></DesktopSetupFrame>;
     if (!hubIsReady(status)) {
       return (
-        <HubSetup
+        <DesktopSetupFrame><HubSetup
           status={status}
           onReady={(ready) => {
             setLink(ready);
             setStatus({ ...status, hub_installed: true, node_installed: true, listening: true });
           }}
           onGiveUp={() => void pick("client")}
-        />
+        /></DesktopSetupFrame>
       );
     }
-    if (isLoading) return <Spinner />;
+    if (isLoading) return <DesktopSetupFrame><Spinner /></DesktopSetupFrame>;
     if (!isAuthenticated) {
-      return <HubReadyScreen initial={link} onOpen={openTerminal} />;
+      return <DesktopSetupFrame><HubReadyScreen initial={link} onOpen={openTerminal} /></DesktopSetupFrame>;
     }
     return <>{children}</>;
   }
 
-  if (isLoading) return <Spinner />;
-  if (!isAuthenticated) return <LoginScreen onBecomeHub={() => void pick("hub")} />;
+  if (isLoading) return <DesktopSetupFrame><Spinner /></DesktopSetupFrame>;
+  if (!isAuthenticated) return <DesktopSetupFrame><LoginScreen onBecomeHub={() => void pick("hub")} /></DesktopSetupFrame>;
   return <>{children}</>;
+}
+
+function DesktopSetupFrame({ children }: { children: ReactNode }) {
+  return (
+    <div style={{ height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden", background: colors.bg0 }}>
+      <AppTitleBar isMobile={false} />
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
+        {children}
+      </div>
+    </div>
+  );
 }
 
 // ── First run ─────────────────────────────────────────────────────
@@ -617,6 +629,7 @@ export function HubPhoneCode() {
 
 /** The desktop app's role, and the hub's state when it is the hub. */
 export function ThisMachineSection() {
+  const { logout } = useAuth();
   const [role, setRole] = useState<DesktopRole | null | undefined>(undefined);
   const [status, setStatus] = useState<HubStatus | null>(null);
   const [showCode, setShowCode] = useState(false);
@@ -637,6 +650,7 @@ export function ThisMachineSection() {
     setError(null);
     try {
       await setDesktopRole("hub");
+      await logout();
       window.location.reload();
     } catch (e) {
       setError(String(e));
@@ -734,7 +748,7 @@ function Screen({ children, wide = false }: { children: ReactNode; wide?: boolea
     <div
       style={{
         flex: 1,
-        minHeight: "100vh",
+        minHeight: "100%",
         display: "flex",
         flexDirection: "column",
         background: colors.bg0,

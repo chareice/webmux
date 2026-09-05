@@ -105,7 +105,7 @@ export function MobileAppPanel() {
         Scan this code with your phone's camera and the hub opens in its
         browser, signed in. In the iPhone or Android app, tap "Scan the code
         instead" on its first screen and point it here — same result, with
-        native notifications.
+        the same terminal interface.
       </div>
 
       <div
@@ -197,24 +197,18 @@ export function MobileAppPanel() {
             </div>
           )}
 
-          <a
-            href="https://offdesk.dev/apk/release"
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              display: "inline-block",
-              background: colors.accent,
-              borderRadius: 6,
-              color: colors.background,
-              padding: "8px 16px",
-              fontSize: 13,
-              fontWeight: 600,
-              textDecoration: "none",
-              marginTop: 16,
-            }}
-          >
-            Download the APK
-          </a>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
+            {[
+              { label: "iPhone · TestFlight", href: "https://testflight.apple.com/join/rV4ktaGv" },
+              { label: "Android APK", href: "https://offdesk.dev/apk" },
+            ].map(({ label, href }) => (
+              <a key={href} href={href} target="_blank" rel="noreferrer"
+                style={{ display: "inline-block", background: colors.accent, borderRadius: 6,
+                  color: colors.onAccent, padding: "8px 16px", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+                {label}
+              </a>
+            ))}
+          </div>
           <div
             style={{
               fontSize: 11,
@@ -222,11 +216,9 @@ export function MobileAppPanel() {
               marginTop: 8,
             }}
           >
-            Take <code>arm64-v8a</code> on a modern phone, or{" "}
-            <code>universal</code> if you are unsure. Sideloading needs "install
-            from unknown sources". The iPhone app is on TestFlight — a seat is
-            a message away on Discord — and until then Safari is the whole
-            client.
+            Install the iPhone app through TestFlight, or allow installation of
+            the Android APK. Then use Scan QR Code in the app. For a local
+            connection, keep your phone and computer on the same Wi-Fi.
           </div>
         </div>
       </div>

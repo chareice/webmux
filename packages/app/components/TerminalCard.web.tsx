@@ -618,7 +618,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
                     background: colors.accent,
                     border: "none",
                     borderRadius: 6,
-                    color: colors.background,
+                    color: colors.onAccent,
                     cursor: "pointer",
                     fontSize: 12,
                     fontWeight: 600,
