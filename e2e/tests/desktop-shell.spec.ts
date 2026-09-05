@@ -3,12 +3,12 @@ import { createTerminalViaApi, expandTerminalById, requestMachineControl, resetM
 
 // Exercise the bundled desktop route with a fake native bridge. Real hub
 // requests still go through the E2E hub; no native services are installed.
-async function desktopBridge(page: Page, role: "client" | null = "client") {
+async function desktopBridge(page: Page, role: "client" | "hub" | null = "client") {
   await page.addInitScript((initialRole) => {
     let role = initialRole;
     let callbackId = 0;
     const callbacks = new Map<number, (data: unknown) => void>();
-    const state = { updater: "current", calls: [] as string[] };
+    const state = { updater: "current", calls: [] as string[], listening: true, linkFailures: 0, linkRequests: [] as string[] };
     Object.assign(window, { __desktopTest: state });
     Object.assign(window, {
       __TAURI_INTERNALS__: {
@@ -18,9 +18,17 @@ async function desktopBridge(page: Page, role: "client" | null = "client") {
           return callbackId;
         },
         unregisterCallback: (id: number) => callbacks.delete(id),
-        invoke: async (command: string, args?: { role?: "client"; handler?: number }) => {
+        invoke: async (command: string, args?: { role?: "client" | "hub"; handler?: number; baseUrl?: string }) => {
           state.calls.push(command);
           if (command === "desktop_role") return role;
+          if (command === "hub_status") return { supported: true, bundled: true, hub_installed: true, node_installed: true, listening: state.listening };
+          if (command === "hub_link") {
+            if (state.linkFailures > 0) { state.linkFailures--; throw new Error("Hub restarting"); }
+            const publicUrl = "https://hub.example.com:8443";
+            const url = args?.baseUrl || publicUrl;
+            state.linkRequests.push(url);
+            return { url, public_url: publicUrl, local_url: "http://127.0.0.1:4317", link: url + "/?token=test-token", short: url + "/?code=TESTCODE", candidates: [{ interface: "en0", address: "192.168.1.10" }] };
+          }
           if (command === "set_desktop_role") { role = args?.role ?? "client"; return; }
           if (command === "plugin:app|version") return "0.5.3-test";
           if (command === "plugin:updater|check") {
@@ -135,4 +143,58 @@ test("desktop startup keeps window controls and content reachable", async ({ pag
   await page.getByTestId("first-run-client").scrollIntoViewIfNeeded();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("desktop-first-run.png") });
+});
+
+
+test("hub phone dialog offers tunnel and LAN QR codes without covering the desktop", async ({ page }, testInfo) => {
+  await desktopBridge(page, "hub");
+  await page.setViewportSize({ width: 800, height: 600 });
+  await openApp(page);
+  await page.evaluate(() => { (window as any).__desktopTest.linkFailures = 1; });
+  await page.getByTestId("tab-bar-phone").click();
+  await expect(page.getByText("Waiting for the hub to reconnect…")).toBeVisible();
+  const dialog = page.getByTestId("phone-dialog");
+  const picker = dialog.getByTestId("hub-address-picker");
+  await expect(picker).toHaveValue("https://hub.example.com:8443");
+  await expect(dialog.locator("svg[shape-rendering=crispEdges]")).toHaveCount(1);
+  await expect(page.getByText("Running. Now get your phone in.")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
+  await picker.selectOption("http://192.168.1.10:4317");
+  await expect(picker).toHaveValue("http://192.168.1.10:4317");
+  await picker.selectOption("https://hub.example.com:8443");
+  await expect(picker).toHaveValue("https://hub.example.com:8443");
+  await expect.poll(() => page.evaluate(() => (window as any).__desktopTest.linkRequests.slice(-2))).toEqual([
+    "http://192.168.1.10:4317", "https://hub.example.com:8443",
+  ]);
+  await page.screenshot({ path: testInfo.outputPath("desktop-hub-phone-tunnel.png") });
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByTestId("tab-bar")).toBeVisible();
+});
+
+test("desktop startup recovers after a hub restart without losing login", async ({ page }) => {
+  await desktopBridge(page, "hub");
+  await openApp(page);
+  const token = await page.evaluate(() => localStorage.getItem("offdesk:token"));
+  let unavailable = true;
+  await page.route("**/api/auth/me", route => unavailable
+    ? route.fulfill({ status: 503, body: "Hub restarting" }) : route.continue());
+  await page.addInitScript(() => { (window as any).__desktopTest.listening = false; });
+  await page.reload();
+  await expect(page.getByRole("status")).toContainText("Reconnecting to your hub");
+  await page.waitForTimeout(2500);
+  expect(await page.evaluate(() => localStorage.getItem("offdesk:token"))).toBe(token);
+  await expect(page.getByText("Running. Now get your phone in.")).toHaveCount(0);
+  unavailable = false;
+  await page.evaluate(() => { (window as any).__desktopTest.listening = true; });
+  await expect(page.getByTestId("tab-bar")).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("offdesk:token"))).toBe(token);
+});
+
+test("an unauthorized session is still cleared", async ({ page }) => {
+  await desktopBridge(page);
+  await openApp(page);
+  await page.route("**/api/auth/me", route => route.fulfill({ status: 401, body: "Unauthorized" }));
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("offdesk:token"))).toBeNull();
 });

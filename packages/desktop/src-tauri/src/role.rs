@@ -247,6 +247,12 @@ pub struct HubLink {
     pub short: Option<String>,
     /// Addresses a phone might reach this machine at, best first.
     pub candidates: Vec<Candidate>,
+    /// The installed service's public address, retained when selecting LAN.
+    #[serde(default)]
+    pub public_url: Option<String>,
+    /// This desktop can always reach its own hub without the tunnel.
+    #[serde(default)]
+    pub local_url: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -265,11 +271,42 @@ fn parse_link(stdout: &str) -> Result<HubLink, String> {
 }
 
 pub fn read_link(base_url: Option<&str>) -> Result<HubLink, String> {
+    let public_url = configured_public_url();
     let stdout = run(
-        hub_command(&["link", "--json"], base_url)?,
+        hub_command(&["link", "--json"], base_url.or(public_url.as_deref()))?,
         "offdesk-hub link",
     )?;
-    parse_link(&stdout)
+    let mut link = parse_link(&stdout)?;
+    link.public_url = public_url;
+    link.local_url = Some(format!("http://127.0.0.1:{HUB_PORT}"));
+    Ok(link)
+}
+
+fn configured_public_url() -> Option<String> {
+    // A Finder-launched app does not inherit its launch agent's environment.
+    // Read only this setting, never the service's other environment values.
+    let value = if cfg!(target_os = "macos") {
+        let home = PathBuf::from(std::env::var_os("HOME")?);
+        let (service, _) = service_files(&home);
+        let output = Command::new("/usr/bin/plutil")
+            .args(["-extract", "EnvironmentVariables.OFFDESK_BASE_URL", "raw", "-o", "-"])
+            .arg(service).output().ok()?;
+        if !output.status.success() { return None; }
+        String::from_utf8(output.stdout).ok()?
+    } else {
+        std::env::var("OFFDESK_BASE_URL").ok()?
+    };
+    normalize_public_url(&value)
+}
+
+fn normalize_public_url(value: &str) -> Option<String> {
+    let url = tauri::Url::parse(value.trim()).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none()
+        || !url.username().is_empty() || url.password().is_some()
+        || url.query().is_some() || url.fragment().is_some() {
+        return None;
+    }
+    Some(url.as_str().trim_end_matches('/').to_owned())
 }
 
 /// The sign-in link and the phone code's contents, from the hub on this
@@ -326,6 +363,14 @@ pub async fn hub_uninstall() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_addresses_preserve_https_and_reject_credentials() {
+        assert_eq!(normalize_public_url(" https://hub.example.com:8443/ "), Some("https://hub.example.com:8443".into()));
+        assert_eq!(normalize_public_url("https://hub.example.com/?token=secret"), None);
+        assert_eq!(normalize_public_url("https://user:secret@hub.example.com"), None);
+        assert_eq!(normalize_public_url("file:///tmp/hub"), None);
+    }
 
     #[test]
     fn the_sidecar_directory_leads_the_path() {

@@ -24,6 +24,8 @@ export interface HubLink {
   link: string | null;
   short: string | null;
   candidates: HubCandidate[];
+  public_url?: string | null;
+  local_url?: string | null;
 }
 
 /** The desktop app, as opposed to the phone app or a browser tab. */
@@ -79,5 +81,18 @@ export function portOf(url: string): string {
 
 /** An address from the picker becomes the base URL the hub is asked for. */
 export function baseUrlFor(address: string, port: string): string {
-  return `http://${address}:${port}`;
+  const host = address.includes(":") && !address.startsWith("[") ? `[${address}]` : address;
+  return `http://${host}:${port}`;
+}
+
+/** Preserve the public URL's scheme and port; LAN uses the local hub port. */
+export function hubAddressOptions(link: HubLink): { url: string; label: string }[] {
+  const options = new Map<string, string>();
+  if (link.public_url) options.set(link.public_url, "Internet");
+  const port = portOf(link.local_url ?? (link.public_url ? "" : link.url));
+  for (const candidate of link.candidates) {
+    options.set(baseUrlFor(candidate.address, port), candidate.interface);
+  }
+  if (!options.has(link.url)) options.set(link.url, "Current address");
+  return [...options].map(([url, label]) => ({ url, label }));
 }
