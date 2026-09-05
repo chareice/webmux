@@ -164,12 +164,11 @@ export function ExtendedKeyBar({
           minWidth: 0,
           padding: '0 12px',
           fontSize: 11,
-          color: colors.accent,
+          color: colors.foregroundSecondary,
           textAlign: 'center',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
-          opacity: 0.85,
         }}>
           Drag on the terminal to select text
         </div>

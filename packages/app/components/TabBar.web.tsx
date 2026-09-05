@@ -439,14 +439,14 @@ function TabBarComponent({
                 title={group.label}
                 style={{
                   ...tabButtonStyle,
-                  color: active ? colors.fg0 : colors.fg2,
+                  color: active ? terminalTheme.foreground : colors.fg2,
                 }}
               >
                 <span style={truncateStyle}>{group.label}</span>
                 {annotation && (
                   <span
                     style={{
-                      color: colors.fg3,
+                      color: active ? terminalTheme.white : colors.fg3,
                       fontFamily: "var(--font-mono)",
                       fontSize: 10,
                       ...truncateStyle,
