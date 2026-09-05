@@ -36,6 +36,46 @@ candidate key. Once expired, generate a new code. A changed Hub key or unreadabl
 credential offers recovery; the App never silently loads the remote webpage or
 falls back to ordinary HTTP/WebSocket traffic.
 
+### Check the tunnel before pairing
+
+The Mac phone-code panel checks the selected address against this Hub's local
+identity before minting its encrypted code. It shows the handshake time measured
+**from the Mac**, which is not the phone's latency. An unreachable endpoint,
+wrong Hub identity, or stalled handshake produces an error and no new code.
+Changing the selected address discards results from an older in-flight check.
+
+To run the same check without creating a code or registering a device:
+
+```sh
+offdesk-hub tunnel-check --url https://your-hub.example
+offdesk-hub tunnel-check --url https://your-hub.example --json
+```
+
+Without `--url`, this uses `OFFDESK_SECURE_BASE_URL`, falling back to
+`OFFDESK_BASE_URL` / the usual reachable local address. Run it on the Hub machine
+with the same database path as the running Hub. An updated Hub must have started
+at least once; the check never creates a new Hub identity or trusts a key fetched
+from the tunnel. It uses a fresh disposable client identity and completes the
+Noise handshake without sending authentication, pairing codes or terminal data.
+The handshake has a 12-second deadline; the subsequent HTTP probes run in
+parallel with five-second deadlines. CLI pairing can opt in with `pair --check`;
+the pairing code's five-minute lifetime begins after the check finishes.
+
+For a managed-tunnel preflight, add `--require-encrypted-only`. This requires a
+verified Hub identity, HTTPS, and HTTP 404 on `/`, `/api/auth/me`, and
+`/ws/machine`. Redirects, authentication challenges and request failures do not
+count as hidden routes. The command exits 0 when the requested checks pass and
+1 otherwise; JSON reports include the observed statuses and failure category.
+No request includes a cookie, bearer token or pairing secret, and HTTP redirects
+are not followed. A shared legacy address can still pass the ordinary identity
+check and provide encrypted App pairing; the panel flags its ordinary routes.
+
+**These probes detect common routing mistakes, not a malicious relay or a future
+configuration change.** A relay can synthesize 404 responses. The hosted service
+and connector must independently enforce routing exclusively to the encrypted
+listener, including after configuration changes. Passing a preflight is not an
+independent privacy audit or proof of phone-side reachability.
+
 **Encrypted devices** in Settings lists devices paired to the signed-in account.
 Revoking one closes its encrypted streams (polled once per second) and prevents
 reconnection. To revoke the device you are using, use the Hub's local Settings or

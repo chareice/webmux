@@ -497,6 +497,26 @@ mod tests {
                 .status(),
             StatusCode::NOT_FOUND
         );
+        // Preflight proves this local Hub identity without minting a code or
+        // registering a device, and observes the dedicated listener's boundary.
+        let checked_endpoint = crate::tunnel_check::local_endpoint(database, &base).unwrap();
+        let report = crate::tunnel_check::check(&checked_endpoint).await;
+        assert!(report.identity_verified);
+        assert!(report.legacy_routes_hidden);
+        assert!(report.passed(false));
+        assert!(!report.passed(true)); // Local HTTP is not a public HTTPS tunnel.
+        {
+            let conn = pool.get().unwrap();
+            let counts: (i64, i64) = conn.query_row(
+                "SELECT (SELECT COUNT(*) FROM secure_devices), (SELECT COUNT(*) FROM secure_pairing_codes)",
+                [], |row| Ok((row.get(0)?, row.get(1)?)),
+            ).unwrap();
+            assert_eq!(counts, (0, 0));
+        }
+        let wrong_key = Endpoint { hub_url: base.clone(), public_key: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Identity::generate().unwrap().public()) };
+        let wrong_report = crate::tunnel_check::check(&wrong_key).await;
+        assert!(!wrong_report.identity_verified);
+        assert!(wrong_report.legacy_routes.is_empty());
         // Model a relay that terminates the outer WebSocket and records all
         // traffic in both directions. It has no Hub or device private key.
         let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
