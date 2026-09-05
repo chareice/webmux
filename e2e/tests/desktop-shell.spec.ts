@@ -25,7 +25,7 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
           if (command === "hub_status") return { supported: true, bundled: true, hub_installed: true, node_installed: true, listening: state.listening };
           if (command === "hub_pair") {
             const hub_url = args?.baseUrl ?? "https://hub.example.com:8443";
-            return { pairing_uri: "offdesk://pair?v=1&hub=" + encodeURIComponent(hub_url) + "&key=" + "A".repeat(43) + "&code=" + "B".repeat(43), hub_url, expires_at: Date.now() + 300000 };
+            return { pairing_uri: "offdesk://pair?v=2&hub=" + encodeURIComponent(hub_url) + "&key=" + "A".repeat(43) + "&code=" + "B".repeat(43), hub_url, expires_at: Date.now() + 300000 };
           }
           if (command === "hub_link") {
             if (state.linkFailures > 0) { state.linkFailures--; throw new Error("Hub restarting"); }

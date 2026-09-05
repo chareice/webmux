@@ -68,7 +68,7 @@ impl PairingDescriptor {
                 return Err("Duplicate pairing fields".into());
             }
         }
-        if fields.len() != 4 || fields.get("v").map(String::as_str) != Some("1") {
+        if fields.len() != 4 || fields.get("v").map(String::as_str) != Some("2") {
             return Err("Unsupported pairing code version".into());
         }
         let endpoint = Endpoint {
@@ -86,7 +86,7 @@ impl PairingDescriptor {
         self.endpoint.validate()?;
         let mut url = Url::parse("offdesk://pair").unwrap();
         url.query_pairs_mut()
-            .append_pair("v", "1")
+            .append_pair("v", "2")
             .append_pair("hub", &self.endpoint.hub_url)
             .append_pair("key", &self.endpoint.public_key)
             .append_pair("code", &self.code);
@@ -116,7 +116,7 @@ mod tests {
         );
         assert_eq!(decoded.code, descriptor.code);
         assert!(PairingDescriptor::parse(&(encoded.clone() + "&code=anything")).is_err());
-        assert!(PairingDescriptor::parse(&encoded.replace("v=1", "v=2")).is_err());
+        assert!(PairingDescriptor::parse(&encoded.replace("v=2", "v=1")).is_err());
         assert!(
             PairingDescriptor::parse(&encoded.replace("hub.example", "user%40hub.example"))
                 .is_err()

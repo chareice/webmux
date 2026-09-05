@@ -19,7 +19,7 @@ async function bundledPhone(page: Page, initial: "new" | "paired" | "damaged" = 
   await page.addInitScript(({ initial }) => {
     Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15" });
     const status = { endpoint: { hub_url: "https://encrypted.example", public_key: "pinned" }, device_id: "phone" };
-    const state = { configured: initial === "paired", damaged: initial === "damaged", calls: [] as string[], input: [] as unknown[] };
+    const state = { configured: initial === "paired" || sessionStorage.getItem("test:paired") === "true", damaged: initial === "damaged", userError: "", userRequests: 0, calls: [] as string[], input: [] as unknown[] };
     Object.assign(window, { __secureTest: state });
     Object.assign(window, { __TAURI_INTERNALS__: {
       metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
@@ -31,10 +31,13 @@ async function bundledPhone(page: Page, initial: "new" | "paired" | "damaged" = 
         if (command === "mobile_hub_url") return null;
         if (command === "secure_pair") {
           if (!args.uri.startsWith("offdesk://pair?")) throw new Error("Invalid code");
-          state.configured = true; return status;
+          state.configured = true; sessionStorage.setItem("test:paired", "true"); return status;
         }
-        if (command === "secure_forget") { state.configured = false; state.damaged = false; return; }
-        if (command === "secure_request") return (window as any).__secureHttp(args);
+        if (command === "secure_forget") { state.configured = false; state.damaged = false; sessionStorage.removeItem("test:paired"); return; }
+        if (command === "secure_request") {
+          if (args.path === "/api/auth/me") { state.userRequests++; if (state.userError) throw new Error(state.userError); }
+          return (window as any).__secureHttp(args);
+        }
         if (command === "secure_socket_open") {
           // Channel objects have their callback before the native invocation.
           queueMicrotask(() => args.events.onmessage({ type: "opened", id: args.id }));
@@ -59,7 +62,7 @@ async function bundledPhone(page: Page, initial: "new" | "paired" | "damaged" = 
 test("pairing stays on bundled assets and sends all Hub requests through native IPC", async ({ page }, testInfo) => {
   const ordinary = await bundledPhone(page);
   await expect(page.getByRole("button", { name: "Scan the code", exact: true })).toBeVisible();
-  await page.getByPlaceholder("Hub address or offdesk://pair?…").fill("offdesk://pair?v=1&hub=https%3A%2F%2Fencrypted.example&key=pinned&code=code");
+  await page.getByPlaceholder("Hub address or offdesk://pair?…").fill("offdesk://pair?v=2&hub=https%3A%2F%2Fencrypted.example&key=pinned&code=code");
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.getByTestId("mobile-workbench")).toBeVisible();
   expect(new URL(page.url()).origin).toBe("http://tauri.localhost");
@@ -88,3 +91,28 @@ test("an unreadable encrypted identity offers recovery without ordinary API traf
   await expect(page.getByRole("button", { name: "Forget connection and pair again" })).toBeVisible();
   expect(ordinary).toEqual([]);
 });
+
+for (const reason of ["Hub identity changed", "This device has been revoked", "Could not read device credentials"]) {
+  test(`first paired account request offers recovery: ${reason}`, async ({ page }) => {
+    const ordinary = await bundledPhone(page);
+    await page.evaluate(reason => { (window as any).__secureTest.userError = reason; }, reason);
+    await page.getByPlaceholder("Hub address or offdesk://pair?…").fill("offdesk://pair?v=2&hub=https%3A%2F%2Fencrypted.example&key=pinned&code=code");
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page.getByText(reason, { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Forget connection and pair again", exact: true })).toBeVisible();
+    await page.clock.install();
+    await page.clock.fastForward(10000);
+    expect(await page.evaluate(() => (window as any).__secureTest.userRequests)).toBe(1);
+    expect(ordinary).toEqual([]);
+    if (reason === "Hub identity changed") {
+      await page.getByRole("button", { name: "Try again", exact: true }).click();
+      await expect(page.getByTestId("mobile-workbench")).toBeVisible();
+    } else {
+      await page.getByRole("button", { name: "Forget connection and pair again", exact: true }).click();
+      await expect(page.locator("body")).toHaveAttribute("data-switched", "true");
+      expect(await page.evaluate(() => localStorage.getItem("offdesk:token"))).toBeNull();
+    }
+    expect(ordinary).toEqual([]);
+  });
+}

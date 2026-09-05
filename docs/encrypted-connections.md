@@ -75,17 +75,33 @@ This implementation does not alter installed tunnel or service configuration.
   screen/terminal, not a page supplied by the relay. The DB stores only the
   secret's SHA-256 hash, expiry and binding.
 - Native Rust uses Snow's `Noise_IK_25519_ChaChaPoly_SHA256` with prologue
-  `offdesk-secure-v1`. Neither handshake message has application payloads. Pairing
+  `offdesk-secure-v2`. Neither handshake message has application payloads. Pairing
   or resumption is the initiator's first encrypted **transport** message. The Hub
   authenticates the device key before replying with account/session data.
-- Ordered Noise records contain at most 65,519 plaintext bytes plus a 16-byte
-  authentication tag. Each application message has an authenticated four-byte
-  big-endian length prefix and a 32 MiB maximum. Tampering, reordering, replay or
-  malformed framing terminates the channel; a reconnect performs a new handshake.
-  Authenticated heartbeats close a silently stalled connection after about a
-  minute. A timed-out mutation is never automatically replayed.
-- Encrypted JSON multiplexes HTTP responses and logical WebSockets. IDs, API
-  paths, device names, terminal bytes and image payloads are inside encryption.
+- Version 2 records contain up to 16 KiB of message data, an encrypted 16-byte
+  fragment header (64-bit message ID, 32-bit total length, 32-bit offset; all
+  big-endian), and the 16-byte Noise authentication tag. Messages remain limited
+  to 32 MiB. The receiver checks offsets, fresh IDs and assembly limits (eight
+  incomplete messages, at most 64 MiB of declared lengths). Tampering, replay,
+  reordering and malformed framing terminate the channel.
+- Both directions encrypt one selected fragment at a time. A separate bounded
+  heartbeat queue allows authenticated Ping/Pong during large uploads; small
+  independent requests can pass between fragments. After eight small messages,
+  bulk data gets a turn. One bulk message is assembled at a time by this sender;
+  same-socket order is retained, so an Enter following an image cannot run first.
+  Data queues share a 64 MiB encoded-byte budget, in addition to message-count
+  limits. These budgets are not a bound on total process memory: callers, JSON,
+  native IPC and receiver buffers also consume memory.
+- Application messages use an encrypted type byte: `0` followed by JSON for
+  text/control/HTTP, or `1`, an unsigned one-byte ID length (1–64), the UTF-8
+  socket ID and raw bytes for binary socket data. Binary network frames avoid
+  Base64 expansion. Tauri JSON IPC and images already encoded in the terminal's
+  own JSON protocol still use Base64; this does not remove all copies or the
+  image protocol's expansion. IDs, API paths, device names, terminal bytes and
+  image payloads remain inside encryption.
+- Authenticated heartbeats still close a silently stalled connection after about
+  a minute. Increasing timeouts or counting unauthenticated WebSocket Pong is
+  not used to conceal upload stalls. Timed-out mutations are never replayed.
   The Hub uses its existing authorization handlers through in-process routing
   and duplex streams. Its internal user JWT never crosses the relay.
 - Keys are outside the WebView: iOS Keychain (`ThisDeviceOnly`, unlocked,
@@ -137,3 +153,28 @@ For iOS distribution, the previous `ITSAppUsesNonExemptEncryption=false` asserti
 was based on platform TLS only and has been removed. The publisher must complete
 App Store Connect's encryption questions for the new Noise implementation before
 making the beta available. See [Apple’s encryption documentation workflow](https://developer.apple.com/help/app-store-connect/manage-app-information/determine-and-upload-app-encryption-documentation/).
+
+## Version 2 review follow-up
+
+This unreleased transport revision changes the Noise prologue and pairing QR
+version to 2. Update Hub and App together and regenerate outstanding version-1
+pairing codes. A v1 App/Hub cannot silently use v2 framing; mismatched versions
+fail closed. Existing legacy connections are unaffected. No published native
+release was upgraded automatically by this development change.
+
+A deterministic regression uses a 1 KiB duplex buffer, a 2 Mbps virtual uplink
+and an 800 ms delay on encrypted heartbeat/HTTP replies. A 20 MiB image encoded
+in the existing terminal JSON (about 27 MiB) completes after about 135 seconds,
+with 28 authenticated heartbeats, other-terminal input around 868 ms and an
+independent HTTP response around 1.67 seconds. The following Enter stays behind
+its image on the same terminal. These are simulated timings, not a real network,
+CPU-throughput comparison, or phone memory benchmark. Run with:
+
+```sh
+cargo test -p offdesk-secure slow_large_upload -- --nocapture
+```
+
+Tests also cover queue budgets, bulk fairness, per-socket order, fragment bounds,
+raw binary wire size and first-pair recovery after identity/revocation/credential
+errors. Physical-device memory under concurrent previews and encrypted/plain
+throughput comparisons remain release-qualification work.
