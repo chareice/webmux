@@ -24,6 +24,28 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - run: cargo check --workspace
+      - run: cargo test -p offdesk-secure -p offdesk-hub
+
+  native-check:
+    name: Native Encryption Check
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+      - run: cargo check --manifest-path packages/desktop/src-tauri/Cargo.toml
+      - run: cargo check --manifest-path packages/desktop/src-tauri/Cargo.toml --target aarch64-apple-ios
 
   frontend-build:
     name: Frontend Build
@@ -41,6 +63,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm --filter @offdesk/shared build
+      - run: pnpm typecheck
+      - run: pnpm test
 
       - run: cd packages/app && npx expo export --platform web
 

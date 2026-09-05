@@ -454,3 +454,15 @@ mod dev_tests {
         assert!(binary.to_string_lossy().contains("/target/"), "{}", binary.display());
     }
 }
+
+/// Only the local bundled App can mint this short-lived device pairing code.
+#[tauri::command]
+pub async fn hub_pair(base_url: Option<String>) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let public_url = configured_public_url();
+        let mut command = hub_command(&["pair", "--json"], base_url.as_deref().or(public_url.as_deref()))?;
+        let output = command.output().map_err(|_| "Could not create a pairing code")?;
+        if !output.status.success() { return Err("Could not create an encrypted pairing code. Update the Hub and try again.".into()); }
+        serde_json::from_slice(&output.stdout).map_err(|_| "Invalid Hub pairing response".into())
+    }).await.map_err(|_| "Pairing request interrupted".to_string())?
+}

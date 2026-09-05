@@ -20,8 +20,13 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
         unregisterCallback: (id: number) => callbacks.delete(id),
         invoke: async (command: string, args?: { role?: "client" | "hub"; handler?: number; baseUrl?: string }) => {
           state.calls.push(command);
+          if (command === "secure_status") return null;
           if (command === "desktop_role") return role;
           if (command === "hub_status") return { supported: true, bundled: true, hub_installed: true, node_installed: true, listening: state.listening };
+          if (command === "hub_pair") {
+            const hub_url = args?.baseUrl ?? "https://hub.example.com:8443";
+            return { pairing_uri: "offdesk://pair?v=1&hub=" + encodeURIComponent(hub_url) + "&key=" + "A".repeat(43) + "&code=" + "B".repeat(43), hub_url, expires_at: Date.now() + 300000 };
+          }
           if (command === "hub_link") {
             if (state.linkFailures > 0) { state.linkFailures--; throw new Error("Hub restarting"); }
             const publicUrl = "https://hub.example.com:8443";
@@ -166,6 +171,12 @@ test("hub phone dialog offers tunnel and LAN QR codes without covering the deskt
   await expect.poll(() => page.evaluate(() => (window as any).__desktopTest.linkRequests.slice(-2))).toEqual([
     "http://192.168.1.10:4317", "https://hub.example.com:8443",
   ]);
+  await dialog.getByRole("button", { name: "Pair an encrypted device", exact: true }).click();
+  await expect(dialog.getByLabel("Encrypted device pairing QR code")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Copy pairing link", exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-encrypted-pairing.png") });
+  await picker.selectOption("http://192.168.1.10:4317");
+  await expect(dialog.getByLabel("Encrypted device pairing QR code")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("desktop-hub-phone-tunnel.png") });
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await expect(dialog).toHaveCount(0);

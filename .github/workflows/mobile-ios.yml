@@ -57,7 +57,7 @@ jobs:
       - name: Build shared package
         run: pnpm --filter @offdesk/shared build
 
-      - name: Build web bundle (loaded as launch shell, replaced at runtime)
+      - name: Build trusted web bundle (retained for encrypted connections)
         run: pnpm --filter @offdesk/app build
 
       - name: Set release version from tag

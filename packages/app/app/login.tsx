@@ -1,3 +1,4 @@
+import { isPairingUri, pairSecureConnection, isSecureConnection, secureConnectionStatus, secureConnectionError, forgetSecureConnection } from "../lib/secureTransport";
 import { useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { getAuthProviders, redeemLoginCode, type AuthProviders } from "../lib/api";
@@ -83,7 +84,15 @@ export default function LoginScreen({
     };
   }, [isDesktop, needsHub, providersAttempt]);
 
+  const pair = async (uri: string) => {
+    setConnecting(true); setHubError(null); setDesktopLinkError(null);
+    try {
+      const status = await pairSecureConnection(uri);
+      await loginWithToken(status.endpoint.hub_url, "secure-session");
+    } catch (error) { setHubError(String(error)); setDesktopLinkError(String(error)); setConnecting(false); }
+  };
   const handleHubConnect = () => {
+    if (isPairingUri(serverUrlInput)) { void pair(serverUrlInput.trim()); return; }
     setConnecting(true);
     setHubError(null);
     void import("@tauri-apps/api/core")
@@ -194,6 +203,7 @@ export default function LoginScreen({
     const content = await scanCode();
     if (!content) return;
     setServerUrlInput(content);
+    if (isPairingUri(content)) { await pair(content); return; }
     setConnecting(true);
     setHubError(null);
     void import("@tauri-apps/api/core")
@@ -225,6 +235,7 @@ export default function LoginScreen({
   const [desktopLinkError, setDesktopLinkError] = useState<string | null>(null);
   const handleDesktopLink = () => {
     const raw = desktopLink.trim();
+    if (isPairingUri(raw)) { void pair(raw); return; }
     let origin: string;
     try {
       origin = new URL(raw).origin;
@@ -299,7 +310,26 @@ export default function LoginScreen({
     handleHubConnect();
   };
 
-  if (needsHub && blockedMessage && !retyping) {
+  if (isSecureConnection()) {
+    return frame(<>
+      <Wordmark />
+      <Display size={28}>Encrypted connection</Display>
+      <Body>{secureConnectionStatus()?.endpoint.hub_url ?? "Your paired Hub"}</Body>
+      <Body size={14}>{secureConnectionError() ?? "Could not reconnect. Check that your Hub is running, then try again."}</Body>
+      <Button onClick={() => window.location.reload()}>Try again</Button>
+      <Button kind="ghost" disabled={connecting} onClick={() => {
+        setConnecting(true);
+        void forgetSecureConnection().then(async () => {
+          localStorage.removeItem("offdesk:server_url");
+          if (isTauriMobile()) { const { invoke } = await import("@tauri-apps/api/core"); await invoke("clear_mobile_hub_url"); }
+          else window.location.reload();
+        }).catch((error) => { setHubError(String(error)); setConnecting(false); });
+      }}>Forget connection and pair again</Button>
+      {hubError ? note(hubError, "error") : null}
+    </>);
+  }
+
+  if (needsHub && blockedMessage && !retyping && !isPairingUri(serverUrlInput)) {
     const address = (() => {
       try {
         return new URL(serverUrlInput.includes("://") ? serverUrlInput : `http://${serverUrlInput}`).host;
@@ -378,6 +408,7 @@ export default function LoginScreen({
           Scan the code
         </Button>
         {scanError ? note(scanError, "error") : null}
+        {hubError ? note(hubError, "error") : null}
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ flexGrow: 1, height: 1, background: colors.line }} />
           <span style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 600, color: colors.fg3 }}>No code handy?</span>
@@ -390,7 +421,7 @@ export default function LoginScreen({
           onKeyDown={(event) => {
             if (event.key === "Enter") handleHubConnect();
           }}
-          placeholder="192.168.1.10:4317, or the whole sign-in link"
+          placeholder="Hub address or offdesk://pair?…"
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
@@ -444,7 +475,7 @@ export default function LoginScreen({
             onKeyDown={(event) => {
               if (event.key === "Enter") handleDesktopLink();
             }}
-            placeholder="http://192.168.1.10:4317/?token=…"
+            placeholder="Hub sign-in link or offdesk://pair?…"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}

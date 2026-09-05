@@ -112,7 +112,7 @@ pub fn owner_session(pool: &DbPool, jwt_secret: &str) -> Option<String> {
 
 /// The owner's user id, created on first use. See [`owner_session`] for when
 /// this is `None`.
-fn owner_user_id(pool: &DbPool) -> Option<String> {
+pub(crate) fn owner_user_id(pool: &DbPool) -> Option<String> {
     let conn = pool.get().ok()?;
 
     let user = match db::users::find_user_by_provider(&conn, LOCAL_PROVIDER, LOCAL_PROVIDER_ID) {

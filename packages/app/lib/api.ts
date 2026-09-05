@@ -1,3 +1,4 @@
+import { isSecureConnection, secureFetch } from "./secureTransport";
 import type {
   User,
   BrowserStateSnapshot,
@@ -39,7 +40,9 @@ async function request<T>(
   if (_token) headers["Authorization"] = `Bearer ${_token}`;
 
   const url = `${_baseUrl}${path}`;
-  const res = await fetch(url, {
+  const res = isSecureConnection()
+    ? await secureFetch(method, path, body ? JSON.stringify(body) : undefined, signal)
+    : await fetch(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -281,6 +284,10 @@ export function releaseControlKeepalive(
   if (!_token) {
     return;
   }
+  if (isSecureConnection()) {
+    void request("POST", "/api/mode/release", { machine_id: machineId, device_id: deviceId }).catch(() => {});
+    return;
+  }
 
   const body = JSON.stringify({
     machine_id: machineId,
@@ -361,3 +368,10 @@ export function eventsWsUrl(deviceId?: string, afterSeq?: number): string {
   const qs = params.toString();
   return `${base}/ws/events${qs ? '?' + qs : ''}`;
 }
+
+// E2EE device management; requests follow the current encrypted/direct transport.
+export interface SecureDevice {
+  id: string; name: string; created_at: number; last_seen_at: number | null; revoked_at: number | null;
+}
+export const listSecureDevices = () => request<SecureDevice[]>("GET", "/api/security/devices");
+export const revokeSecureDevice = (id: string) => request<void>("DELETE", `/api/security/devices/${encodeURIComponent(id)}`);

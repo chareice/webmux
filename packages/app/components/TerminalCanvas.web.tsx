@@ -1,3 +1,4 @@
+import { openSocket } from "@/lib/secureTransport";
 import {
   lazy,
   Suspense,
@@ -559,7 +560,7 @@ function TerminalCanvasInner() {
 
   useEffect(() => {
     if (!bootstrapReady || !deviceId) return;
-    const ws = new WebSocket(eventsWsUrl(deviceId, lastSeqRef.current));
+    const ws = openSocket(eventsWsUrl(deviceId, lastSeqRef.current));
     let disposed = false;
     let pingTimer: ReturnType<typeof window.setInterval> | null = null;
 

@@ -1,3 +1,5 @@
+import { SecureDevicesPanel } from "./SecureConnectionPanel";
+import { isSecureConnection, secureConnectionStatus } from "../lib/secureTransport";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { colors, colorAlpha } from "@/lib/colors";
 import { useMobileHubSwitch } from "@/lib/useMobileHubSwitch";
@@ -1006,7 +1008,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                     overflowWrap: "anywhere",
                   }}
                 >
-                  {typeof window !== "undefined" ? window.location.origin : ""}
+                  {secureConnectionStatus()?.endpoint.hub_url ?? (typeof window !== "undefined" ? window.location.origin : "")}
                 </span>
                 <button
                   onClick={() => void handleSwitchHub()}
@@ -1031,6 +1033,11 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
           </section>
         )}
 
+        <section style={{ marginBottom: 32 }}>
+          <SectionTitle>Encrypted devices</SectionTitle>
+          <SecureDevicesPanel />
+        </section>
+
         {/* This machine — the desktop app's role, and the hub when it is one */}
         {isTauri() && !isTauriMobile() && (
           <section style={{ marginBottom: 32 }}>
@@ -1040,7 +1047,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
         )}
 
         {/* Connection Section — Tauri desktop only */}
-        {isTauri() && !isTauriMobile() && (
+        {isTauri() && !isTauriMobile() && !isSecureConnection() && (
           <section style={{ marginBottom: 32 }}>
             <SectionTitle>Connection</SectionTitle>
 
