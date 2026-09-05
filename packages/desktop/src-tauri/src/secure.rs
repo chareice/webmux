@@ -58,12 +58,19 @@ fn save_status<R: Runtime>(app: &AppHandle<R>, status: &Status) -> Result<(), St
     std::fs::create_dir_all(path.parent().ok_or("Missing config directory")?)
         .map_err(|_| "Could not create the config directory")?;
     let temporary = path.with_extension("pending");
-    std::fs::write(
-        &temporary,
-        serde_json::to_vec(status).map_err(|_| "Invalid connection")?,
-    )
-    .map_err(|_| "Could not save the connection")?;
-    std::fs::rename(temporary, path).map_err(|_| "Could not save the connection".into())
+    use std::io::Write;
+    let mut file =
+        std::fs::File::create(&temporary).map_err(|_| "Could not save the connection")?;
+    file.write_all(&serde_json::to_vec(status).map_err(|_| "Invalid connection")?)
+        .map_err(|_| "Could not save the connection")?;
+    file.sync_all()
+        .map_err(|_| "Could not persist the connection")?;
+    std::fs::rename(temporary, &path).map_err(|_| "Could not save the connection")?;
+    #[cfg(unix)]
+    std::fs::File::open(path.parent().ok_or("Missing config directory")?)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|_| "Could not persist the connection directory")?;
+    Ok(())
 }
 fn store_read<R: Runtime>(app: &AppHandle<R>, slot: &str) -> Result<Option<Credential>, String> {
     #[cfg(target_os = "android")]
@@ -71,7 +78,7 @@ fn store_read<R: Runtime>(app: &AppHandle<R>, slot: &str) -> Result<Option<Crede
         .state::<tauri_plugin_offdesk_keystore::Keystore<R>>()
         .read(slot)?
         .map(|s| s.into_bytes());
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(target_os = "ios")]
     let bytes = {
         let _ = app;
         match security_framework::passwords::generic_password(apple_options(slot)) {
@@ -85,7 +92,7 @@ fn store_read<R: Runtime>(app: &AppHandle<R>, slot: &str) -> Result<Option<Crede
             }
         }
     };
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     let bytes = {
         let _ = app;
         let entry = keyring::Entry::new("dev.offdesk.secure.v1", slot)
@@ -127,53 +134,77 @@ fn store_write<R: Runtime>(
         app.state::<tauri_plugin_offdesk_keystore::Keystore<R>>()
             .write(slot, text)
     }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(target_os = "ios")]
     {
         let _ = app;
-        use security_framework::{
-            access_control::{ProtectionMode, SecAccessControl},
-            passwords,
+        apple_write(slot, bytes.as_deref().map(|b| b.as_slice()))
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    {
+        let _ = app;
+        keyring_write(slot, bytes.as_deref().map(|b| b.as_slice()))
+    }
+}
+
+// macOS uses the login Keychain's application ACL, which also supports local
+// unsigned builds. iOS uses its application-bound Data Protection Keychain.
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+fn keyring_write(slot: &str, bytes: Option<&[u8]>) -> Result<(), String> {
+    let entry = keyring::Entry::new("dev.offdesk.secure.v1", slot)
+        .map_err(|_| "Could not open the device credential store")?;
+    let result = match bytes {
+        Some(bytes) => entry.set_secret(bytes),
+        None => entry.delete_credential(),
+    };
+    match result {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) if bytes.is_none() => Ok(()),
+        Err(_) => {
+            Err("Could not save the device credential. Unlock your device and try again.".into())
+        }
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn apple_write(slot: &str, bytes: Option<&[u8]>) -> Result<(), String> {
+    use security_framework::{
+        access_control::{ProtectionMode, SecAccessControl},
+        passwords,
+    };
+    let deleting = bytes.is_none();
+    let result = if let Some(bytes) = bytes {
+        let mut options = apple_options(slot);
+        // SecItemUpdate should search by service/account, preserving the
+        // existing access control, rather than using a newly allocated
+        // SecAccessControl object as a search attribute.
+        let exists = match passwords::generic_password(apple_options(slot)) {
+            Ok(previous) => {
+                drop(Zeroizing::new(previous));
+                true
+            }
+            Err(error) if error.code() == -25300 => false,
+            Err(_) => return Err("Could not unlock the device Keychain".into()),
         };
-        let result = if let Some(bytes) = bytes {
-            let mut options = apple_options(slot);
+        if !exists {
             let access = SecAccessControl::create_with_protection(
                 Some(ProtectionMode::AccessibleWhenUnlockedThisDeviceOnly),
                 0,
             )
             .map_err(|_| "Could not configure Keychain protection")?;
             options.set_access_control(access);
-            passwords::set_generic_password_options(&bytes, options)
-        } else {
-            passwords::delete_generic_password_options(apple_options(slot))
-        };
-        match result {
-            Ok(()) => Ok(()),
-            Err(error) if error.code() == -25300 => Ok(()),
-            Err(_) => Err(
-                "Could not save the device Keychain credential. Unlock your device and try again."
-                    .into(),
-            ),
         }
-    }
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    {
-        let _ = app;
-        let entry = keyring::Entry::new("dev.offdesk.secure.v1", slot)
-            .map_err(|_| "Could not open the device credential store")?;
-        let result = match bytes {
-            Some(bytes) => entry.set_secret(&bytes),
-            None => entry.delete_credential(),
-        };
-        match result {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err(
-                "Could not save the device credential. Unlock your device and try again.".into(),
-            ),
-        }
+        passwords::set_generic_password_options(bytes, options)
+    } else {
+        passwords::delete_generic_password_options(apple_options(slot))
+    };
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if deleting && error.code() == -25300 => Ok(()),
+        Err(error) => Err(format!("Could not save the device Keychain credential (OSStatus {}). Unlock your device and try again.", error.code())),
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 fn apple_options(slot: &str) -> security_framework::passwords::PasswordOptions {
     let mut options = security_framework::passwords::PasswordOptions::new_generic_password(
         "dev.offdesk.secure.v1",
@@ -354,4 +385,52 @@ pub async fn secure_socket_close(state: State<'_, SecureState>, id: String) -> R
         client.close_socket(id).await?;
     }
     Ok(())
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod keychain_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires an unlocked native login Keychain; creates and deletes an isolated test item"]
+    fn apple_keychain_creates_updates_and_forgets_credentials() {
+        let slot = format!(
+            "test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        // Clean up even when a read/update assertion fails.
+        struct Cleanup(String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = keyring_write(&self.0, None);
+            }
+        }
+        let _cleanup = Cleanup(slot.clone());
+        keyring_write(&slot, Some(b"isolated-test-first-value")).unwrap();
+        assert_eq!(
+            keyring::Entry::new("dev.offdesk.secure.v1", &slot)
+                .unwrap()
+                .get_secret()
+                .unwrap(),
+            b"isolated-test-first-value"
+        );
+        keyring_write(&slot, Some(b"isolated-test-updated-value")).unwrap();
+        assert_eq!(
+            keyring::Entry::new("dev.offdesk.secure.v1", &slot)
+                .unwrap()
+                .get_secret()
+                .unwrap(),
+            b"isolated-test-updated-value"
+        );
+        keyring_write(&slot, None).unwrap();
+        assert!(matches!(
+            keyring::Entry::new("dev.offdesk.secure.v1", &slot)
+                .unwrap()
+                .get_secret(),
+            Err(keyring::Error::NoEntry)
+        ));
+    }
 }

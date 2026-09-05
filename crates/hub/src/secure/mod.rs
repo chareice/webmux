@@ -285,6 +285,11 @@ async fn dispatch(
     tasks: &mut JoinSet<()>,
 ) {
     match request {
+        Request::Ping { id } => {
+            if id.len() <= 64 {
+                let _ = out.try_send(Response::Pong { id });
+            }
+        }
         Request::Http {
             id,
             method,

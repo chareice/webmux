@@ -17,6 +17,9 @@ pub enum AuthenticationResult {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Request {
+    Ping {
+        id: String,
+    },
     Http {
         id: String,
         method: String,
@@ -42,6 +45,9 @@ pub enum Request {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Response {
+    Pong {
+        id: String,
+    },
     Http {
         id: String,
         status: u16,
@@ -69,7 +75,8 @@ pub enum Response {
 impl Response {
     pub fn id(&self) -> &str {
         match self {
-            Self::Http { id, .. }
+            Self::Pong { id }
+            | Self::Http { id, .. }
             | Self::Opened { id }
             | Self::Text { id, .. }
             | Self::Binary { id, .. }

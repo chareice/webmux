@@ -9,12 +9,13 @@ use futures::{SinkExt, StreamExt};
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
 };
 use tokio::sync::{mpsc, oneshot, watch, Mutex};
+use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::{protocol::WebSocketConfig, Message};
 
 type Pending = oneshot::Sender<Result<Response, String>>;
@@ -24,6 +25,8 @@ struct Inner {
     sockets: Mutex<HashMap<String, mpsc::Sender<Response>>>,
     stop: watch::Sender<bool>,
     closed: AtomicBool,
+    started: Instant,
+    last_received: AtomicU64,
 }
 #[derive(Clone)]
 pub struct Client {
@@ -109,6 +112,8 @@ impl Client {
             sockets: Mutex::new(HashMap::new()),
             stop,
             closed: AtomicBool::new(false),
+            started: Instant::now(),
+            last_received: AtomicU64::new(0),
         });
         let client = Self {
             inner: inner.clone(),
@@ -151,6 +156,43 @@ impl Client {
             }
             fail(&write_inner).await;
         });
+        let heartbeat = client.clone();
+        let mut heartbeat_stop = inner.stop.subscribe();
+        tokio::spawn(async move {
+            let mut timer = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                if heartbeat.is_closed() {
+                    break;
+                }
+                tokio::select! {
+                    _ = heartbeat_stop.changed() => break,
+                    _ = timer.tick() => {},
+                }
+                // Only authenticated Noise records update this clock. A relay
+                // cannot keep a dead session alive with outer WS Ping/Pong.
+                let idle = heartbeat
+                    .inner
+                    .started
+                    .elapsed()
+                    .as_secs()
+                    .saturating_sub(heartbeat.inner.last_received.load(Ordering::Relaxed));
+                if idle > 60 {
+                    heartbeat.close();
+                    break;
+                }
+                if heartbeat
+                    .inner
+                    .outbound
+                    .try_send(Request::Ping {
+                        id: "heartbeat".into(),
+                    })
+                    .is_err()
+                    && heartbeat.is_closed()
+                {
+                    break;
+                }
+            }
+        });
         let mut read_stop = inner.stop.subscribe();
         tokio::spawn(async move {
             loop {
@@ -170,6 +212,9 @@ impl Client {
                     Ok(messages) => messages,
                     Err(_) => break,
                 };
+                inner
+                    .last_received
+                    .store(inner.started.elapsed().as_secs(), Ordering::Relaxed);
                 let mut failed = false;
                 for bytes in messages {
                     let response: Response = match serde_json::from_slice(&bytes) {
@@ -179,6 +224,9 @@ impl Client {
                             break;
                         }
                     };
+                    if matches!(response, Response::Pong { .. }) {
+                        continue;
+                    }
                     let id = response.id().to_string();
                     let pending = inner.pending.lock().await.remove(&id);
                     if let Some(pending) = pending {
@@ -255,7 +303,10 @@ impl Client {
                 Response::Error { message, .. } => Err(message),
                 response => Ok(response),
             },
-            _ => Err("Encrypted request timed out or was interrupted".into()),
+            _ => {
+                self.close();
+                Err("Encrypted request timed out or was interrupted".into())
+            }
         }
     }
     pub async fn open_socket(
@@ -300,4 +351,97 @@ async fn fail(inner: &Arc<Inner>) {
         let _ = pending.send(Err("Encrypted connection interrupted".into()));
     }
     inner.sockets.lock().await.clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    /// A correctly authenticated Hub that stops replying to application data.
+    async fn silent_hub() -> (
+        Client,
+        Arc<tokio::sync::Notify>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let hub = Identity::generate().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Endpoint {
+            hub_url: format!("http://{}", listener.local_addr().unwrap()),
+            public_key: URL_SAFE_NO_PAD.encode(hub.public()),
+        };
+        let observed = Arc::new(tokio::sync::Notify::new());
+        let seen = observed.clone();
+        let serving = tokio::spawn(async move {
+            let (io, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(io).await.unwrap();
+            let mut handshake = hub.responder().unwrap();
+            let first = socket.next().await.unwrap().unwrap().into_data();
+            handshake
+                .read_message(&first, &mut [0; MAX_RECORD])
+                .unwrap();
+            let mut hello = [0; MAX_RECORD];
+            let n = handshake.write_message(&[], &mut hello).unwrap();
+            socket
+                .send(Message::Binary(hello[..n].to_vec().into()))
+                .await
+                .unwrap();
+            let mut channel = Channel::new(handshake.into_transport_mode().unwrap());
+            let auth = socket.next().await.unwrap().unwrap().into_data();
+            channel.decode(&auth).unwrap();
+            for record in channel
+                .encode(br#"{"type":"ready","device_id":"test"}"#)
+                .unwrap()
+            {
+                socket.send(Message::Binary(record.into())).await.unwrap();
+            }
+            while let Some(Ok(Message::Binary(record))) = socket.next().await {
+                for message in channel.decode(&record).unwrap() {
+                    if matches!(
+                        serde_json::from_slice::<Request>(&message).unwrap(),
+                        Request::Http { .. }
+                    ) {
+                        seen.notify_one();
+                    }
+                }
+            }
+        });
+        let (client, _) = Client::connect(
+            &endpoint,
+            &Identity::generate().unwrap(),
+            Authenticate::Resume,
+        )
+        .await
+        .unwrap();
+        (client, observed, serving)
+    }
+    #[tokio::test]
+    async fn silent_network_loss_closes_the_connection_for_a_fresh_handshake() {
+        let (client, _, server) = silent_hub().await;
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(66)).await;
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        assert!(
+            client.is_closed(),
+            "elapsed={} received={}",
+            client.inner.started.elapsed().as_secs(),
+            client.inner.last_received.load(Ordering::Relaxed)
+        );
+        server.abort();
+    }
+    #[tokio::test]
+    async fn a_timed_out_mutation_is_not_replayed_and_closes_the_stale_connection() {
+        let (client, observed, server) = silent_hub().await;
+        let requesting = client.clone();
+        let request = tokio::spawn(async move {
+            requesting
+                .request("POST".into(), "/api/terminals".into(), Some("{}".into()))
+                .await
+        });
+        observed.notified().await;
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(41)).await;
+        assert!(request.await.unwrap().is_err());
+        assert!(client.is_closed());
+        server.abort();
+    }
 }

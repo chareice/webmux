@@ -82,12 +82,14 @@ This implementation does not alter installed tunnel or service configuration.
   authentication tag. Each application message has an authenticated four-byte
   big-endian length prefix and a 32 MiB maximum. Tampering, reordering, replay or
   malformed framing terminates the channel; a reconnect performs a new handshake.
+  Authenticated heartbeats close a silently stalled connection after about a
+  minute. A timed-out mutation is never automatically replayed.
 - Encrypted JSON multiplexes HTTP responses and logical WebSockets. IDs, API
   paths, device names, terminal bytes and image payloads are inside encryption.
   The Hub uses its existing authorization handlers through in-process routing
   and duplex streams. Its internal user JWT never crosses the relay.
-- Keys are outside the WebView: Apple Keychain (`ThisDeviceOnly`, unlocked,
-  non-synchronizing), Android KeyStore wrapping credentials with AES-256-GCM,
+- Keys are outside the WebView: iOS Keychain (`ThisDeviceOnly`, unlocked,
+  non-synchronizing), macOS login Keychain with its application ACL, Android KeyStore wrapping credentials with AES-256-GCM,
   Windows Credential Store, or Linux Secret Service. A locked/unavailable store
   fails closed; there is no plaintext-file fallback. Android excludes App backup.
 - Only local bundled Tauri capabilities grant the secure commands. Socket replies
