@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { colors, colorAlpha } from "@/lib/colors";
+import { useMobileHubSwitch } from "@/lib/useMobileHubSwitch";
 import { useTheme, type Theme } from "@/lib/theme";
 import { MobileAppPanel } from "./MobileAppPanel.web";
 import { ThisMachineSection } from "./DesktopSetup.web";
@@ -560,15 +561,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
   // the app back to its own setup screen, where the next address is typed by
   // hand — this page is served by a hub, and a hub does not get to choose the
   // next one.
-  const handleSwitchHub = useCallback(() => {
-    // Recoverable, but only by retyping an address on a phone keyboard.
-    if (!window.confirm("Disconnect from this hub and enter another address?")) {
-      return;
-    }
-    void import("@tauri-apps/api/core").then(({ invoke }) =>
-      invoke("clear_mobile_hub_url"),
-    );
-  }, []);
+  const { switchHub: handleSwitchHub, switching: switchingHub, error: switchHubError } = useMobileHubSwitch();
 
   const handlePrefixRecordKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -1016,7 +1009,8 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                   {typeof window !== "undefined" ? window.location.origin : ""}
                 </span>
                 <button
-                  onClick={handleSwitchHub}
+                  onClick={() => void handleSwitchHub()}
+                  disabled={switchingHub}
                   style={{
                     background: "none",
                     border: `1px solid ${colors.border}`,
@@ -1029,10 +1023,11 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  Switch hub
+                  {switchingHub ? "Switching…" : "Switch hub"}
                 </button>
               </div>
             </SettingRow>
+            {switchHubError && <p role="alert" style={{ color: colors.err, fontSize: 13, margin: "8px 0 0" }}>{switchHubError}</p>}
           </section>
         )}
 

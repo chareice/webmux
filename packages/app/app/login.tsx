@@ -5,6 +5,7 @@ import { useAuth } from "../lib/auth";
 import { codeFromLink, tokenFromLink } from "../lib/desktopHub";
 import { isBundledOrigin, isTauri, isTauriMobile } from "../lib/platform";
 import { getServerUrl, setServerUrl } from "../lib/serverUrl";
+import { useMobileHubSwitch } from "../lib/useMobileHubSwitch";
 import { Body, Button, Card, Display, Eyebrow, Wordmark, fontDisplay, inputStyle } from "../components/Warm.web";
 import { colors } from "../lib/colors";
 
@@ -139,11 +140,7 @@ export default function LoginScreen({
       // Nothing to do: the message already says where the switch is.
     }
   };
-  const handleSwitchHub = () => {
-    void import("@tauri-apps/api/core").then(({ invoke }) =>
-      invoke("clear_mobile_hub_url"),
-    );
-  };
+  const { switchHub: handleSwitchHub, switching: switchingHub, error: switchHubError } = useMobileHubSwitch();
 
   // The phone's camera, in the app: reads the code the hub's page shows —
   // the sign-in link, with the token on it — so nothing is typed. Only the
@@ -530,9 +527,10 @@ export default function LoginScreen({
         </Button>
       ) : null}
       {scanError && inMobileApp ? note(scanError, "error") : null}
+      {switchHubError && inMobileApp ? <div role="alert">{note(switchHubError, "error")}</div> : null}
       {inMobileApp ? (
-        <Button kind="ghost" onClick={handleSwitchHub} style={{ alignSelf: "center", height: 36, fontSize: 13 }}>
-          Use a different hub
+        <Button kind="ghost" onClick={() => void handleSwitchHub()} disabled={switchingHub} style={{ alignSelf: "center", height: 36, fontSize: 13 }}>
+          {switchingHub ? "Switching…" : "Use a different hub"}
         </Button>
       ) : null}
     </>
