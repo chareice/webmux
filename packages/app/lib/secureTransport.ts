@@ -28,6 +28,7 @@ export async function switchConnectionRoute(url: string): Promise<void> {
   if (routeRefresh) await routeRefresh;
   if ([...sockets].some(socket => socket.bufferedAmount > 0)) throw new Error("Finish sending the current input or file, then try again");
   const updated = await invoke<SecureStatus>("secure_switch_route", { url });
+  if (!enabled || status?.device_id !== updated.device_id || status?.endpoint.public_key !== updated.endpoint.public_key) throw new Error("The paired Hub changed. Check connections again.");
   status = updated;
   initialization = Promise.resolve(updated);
   lastError = null;

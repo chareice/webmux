@@ -27,6 +27,19 @@ describe("encrypted native transport", () => {
     expect(transport.secureConnectionStatus()).toBeNull();
     expect(transport.isSecureConnection()).toBe(false);
   });
+  it("does not restore a forgotten Hub from a delayed route-switch acknowledgement", async () => {
+    let acknowledge: (value: unknown) => void = () => {};
+    mock.invoke.mockImplementation(command => command === "secure_status" ? Promise.resolve(paired) : command === "secure_switch_route" ? new Promise(resolve => { acknowledge = resolve; }) : Promise.resolve());
+    const transport = await import("./secureTransport");
+    await transport.restoreSecureConnection();
+    const pending = transport.switchConnectionRoute("http://192.168.1.2:4317");
+    await tick();
+    await transport.forgetSecureConnection();
+    acknowledge({ ...paired, endpoint: { ...paired.endpoint, hub_url: "http://192.168.1.2:4317" } });
+    await expect(pending).rejects.toThrow("paired Hub changed");
+    expect(await transport.restoreSecureConnection()).toBeNull();
+    expect(transport.isSecureConnection()).toBe(false);
+  });
   it("switches routes without re-pairing and accepts reconnect callbacks with the original URL", async () => {
     const remote = { ...paired, endpoint: { ...paired.endpoint, hub_url: "http://192.168.1.2:4317" } };
     mock.invoke.mockImplementation(async command => command === "secure_status" ? paired : command === "secure_switch_route" ? remote : undefined);
