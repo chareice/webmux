@@ -37,6 +37,15 @@ pub struct TerminalInfo {
     pub rows: u16,
     #[serde(default = "default_reachable")]
     pub reachable: bool,
+    /// Best-effort detection of an interactive confirmation on the live screen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attention: Option<TerminalAttention>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalAttention {
+    Confirmation,
 }
 
 fn default_reachable() -> bool {
@@ -452,6 +461,11 @@ pub enum MachineToHub {
     },
     #[serde(rename = "terminal_cwd")]
     TerminalCwd { terminal_id: String, cwd: String },
+    #[serde(rename = "terminal_attention")]
+    TerminalAttention {
+        terminal_id: String,
+        attention: Option<TerminalAttention>,
+    },
     #[serde(rename = "pong")]
     Pong,
     /// Agent session state changes. Fields left `None` are unchanged.

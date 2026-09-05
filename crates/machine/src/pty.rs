@@ -348,6 +348,45 @@ impl PtyManager {
         }
     }
 
+    /// Inspect only the visible pane on this machine; never stream inactive
+    /// terminals to the phone just to discover a confirmation prompt.
+    pub fn terminal_attentions(
+        &self,
+        panes: &HashMap<String, PaneInfo>,
+    ) -> HashMap<String, Option<offdesk_protocol::TerminalAttention>> {
+        self.list_terminal_ids()
+            .into_iter()
+            .map(|id| {
+                let command = panes.get(&id).and_then(|p| p.current_command.as_deref());
+                let attention = if matches!(command, Some("claude" | "codex" | "node")) {
+                    let target = format!("{}:0.0", tmux_session_name(&id));
+                    tmux_cmd()
+                        .args([
+                            "-L",
+                            tmux_socket(),
+                            "capture-pane",
+                            "-p",
+                            "-J",
+                            "-t",
+                            &target,
+                        ])
+                        .output()
+                        .ok()
+                        .filter(|o| o.status.success())
+                        .and_then(|o| {
+                            crate::terminal_attention::detect(
+                                command,
+                                &String::from_utf8_lossy(&o.stdout),
+                            )
+                        })
+                } else {
+                    None
+                };
+                (id, attention)
+            })
+            .collect()
+    }
+
     pub fn list_terminals(&self) -> Vec<SessionInfo> {
         self.sessions.lock().unwrap().values().cloned().collect()
     }
