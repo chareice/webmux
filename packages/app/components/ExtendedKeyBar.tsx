@@ -89,9 +89,15 @@ export function ExtendedKeyBar({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
   const [choosingAttachment, setChoosingAttachment] = useState(false);
-  const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null);
+  const [attachmentStatus, setAttachmentStatus] = useState<{ message: string; submitted: boolean } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [copying, setCopying] = useState(false);
+
+  useEffect(() => {
+    if (!attachmentStatus?.submitted) return;
+    const timer = setTimeout(() => setAttachmentStatus(null), 5000);
+    return () => clearTimeout(timer);
+  }, [attachmentStatus]);
 
   const handleAttachClick = () => {
     if (!isController || uploading) return;
@@ -105,12 +111,12 @@ export function ExtendedKeyBar({
     if (!file || !onAttachFile) return;
     setUploading(true);
     const description = `${file.name} (${formatAttachmentSize(file.size)})`;
-    setAttachmentStatus(`Sending ${description}…`);
+    setAttachmentStatus({ message: `Sending ${description}…`, submitted: false });
     try {
       await onAttachFile(file);
-      setAttachmentStatus(`Submitted ${description}. Check the terminal for its path.`);
+      setAttachmentStatus({ message: `Submitted ${description}. Check the terminal for its path.`, submitted: true });
     } catch (error) {
-      setAttachmentStatus(error instanceof Error ? error.message : "Could not send the file. Try again.");
+      setAttachmentStatus({ message: error instanceof Error ? error.message : "Could not send the file. Try again.", submitted: false });
     } finally {
       setUploading(false);
     }
@@ -220,8 +226,8 @@ export function ExtendedKeyBar({
       flexShrink: 0,
       touchAction: 'none',
     }}>
-      {attachmentStatus && <div role="status" style={{ display: "flex", gap: 8, padding: "6px 10px", alignItems: "center", fontSize: 12 }}>
-        <span style={{ flex: 1, overflowWrap: "anywhere" }}>{attachmentStatus}</span>
+      {attachmentStatus && <div role="status" data-testid="attachment-status" style={{ display: "flex", gap: 8, padding: "6px 10px", alignItems: "center", fontSize: 12 }}>
+        <span style={{ flex: 1, overflowWrap: "anywhere" }}>{attachmentStatus.message}</span>
         <button aria-label="Dismiss attachment status" onClick={() => setAttachmentStatus(null)} style={{ background: "none", border: "none", color: colors.foreground, minHeight: 32 }}>Dismiss</button>
       </div>}
       {/* Row 1 — pinned: utility cluster left, Esc/⇧Tab/↑/↓/^C right. */}

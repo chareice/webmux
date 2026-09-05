@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 mod hub_url;
 mod secure;
+#[cfg(any(mobile, test))]
+mod mobile_shell;
 #[cfg(mobile)]
 mod mobile_hub;
 #[cfg(desktop)]
@@ -12,7 +14,7 @@ mod role;
 #[cfg(desktop)]
 mod tray;
 
-#[cfg(any(desktop, mobile))]
+#[cfg(desktop)]
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -132,15 +134,6 @@ fn setup_desktop(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(mobile)]
 fn setup_mobile(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle();
-
-    // Remember where the bundled setup screen lives before we leave it: the
-    // local origin differs by platform, and "forget this hub" has to come
-    // back here.
-    if let Some(window) = app.get_webview_window("main") {
-        if let Ok(url) = window.url() {
-            app.manage(mobile_hub::ShellUrl(url));
-        }
-    }
 
     // With a hub already chosen, the WebView goes straight there and the
     // bundled assets are never more than a launch shell. Without one the

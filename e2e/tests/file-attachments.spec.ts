@@ -40,6 +40,9 @@ for (const local of [false, true]) {
     expect(await chooser.element().getAttribute("accept")).toBeNull();
     const file = { name: "customer report's.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\nBinary document \0\xff\n客户资料", "utf8") };
     await chooser.setFiles(file);
+    if (!local) {
+      await expect(page.getByTestId("attachment-status")).toContainText(`Submitted ${file.name}`);
+    }
     if (local) {
       await expect(page.getByTestId("local-composer")).toContainText(file.name);
       await expect(page.getByTestId("composer-save-status")).toHaveText("Saved on this device");
@@ -54,5 +57,8 @@ for (const local of [false, true]) {
       .toContain(`FILE_SHA256=${createHash("sha256").update(file.buffer).digest("hex")}`);
     await expect.poll(async () => (await readTerminalBuffer(page, id)).replaceAll("\n", ""))
       .toContain(`FILE_NAME=${local ? "0-" : ""}${file.name}`);
+    if (!local) {
+      await expect(page.getByTestId("attachment-status")).toBeHidden({ timeout: 8_000 });
+    }
   });
 }

@@ -26,11 +26,6 @@ const STORE_FILE: &str = "hub.json";
 /// address does not look like a hang.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Where the app returns to when it has no hub — the bundled setup screen.
-/// Captured at startup rather than reconstructed, because the local origin
-/// differs by platform (`tauri://localhost`, `http://tauri.localhost`).
-pub struct ShellUrl(pub Url);
-
 #[derive(Default, Serialize, Deserialize)]
 struct Store {
     hub_url: Option<String>,
@@ -206,16 +201,15 @@ fn local_network_blocked(error: &std::io::Error) -> bool {
 /// is why this goes back to the local screen rather than loading anything else.
 #[tauri::command]
 pub fn clear_mobile_hub_url<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    write_store(&app, &Store::default())?;
-
-    let shell = app
-        .try_state::<ShellUrl>()
-        .ok_or("the setup screen's address was not recorded at startup")?
-        .0
-        .clone();
+    // Android's WebView can return an empty URL during setup. Do not depend
+    // on capturing that transient value (or on the current remote Hub URL).
+    let config = app.config().app.windows.iter().find(|window| window.label == "main")
+        .ok_or("the main window configuration is missing")?;
+    let shell = crate::mobile_shell::setup_url(config, cfg!(target_os = "android"))?;
     let window = app
         .get_webview_window("main")
         .ok_or("the main window is missing")?;
+    write_store(&app, &Store::default())?;
     window
         .navigate(shell)
         .map_err(|e| format!("failed to open the setup screen: {e}"))
