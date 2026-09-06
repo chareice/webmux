@@ -1,6 +1,7 @@
 mod connections;
 mod secure;
 mod tunnel_check;
+mod cloud;
 mod composer;
 mod attach_router;
 mod auth;
@@ -69,6 +70,11 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Invitation-only official encrypted remote connection
+    Cloud {
+        #[command(subcommand)]
+        action: cloud::Action,
+    },
     /// Create a short-lived QR code for an encrypted App connection
     Pair {
         #[arg(long)]
@@ -359,6 +365,15 @@ async fn main() {
     promote_legacy_env();
     let args = Args::parse();
 
+    if let Some(Command::Cloud { action }) = &args.command {
+        let database = first_run::database_path(args.database.as_deref());
+        if let Err(error) = cloud::execute(action, &database).await {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     if let Some(Command::Service { action }) = &args.command {
         run_service(*action, &args);
         return;
@@ -452,7 +467,7 @@ async fn main() {
 
     state.manager.start_seq_flush_task();
 
-    let inner = routes::router().merge(connections::router(args.listen.clone(), env_opt("OFFDESK_SECURE_BASE_URL"))).merge(ws::router()).with_state(state.clone());
+    let inner = routes::router().merge(connections::router(args.listen.clone(), env_opt("OFFDESK_SECURE_BASE_URL"), database.clone())).merge(ws::router()).with_state(state.clone());
     let encrypted = secure::router(state.clone(), inner.clone(), &database).expect("Could not initialize encrypted connections");
     let app = inner.merge(encrypted.clone())
         .route("/api", any(api_not_found))

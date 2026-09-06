@@ -471,7 +471,7 @@ mod tests {
             google_client_secret: None,
         };
         let inner = crate::routes::router()
-            .merge(crate::connections::router("0.0.0.0:4317".into(), None))
+            .merge(crate::connections::router("0.0.0.0:4317".into(), None, database.into()))
             .merge(crate::ws::router())
             .route("/ws/terminal/secure-test-echo", get(|ws: WebSocketUpgrade| async {
                 ws.on_upgrade(|mut socket| async move {
@@ -599,6 +599,22 @@ mod tests {
                 assert!(routes.iter().any(|r| r.hub_url == "https://remote.example"));
             }
             _ => panic!("expected authenticated route discovery"),
+        }
+        // A verified managed address is discovered over the existing encrypted
+        // session without restarting the Hub or consuming another pairing code.
+        let managed_dir = root.join("hub.db.cloud");
+        std::fs::create_dir(&managed_dir).unwrap();
+        let managed = "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.cloud.offdesk.dev";
+        for expected in [managed, "https://remote.example"] {
+            if expected == managed { std::fs::write(managed_dir.join("verified-url"), managed).unwrap(); }
+            else { std::fs::remove_file(managed_dir.join("verified-url")).unwrap(); }
+            match alternate.request("GET".into(), "/api/connection-routes".into(), None).await.unwrap() {
+                Response::Http { status: 200, body, .. } => {
+                    let routes: Vec<offdesk_secure::routes::Route> = serde_json::from_str(&body).unwrap();
+                    assert_eq!(routes[0].hub_url, expected);
+                },
+                _ => panic!("expected authenticated route discovery"),
+            }
         }
         assert_eq!(store::list(&pool.get().unwrap(), "secure-owner").unwrap().len(), 1);
         alternate.close();

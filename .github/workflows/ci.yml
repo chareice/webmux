@@ -24,7 +24,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - run: cargo check --workspace
-      - run: cargo test -p offdesk-secure -p offdesk-hub
+      - run: cargo test -p offdesk-secure -p offdesk-hub -p offdesk-protocol
 
   native-check:
     name: Native Encryption Check

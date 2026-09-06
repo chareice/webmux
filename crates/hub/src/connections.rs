@@ -4,16 +4,17 @@ use crate::{auth::AuthUser, AppState};
 use axum::{extract::State, routing::get, Json, Router};
 use offdesk_secure::routes::{Route, RouteKind};
 
-pub fn router(listen: String, remote_url: Option<String>) -> Router<AppState> {
+pub fn router(listen: String, remote_url: Option<String>, database: String) -> Router<AppState> {
     Router::new().route(
         "/api/connection-routes",
         get(move |State(state): State<AppState>, _user: AuthUser| {
             let listen = listen.clone();
             let remote_url = remote_url.clone();
+            let managed_url = crate::cloud::advertised_url(&database);
             async move {
                 Json(advertise(
                     &listen,
-                    remote_url.as_deref().unwrap_or(&state.base_url),
+                    managed_url.as_deref().or(remote_url.as_deref()).unwrap_or(&state.base_url),
                     crate::first_run::local_network_addresses(),
                 ))
             }
