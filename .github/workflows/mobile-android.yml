@@ -235,6 +235,20 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # Validate the signed package in a real Android runtime before publishing.
+      # Browser E2E cannot catch WebView/native-plugin thread deadlocks.
+      - name: Android startup and retained-pairing smoke
+        if: startsWith(github.ref, 'refs/tags/')
+        timeout-minutes: 12
+        run: bash scripts/android-startup-smoke.sh "artifacts/offdesk-${{ steps.version.outputs.version }}-x86_64.apk"
+
+      - name: Upload Android smoke diagnostics
+        if: always() && startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-startup-smoke
+          path: android-smoke/
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

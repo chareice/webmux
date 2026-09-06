@@ -14,7 +14,6 @@ mod role;
 #[cfg(desktop)]
 mod tray;
 
-#[cfg(desktop)]
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -38,6 +37,7 @@ pub fn run() {
     // are how the setup screen and the hub's own UI change that choice.
     #[cfg(mobile)]
     let builder = builder
+        .manage(mobile_shell::NavigationGuard::default())
         .plugin(mobile_hub::encrypted_navigation_guard())
         .plugin(tauri_plugin_barcode_scanner::init())
         .invoke_handler(tauri::generate_handler![
@@ -145,7 +145,9 @@ fn setup_mobile(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // bundled assets are never more than a launch shell. Without one the
     // shell *is* the app until the user enters an address, so staying put is
     // the setup screen rather than a failure.
-    if secure::configured(handle) { return Ok(()); }
+    let paired = secure::configured(handle);
+    handle.state::<mobile_shell::NavigationGuard>().set_paired(paired);
+    if paired { return Ok(()); }
     let Some(hub_url) = mobile_hub::configured_hub_url(handle) else {
         return Ok(());
     };

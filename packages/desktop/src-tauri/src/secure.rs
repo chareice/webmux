@@ -80,6 +80,10 @@ fn save_status<R: Runtime>(app: &AppHandle<R>, status: &Status) -> Result<(), St
     file.sync_all()
         .map_err(|_| "Could not persist the connection")?;
     std::fs::rename(temporary, &path).map_err(|_| "Could not save the connection")?;
+    // The marker now exists even if the directory fsync below fails. Update
+    // the in-memory navigation gate before any credential-store operation.
+    #[cfg(mobile)]
+    app.state::<crate::mobile_shell::NavigationGuard>().set_paired(true);
     #[cfg(unix)]
     std::fs::File::open(path.parent().ok_or("Missing config directory")?)
         .and_then(|dir| dir.sync_all())
@@ -488,10 +492,13 @@ pub async fn secure_forget<R: Runtime>(
     store_write(&app, "connection", None)?;
     store_write(&app, "candidate", None)?;
     match std::fs::remove_file(marker(&app)?) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(_) => Err("Could not forget the encrypted connection".into()),
+        Ok(()) => {},
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
+        Err(_) => return Err("Could not forget the encrypted connection".into()),
     }
+    #[cfg(mobile)]
+    app.state::<crate::mobile_shell::NavigationGuard>().set_paired(false);
+    Ok(())
 }
 #[tauri::command]
 pub async fn secure_request<R: Runtime>(

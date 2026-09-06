@@ -2,6 +2,21 @@
 //! for its URL. These are Tauri's mobile custom-protocol origins; Android's
 //! scheme follows the configured `useHttpsScheme` value.
 use tauri::{utils::config::WindowConfig, Url, WebviewUrl};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Navigation runs synchronously on Android's WebView thread. Its decision
+/// must never call the mobile path/keystore plugins (which wait on that thread).
+/// Stay on bundled assets until startup has read the persisted pairing marker.
+pub struct NavigationGuard(AtomicBool);
+
+impl Default for NavigationGuard {
+    fn default() -> Self { Self(AtomicBool::new(true)) }
+}
+
+impl NavigationGuard {
+    pub fn is_paired(&self) -> bool { self.0.load(Ordering::Acquire) }
+    pub fn set_paired(&self, paired: bool) { self.0.store(paired, Ordering::Release); }
+}
 
 pub fn setup_url(config: &WindowConfig, android: bool) -> Result<Url, String> {
     let WebviewUrl::App(path) = &config.url else {
@@ -45,6 +60,18 @@ pub fn same_document_origin(shell: &Url, destination: &Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn navigation_stays_closed_until_startup_and_tracks_pairing_changes() {
+        let guard = NavigationGuard::default();
+        assert!(guard.is_paired());
+        guard.set_paired(false); // Startup without a marker permits legacy mode.
+        assert!(!guard.is_paired());
+        guard.set_paired(true); // Persisting a pairing closes legacy navigation.
+        assert!(guard.is_paired());
+        guard.set_paired(false); // Only successful forgetting reopens it.
+        assert!(!guard.is_paired());
+    }
 
     #[test]
     fn shipped_mobile_configs_resolve_without_a_running_webview() {
