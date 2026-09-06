@@ -1,12 +1,13 @@
 .offdesk-keybar{box-sizing:border-box;padding:2px 4px;background:rgb(var(--color-background));border-top:1px solid rgb(var(--color-border));flex-shrink:0;min-width:0;color:rgb(var(--color-foreground))}
 .offdesk-keybar-row{display:flex;align-items:center;min-width:0;height:44px}
 .offdesk-keybar-spacer{flex:1;min-width:0}
-.offdesk-keybar .offdesk-terminal-key{box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:0 0 var(--key-width);width:var(--key-width);min-width:0;height:44px;margin:0;padding:0;border:0;border-radius:0;background:transparent;color:inherit;font:400 14px -apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;white-space:nowrap;user-select:none;-webkit-user-select:none;cursor:pointer;position:relative}
+.offdesk-keybar .offdesk-terminal-key{box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:0 0 var(--key-width);width:var(--key-width);min-width:0;height:44px;margin:0;padding:0;border:0;border-radius:8px;background:transparent;color:inherit;font-family:var(--font-display);font-size:.875rem;font-weight:500;white-space:nowrap;user-select:none;-webkit-user-select:none;cursor:pointer;position:relative}
 .offdesk-keybar .offdesk-terminal-key[data-accent=true]{color:rgb(var(--color-accent))}
 .offdesk-keybar .offdesk-terminal-key:disabled{opacity:.4;cursor:not-allowed}
 .offdesk-keybar .offdesk-terminal-key[aria-pressed=true]{color:rgb(var(--color-info))}
 .offdesk-keybar .offdesk-terminal-key[aria-pressed=true]::after{content:'';position:absolute;bottom:5px;width:16px;height:2px;border-radius:2px;background:currentColor}
-.offdesk-keybar .offdesk-terminal-key:active{background:rgb(var(--color-surface))}
+.offdesk-keybar .offdesk-terminal-key:active{background:rgb(var(--color-surface-hover))}
+@media(hover:hover){.offdesk-keybar .offdesk-terminal-key:not(:disabled):hover{background:rgb(var(--color-surface-hover))}}
 .offdesk-keybar-scroll-wrap{position:relative;flex:1;min-width:0}
 .offdesk-keybar-scroll{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain;touch-action:pan-x;-webkit-overflow-scrolling:touch}
 .offdesk-keybar-scroll::-webkit-scrollbar{display:none}

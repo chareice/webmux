@@ -15,6 +15,18 @@ test("equal keys and fixed inverted-T survive scrolling, folding and rotation", 
   await setup(page);
   await chooseInputMode(page, true);
   await page.getByTestId("composer-input").fill("Preserve this draft 🦊");
+  // Production typography follows the design system and user font override,
+  // rather than the wireframe's hard-coded system font.
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty("--font-display", "monospace");
+    document.documentElement.style.setProperty("--font-sans", "serif");
+  });
+  await expect(page.getByTestId("extended-keybar-esc")).toHaveCSS("font-family", "monospace");
+  await expect(page.getByTestId("composer-input")).toHaveCSS("font-family", "serif");
+  await page.evaluate(() => {
+    document.documentElement.style.removeProperty("--font-display");
+    document.documentElement.style.removeProperty("--font-sans");
+  });
   for (const width of [320, 390, 820, 960, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const bar = page.getByTestId("extended-keybar").filter({ visible: true });
@@ -31,6 +43,22 @@ test("equal keys and fixed inverted-T survive scrolling, folding and rotation", 
     expect((await left.boundingBox())!.x).toBeLessThan(before!.x);
     expect((await right.boundingBox())!.x).toBeGreaterThan(before!.x);
     const scroll = bar.getByTestId("keybar-scroll");
+    if (width === 320) {
+      // Exercise Chromium's actual touch scrolling, starting over a tool key.
+      // Programmatic scroll alone would miss touch-action/focus regressions.
+      await scroll.evaluate(el => { el.scrollLeft = 0; });
+      const bounds = (await scroll.boundingBox())!;
+      const cdp = await page.context().newCDPSession(page);
+      const x = bounds.x + bounds.width - 12, y = bounds.y + bounds.height / 2;
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+      for (let delta = 10; delta < bounds.width - 20; delta += 10) {
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - delta, y }] });
+      }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await expect.poll(() => scroll.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await cdp.detach();
+    }
     await scroll.evaluate(el => { el.scrollLeft = el.scrollWidth; });
     expect((await up.boundingBox())!.x).toBe(before!.x);
     await expect(bar.getByTestId("extended-keybar-keyboard")).toBeInViewport();
@@ -49,7 +77,13 @@ test("local arrows and symbols edit at the caret; Enter sends once and swipe can
     if (typeof frame.payload !== "string") return;
     try { const m = JSON.parse(frame.payload); if (m.type === "command_input") commands.push(m.data); if (m.type === "composer") sends.push(frame.payload); } catch {}
   }));
-  await setup(page); await chooseInputMode(page, true);
+  await setup(page);
+  await page.getByTitle("Show keyboard", { exact: true }).click();
+  await page.getByTestId("terminal-input-settings").click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Input settings", exact: true })).toHaveCount(0);
+  expect(commands).toEqual([]);
+  await chooseInputMode(page, true);
   const input = page.getByTestId("composer-input");
   await expect(input).toHaveAttribute("rows", "1");
   await input.fill("echo ab");

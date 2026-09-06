@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { Maximize2, Minimize2, X } from "lucide-react";
 import { editComposerText } from "@/lib/editComposerText";
 import { useAuth } from "@/lib/auth";
-import { colors } from "@/lib/colors";
+import { colors, colorAlpha } from "@/lib/colors";
 import { getServerUrl } from "@/lib/serverUrl";
 import { HubLatencyContext } from "@/lib/hubLatency";
 import { readClipboardText } from "@/lib/readClipboardText";
@@ -12,7 +12,7 @@ import { newComposerId } from "@/lib/composerTransport";
 import { loadComposerDraft, saveComposerDraft, loadComposerFile, saveComposerFile, removeComposerFile, type ComposerDraft } from "@/lib/composerDrafts";
 import type { ComposerMessage, ComposerReceipt } from "@/lib/composerTransport";
 
-const button: CSSProperties = { background: colors.surface, color: colors.foreground, border: `1px solid ${colors.border}`, borderRadius: 8, padding: "7px 10px", minHeight: 36, cursor: "pointer", fontSize: 12 };
+const button: CSSProperties = { background: colors.surface, color: colors.foreground, border: `1px solid ${colors.border}`, borderRadius: 8, padding: "7px 10px", minHeight: 44, cursor: "pointer", fontFamily: "var(--font-display)", fontSize: ".875rem" };
 const MAX_BYTES = 20 * 1024 * 1024;
 
 function fileBase64(file: File): Promise<string> {
@@ -73,9 +73,9 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
       const target = event.target as Element;
       if (!settings.current?.contains(target) && !target.closest('[data-testid="terminal-input-settings"]')) setSettingsOpen(false);
     };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setSettingsOpen(false); };
-    document.addEventListener("pointerdown", outside); document.addEventListener("keydown", escape);
-    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setSettingsOpen(false); } };
+    document.addEventListener("pointerdown", outside); document.addEventListener("keydown", escape, true);
+    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape, true); };
   }, [settingsOpen]);
   const fileInput = useRef<HTMLInputElement>(null);
   const documentInput = useRef<HTMLInputElement>(null);
@@ -240,10 +240,10 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
         if (document.activeElement === input.current) { input.current?.blur(); onKeyboardVisible(false); }
         else { input.current?.focus(); }
       }, local, enterLabel: busy ? "Sending…" : draft?.pending ? "Check delivery" : "Enter", enterDisabled: local && busy })}
-    {settingsOpen && <div ref={settings} role="dialog" aria-label="Input settings" style={{ position: "absolute", zIndex: 20, bottom: "100%", right: 8, width: 300, maxWidth: "calc(100% - 16px)", padding: 10, border: `1px solid ${colors.border}`, borderRadius: 10, background: colors.surface, boxShadow: "0 4px 20px #0003" }}>
+    {settingsOpen && <div ref={settings} role="dialog" aria-label="Input settings" style={{ position: "absolute", zIndex: 20, bottom: "100%", right: 8, width: 300, maxWidth: "calc(100% - 16px)", padding: 10, border: `1px solid ${colors.border}`, borderRadius: 10, background: colors.surface, boxShadow: `0 4px 20px ${colorAlpha.overlay}` }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>How to enter text<button style={button} aria-label="Close input settings" onClick={() => setSettingsOpen(false)}><X size={18} /></button></div>
-      <button style={{ ...button, width: "100%", textAlign: "left", marginTop: 6 }} disabled={!draft || busy} aria-pressed={!local} onClick={() => mode(false)}>Type directly</button>
-      <button style={{ ...button, width: "100%", textAlign: "left", marginTop: 6 }} disabled={!draft || busy} aria-pressed={local} onClick={() => mode(true)}>Write first, then send</button>
+      <button style={{ ...button, width: "100%", textAlign: "left", marginTop: 6, borderColor: !local ? colors.accent : colors.border, background: !local ? colorAlpha.accentSoft : colors.surface }} disabled={!draft || busy} aria-pressed={!local} onClick={() => mode(false)}>Type directly</button>
+      <button style={{ ...button, width: "100%", textAlign: "left", marginTop: 6, borderColor: local ? colors.accent : colors.border, background: local ? colorAlpha.accentSoft : colors.surface }} disabled={!draft || busy} aria-pressed={local} onClick={() => mode(true)}>Write first, then send</button>
       <p style={{ fontSize: 12, color: colors.foregroundSecondary }}>Write first keeps typing on this device until Enter. Switch to direct typing to use the terminal’s slash-command menu.</p>
     </div>}
     {!hidden && !local && suggestLocal && !suggestionDismissed && <p style={{ color: colors.foregroundSecondary, fontSize: 12, margin: "4px 10px" }}>Slow connection? Choose “Write first, then send” in Input settings.</p>}
@@ -265,7 +265,7 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
           }}
           onChange={e => update({ ...draftRef.current!, text: e.target.value })}
           onPaste={e => { const pasted = Array.from(e.clipboardData.files); if (pasted.length) { e.preventDefault(); void attach(pasted); } }}
-          style={{ display: "block", boxSizing: "border-box", width: "100%", resize: "none", height: expanded ? 132 : 44, whiteSpace: expanded ? "pre-wrap" : "pre", background: colors.surface, color: colors.foreground, border: 0, borderRadius: 6, padding: long ? "10px 48px 10px 10px" : 10, fontSize: 16, lineHeight: "24px", fontFamily: "inherit" }} />
+          style={{ display: "block", boxSizing: "border-box", width: "100%", resize: "none", height: expanded ? 132 : 44, whiteSpace: expanded ? "pre-wrap" : "pre", background: colors.surface, color: colors.foreground, border: 0, borderRadius: 6, padding: long ? "10px 48px 10px 10px" : 10, fontSize: 16, lineHeight: "24px", fontFamily: "var(--font-sans)" }} />
         {long && <button style={{ ...button, position: "absolute", top: 0, right: 0, height: 44, width: 44, padding: 0, border: 0 }} aria-label={expanded ? "Collapse editor" : "Expand editor"} aria-expanded={expanded} onMouseDown={e => e.preventDefault()} onClick={() => setExpanded(value => !value)}>{expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>}
       </div>
       <span data-testid="composer-save-status" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)" }}>{saved ? "Saved on this device" : "Saving…"}</span>

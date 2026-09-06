@@ -5,7 +5,9 @@ scrolling tool strip and choose **Write first, then send**. **Type directly**
 restores terminal input. Each user/hub/machine/terminal has its own saved draft
 and mode; changing modes preserves text and attachments.
 
-The two compact rows use equal-width, borderless 44 px-high keys. Ctrl+C, Esc,
+The two compact rows use equal-width, borderless 44 px-high keys. Visual styling
+uses the existing product palette, display/body font tokens, rounded press
+states and Lucide icons; the wireframe defines layout and interaction only. Ctrl+C, Esc,
 Tab, `/`, Enter and the inverted-T arrow cluster stay fixed. The keyboard
 visibility toggle is the first key on row two. Paste, attachments, selection,
 input settings, Ctrl and symbols scroll between it and the arrow cluster.
