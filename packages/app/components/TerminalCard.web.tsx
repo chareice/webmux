@@ -76,6 +76,7 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
 }, ref) {
   const termViewRef = useRef<TerminalViewRef>(null);
   const [localInput, setLocalInput] = useState(false);
+  const localInputRef = useRef(false);
   const sendComposer = useCallback((message: ComposerMessage) => {
     const view = termViewRef.current;
     if (!view) return Promise.reject(new Error("Reconnect to the terminal before sending."));
@@ -248,6 +249,8 @@ const TerminalCardComponent = forwardRef<TerminalCardRef, TerminalCardProps>(fun
   }, [canType, setCtrlLatch]);
 
   const handleInputModeChange = useCallback((local: boolean) => {
+    if (localInputRef.current === local) return;
+    localInputRef.current = local;
     setLocalInput(local);
     setCtrlLatch(false);
     termViewRef.current?.blur();

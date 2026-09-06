@@ -81,7 +81,7 @@ describe("ExtendedKeyBar", () => {
     expect(html).not.toContain('data-testid="extended-keybar-attach"');
   });
 
-  it("renders Space at the front of the scrollable row for TUI toggles (Claude Code multi-select)", () => {
+  it("keeps Space in the scrolling tools for TUI toggles", () => {
     const html = renderToStaticMarkup(createElement(ExtendedKeyBar, baseProps));
     expect(html).toContain('data-testid="extended-keybar-space"');
     expect(html).toContain(">Space<");

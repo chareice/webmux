@@ -73,6 +73,7 @@ test("local arrows and symbols edit at the caret; Enter sends once and swipe can
   await space.dispatchEvent("click", { detail: 1 });
   await expect(input).toHaveValue("echo /ab");
   await input.fill("echo KEYBAR_DELIVERED");
+  await input.evaluate((el: HTMLTextAreaElement) => el.blur());
   await page.getByTestId("extended-keybar-enter").click();
   await expect(input).toHaveValue("");
   expect(sends).toHaveLength(1);

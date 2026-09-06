@@ -61,7 +61,7 @@ test("mobile terminal flow works inside the responsive web shell", async ({ page
   await expect(page.getByTitle("Show keyboard")).toBeVisible();
 
   // Engage view-only via the host sheet: this releases control, so the
-  // keyboard toggle disappears and the title-bar create button is disabled.
+  // keyboard toggle stays in place disabled, as does the create button.
   await mobileOpenHostSheet(page);
   await expect(page.getByTestId("mobile-control-toggle")).toHaveText(
     "View only",

@@ -1,7 +1,6 @@
 import { AttachmentPicker, formatAttachmentSize } from "./AttachmentPicker";
 import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Keyboard, Paperclip, ClipboardPaste, Copy, SquareDashed, Settings, LoaderCircle } from "lucide-react";
-import { colors } from "@/lib/colors";
 import "./ExtendedKeyBar.css";
 
 export interface ExtendedKeyBarProps {
@@ -128,7 +127,11 @@ function KeyButton({ label, children, onPress, testid, disabled = false, repeat 
   const press = useRef(onPress); press.current = onPress;
   const gesture = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const stop = () => { if (delay.current) clearTimeout(delay.current); if (interval.current) clearInterval(interval.current); delay.current = null; interval.current = null; };
-  useEffect(() => stop, []);
+  useEffect(() => {
+    const hidden = () => { if (document.hidden) stop(); };
+    window.addEventListener("blur", stop); document.addEventListener("visibilitychange", hidden);
+    return () => { stop(); window.removeEventListener("blur", stop); document.removeEventListener("visibilitychange", hidden); };
+  }, []);
   useEffect(() => { if (disabled) stop(); }, [disabled]);
   return <button type="button" className="offdesk-terminal-key" disabled={disabled} data-testid={testid} aria-label={label} title={label}
     aria-pressed={pressed} data-accent={accent} style={{ touchAction: repeat ? "none" : "pan-x" }}
