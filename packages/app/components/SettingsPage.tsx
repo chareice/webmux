@@ -9,6 +9,7 @@ import { useTheme, type Theme } from "@/lib/theme";
 import { MobileAppPanel } from "./MobileAppPanel.web";
 import { ThisMachineSection } from "./DesktopSetup.web";
 import { UpdateNotification } from "./UpdateNotification";
+import { AndroidUpdateNotification } from "./AndroidUpdateNotification";
 import { useAuth } from "@/lib/auth";
 import { isTauri, isTauriMobile } from "@/lib/platform";
 import { getServerUrl, setServerUrl } from "@/lib/serverUrl";
@@ -1299,6 +1300,7 @@ export function SettingsPage({ onClose }: SettingsPageProps) {
             )}
           </div>
           <UpdateNotification inline />
+          <AndroidUpdateNotification inline />
         </section>
 
         {/* Reload notice */}
