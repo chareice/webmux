@@ -36,17 +36,17 @@ def hierarchy():
     return ET.fromstring(xml)
 
 
-def wait_for_setup():
+def wait_for_screen(text):
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         try:
             root = hierarchy()
-            if any(n.get("text") == "Scan the code" for n in root.iter("node")):
+            if any(text in (n.get("text", "") + n.get("content-desc", "")) for n in root.iter("node")):
                 return root
         except (ET.ParseError, subprocess.SubprocessError):
             pass
         time.sleep(1)
-    raise AssertionError("APK did not render its setup screen within 60 seconds (startup hang/ANR)")
+    raise AssertionError(f"APK did not render {text!r} within 60 seconds (startup hang/ANR)")
 
 
 try:
@@ -56,7 +56,7 @@ try:
     adb("logcat", "-c")
     adb("shell", "input", "keyevent", "82")
     adb("shell", "am", "start", "-W", "-n", "dev.offdesk.desktop/.MainActivity")
-    root = wait_for_setup()
+    root = wait_for_screen("Scan the code")
     field = next(n for n in root.iter("node") if n.get("class") == "android.widget.EditText")
     left, top, right, bottom = map(int, re.findall(r"\d+", field.attrib["bounds"]))
     adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
@@ -66,8 +66,27 @@ try:
     adb("shell", "am", "start", "-W", "-n", "dev.offdesk.desktop/.MainActivity")
     # Cross both the JavaScript and native automatic-update timers.
     time.sleep(10)
-    wait_for_setup()
-    print("PASS: APK cold start, WebView input, and foreground after update checks", flush=True)
+    wait_for_screen("Scan the code")
+    # Upgrade the same installation with a damaged pairing marker. Startup
+    # must keep trusted bundled assets and offer recovery, not the old Hub.
+    adb("shell", "am", "force-stop", "dev.offdesk.desktop")
+    adb("root")
+    adb("wait-for-device")
+    assert adb("shell", "id", "-u").strip() == "0", "Use a rooted disposable emulator"
+    data = "/data/user/0/dev.offdesk.desktop"
+    adb("shell", f"printf '{{}}' > {data}/secure-connection.json")
+    adb("shell", f"printf '%s' '{{\"hub_url\":\"http://127.0.0.1:9\"}}' > {data}/hub.json")
+    uid = adb("shell", "stat", "-c", "%u", data).strip()
+    for name in ["secure-connection.json", "hub.json"]:
+        adb("shell", "chown", f"{uid}:{uid}", f"{data}/{name}")
+        adb("shell", "restorecon", f"{data}/{name}")
+    adb("install", "-r", str(args.apk.resolve()), timeout=120)
+    assert adb("shell", "cat", f"{data}/secure-connection.json").strip() == "{}"
+    for attempt in range(2):
+        adb("shell", "am", "force-stop", "dev.offdesk.desktop")
+        adb("shell", "am", "start", "-W", "-n", "dev.offdesk.desktop/.MainActivity")
+        wait_for_screen("Saved encrypted connection is damaged")
+    print("PASS: APK cold start, WebView input, foreground, retained pairing upgrade and recovery", flush=True)
 finally:
     (args.output / "logcat.txt").write_text(adb("logcat", "-d", check=False))
     with (args.output / "screen.png").open("wb") as screenshot:

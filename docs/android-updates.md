@@ -53,7 +53,9 @@ and Robolectric tests of confirmation, permission retry and foreground handoff.
 CI also builds x86_64 and runs `scripts/android-startup-smoke.py` on an Android
 emulator. The test requires the real APK to render its setup page, accept input,
 and remain responsive after returning to the foreground and crossing the update
-timers. Tag releases run the same test against the signed, optimized x86_64 APK
+timers. It also preserves a damaged pairing marker across an APK replacement and
+checks that repeated cold starts show the recovery page instead of loading an old Hub.
+Tag releases run the same test against the signed, optimized x86_64 APK
 before uploading release assets. The script refuses physical devices because it
 performs a fresh installation on a disposable emulator.
 
