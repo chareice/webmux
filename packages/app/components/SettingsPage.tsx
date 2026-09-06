@@ -34,7 +34,7 @@ import {
 } from "@/lib/prefixKey";
 import { ArrowLeft } from "lucide-react";
 
-// Frontend build id stamped into index.html by the Docker build
+// Frontend build id stamped into index.html by release builds
 // (window.__OFFDESK_BUILD__). "dev" when running unstamped (local dev).
 function getFrontendBuildId(): string {
   if (typeof window === "undefined") return "dev";

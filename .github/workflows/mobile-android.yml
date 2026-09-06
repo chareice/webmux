@@ -95,7 +95,9 @@ jobs:
         run: pnpm --filter @offdesk/shared build
 
       - name: Build trusted web bundle (retained for encrypted connections)
-        run: pnpm --filter @offdesk/app build
+        run: |
+          pnpm --filter @offdesk/app build
+          node scripts/stamp-build.mjs packages/app/dist "$GITHUB_REF_NAME"
 
       - name: Set release version from tag
         id: version
