@@ -85,7 +85,15 @@ try:
     for attempt in range(2):
         adb("shell", "am", "force-stop", "dev.offdesk.desktop")
         adb("shell", "am", "start", "-W", "-n", "dev.offdesk.desktop/.MainActivity")
-        wait_for_screen("Saved encrypted connection is damaged")
+        # The missing credential and damaged marker are checked asynchronously.
+        # Android can finish on "Pair this device first", whereas iOS can show
+        # a Keychain error. Assert usable recovery, not one transient message.
+        recovery = wait_for_screen("Forget connection and pair again")
+        assert any(n.get("text") == "Encrypted connection" for n in recovery.iter("node"))
+        for label in ["Try again", "Forget connection and pair again"]:
+            assert any(n.get("text") == label and n.get("enabled") == "true"
+                       for n in recovery.iter("node")), f"Missing recovery action: {label}"
+        (args.output / f"recovery-{attempt}.xml").write_text(ET.tostring(recovery, encoding="unicode"))
     print("PASS: APK cold start, WebView input, foreground, retained pairing upgrade and recovery", flush=True)
 finally:
     (args.output / "logcat.txt").write_text(adb("logcat", "-d", check=False))
