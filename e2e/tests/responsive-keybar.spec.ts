@@ -33,13 +33,22 @@ test("equal keys and fixed inverted-T survive scrolling, folding and rotation", 
     await expect(bar).toBeVisible();
     await expect(page.getByTestId("composer-input").filter({ visible: true })).toHaveValue("Preserve this draft 🦊");
     await expect.poll(async () => {
-      const boxes = await bar.locator(".offdesk-terminal-key").evaluateAll(els => els.map(el => ({ width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height })));
-      return boxes.every(box => box.width >= 44 && box.height === 44 && Math.abs(box.width - boxes[0].width) < 1);
+      return bar.evaluate(el => {
+        const width = el.clientWidth - 8;
+        const expected = width / Math.max(7, Math.floor(width / 52));
+        const boxes = Array.from(el.querySelectorAll(".offdesk-terminal-key"), key => key.getBoundingClientRect());
+        return boxes.every(box => box.width >= 44 && box.height === 44 && Math.abs(box.width - expected) < 1);
+      });
     }).toBe(true);
-    const up = bar.getByTestId("extended-keybar-up"), down = bar.getByTestId("extended-keybar-down");
+    const up = bar.getByTestId("extended-keybar-up");
     const left = bar.getByTestId("extended-keybar-left"), right = bar.getByTestId("extended-keybar-right");
     const before = await up.boundingBox();
-    expect(Math.abs(before!.x - (await down.boundingBox())!.x)).toBeLessThan(1);
+    // Read both rows in one frame: separate protocol round trips can straddle
+    // the ResizeObserver update immediately after a viewport change.
+    await expect.poll(() => bar.evaluate(el => Math.abs(
+      el.querySelector('[data-testid="extended-keybar-up"]')!.getBoundingClientRect().x -
+      el.querySelector('[data-testid="extended-keybar-down"]')!.getBoundingClientRect().x,
+    ))).toBeLessThan(1);
     expect((await left.boundingBox())!.x).toBeLessThan(before!.x);
     expect((await right.boundingBox())!.x).toBeGreaterThan(before!.x);
     const scroll = bar.getByTestId("keybar-scroll");
