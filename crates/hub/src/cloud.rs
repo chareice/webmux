@@ -302,8 +302,17 @@ fn print_status(status: &Status, enabled: bool, verified: bool) {
     );
 }
 fn service(database: &str, id: &str) -> Result<offdesk_protocol::service::ServiceSpec, String> {
-    let database = fs::canonicalize(database)
-        .map_err(|_| "Start this Hub before installing its managed connector")?;
+    // Preserve a database symlink's filename: the Hub encryption key and cloud
+    // registration are named beside that path. Also allow disable after the
+    // database itself was removed, while the registration still exists.
+    let path = Path::new(database);
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let parent =
+        fs::canonicalize(parent).map_err(|_| "Could not resolve the Hub database directory")?;
+    let database = parent.join(path.file_name().ok_or("Invalid Hub database path")?);
     Ok(offdesk_protocol::service::ServiceSpec {
         name: "offdesk-cloud",
         label: "dev.offdesk.cloud",
@@ -689,11 +698,17 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let db = root.join("hub.db");
         let store = Store::new(db.to_str().unwrap()).unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        // Revocation remains possible with registration files but no database.
+        let spec = service(db.to_str().unwrap(), &id).unwrap();
+        assert!(spec.args[1].ends_with("hub.db"));
         let first = store.lock("operation.lock").unwrap();
         assert!(store.lock("operation.lock").is_err());
         drop(first);
         assert!(store.lock("operation.lock").is_ok());
         fs::write(root.join("other"), "not registration").unwrap();
+        symlink(root.join("other"), &db).unwrap();
+        assert!(service(db.to_str().unwrap(), &id).unwrap().args[1].ends_with("hub.db"));
         symlink(root.join("other"), store.dir.join("registration.json")).unwrap();
         assert!(store.load().is_err());
         fs::remove_dir_all(&store.dir).unwrap();
