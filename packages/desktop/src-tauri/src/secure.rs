@@ -42,7 +42,7 @@ pub struct Status {
     #[serde(default)]
     pub routes: Vec<Route>,
 }
-fn marker<R: Runtime>(app: &AppHandle<R>) -> Result<std::path::PathBuf, String> {
+pub(crate) fn marker<R: Runtime>(app: &AppHandle<R>) -> Result<std::path::PathBuf, String> {
     Ok(app
         .path()
         .app_config_dir()
