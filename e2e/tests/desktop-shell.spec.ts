@@ -8,7 +8,7 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
     let role = initialRole;
     let callbackId = 0;
     const callbacks = new Map<number, (data: unknown) => void>();
-    const state = { updater: "current", calls: [] as string[], listening: true, linkFailures: 0, linkRequests: [] as string[], pairError: "", pairDelay: 0, pairCompleted: 0 };
+    const state = { updater: "current", calls: [] as string[], listening: true, linkFailures: 0, linkRequests: [] as string[], pairError: "", pairDelay: 0, pairCompleted: 0, secureUrl: null as string | null };
     Object.assign(window, { __desktopTest: state });
     Object.assign(window, {
       __TAURI_INTERNALS__: {
@@ -36,7 +36,7 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
             const publicUrl = "https://hub.example.com:8443";
             const url = args?.baseUrl || publicUrl;
             state.linkRequests.push(url);
-            return { url, public_url: publicUrl, local_url: "http://127.0.0.1:4317", link: url + "/?token=test-token", short: url + "/?code=TESTCODE", candidates: [{ interface: "en0", address: "192.168.1.10" }] };
+            return { url, secure_url: state.secureUrl, public_url: publicUrl, local_url: "http://127.0.0.1:4317", link: url + "/?token=test-token", short: url + "/?code=TESTCODE", candidates: [{ interface: "en0", address: "192.168.1.10" }] };
           }
           if (command === "set_desktop_role") { role = args?.role ?? "client"; return; }
           if (command === "plugin:app|version") return "0.5.3-test";
@@ -247,4 +247,24 @@ test("an unauthorized session is still cleared", async ({ page }) => {
   await page.route("**/api/auth/me", route => route.fulfill({ status: 401, body: "Unauthorized" }));
   await page.reload();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("offdesk:token"))).toBeNull();
+});
+
+
+test("managed Cloud is used only for encrypted pairing while browser links retain their address", async ({ page }) => {
+  await desktopBridge(page, "hub");
+  await openApp(page);
+  const cloud = "https://0123456789abcdef0123456789abcdef.cloud.offdesk.dev";
+  await page.evaluate((url) => { (window as any).__desktopTest.secureUrl = url; }, cloud);
+  await page.getByTestId("tab-bar-phone").click();
+  const dialog = page.getByTestId("phone-dialog");
+  const picker = dialog.getByTestId("hub-address-picker");
+  const panel = dialog.getByTestId("secure-pairing-panel");
+  await expect(picker).toHaveValue("https://hub.example.com:8443");
+  await expect(panel.getByText("Offdesk Cloud · " + cloud, { exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "Pair an encrypted device", exact: true }).click();
+  await expect(panel.getByText(cloud, { exact: true })).toBeVisible();
+  await picker.selectOption("http://192.168.1.10:4317");
+  await expect(picker).toHaveValue("http://192.168.1.10:4317");
+  await expect(panel.getByText(cloud, { exact: true })).toBeVisible();
+  await expect(panel.getByLabel("Encrypted device pairing QR code")).toBeVisible();
 });

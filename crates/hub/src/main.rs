@@ -315,6 +315,8 @@ fn run_link_json(args: &Args) {
         "link": first_run::sign_in_link(&pool, &jwt_secret, &base_url, listen),
         "short": first_run::short_link(&pool, &base_url, listen),
         "candidates": candidates,
+        // Encrypted-only Cloud addresses must never receive browser login links.
+        "secure_url": cloud::advertised_url(&database),
     });
     println!("{out}");
 }
