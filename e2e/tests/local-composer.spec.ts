@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { test, expect, devices, type Page, type WebSocketRoute } from "@playwright/test";
-import { openApp, resetMachineState, requestMachineControl, createTerminalViaApi, expandTerminalById, readTerminalBuffer, releaseMachineControl } from "./helpers";
+import { chooseInputMode, openApp, resetMachineState, requestMachineControl, createTerminalViaApi, expandTerminalById, readTerminalBuffer, releaseMachineControl } from "./helpers";
 
 test.use({ ...devices["iPhone 14"], browserName: "chromium" });
 
@@ -11,8 +11,7 @@ async function setup(page: Page, startupCommand = "env BASH_SILENCE_DEPRECATION_
   const id = await createTerminalViaApi(page, { cwd: "/tmp", startupCommand });
   await expandTerminalById(page, id);
   await expect.poll(() => readTerminalBuffer(page, id), { timeout: 20_000 }).toMatch(ready);
-  await expect(page.getByRole("button", { name: "Local editor", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Local editor", exact: true }).click();
+  await chooseInputMode(page, true);
   await expect(page.getByTestId("composer-input")).toBeVisible();
   return id;
 }
@@ -26,9 +25,9 @@ test("local text and images survive mode changes and reload without sending keys
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1sAAAAASUVORK5CYII=", "base64");
   await page.getByTestId("composer-photo-input").setInputFiles({ name: "example.png", mimeType: "image/png", buffer: png });
   await expect(page.getByRole("img", { name: "example.png" })).toBeVisible();
-  await page.getByRole("button", { name: "Direct input", exact: true }).click();
+  await chooseInputMode(page, false);
   await expect(page.getByTestId("composer-input")).toHaveCount(0);
-  await page.getByRole("button", { name: "Local editor", exact: true }).click();
+  await chooseInputMode(page, true);
   await expect(page.getByTestId("composer-input")).toHaveValue("请查看这张图片\n第二行");
   expect(frames.slice(framesBeforeTyping).filter(raw => { try { return ["input", "command_input", "composer"].includes(JSON.parse(raw).type); } catch { return false; } })).toEqual([]);
   await expect(page.getByTestId("composer-save-status")).toHaveText("Saved on this device");
@@ -38,9 +37,10 @@ test("local text and images survive mode changes and reload without sending keys
   await expect(page.getByRole("img", { name: "example.png" })).toBeVisible();
   expect(frames.filter(raw => { try { return JSON.parse(raw).type === "composer"; } catch { return false; } })).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("local-composer.png") });
-  await page.getByRole("button", { name: "/ Commands", exact: true }).click();
+  await chooseInputMode(page, false);
+  await page.getByTestId("extended-keybar-slash").click();
   await expect(page.getByTestId("composer-input")).toHaveCount(0);
-  await page.getByRole("button", { name: "Local editor", exact: true }).click();
+  await chooseInputMode(page, true);
   await expect(page.getByTestId("composer-input")).toHaveValue("请查看这张图片\n第二行");
 });
 
@@ -63,7 +63,7 @@ test("host confirms a multiline send and rejects replay of the same send ID", as
   const id = await setup(page);
   const marker = `COMPOSER_${Date.now()}`;
   await page.getByTestId("composer-input").fill(`printf '%s\\n' '${marker}'\nprintf '%s\\n' '第二行'`);
-  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByTestId("extended-keybar-enter").click();
   await expect(page.getByRole("status")).toContainText("Delivered to terminal");
   await expect(page.getByTestId("composer-input")).toHaveValue("");
   await expect.poll(() => readTerminalBuffer(page, id)).toMatch(new RegExp(`(?:^|\\n)${marker}(?:\\n|$)`));
@@ -100,7 +100,7 @@ test("lost acknowledgement keeps the exact draft across reload and checks delive
   const id = await setup(page);
   const command = "printf '%s\\n' 'acknowledgement recovered'";
   await page.getByTestId("composer-input").fill(command);
-  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByTestId("extended-keybar-enter").click();
   await expect(page.getByRole("button", { name: "Check delivery", exact: true })).toBeVisible();
   await expect(page.getByTestId("composer-input")).toHaveValue(command);
   await expect(page.getByTestId("composer-input")).toBeDisabled();
@@ -133,10 +133,10 @@ test("a malformed attachment fails before any text is written and keeps the draf
   const id = await setup(page);
   const text = `DO_NOT_WRITE_${Date.now()}`;
   await page.getByTestId("composer-input").fill(text);
-  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByTestId("extended-keybar-enter").click();
   await expect(page.getByRole("alert")).toContainText("incomplete or invalid");
   await expect(page.getByTestId("composer-input")).toHaveValue(text);
-  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
+  await expect(page.getByTestId("extended-keybar-enter")).toBeEnabled();
   expect(await readTerminalBuffer(page, id)).not.toContain(text);
 });
 
@@ -163,8 +163,8 @@ test("a large image reaches the machine before one complete bracketed paste and 
   const bytes = Buffer.alloc(14 * 1024 * 1024, 97);
   await page.getByTestId("composer-input").fill(text);
   await page.getByTestId("composer-photo-input").setInputFiles({ name: "large.png", mimeType: "image/png", buffer: bytes });
-  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("extended-keybar-enter")).toBeEnabled();
+  await page.getByTestId("extended-keybar-enter").click();
   await expect(page.getByRole("status")).toHaveText("Delivered to terminal", { timeout: 30_000 });
   await expect.poll(async () => (await readTerminalBuffer(page, id)).replaceAll("\n", ""), { timeout: 20_000 })
     .toContain(`IMAGE_SHA256=${createHash("sha256").update(bytes).digest("hex")}`);

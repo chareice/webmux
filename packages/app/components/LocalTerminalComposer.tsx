@@ -1,5 +1,8 @@
 import { AttachmentPicker, formatAttachmentSize } from "./AttachmentPicker";
-import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useContext, useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { Maximize2, Minimize2, X } from "lucide-react";
+import { editComposerText } from "@/lib/editComposerText";
 import { useAuth } from "@/lib/auth";
 import { colors } from "@/lib/colors";
 import { getServerUrl } from "@/lib/serverUrl";
@@ -21,11 +24,29 @@ function fileBase64(file: File): Promise<string> {
   });
 }
 
-export function LocalTerminalComposer({ machineId, terminalId, title, canSend, onModeChange, onDirectAction, onSend }: {
+export interface ComposerToolbarActions {
+  onKey: (data: string) => void;
+  onPaste: () => void;
+  onInputSettings: () => void;
+  onChooseAttachment?: () => void;
+  onToggleKeyboard: () => void;
+  local: boolean;
+  enterLabel: string;
+  enterDisabled: boolean;
+}
+
+export function LocalTerminalComposer({ machineId, terminalId, title, canSend, onModeChange, onDirectAction, onSend,
+  renderToolbar, portalTarget, hidden = false, ctrlArmed, onToggleKeyboard, onKeyboardVisible }: {
   machineId: string; terminalId: string; title: string; canSend: boolean;
   onModeChange: (local: boolean) => void;
   onDirectAction: (data: string) => void;
   onSend: (message: ComposerMessage) => Promise<ComposerReceipt>;
+  renderToolbar: (actions: ComposerToolbarActions) => ReactNode;
+  portalTarget?: HTMLElement | null;
+  hidden?: boolean;
+  ctrlArmed: boolean;
+  onToggleKeyboard: () => void;
+  onKeyboardVisible: (visible: boolean) => void;
 }) {
   const { user } = useAuth();
   const key = JSON.stringify([getServerUrl("web") || window.location.origin, user?.id, machineId, terminalId]);
@@ -43,6 +64,19 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
   const [suggestionDismissed, setSuggestionDismissed] = useState(false);
   const latency = useContext(HubLatencyContext);
   const input = useRef<HTMLTextAreaElement>(null);
+  const composing = useRef(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settings = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Element;
+      if (!settings.current?.contains(target) && !target.closest('[data-testid="terminal-input-settings"]')) setSettingsOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setSettingsOpen(false); };
+    document.addEventListener("pointerdown", outside); document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
+  }, [settingsOpen]);
   const fileInput = useRef<HTMLInputElement>(null);
   const documentInput = useRef<HTMLInputElement>(null);
   const [choosingAttachment, setChoosingAttachment] = useState(false);
@@ -92,7 +126,7 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
     update({ ...draftRef.current, mode: local ? "local" : "direct" });
     setSuggestionDismissed(true);
     onModeChange(local);
-    if (local) requestAnimationFrame(() => input.current?.focus());
+    setSettingsOpen(false);
   };
   const paste = async () => {
     const current = draftRef.current;
@@ -105,6 +139,7 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
     const reading = readClipboardText();
     const localDraft = { ...current, mode: "local" as const };
     update(localDraft); onModeChange(true);
+    const wasFocused = document.activeElement === input.current;
     let caret = start;
     try {
       const text = await reading;
@@ -120,7 +155,7 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
       busyRef.current = false;
       if (mounted.current) {
         setBusy(false);
-        requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(caret, caret); });
+        requestAnimationFrame(() => { if (wasFocused) input.current?.focus(); input.current?.setSelectionRange(caret, caret); });
       }
     }
   };
@@ -178,45 +213,77 @@ export function LocalTerminalComposer({ machineId, terminalId, title, canSend, o
 
   const local = draft?.mode === "local";
   const locked = busy || !!draft?.pending;
-  return <div data-testid="local-composer" style={{ flexShrink: 0, padding: "6px 10px", background: colors.background, borderTop: `1px solid ${colors.border}` }}>
-    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-      <div role="group" aria-label="Input mode" style={{ display: "flex", gap: 4 }}>
-        <button style={button} disabled={!draft || busy} aria-pressed={!local} onClick={() => mode(false)}>Direct input</button>
-        <button style={{ ...button, borderColor: local ? colors.accent : colors.border }} disabled={!draft || busy} aria-pressed={local} onClick={() => mode(true)}>Local editor</button>
+  const handleKey = (data: string) => {
+    if (!local || ctrlArmed || data === "\x1b" || data === "\x03") { onDirectAction(data); return; }
+    if (composing.current) return;
+    const current = draftRef.current;
+    if (!current || busyRef.current) return;
+    if (data === "\r") {
+      if (current.pending || current.text.length || current.fileIds.length) void send();
+      else onDirectAction(data);
+      return;
+    }
+    if (current.pending) return;
+    const result = editComposerText(current.text, input.current?.selectionStart ?? current.text.length, input.current?.selectionEnd ?? current.text.length, data);
+    if (!result) return;
+    if (result.text !== current.text) update({ ...current, text: result.text });
+    // Commit selection after React updates the controlled input, without
+    // focusing it or reopening an OS keyboard the user has dismissed.
+    requestAnimationFrame(() => input.current?.setSelectionRange(result.caret, result.caret));
+  };
+  const long = expanded || !!draft?.text.includes("\n") || (draft?.text.length ?? 0) > 70;
+  const content = <div data-testid="local-composer" hidden={hidden} style={{ position: "relative", flexShrink: 0, minWidth: 0, background: colors.background }}>
+    {renderToolbar({ onKey: handleKey, onPaste: () => void paste(), onInputSettings: () => setSettingsOpen(value => !value),
+      onChooseAttachment: local ? () => { if (!locked) setChoosingAttachment(true); } : undefined,
+      onToggleKeyboard: () => {
+        if (!local) { onToggleKeyboard(); return; }
+        if (document.activeElement === input.current) { input.current?.blur(); onKeyboardVisible(false); }
+        else { input.current?.focus(); }
+      }, local, enterLabel: busy ? "Sending…" : draft?.pending ? "Check delivery" : "Enter", enterDisabled: local && busy })}
+    {settingsOpen && <div ref={settings} role="dialog" aria-label="Input settings" style={{ position: "absolute", zIndex: 20, bottom: "100%", right: 8, width: 300, maxWidth: "calc(100% - 16px)", padding: 10, border: `1px solid ${colors.border}`, borderRadius: 10, background: colors.surface, boxShadow: "0 4px 20px #0003" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>How to enter text<button style={button} aria-label="Close input settings" onClick={() => setSettingsOpen(false)}><X size={18} /></button></div>
+      <button style={{ ...button, width: "100%", textAlign: "left", marginTop: 6 }} disabled={!draft || busy} aria-pressed={!local} onClick={() => mode(false)}>Type directly</button>
+      <button style={{ ...button, width: "100%", textAlign: "left", marginTop: 6 }} disabled={!draft || busy} aria-pressed={local} onClick={() => mode(true)}>Write first, then send</button>
+      <p style={{ fontSize: 12, color: colors.foregroundSecondary }}>Write first keeps typing on this device until Enter. Switch to direct typing to use the terminal’s slash-command menu.</p>
+    </div>}
+    {!hidden && !local && suggestLocal && !suggestionDismissed && <p style={{ color: colors.foregroundSecondary, fontSize: 12, margin: "4px 10px" }}>Slow connection? Choose “Write first, then send” in Input settings.</p>}
+    {local && draft && <div style={{ padding: "0 10px 8px" }}>
+      <div style={{ position: "relative" }}>
+        <textarea ref={input} aria-label="Message to terminal" data-testid="composer-input" value={draft.text} disabled={locked} rows={expanded ? 5 : 1} wrap={expanded ? "soft" : "off"} maxLength={65536}
+          placeholder="Write here · Enter to submit"
+          onFocus={() => onKeyboardVisible(true)} onBlur={() => onKeyboardVisible(false)}
+          onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
+          onKeyDown={event => {
+            if (!event.nativeEvent.isComposing && !composing.current && ctrlArmed && event.key.length === 1) {
+              event.preventDefault(); onDirectAction(event.key); return;
+            }
+            if (event.key === "Escape") { event.preventDefault(); onDirectAction("\x1b"); return; }
+            if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+              if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
+              event.preventDefault(); handleKey("\r");
+            }
+          }}
+          onChange={e => update({ ...draftRef.current!, text: e.target.value })}
+          onPaste={e => { const pasted = Array.from(e.clipboardData.files); if (pasted.length) { e.preventDefault(); void attach(pasted); } }}
+          style={{ display: "block", boxSizing: "border-box", width: "100%", resize: "none", height: expanded ? 132 : 44, whiteSpace: expanded ? "pre-wrap" : "pre", background: colors.surface, color: colors.foreground, border: 0, borderRadius: 6, padding: long ? "10px 48px 10px 10px" : 10, fontSize: 16, lineHeight: "24px", fontFamily: "inherit" }} />
+        {long && <button style={{ ...button, position: "absolute", top: 0, right: 0, height: 44, width: 44, padding: 0, border: 0 }} aria-label={expanded ? "Collapse editor" : "Expand editor"} aria-expanded={expanded} onMouseDown={e => e.preventDefault()} onClick={() => setExpanded(value => !value)}>{expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</button>}
       </div>
-      <button style={button} disabled={!draft || locked} onClick={() => void paste()} title="Paste text into the local editor to review before sending">Paste</button>
-      {local && <button style={button} disabled={!canSend || busy} title="Use the agent’s remote slash-command menu" onClick={() => { mode(false); onDirectAction("/"); }}>/ Commands</button>}
-    </div>
-    {!local && suggestLocal && !suggestionDismissed && <p style={{ color: colors.foregroundSecondary, fontSize: 12, margin: "6px 0" }}>Slow connection? Try the local editor for instant typing.</p>}
-    {local && draft && <>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0" }}>
-        <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: colors.foregroundMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>To {title} · <span data-testid="composer-save-status">{saved ? "Saved on this device" : "Saving…"}</span></div>
-        <button style={button} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "Collapse editor" : "Expand editor"}</button>
-      </div>
-      <textarea ref={input} aria-label="Message to terminal" data-testid="composer-input" value={draft.text} disabled={locked} rows={expanded ? 8 : 3} maxLength={65536}
-        placeholder="Write here, then send to the terminal…"
-        onChange={e => update({ ...draftRef.current!, text: e.target.value })}
-        onPaste={e => { const pasted = Array.from(e.clipboardData.files); if (pasted.length) { e.preventDefault(); void attach(pasted); } }}
-        style={{ boxSizing: "border-box", width: "100%", resize: "vertical", minHeight: 70, maxHeight: expanded ? "45dvh" : "30dvh", background: colors.surface, color: colors.foreground, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 10, fontSize: 16, fontFamily: "inherit" }} />
+      <span data-testid="composer-save-status" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)" }}>{saved ? "Saved on this device" : "Saving…"}</span>
       <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>{files.map(({ id, file }) => <AttachmentPreview key={id} file={file} disabled={locked} onRemove={() => {
         update({ ...draftRef.current!, fileIds: draftRef.current!.fileIds.filter(f => f !== id) });
         setFiles(old => old.filter(f => f.id !== id)); void removeComposerFile(id).catch(() => {});
       }} />)}</div>
-      <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
-        <input data-testid="composer-photo-input" ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={e => { void attach(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
-        <input data-testid="composer-document-input" ref={documentInput} type="file" multiple hidden onChange={e => { void attach(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
-        <button style={button} disabled={locked} onClick={() => setChoosingAttachment(true)}>Attach</button>
-        {choosingAttachment && <AttachmentPicker onPhotos={() => fileInput.current?.click()} onFiles={() => documentInput.current?.click()} onClose={() => setChoosingAttachment(false)} />}
-        <button style={button} disabled={busy} onClick={() => mode(false)}>Terminal controls</button>
-        <button style={{ ...button, marginLeft: "auto", background: colors.accent, color: colors.onAccent }} disabled={!canSend || busy || (!draft.pending && !draft.text.trim() && !files.length)} onClick={() => void send()}>{busy ? "Sending…" : draft.pending ? "Check delivery" : "Send"}</button>
-      </div>
-      {!canSend && <p style={{ fontSize: 12, color: colors.foregroundSecondary }}>Take control and reconnect to send. You can keep editing here.</p>}
-      {draft.pending && !busy && <p style={{ fontSize: 12, color: colors.foregroundSecondary }}>This draft is locked until delivery is confirmed. Check the terminal before discarding it.</p>}
+      <input data-testid="composer-photo-input" ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={e => { void attach(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+      <input data-testid="composer-document-input" ref={documentInput} type="file" multiple hidden onChange={e => { void attach(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+      {choosingAttachment && <AttachmentPicker onPhotos={() => fileInput.current?.click()} onFiles={() => documentInput.current?.click()} onClose={() => setChoosingAttachment(false)} />}
+      {!canSend && <p style={{ fontSize: 12, color: colors.foregroundSecondary }}>Take control and reconnect to send to {title}. You can keep editing here.</p>}
+      {draft.pending && !busy && <p style={{ fontSize: 12, color: colors.foregroundSecondary }}>Press Enter to check delivery. This draft stays locked until confirmed.</p>}
       {draft.pending && !busy && <button style={button} onClick={() => { void Promise.all(draft.fileIds.map(removeComposerFile)).catch(() => {}); update({ text: "", fileIds: [], mode: "local" }); setFiles([]); setError(null); setNotice(null); }}>Discard pending draft</button>}
-    </>}
-    {notice && <div role="status" style={{ fontSize: 12, color: colors.foregroundSecondary, marginTop: 5 }}>{notice}</div>}
-    {error && <div role="alert" style={{ fontSize: 12, color: colors.err, marginTop: 5 }}>{error}</div>}
+    </div>}
+    {notice && <div role="status" style={{ fontSize: 12, color: colors.foregroundSecondary, padding: "4px 10px" }}>{notice}</div>}
+    {error && <div role="alert" style={{ fontSize: 12, color: colors.err, padding: "4px 10px" }}>{error}</div>}
   </div>;
+  return portalTarget ? createPortal(content, portalTarget) : content;
 }
 
 function AttachmentPreview({ file, disabled, onRemove }: { file: File; disabled: boolean; onRemove: () => void }) {

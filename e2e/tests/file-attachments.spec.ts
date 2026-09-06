@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { test, expect, devices } from "@playwright/test";
-import { openApp, resetMachineState, requestMachineControl, createTerminalViaApi, expandTerminalById, readTerminalBuffer } from "./helpers";
+import { chooseInputMode, openApp, resetMachineState, requestMachineControl, createTerminalViaApi, expandTerminalById, readTerminalBuffer } from "./helpers";
 
 test.use({ ...devices["iPhone 14"], browserName: "chromium" });
 
@@ -26,9 +26,9 @@ for (const local of [false, true]) {
     await expandTerminalById(page, id);
     await expect.poll(() => readTerminalBuffer(page, id)).toContain("FILE_READY");
     if (local) {
-      await page.getByRole("button", { name: "Local editor", exact: true }).click();
+      await chooseInputMode(page, true);
       await page.getByTestId("composer-input").fill("Please inspect this document");
-      await page.getByRole("button", { name: "Attach", exact: true }).click();
+      await page.getByTestId("extended-keybar-attach").click();
     } else {
       await page.getByTestId("extended-keybar-attach").click();
     }
@@ -50,7 +50,7 @@ for (const local of [false, true]) {
       await expandTerminalById(page, id);
       await expect(page.getByTestId("local-composer")).toContainText(file.name);
       await expect(page.getByTestId("composer-input")).toHaveValue("Please inspect this document");
-      await page.getByRole("button", { name: "Send", exact: true }).click();
+      await page.getByTestId("extended-keybar-enter").click();
       await expect(page.getByRole("status")).toContainText("Delivered to terminal");
     }
     await expect.poll(async () => (await readTerminalBuffer(page, id)).replaceAll("\n", ""))
