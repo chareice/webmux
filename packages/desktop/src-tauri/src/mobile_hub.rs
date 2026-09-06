@@ -21,14 +21,10 @@ use crate::hub_url;
 /// Android's system Back action from loading that old, already-authorized page.
 pub fn encrypted_navigation_guard<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("encrypted-navigation")
-        .on_navigation(|webview, destination| {
-            let app = webview.app_handle();
-            // Never resolve paths or read the credential store here. Android's
-            // path resolver synchronously invokes a mobile plugin, deadlocking
-            // the WebView callback that is waiting for this navigation decision.
-            if webview.label() != "main" || !app.state::<crate::mobile_shell::NavigationGuard>().is_paired() {
-                return true;
-            }
+        .setup(|app, _| {
+            // Plugin setup runs before WebView creation, outside Android's UI
+            // navigation callback. Android path APIs require a main-thread round trip.
+            let marker = crate::secure::marker(app).ok();
             let shell = if cfg!(dev) {
                 app.config().build.dev_url.clone()
             } else {
@@ -39,7 +35,13 @@ pub fn encrypted_navigation_guard<R: Runtime>() -> tauri::plugin::TauriPlugin<R>
                     .find(|window| window.label == "main")
                     .and_then(|config| crate::mobile_shell::setup_url(config, cfg!(target_os = "android")).ok())
             });
-            shell.is_some_and(|shell| crate::mobile_shell::same_document_origin(&shell, destination))
+            app.manage(crate::mobile_shell::EncryptedNavigationGuard::new(marker, shell));
+            Ok(())
+        })
+        .on_navigation(|webview, destination| {
+            webview.label() != "main" || webview.app_handle()
+                .try_state::<crate::mobile_shell::EncryptedNavigationGuard>()
+                .is_some_and(|guard| guard.allows(destination))
         })
         .build()
 }

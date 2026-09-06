@@ -2,20 +2,29 @@
 //! for its URL. These are Tauri's mobile custom-protocol origins; Android's
 //! scheme follows the configured `useHttpsScheme` value.
 use tauri::{utils::config::WindowConfig, Url, WebviewUrl};
-use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Navigation runs synchronously on Android's WebView thread. Its decision
-/// must never call the mobile path/keystore plugins (which wait on that thread).
-/// Stay on bundled assets until startup has read the persisted pairing marker.
-pub struct NavigationGuard(AtomicBool);
-
-impl Default for NavigationGuard {
-    fn default() -> Self { Self(AtomicBool::new(true)) }
+/// All Android path resolution must finish before navigation callbacks run.
+/// The callback is on the UI thread; resolving a Tauri path there synchronously
+/// waits for a plugin command on that same thread and deadlocks the WebView.
+pub struct EncryptedNavigationGuard {
+    marker: Option<std::path::PathBuf>,
+    shell: Option<Url>,
 }
 
-impl NavigationGuard {
-    pub fn is_paired(&self) -> bool { self.0.load(Ordering::Acquire) }
-    pub fn set_paired(&self, paired: bool) { self.0.store(paired, Ordering::Release); }
+impl EncryptedNavigationGuard {
+    pub fn new(marker: Option<std::path::PathBuf>, shell: Option<Url>) -> Self {
+        Self { marker, shell }
+    }
+
+    pub fn allows(&self, destination: &Url) -> bool {
+        // Read only filesystem metadata using the already resolved path. Keep
+        // observing pairing/forget changes without caching stale security state.
+        let configured = self.marker.as_ref()
+            .map(|path| path.try_exists().unwrap_or(true))
+            .unwrap_or(true);
+        !configured || self.shell.as_ref()
+            .is_some_and(|shell| same_document_origin(shell, destination))
+    }
 }
 
 pub fn setup_url(config: &WindowConfig, android: bool) -> Result<Url, String> {
@@ -62,15 +71,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn navigation_stays_closed_until_startup_and_tracks_pairing_changes() {
-        let guard = NavigationGuard::default();
-        assert!(guard.is_paired());
-        guard.set_paired(false); // Startup without a marker permits legacy mode.
-        assert!(!guard.is_paired());
-        guard.set_paired(true); // Persisting a pairing closes legacy navigation.
-        assert!(guard.is_paired());
-        guard.set_paired(false); // Only successful forgetting reopens it.
-        assert!(!guard.is_paired());
+    fn navigation_uses_pre_resolved_paths_and_observes_pairing_and_forget() {
+        let directory = std::env::temp_dir().join(format!(
+            "offdesk-navigation-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let marker = directory.join("secure-connection.json");
+        let local = Url::parse("http://tauri.localhost/").unwrap();
+        let remote = Url::parse("https://hub.example.com/").unwrap();
+        let guard = EncryptedNavigationGuard::new(Some(marker.clone()), Some(local.clone()));
+
+        // No Tauri runtime or Android plugin calls are available at this seam.
+        assert!(guard.allows(&remote));
+        std::fs::write(&marker, "corrupt or partially written pairing").unwrap();
+        assert!(guard.allows(&local));
+        assert!(!guard.allows(&remote));
+        std::fs::remove_file(&marker).unwrap();
+        assert!(guard.allows(&remote));
+
+        // An unreadable path must not silently disable the navigation guard.
+        std::fs::write(&marker, "not a directory").unwrap();
+        let unreadable = EncryptedNavigationGuard::new(Some(marker.join("child")), Some(local.clone()));
+        assert!(unreadable.allows(&local));
+        assert!(!unreadable.allows(&remote));
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn unresolved_navigation_configuration_fails_closed() {
+        let local = Url::parse("http://tauri.localhost/").unwrap();
+        let remote = Url::parse("https://hub.example.com/").unwrap();
+        let guard = EncryptedNavigationGuard::new(None, Some(local.clone()));
+        assert!(guard.allows(&local));
+        assert!(!guard.allows(&remote));
+        assert!(!EncryptedNavigationGuard::new(None, None).allows(&local));
     }
 
     #[test]

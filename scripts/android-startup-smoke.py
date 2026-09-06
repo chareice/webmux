@@ -1,96 +1,101 @@
 #!/usr/bin/env python3
-"""Exercise the signed APK on a disposable, rooted Android emulator."""
+"""Exercise a built APK's real WebView startup on a disposable Android emulator."""
 import argparse
+import os
 from pathlib import Path
 import re
 import subprocess
 import time
 import xml.etree.ElementTree as ET
 
-PACKAGE = "dev.offdesk.desktop"
-ACTIVITY = f"{PACKAGE}/.MainActivity"
-DATA = f"/data/user/0/{PACKAGE}"
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("apk", type=Path)
+parser.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL", "emulator-5554"))
+parser.add_argument("--output", type=Path, default=Path("/tmp/offdesk-android-startup"))
+args = parser.parse_args()
+# This test deliberately installs fresh. Never let it clear a person's phone.
+if not args.serial.startswith("emulator-"):
+    parser.error("startup smoke requires a disposable emulator, never a physical device")
+if not args.apk.is_file():
+    parser.error(f"APK does not exist: {args.apk}")
+args.output.mkdir(parents=True, exist_ok=True)
 
 
-def adb(*args, timeout=30):
-    return subprocess.run(["adb", *args], check=True, capture_output=True, timeout=timeout).stdout.decode()
+def adb(*command, timeout=30, check=True):
+    return subprocess.run(
+        ["adb", "-s", args.serial, *command], capture_output=True, text=True,
+        timeout=timeout, check=check,
+    ).stdout
 
 
-def launch():
-    adb("shell", "am", "force-stop", PACKAGE)
-    adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+def hierarchy():
+    adb("shell", "rm", "-f", "/sdcard/offdesk-startup.xml")
+    adb("shell", "uiautomator", "dump", "/sdcard/offdesk-startup.xml", timeout=15)
+    xml = adb("shell", "cat", "/sdcard/offdesk-startup.xml")
+    (args.output / "ui.xml").write_text(xml)
+    return ET.fromstring(xml)
 
 
-def wait_screen(text, output, label):
-    deadline = time.monotonic() + 45
-    last = ""
+def wait_for_screen(text):
+    deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         try:
-            adb("shell", "uiautomator", "dump", "/sdcard/offdesk-smoke.xml", timeout=12)
-            last = adb("shell", "cat", "/sdcard/offdesk-smoke.xml")
-            tree = ET.fromstring(last)
-            if any(text in (n.get("text", "") + n.get("content-desc", "")) for n in tree.iter("node")):
-                (output / f"{label}.xml").write_text(last)
-                with (output / f"{label}.png").open("wb") as screenshot:
-                    subprocess.run(["adb", "exec-out", "screencap", "-p"], check=True, stdout=screenshot, timeout=15)
-                return tree
-        except (subprocess.SubprocessError, ET.ParseError) as error:
-            last = str(error)
+            root = hierarchy()
+            if any(text in (n.get("text", "") + n.get("content-desc", "")) for n in root.iter("node")):
+                return root
+        except (ET.ParseError, subprocess.SubprocessError):
+            pass
         time.sleep(1)
-    (output / f"{label}-failure.txt").write_text(last)
-    raise RuntimeError(f"App did not render {text!r} during {label}")
+    raise AssertionError(f"APK did not render {text!r} within 60 seconds (startup hang/ANR)")
 
 
-def tap_text(tree, text):
-    for node in tree.iter("node"):
-        if text in (node.get("text", "") + node.get("content-desc", "")):
-            bounds = [int(x) for x in re.findall(r"\d+", node.get("bounds", ""))]
-            if len(bounds) == 4 and bounds[2] > bounds[0] and bounds[3] > bounds[1]:
-                adb("shell", "input", "tap", str((bounds[0]+bounds[2])//2), str((bounds[1]+bounds[3])//2))
-                return
-    raise RuntimeError(f"No visible control for {text!r}")
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("apk")
-    parser.add_argument("--output", default="android-smoke")
-    args = parser.parse_args()
-    output = Path(args.output)
-    output.mkdir(parents=True, exist_ok=True)
+try:
+    assert adb("shell", "getprop", "sys.boot_completed").strip() == "1", "emulator is not booted"
+    adb("uninstall", "dev.offdesk.desktop", check=False)
+    adb("install", str(args.apk.resolve()), timeout=120)
+    adb("logcat", "-c")
+    adb("shell", "input", "keyevent", "82")
+    adb("shell", "am", "start", "-W", "-n", "dev.offdesk.desktop/.MainActivity")
+    root = wait_for_screen("Scan the code")
+    field = next(n for n in root.iter("node") if n.get("class") == "android.widget.EditText")
+    left, top, right, bottom = map(int, re.findall(r"\d+", field.attrib["bounds"]))
+    adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+    adb("shell", "input", "text", "http://example.invalid")
+    assert any("example.invalid" in n.get("text", "") for n in hierarchy().iter("node")), "WebView input is unresponsive"
+    adb("shell", "input", "keyevent", "3")
+    adb("shell", "am", "start", "-W", "-n", "dev.offdesk.desktop/.MainActivity")
+    # Cross both the JavaScript and native automatic-update timers.
+    time.sleep(10)
+    wait_for_screen("Scan the code")
+    # Upgrade the same installation with a damaged pairing marker. Startup
+    # must keep trusted bundled assets and offer recovery, not the old Hub.
+    adb("shell", "am", "force-stop", "dev.offdesk.desktop")
     adb("root")
     adb("wait-for-device")
-    assert adb("shell", "id", "-u").strip() == "0", "Use a disposable userdebug emulator"
-    adb("install", "-r", args.apk, timeout=90)
-    # Only the emulator's test installation is cleared, never a user's phone.
-    adb("shell", "pm", "clear", PACKAGE)
-    adb("logcat", "-c")
-    try:
-        launch()
-        wait_screen("Scan the code", output, "fresh-start")
-        adb("shell", "am", "force-stop", PACKAGE)
-        # A damaged durable marker must still retain encrypted mode, render
-        # recovery, and never fall back to the old Hub. No real keys are used.
-        adb("shell", f"printf '{{}}' > {DATA}/secure-connection.json")
-        adb("shell", f"printf '%s' '{{\"hub_url\":\"http://127.0.0.1:9\"}}' > {DATA}/hub.json")
-        uid = adb("shell", "stat", "-c", "%u", DATA).strip()
-        for name in ["secure-connection.json", "hub.json"]:
-            adb("shell", "chown", f"{uid}:{uid}", f"{DATA}/{name}")
-            adb("shell", "restorecon", f"{DATA}/{name}")
-        # Replace the installed package without deleting its pairing marker.
-        adb("install", "-r", args.apk, timeout=90)
-        assert adb("shell", "cat", f"{DATA}/secure-connection.json").strip() == "{}"
-        launch()
-        tree = wait_screen("Forget connection and pair again", output, "retained-pairing")
-        tap_text(tree, "Try again")
-        time.sleep(2)
-        wait_screen("Forget connection and pair again", output, "recovery-reload")
-        launch()
-        wait_screen("Forget connection and pair again", output, "paired-cold-start")
-        print("Android signed-APK startup/recovery smoke passed", flush=True)
-    finally:
-        (output / "logcat.txt").write_text(adb("logcat", "-d", timeout=20))
-
-
-if __name__ == "__main__":
-    main()
+    assert adb("shell", "id", "-u").strip() == "0", "Use a rooted disposable emulator"
+    data = "/data/user/0/dev.offdesk.desktop"
+    adb("shell", f"printf '{{}}' > {data}/secure-connection.json")
+    adb("shell", f"printf '%s' '{{\"hub_url\":\"http://127.0.0.1:9\"}}' > {data}/hub.json")
+    uid = adb("shell", "stat", "-c", "%u", data).strip()
+    for name in ["secure-connection.json", "hub.json"]:
+        adb("shell", "chown", f"{uid}:{uid}", f"{data}/{name}")
+        adb("shell", "restorecon", f"{data}/{name}")
+    adb("install", "-r", str(args.apk.resolve()), timeout=120)
+    assert adb("shell", "cat", f"{data}/secure-connection.json").strip() == "{}"
+    for attempt in range(2):
+        adb("shell", "am", "force-stop", "dev.offdesk.desktop")
+        adb("shell", "am", "start", "-W", "-n", "dev.offdesk.desktop/.MainActivity")
+        # The missing credential and damaged marker are checked asynchronously.
+        # Android can finish on "Pair this device first", whereas iOS can show
+        # a Keychain error. Assert usable recovery, not one transient message.
+        recovery = wait_for_screen("Forget connection and pair again")
+        assert any(n.get("text") == "Encrypted connection" for n in recovery.iter("node"))
+        for label in ["Try again", "Forget connection and pair again"]:
+            assert any(n.get("text") == label and n.get("enabled") == "true"
+                       for n in recovery.iter("node")), f"Missing recovery action: {label}"
+        (args.output / f"recovery-{attempt}.xml").write_text(ET.tostring(recovery, encoding="unicode"))
+    print("PASS: APK cold start, WebView input, foreground, retained pairing upgrade and recovery", flush=True)
+finally:
+    (args.output / "logcat.txt").write_text(adb("logcat", "-d", check=False))
+    with (args.output / "screen.png").open("wb") as screenshot:
+        subprocess.run(["adb", "-s", args.serial, "exec-out", "screencap", "-p"], stdout=screenshot, timeout=15, check=False)

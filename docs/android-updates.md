@@ -50,6 +50,20 @@ installer. The Android Updater Check CI job builds an ARM64 debug APK and runs
 `:tauri-plugin-offdesk-android-updater:testDebugUnitTest` for native release policy
 and Robolectric tests of confirmation, permission retry and foreground handoff.
 
+CI also builds x86_64 and runs `scripts/android-startup-smoke.py` on an Android
+emulator. The test requires the real APK to render its setup page, accept input,
+and remain responsive after returning to the foreground and crossing the update
+timers. It also preserves a damaged pairing marker across an APK replacement and
+checks that repeated cold starts show the recovery page instead of loading an old Hub.
+Tag releases run the same test against the signed, optimized x86_64 APK
+before uploading release assets. The script refuses physical devices because it
+performs a fresh installation on a disposable emulator.
+
+This covers the startup deadlock found in v0.6.3: the encrypted navigation guard
+resolved an Android path from the UI-thread navigation callback, then waited for
+a plugin command on that same thread. Resolve platform paths during plugin setup;
+navigation callbacks must use the resolved values without mobile plugin calls.
+
 On a real Android device, verify an upgrade between APKs signed with the same
 key: accept/cancel the native confirmation, deny/grant unknown-app permission,
 interrupt/retry the download, accept/cancel the system installer, and confirm

@@ -235,19 +235,27 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      # Validate the signed package in a real Android runtime before publishing.
-      # Browser E2E cannot catch WebView/native-plugin thread deadlocks.
-      - name: Android startup and retained-pairing smoke
+      - name: Enable emulator acceleration
         if: startsWith(github.ref, 'refs/tags/')
-        timeout-minutes: 12
-        run: bash scripts/android-startup-smoke.sh "artifacts/offdesk-${{ steps.version.outputs.version }}-x86_64.apk"
+        run: sudo chmod a+rw /dev/kvm
 
-      - name: Upload Android smoke diagnostics
+      - name: Verify signed release APK starts before publishing
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: Nexus 6
+          disable-animations: true
+          script: python3 scripts/android-startup-smoke.py artifacts/offdesk-${{ steps.version.outputs.version }}-x86_64.apk
+
+      - name: Upload startup evidence
         if: always() && startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
-          name: android-startup-smoke
-          path: android-smoke/
+          name: android-release-startup-evidence
+          path: /tmp/offdesk-android-startup
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
