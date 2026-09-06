@@ -23,7 +23,10 @@ pub fn encrypted_navigation_guard<R: Runtime>() -> tauri::plugin::TauriPlugin<R>
     tauri::plugin::Builder::new("encrypted-navigation")
         .on_navigation(|webview, destination| {
             let app = webview.app_handle();
-            if webview.label() != "main" || !crate::secure::configured(app) {
+            // Never resolve paths or read the credential store here. Android's
+            // path resolver synchronously invokes a mobile plugin, deadlocking
+            // the WebView callback that is waiting for this navigation decision.
+            if webview.label() != "main" || !app.state::<crate::mobile_shell::NavigationGuard>().is_paired() {
                 return true;
             }
             let shell = if cfg!(dev) {
