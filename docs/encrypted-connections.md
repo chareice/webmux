@@ -36,6 +36,12 @@ candidate key. Once expired, generate a new code. A changed Hub key or unreadabl
 credential offers recovery; the App never silently loads the remote webpage or
 falls back to ordinary HTTP/WebSocket traffic.
 
+A paired mobile App keeps navigation on its bundled origin. System Back, history
+navigation, or links cannot return it to an ordinary Hub webpage left over from
+before pairing. Explicitly forgetting the connection restores the legacy setup
+flow. Network route changes continue through the encrypted native transport;
+they do not navigate the WebView to the selected address.
+
 ### Switch between local and remote connections
 
 After updating both Hub and App, encrypted pairing can save multiple addresses

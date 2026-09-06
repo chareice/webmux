@@ -16,6 +16,31 @@ use tauri::{AppHandle, Manager, Runtime, Url};
 
 use crate::hub_url;
 
+/// A paired App must stay on its trusted UI even when WebView history still
+/// contains a Hub page from before pairing. Startup checks alone cannot stop
+/// Android's system Back action from loading that old, already-authorized page.
+pub fn encrypted_navigation_guard<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("encrypted-navigation")
+        .on_navigation(|webview, destination| {
+            let app = webview.app_handle();
+            if webview.label() != "main" || !crate::secure::configured(app) {
+                return true;
+            }
+            let shell = if cfg!(dev) {
+                app.config().build.dev_url.clone()
+            } else {
+                None
+            }
+            .or_else(|| {
+                app.config().app.windows.iter()
+                    .find(|window| window.label == "main")
+                    .and_then(|config| crate::mobile_shell::setup_url(config, cfg!(target_os = "android")).ok())
+            });
+            shell.is_some_and(|shell| crate::mobile_shell::same_document_origin(&shell, destination))
+        })
+        .build()
+}
+
 /// A hub URL baked in at build time. Optional, and there is no default: it
 /// only saves the first-launch step for someone building their own APK.
 const PRESET_HUB_URL: Option<&str> = option_env!("OFFDESK_MOBILE_HUB_URL");

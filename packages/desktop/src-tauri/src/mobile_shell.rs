@@ -32,6 +32,16 @@ pub fn setup_url(config: &WindowConfig, android: bool) -> Result<Url, String> {
     Ok(url)
 }
 
+/// URL::origin() treats the iOS custom protocol as opaque. Compare all origin
+/// components explicitly, including the scheme and port, and reject credentials.
+pub fn same_document_origin(shell: &Url, destination: &Url) -> bool {
+    destination.scheme() == shell.scheme()
+        && destination.host_str() == shell.host_str()
+        && destination.port_or_known_default() == shell.port_or_known_default()
+        && destination.username().is_empty()
+        && destination.password().is_none()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,6 +81,28 @@ mod tests {
             setup_url(&config, false).unwrap().as_str(),
             "tauri://localhost/"
         );
+    }
+
+    #[test]
+    fn encrypted_navigation_blocks_old_hub_history_and_lookalike_origins() {
+        for shell in ["http://tauri.localhost/", "https://tauri.localhost/", "tauri://localhost/"] {
+            let shell = Url::parse(shell).unwrap();
+            assert!(same_document_origin(&shell, &shell.join("settings?tab=hub#devices").unwrap()));
+            for unsafe_url in [
+                "http://192.168.1.223:4317/", "https://ryz-offdesk.zalify.me/",
+                "http://localhost:4317/", "http://tauri.localhost:4317/",
+                "http://tauri.localhost.example/", "tauri://hub.example/",
+                "tauri://localhost:4317/", "data:text/html,old", "about:blank",
+                "file:///tmp/index.html", "http://user@tauri.localhost/",
+            ] {
+                assert!(!same_document_origin(&shell, &Url::parse(unsafe_url).unwrap()), "{shell} allowed {unsafe_url}");
+            }
+        }
+        let http = Url::parse("http://tauri.localhost/").unwrap();
+        assert!(!same_document_origin(&http, &Url::parse("https://tauri.localhost/").unwrap()));
+        let dev = Url::parse("http://localhost:8081/").unwrap();
+        assert!(same_document_origin(&dev, &dev.join("settings").unwrap()));
+        assert!(!same_document_origin(&dev, &Url::parse("http://localhost:4317/").unwrap()));
     }
 
     #[test]
