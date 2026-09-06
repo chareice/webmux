@@ -1,5 +1,5 @@
 import { test, expect, devices } from "@playwright/test";
-import { openApp, resetMachineState, requestMachineControl, createTerminalViaApi, expandTerminalById, readTerminalBuffer } from "./helpers";
+import { chooseInputMode, openApp, resetMachineState, requestMachineControl, createTerminalViaApi, expandTerminalById, readTerminalBuffer } from "./helpers";
 
 // CI keeps its normal Chromium/container path. WebKit is opt-in for host
 // debugging of the iOS/macOS report, not a replacement for container E2E.
@@ -62,7 +62,7 @@ test("Paste opens a complete editable draft without sending terminal input", asy
   const editor = page.getByTestId("composer-input");
   await expect(editor).toHaveValue(text);
   await page.getByRole("button", { name: "Expand editor", exact: true }).click();
-  await expect(editor).toHaveAttribute("rows", "8");
+  await expect(editor).toHaveAttribute("rows", "5");
   await page.screenshot({ path: testInfo.outputPath("expanded-paste-editor.png") });
   await expect(page.getByTestId("composer-save-status")).toHaveText("Saved on this device");
   await editor.fill("Before [replace] after");
@@ -82,7 +82,7 @@ test("denied clipboard access keeps the draft and exposes manual Paste", async (
   await requestMachineControl(page);
   const id = await createTerminalViaApi(page, { cwd: "/tmp" });
   await expandTerminalById(page, id);
-  await page.getByRole("button", { name: "Local editor", exact: true }).click();
+  await chooseInputMode(page, true);
   await page.getByTestId("composer-input").fill("Keep this draft");
   await page.getByRole("button", { name: "Paste", exact: true }).click();
   await expect(page.getByText(/Could not read the clipboard/)).toBeVisible();

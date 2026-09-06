@@ -1,29 +1,37 @@
 # Local terminal editor
 
-On a phone, select **Local editor** below the terminal to type without waiting
-for remote echo. **Direct input** restores the usual terminal keyboard. Each
-user/hub/machine/terminal has its own saved draft and input mode. Look for
-**Saved on this device** before reloading or leaving the page.
+On a phone or touch tablet, open the gear (**Input settings**) in the
+scrolling tool strip and choose **Write first, then send**. **Type directly**
+restores terminal input. Each user/hub/machine/terminal has its own saved draft
+and mode; changing modes preserves text and attachments.
 
-Text editing, Chinese IME composition, and image previews happen locally.
-**Send** uploads the images to the machine, pastes the text and image paths as
-one bracketed paste, then presses Enter. The destination program decides how
-to interpret that input; this is useful for an agent prompt and is still a
-command submission if the terminal is running a shell.
+The two compact rows use equal-width, borderless 44 px-high keys. Visual styling
+uses the existing product palette, display/body font tokens, rounded press
+states and Lucide icons; the wireframe defines layout and interaction only. Ctrl+C, Esc,
+Tab, `/`, Enter and the inverted-T arrow cluster stay fixed. The keyboard
+visibility toggle is the first key on row two. Paste, attachments, selection,
+input settings, Ctrl and symbols scroll between it and the arrow cluster.
+Edge fades indicate remaining horizontal content. Shift+Tab is not included.
 
-- **/ Commands** switches to direct input and types `/`, opening the remote
-  program's menu where supported. It preserves the local draft. It cannot
-  merge a remote menu selection into the local draft automatically.
-- **Terminal controls** returns to direct input for arrows, Tab, Esc, Ctrl+C,
-  and other terminal interactions.
-- Attach or paste up to four PNG, JPEG, WebP, or GIF images, totaling 20 MiB.
-  The agent must support reading local image paths. Files are saved to a
-  private temporary directory on the machine and retained for the agent to
-  read; they follow the machine's temporary-file cleanup policy.
-- A connection above 250 ms for five seconds suggests the local editor.
-  Switching is manual in this first version: typing, IME composition, and
-  terminal menus are never interrupted by an automatic mode change. The
-  indicator measures client-to-Hub RTT, not agent execution time.
+The draft starts one line high. Long or multiline text can expand with the
+icon inside the field. In draft mode, symbols, Tab, Space, paste and arrows
+edit locally at the caret. **Enter** submits a nonempty draft and attachments;
+with an empty draft it sends terminal Enter. Shift+Enter adds a newline.
+There is no separate Send button. Esc, Ctrl+C and explicitly armed Ctrl
+shortcuts control the terminal even while editing a draft.
+
+- To use the agent's remote slash menu, choose **Type directly**, then tap `/`.
+  A remote menu selection cannot be merged into the local draft automatically.
+- Paste opens a reviewable local draft and inserts at the caret. If clipboard
+  permission is denied, use the platform Paste menu in that field.
+- The paperclip offers Photos and Files in both modes. Drafts accept up to
+  four files totaling 20 MiB. Files are saved to a private temporary directory
+  on the machine when submitted, and follow its temporary-file cleanup policy.
+- Only the keyboard toggle intentionally changes keyboard visibility; toolbar
+  Enter, navigation and symbols preserve focus. Native IME behavior still
+  needs real-device validation alongside the browser checks.
+- A connection above 250 ms for five seconds suggests local editing. Switching
+  remains manual, so typing and terminal menus are not interrupted.
 
 ## Delivery and recovery
 
@@ -38,7 +46,7 @@ including after a Hub restart. A failed attachment is rejected before any
 text is written. New sends require control of the machine and a Node advertising
 `composer-v1`; older Nodes display an update instruction.
 
-If the acknowledgement is lost, the draft stays locked. **Check delivery** uses
+If the acknowledgement is lost, the draft stays locked. **Enter** checks delivery using
 the same ID; nothing is automatically resent. If the Hub crashed between
 reserving the ID and recording the Node's response, the result may remain
 unconfirmed permanently. Inspect the terminal before discarding that draft and
@@ -70,7 +78,8 @@ metadata. An explicit config directory skips legacy-directory migration.
 
 ## 中文说明
 
-手机终端下方可切换直接输入和本地编辑器。草稿、中文输入和图片预览在本机
-完成；点击发送后等待主机确认，断线保留草稿并使用原 ID 查询，避免重复执行。
-斜杠菜单及控制键仍使用直接输入。第一版仅提示高延迟，不自动切换模式；端到端
-加密与官方中转服务留在独立阶段。
+手机和触屏平板共用两行紧凑按键。高频键固定显示，方向键为倒 T 形；第二行
+首键控制键盘显隐，低频工具横滑。齿轮菜单切换“直接输入 / 先写后发”，草稿
+默认一行；Enter 统一提交，确认接收后清稿。草稿内的方向键和符号在本地编辑，
+Esc、Ctrl+C 和主动启用的 Ctrl 组合键仍发送给终端。断线保留原发送 ID，避免
+重复执行。图片和文件共用附件入口。

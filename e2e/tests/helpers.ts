@@ -528,3 +528,9 @@ export async function swipeTitleBar(
     direction,
   );
 }
+
+/** Input mode is a low-frequency preference, reached through the tool strip. */
+export async function chooseInputMode(page: Page, local: boolean): Promise<void> {
+  await page.getByTestId("terminal-input-settings").click();
+  await page.getByRole("button", { name: local ? "Write first, then send" : "Type directly", exact: true }).click();
+}
