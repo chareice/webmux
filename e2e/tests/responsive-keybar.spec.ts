@@ -124,3 +124,58 @@ test("local arrows and symbols edit at the caret; Enter sends once and swipe can
   await page.getByTestId("extended-keybar-enter").click();
   await expect.poll(() => commands).toEqual(["\r"]);
 });
+
+test("touch key taps consume the native default action without changing input focus", async ({ page }) => {
+  const commands: string[] = [];
+  const sends: string[] = [];
+  page.on("websocket", socket => socket.on("framesent", frame => {
+    if (typeof frame.payload !== "string") return;
+    try {
+      const message = JSON.parse(frame.payload);
+      if (message.type === "command_input") commands.push(message.data);
+      if (message.type === "composer") sends.push(frame.payload);
+    } catch {}
+  }));
+  await setup(page);
+  // Browser emulation cannot display/dismiss the OS keyboard. Observe the
+  // cancelable touch default as well as focus: OS dismissal can leave the
+  // editable focused, which the older blur-only regression did not cover.
+  await page.evaluate(() => {
+    document.addEventListener("touchend", event => {
+      const button = (event.target as Element).closest(".offdesk-terminal-key");
+      if (button) button.setAttribute("data-touch-default-cancelled", String(event.defaultPrevented));
+    }, { passive: true });
+  });
+  const enter = page.getByTestId("extended-keybar-enter");
+  const keyboard = page.getByTestId("extended-keybar-keyboard");
+  const textarea = page.locator(".xterm-helper-textarea").first();
+  await expect(textarea).not.toBeFocused();
+  await enter.tap();
+  await expect(enter).toHaveAttribute("data-touch-default-cancelled", "true");
+  await expect.poll(() => commands).toEqual(["\r"]);
+  await expect(textarea).not.toBeFocused();
+
+  // Only the explicit keyboard toggle may focus the terminal. A subsequent
+  // Enter must retain focus and must not fall through to the native tap.
+  await keyboard.tap();
+  await expect(textarea).toBeFocused();
+  await enter.tap();
+  await expect.poll(() => commands).toEqual(["\r", "\r"]);
+  await expect(textarea).toBeFocused();
+  await keyboard.tap();
+  await expect(textarea).not.toBeFocused();
+  await page.getByTestId("extended-keybar-left").tap();
+  await expect.poll(() => commands).toEqual(["\r", "\r", "\x1b[D"]);
+  await expect(textarea).not.toBeFocused();
+
+  await chooseInputMode(page, true);
+  const input = page.getByTestId("composer-input");
+  await input.fill("echo TOUCH_ENTER_DELIVERED");
+  await input.evaluate((el: HTMLTextAreaElement) => el.blur());
+  await enter.tap();
+  await expect(input).toHaveValue("");
+  await expect(enter).toHaveAttribute("data-touch-default-cancelled", "true");
+  await expect(input).not.toBeFocused();
+  expect(sends).toHaveLength(1);
+  expect(commands).toEqual(["\r", "\r", "\x1b[D"]);
+});

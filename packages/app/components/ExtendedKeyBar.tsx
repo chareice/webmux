@@ -122,9 +122,11 @@ export function ExtendedKeyBar({ onKey, onToggleKeyboard, onPaste, onInputSettin
 function KeyButton({ label, children, onPress, testid, disabled = false, repeat = false, accent = false, pressed }: {
   label: string; children?: ReactNode; onPress: () => void; testid?: string; disabled?: boolean; repeat?: boolean; accent?: boolean; pressed?: boolean;
 }) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const delay = useRef<ReturnType<typeof setTimeout> | null>(null);
   const interval = useRef<ReturnType<typeof setInterval> | null>(null);
   const press = useRef(onPress); press.current = onPress;
+  const disabledRef = useRef(disabled); disabledRef.current = disabled;
   const gesture = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const stop = () => { if (delay.current) clearTimeout(delay.current); if (interval.current) clearInterval(interval.current); delay.current = null; interval.current = null; };
   useEffect(() => {
@@ -133,7 +135,25 @@ function KeyButton({ label, children, onPress, testid, disabled = false, repeat 
     return () => { stop(); window.removeEventListener("blur", stop); document.removeEventListener("visibilitychange", hidden); };
   }, []);
   useEffect(() => { if (disabled) stop(); }, [disabled]);
-  return <button type="button" className="offdesk-terminal-key" disabled={disabled} data-testid={testid} aria-label={label} title={label}
+  useEffect(() => {
+    const button = buttonRef.current;
+    if (!button) return;
+    const touchEnd = (event: TouchEvent) => {
+      const current = gesture.current;
+      if (!current || current.moved || event.touches.length > 0) return;
+      // Cancelling pointerdown/mousedown does not cancel the touchend
+      // default action in mobile WebViews. Consume the tap here so an
+      // already-focused editable cannot reopen a dismissed OS keyboard.
+      // React's touch listeners are passive: use a native non-passive one.
+      event.preventDefault();
+      stop();
+      if (!disabledRef.current && !repeat) press.current();
+      gesture.current = null;
+    };
+    button.addEventListener("touchend", touchEnd, { passive: false });
+    return () => button.removeEventListener("touchend", touchEnd);
+  }, [repeat]);
+  return <button ref={buttonRef} type="button" className="offdesk-terminal-key" disabled={disabled} data-testid={testid} aria-label={label} title={label}
     aria-pressed={pressed} data-accent={accent} style={{ touchAction: repeat ? "none" : "pan-x" }}
     onPointerDown={event => {
       if (event.button !== 0 || disabled) return;
