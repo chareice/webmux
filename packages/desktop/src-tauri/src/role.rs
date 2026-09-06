@@ -253,6 +253,9 @@ pub struct HubLink {
     /// This desktop can always reach its own hub without the tunnel.
     #[serde(default)]
     pub local_url: Option<String>,
+    /// Verified managed address, exclusively for encrypted device pairing.
+    #[serde(default)]
+    pub secure_url: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -403,6 +406,7 @@ mod tests {
         let printed = "\n{\"url\":\"http://192.168.1.10:4317\",\"link\":\"http://192.168.1.10:4317/?token=abc\",\"short\":\"http://192.168.1.10:4317/?code=XYZ\",\"candidates\":[{\"interface\":\"en0\",\"address\":\"192.168.1.10\"}]}\n";
         let link = parse_link(printed).unwrap();
         assert_eq!(link.url, "http://192.168.1.10:4317");
+        assert_eq!(link.secure_url, None);
         assert_eq!(
             link.link.as_deref(),
             Some("http://192.168.1.10:4317/?token=abc")
@@ -423,6 +427,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(link.link, None);
+    }
+
+    #[test]
+    fn managed_pairing_address_survives_the_native_bridge() {
+        let link = parse_link(r#"{"url":"https://personal.example","link":null,"short":null,"candidates":[],"secure_url":"https://0123456789abcdef0123456789abcdef.cloud.offdesk.dev"}"#).unwrap();
+        let serialized = serde_json::to_value(&link).unwrap();
+        assert_eq!(serialized["secure_url"], "https://0123456789abcdef0123456789abcdef.cloud.offdesk.dev");
+        assert_eq!(link.url, "https://personal.example");
     }
 
     #[test]

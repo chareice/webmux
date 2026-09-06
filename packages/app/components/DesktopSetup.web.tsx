@@ -600,7 +600,7 @@ export function PhoneCodePanel({
           {copied ? "Copied" : "Copy link"}
         </Button>
       </div>
-      {link ? <SecurePairingPanel baseUrl={link.url} /> : null}
+      {link ? <SecurePairingPanel baseUrl={link.secure_url ?? link.url} managed={Boolean(link.secure_url)} /> : null}
       {link ? (
         <div style={{ fontFamily: fontDisplay, fontSize: 12.5, fontWeight: 600, color: colors.fg3, textAlign: "center" }}>
           {link.link

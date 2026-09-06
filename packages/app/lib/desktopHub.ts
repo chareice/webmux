@@ -26,6 +26,7 @@ export interface HubLink {
   candidates: HubCandidate[];
   public_url?: string | null;
   local_url?: string | null;
+  secure_url?: string | null;
 }
 
 /** The desktop app, as opposed to the phone app or a browser tab. */
