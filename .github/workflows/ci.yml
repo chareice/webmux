@@ -129,7 +129,7 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
-          profile: pixel_7
+          profile: Nexus 6
           disable-animations: true
           script: python3 scripts/android-startup-smoke.py packages/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
       - name: Upload startup evidence
