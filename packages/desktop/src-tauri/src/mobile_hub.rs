@@ -134,6 +134,15 @@ pub fn grant_and_load<R: Runtime>(app: &AppHandle<R>, hub_url: &str) -> Result<(
     )
     .map_err(|e| format!("failed to grant {url} plugin access: {e}"))?;
 
+    #[cfg(target_os = "android")]
+    app.add_capability(
+        CapabilityBuilder::new("mobile-hub-android-updater")
+            .local(false).window("main")
+            .remote(format!("{}/*", hub_url::origin(&url)))
+            .permission("offdesk-android-updater:allow-check")
+            .permission("offdesk-android-updater:allow-install"),
+    ).map_err(|e| format!("failed to grant updater access: {e}"))?;
+
     let window = app
         .get_webview_window("main")
         .ok_or("the main window is missing")?;

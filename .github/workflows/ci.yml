@@ -86,3 +86,38 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm e2e:ci
+
+  android-check:
+    name: Android Updater Check
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0 cmake;3.22.1 ndk;27.1.12297006"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: cargo-bins/cargo-binstall@main
+      - run: cargo binstall -y tauri-cli --version "^2.0" || cargo install tauri-cli --version "^2.0" --locked
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Build Android debug APK including native updater
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/27.1.12297006"
+          pnpm --filter @offdesk/desktop exec tauri android build --debug --apk -t aarch64 --config src-tauri/tauri.android.conf.json
+      - name: Test Android release selection
+        working-directory: packages/desktop/src-tauri/gen/android
+        run: ./gradlew :tauri-plugin-offdesk-android-updater:testDebugUnitTest

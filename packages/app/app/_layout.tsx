@@ -10,6 +10,7 @@ import { isDesktopShell } from "../lib/desktopHub";
 import { ThemeProvider } from "../lib/theme";
 import LoginScreen from "./login";
 import { DesktopGate } from "../components/DesktopSetup.web";
+import { AndroidUpdateNotification } from "../components/AndroidUpdateNotification";
 
 // Decided once: the shell a page runs in does not change while it is open,
 // and Tauri's bridge is there before any script runs. Reading it per render
@@ -112,6 +113,7 @@ export default function RootLayout() {
         <ThemeProvider>
           <AuthProvider>
             <AuthGate />
+            <AndroidUpdateNotification />
           </AuthProvider>
         </ThemeProvider>
       </SafeAreaProvider>

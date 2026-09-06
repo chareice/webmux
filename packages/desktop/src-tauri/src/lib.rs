@@ -28,7 +28,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
 
     #[cfg(target_os = "android")]
-    let builder = builder.plugin(tauri_plugin_offdesk_keystore::init());
+    let builder = builder.plugin(tauri_plugin_offdesk_keystore::init())
+        .plugin(tauri_plugin_offdesk_android_updater::init());
 
     #[cfg(desktop)]
     let builder = configure_desktop(builder);

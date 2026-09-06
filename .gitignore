@@ -29,3 +29,7 @@ packages/desktop/src-tauri/binaries/
 
 # Persistent Hub encryption identity; never commit private keys.
 *.secure-key
+
+# Native plugin outputs generated during Android builds.
+packages/desktop/*/android/build/
+packages/desktop/*/android/.tauri/
