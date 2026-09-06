@@ -3,7 +3,10 @@
 The Android App checks for an update five seconds after opening, including on the
 login/setup screen, and again when returning to the foreground after six hours. Settings → About → Check for updates checks immediately.
 Network failures during the automatic check stay silent; manual failures show a
-retryable error. Browser, iOS and desktop update behavior is unchanged.
+retryable error. A native lifecycle check after eight seconds also covers older
+Hub pages with no updater UI. Successful checks defer that fallback for six
+hours; failures allow another attempt after a minute. A newer release on an old
+Hub is offered in a native confirmation dialog. Browser, iOS and desktop update behavior is unchanged.
 
 Updates come from the public `zalify/offdesk` GitHub Releases API. The native
 updater selects the highest newer stable `app-vMAJOR.MINOR.PATCH` release among
@@ -13,11 +16,13 @@ GitHub's SHA-256 asset digest is required. Desktop, iOS and Hub tags are ignored
 
 Tapping Install update opens a native confirmation. On Android 8 and later,
 first allow Offdesk under “Install unknown apps”, return to Offdesk and tap
-Install update again. Offdesk downloads the APK into its private cache, verifies
+Install update again (the native fallback reopens its confirmation on return). Offdesk downloads the APK into its private cache, verifies
 its size and SHA-256 digest, package ID, version name, increasing Android version
 code and the current signing certificate set, then opens the Android system
 installer. The installer asks the user to finish the update. A cancelled
-installation can be retried using the cached, reverified APK.
+installation can be retried using the cached, reverified APK. Native download
+progress can be cancelled. If the App is backgrounded during download, the
+installer is opened when the App returns to the foreground.
 
 The updater takes no URL/path parameters from JavaScript. The bundled UI and
 explicitly selected legacy Hub origin have check/install permissions; a native
@@ -42,7 +47,8 @@ prerelease is not offered by the stable updater.
 requests. `pnpm e2e:test` runs the login/settings UI checks with a mocked Android
 bridge in the repository's container browser; it does not emulate the Android
 installer. The Android Updater Check CI job builds an ARM64 debug APK and runs
-`:tauri-plugin-offdesk-android-updater:testDebugUnitTest` for native release policy.
+`:tauri-plugin-offdesk-android-updater:testDebugUnitTest` for native release policy
+and Robolectric tests of confirmation, permission retry and foreground handoff.
 
 On a real Android device, verify an upgrade between APKs signed with the same
 key: accept/cancel the native confirmation, deny/grant unknown-app permission,
