@@ -9,6 +9,7 @@ export function QrImage({ svg, size, label }: { svg: string; size: number; label
   return <img
     src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`}
     alt={label}
+    aria-label={label}
     width={size}
     height={size}
     draggable={false}
