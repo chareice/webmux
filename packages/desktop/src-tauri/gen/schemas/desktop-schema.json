@@ -561,6 +561,12 @@
           "markdownDescription": "Enables the clear_mobile_hub_url command without any pre-configured scope."
         },
         {
+          "description": "Enables the cloud_action command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cloud-action",
+          "markdownDescription": "Enables the cloud_action command without any pre-configured scope."
+        },
+        {
           "description": "Enables the desktop_role command without any pre-configured scope.",
           "type": "string",
           "const": "allow-desktop-role",
@@ -679,6 +685,12 @@
           "type": "string",
           "const": "deny-clear-mobile-hub-url",
           "markdownDescription": "Denies the clear_mobile_hub_url command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cloud_action command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cloud-action",
+          "markdownDescription": "Denies the cloud_action command without any pre-configured scope."
         },
         {
           "description": "Denies the desktop_role command without any pre-configured scope.",

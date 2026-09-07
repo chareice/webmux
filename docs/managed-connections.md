@@ -3,7 +3,7 @@
 Offdesk Cloud uses `https://<hub-id>.cloud.offdesk.dev` for encrypted remote
 connections. `https://cloud.offdesk.dev` is the control API. **Deployment and
 invitation availability are separate from installing this client code.** This is
-an initial CLI beta; desktop one-click enrollment is not shipped in this change.
+an invitation beta. Updated desktop builds include browser sign-in and setup.
 
 The client and its local forwarding policy are open source. The managed service's
 account, provisioning, operator and future billing implementation is closed source.
@@ -11,16 +11,43 @@ You can continue to use your own tunnel or LAN without the managed service.
 
 ## Before enrollment
 
-Use an updated Hub with its encrypted-only listener enabled at
-`127.0.0.1:4318` (`OFFDESK_SECURE_LISTEN` or `--secure-listen`). Install
-[cloudflared from Cloudflare](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/).
-This beta uses the installed binary; it does not download or execute binaries
-supplied by the managed service. macOS and Linux user services are supported.
+Standard Hubs on port 4317 also offer an encrypted-only listener at
+`127.0.0.1:4318`. Custom Hub instances can set `OFFDESK_SECURE_LISTEN` or
+`--secure-listen`. If the default loopback port is occupied, local access continues
+and Cloud verification fails until the conflict is resolved.
+
+Setup uses an existing `cloudflared` or downloads official release 2026.8.3 from
+Cloudflare's GitHub repository, checking a SHA-256 digest pinned in the public
+client. The service cannot choose the download URL or executable. Automatic
+downloads support macOS and Linux on arm64/x86-64.
 
 An encrypted pairing trusts the existing Hub key. None of these commands resets
 that key, replaces an existing personal tunnel, or reinstalls the Hub service.
 
-## Connect
+## Desktop setup
+
+On the Mac, open **Settings → This machine → Offdesk Cloud**:
+
+1. Choose **Sign in with GitHub**. In the browser, sign in, activate your invitation
+   if needed, and approve the matching code displayed by the Mac app.
+2. Choose **Enable remote connection**. The app installs the connector and checks
+   HTTPS, Hub identity, and encrypted-only routing. Failed checks offer a retry.
+3. Once **Encryption verified** appears, create a pairing code and scan it from
+   the phone app. An already paired phone can refresh its connection methods.
+
+The **Cloud account** button opens account management in the browser. Browser
+sessions never grant access to local native commands, and GitHub credentials do
+not enter the open-source App. **Turn off remote access** stops only this Cloud
+connector; deletion may remain pending until the provider confirms cleanup.
+
+## CLI connection
+
+For browser sign-in from a terminal, use `offdesk-hub cloud login`, open the
+printed verification URL, approve the displayed code, and run
+`offdesk-hub cloud login-status`. The private Hub-scoped management credential is
+persisted before the request, so interrupted requests are safe to retry.
+
+The original invitation-based CLI remains available:
 
 On the Hub machine:
 

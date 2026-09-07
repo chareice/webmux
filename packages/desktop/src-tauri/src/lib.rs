@@ -90,6 +90,7 @@ fn configure_desktop<R: tauri::Runtime>(
             role::hub_install,
             role::hub_uninstall,
             role::hub_pair,
+            role::cloud_action,
             secure::secure_status,
             secure::secure_routes,
             secure::secure_switch_route,

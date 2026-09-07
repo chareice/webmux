@@ -41,7 +41,8 @@
     "allow-secure-socket-open",
     "allow-secure-socket-send",
     "allow-secure-socket-close",
-    "allow-hub-pair"
+    "allow-hub-pair",
+    "allow-cloud-action"
   ],
   "local": true
 }
