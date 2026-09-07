@@ -11,6 +11,7 @@ import { isSecureConnection } from "../lib/secureTransport";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import * as QRCode from "qrcode";
+import { QrImage } from "./QrImage";
 
 import { useAuth } from "@/lib/auth";
 import { colors } from "@/lib/colors";
@@ -461,19 +462,19 @@ export function PhoneCodePanel({
   compact?: boolean;
 }) {
   const [qr, setQr] = useState<string | null>(null);
+  const [qrError, setQrError] = useState(false);
   const [copied, setCopied] = useState(false);
   const [picking, setPicking] = useState(false);
 
   const encoded = link?.short ?? link?.link ?? link?.url ?? "";
   useEffect(() => {
     let cancelled = false;
-    if (!encoded) {
-      setQr(null);
-      return;
-    }
+    setQr(null);
+    setQrError(false);
+    if (!encoded) return;
     QRCode.toString(encoded, {
       type: "svg",
-      margin: 0,
+      margin: 4,
       errorCorrectionLevel: "M",
       // Hex only — the encoder rejects CSS variables. Ink on cream reads
       // fine through a camera and matches the page.
@@ -483,7 +484,7 @@ export function PhoneCodePanel({
         if (!cancelled) setQr(svg);
       })
       .catch(() => {
-        if (!cancelled) setQr(null);
+        if (!cancelled) { setQr(null); setQrError(true); }
       });
     return () => {
       cancelled = true;
@@ -528,9 +529,8 @@ export function PhoneCodePanel({
           justifyContent: "center",
           opacity: picking ? 0.5 : 1,
         }}
-        dangerouslySetInnerHTML={qr ? { __html: qr } : undefined}
       >
-        {qr ? undefined : <span style={{ fontSize: 12, color: colors.fg3 }}>{link ? "…" : "waiting for the hub"}</span>}
+        {qr ? <QrImage svg={qr} size={compact ? 142 : 186} label="Phone sign-in QR code" /> : <span role={qrError ? "alert" : "status"} style={{ fontSize: 12, color: colors.fg3 }}>{qrError ? "Could not generate the QR code. Use Copy link below instead." : link ? "Generating QR code…" : "Waiting for the hub…"}</span>}
       </div>
       <Body size={14} style={{ textAlign: "center", maxWidth: 340 }}>
         In the Offdesk phone app, choose Scan QR Code and point it here to sign in. Your phone’s camera can also open it in a browser.

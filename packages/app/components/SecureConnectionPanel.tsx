@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as QRCode from "qrcode";
+import { QrImage } from "./QrImage";
 import { Body, Button } from "./Warm.web";
 import { colors } from "../lib/colors";
 async function copyText(text: string) {
@@ -39,7 +40,7 @@ export function SecurePairingPanel({ baseUrl, managed = false }: { baseUrl?: str
       const { invoke } = await import("@tauri-apps/api/core");
       const next = await invoke<NonNullable<typeof pairing>>("hub_pair", { baseUrl: baseUrl ?? null });
       if (id !== requestId.current) return;
-      const svg = await QRCode.toString(next.pairing_uri, { type: "svg", margin: 1, color: { dark: "#2b2340", light: "#fffbf4" } });
+      const svg = await QRCode.toString(next.pairing_uri, { type: "svg", margin: 4, color: { dark: "#2b2340", light: "#fffbf4" } });
       if (id !== requestId.current) return;
       setNow(Date.now()); setPairing(next); setQr(svg);
     } catch (cause) { if (id === requestId.current) setError(String(cause)); }
@@ -47,14 +48,14 @@ export function SecurePairingPanel({ baseUrl, managed = false }: { baseUrl?: str
   };
   return <div data-testid="secure-pairing-panel" style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, borderTop: `1px solid ${colors.line}`, paddingTop: 16 }}>
     <Body size={15}>End-to-end encrypted connection</Body>
-    <Body size={13} style={{ textAlign: "center" }}>Pair in an updated offdesk App. Your App and Hub encrypt terminal content before it reaches the tunnel.</Body>
+    <Body size={13} style={{ textAlign: "center" }}>Open the Offdesk phone app and choose Scan QR Code on its connection screen. This encrypted code is for the app, not a browser or another scanner.</Body>
     {managed ? <Body size={13} style={{ textAlign: "center", overflowWrap: "anywhere" }}>Offdesk Cloud · {baseUrl}</Body> : null}
     {pairing && !expired && qr ? <>
       {pairing.connection_check?.identity_verified ? <div role="status" style={{ textAlign: "center" }}>
         <Body size={13}>Hub verified · {pairing.connection_check.handshake_ms} ms handshake from this Mac</Body>
         {!pairing.connection_check.legacy_routes_hidden ? <Body size={12}>This address may also serve ordinary web connections. Use a dedicated encrypted address for a managed tunnel.</Body> : null}
       </div> : null}
-      <div ref={qrElement} aria-label="Encrypted device pairing QR code" style={{ width: 240, maxWidth: "100%", background: "#fffbf4", padding: 12, borderRadius: 12 }} dangerouslySetInnerHTML={{ __html: qr }} />
+      <div ref={qrElement} style={{ width: 240, maxWidth: "100%", background: "#fffbf4", padding: 12, borderRadius: 12 }}><QrImage svg={qr} size={216} label="Encrypted device pairing QR code" /></div>
       <Body size={12}>{pairing.hub_url}</Body>
       <Body size={12}>Expires in {Math.ceil((pairing.expires_at - now) / 1000)} seconds. Keep this code private.</Body>
       <Button kind="sky" onClick={() => void copyText(pairing.pairing_uri).catch(() => setError("Could not copy the pairing link"))}>Copy pairing link</Button>
