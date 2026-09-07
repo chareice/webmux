@@ -118,6 +118,10 @@ export default function LoginScreen({
   const [linkError, setLinkError] = useState<string | null>(null);
   const handleOpenLink = () => openLink(pastedLink.trim());
   const openLink = (raw: string) => {
+    if (isPairingUri(raw)) {
+      setLinkError("This is an encrypted pairing code. Open the Offdesk app’s connection screen and choose Scan QR Code, or paste the pairing link there. It cannot sign in to this browser page.");
+      return;
+    }
     let url: URL;
     try {
       url = new URL(raw);
@@ -532,9 +536,7 @@ export default function LoginScreen({
   const link = providers?.link ? (
     <>
       <Body>
-        This hub has no GitHub or Google sign-in, so the address alone does not get you in. It printed a link
-        when it was installed — also under Settings → Mobile app on the computer that runs it, as a code for
-        this phone's camera. Paste that link here:
+        The Hub address alone does not sign you in. On the computer running Offdesk, open the phone connection screen and choose Copy link. Paste the complete sign-in link here, including the token or code:
       </Body>
       <input
         type="url"
@@ -557,6 +559,7 @@ export default function LoginScreen({
       <Button onClick={handleOpenLink} disabled={!pastedLink.trim()}>
         Open the link
       </Button>
+      <Body size={13}>For an end-to-end encrypted connection, use Scan QR Code on the Offdesk app’s connection screen. The encrypted pairing code cannot sign in to a browser.</Body>
       {inMobileApp ? (
         <Button kind="sky" onClick={() => void handleScanForLink()}>
           Scan the code instead

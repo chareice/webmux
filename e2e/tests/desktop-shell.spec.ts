@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Locator, webkit } from "@playwright/test";
 import { createTerminalViaApi, expandTerminalById, requestMachineControl, resetMachineState, openApp, pressPrefixKey } from "./helpers";
 
 // Exercise the bundled desktop route with a fake native bridge. Real hub
@@ -8,7 +8,7 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
     let role = initialRole;
     let callbackId = 0;
     const callbacks = new Map<number, (data: unknown) => void>();
-    const state = { updater: "current", calls: [] as string[], listening: true, linkFailures: 0, linkRequests: [] as string[], pairError: "", pairDelay: 0, pairCompleted: 0, secureUrl: null as string | null, cloudState: { state: "unregistered", local_enabled: false, verified: false } as Record<string, unknown>, cloudError: "", cloudActions: [] as string[], cloudApproved: false };
+    const state = { updater: "current", calls: [] as string[], listening: true, linkFailures: 0, linkRequests: [] as string[], pairError: "", pairDelay: 0, pairCompleted: 0, qrOverflow: false, secureUrl: null as string | null, cloudState: { state: "unregistered", local_enabled: false, verified: false } as Record<string, unknown>, cloudError: "", cloudActions: [] as string[], cloudApproved: false };
     Object.assign(window, { __desktopTest: state });
     Object.assign(window, {
       __TAURI_INTERNALS__: {
@@ -50,7 +50,7 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
             const publicUrl = "https://hub.example.com:8443";
             const url = args?.baseUrl || publicUrl;
             state.linkRequests.push(url);
-            return { url, secure_url: state.secureUrl, public_url: publicUrl, local_url: "http://127.0.0.1:4317", link: url + "/?token=test-token", short: url + "/?code=TESTCODE", candidates: [{ interface: "en0", address: "192.168.1.10" }] };
+            return { url, secure_url: state.secureUrl, public_url: publicUrl, local_url: "http://127.0.0.1:4317", link: url + "/?token=test-token", short: state.qrOverflow ? "X".repeat(5000) : url + "/?code=TESTCODE", candidates: [{ interface: "en0", address: "192.168.1.10" }] };
           }
           if (command === "set_desktop_role") { role = args?.role ?? "client"; return; }
           if (command === "plugin:app|version") return "0.5.3-test";
@@ -179,7 +179,7 @@ test("hub phone dialog offers tunnel and LAN QR codes without covering the deskt
   const dialog = page.getByTestId("phone-dialog");
   const picker = dialog.getByTestId("hub-address-picker");
   await expect(picker).toHaveValue("https://hub.example.com:8443");
-  await expect(dialog.locator("svg[shape-rendering=crispEdges]")).toHaveCount(1);
+  await expectPaintedQr(dialog.getByRole("img", { name: "Phone sign-in QR code", exact: true }));
   await expect(page.getByText("Running. Now get your phone in.")).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
   await picker.selectOption("http://192.168.1.10:4317");
@@ -190,7 +190,7 @@ test("hub phone dialog offers tunnel and LAN QR codes without covering the deskt
     "http://192.168.1.10:4317", "https://hub.example.com:8443",
   ]);
   await dialog.getByRole("button", { name: "Pair an encrypted device", exact: true }).click();
-  await expect(dialog.getByLabel("Encrypted device pairing QR code")).toBeVisible();
+  await expectPaintedQr(dialog.getByRole("img", { name: "Encrypted device pairing QR code", exact: true }));
   await expect.poll(async () => {
     const box = await dialog.getByLabel("Encrypted device pairing QR code").boundingBox();
     return box !== null && box.y >= 20 && box.y + box.height <= 580;
@@ -304,4 +304,59 @@ test("Cloud sign-in, automatic verification, pairing and disabling work without 
   await panel.getByRole("button", { name: "Turn off", exact: true }).click();
   await expect(panel.getByText("Remote access is being removed. Check again to confirm it has finished.")).toBeVisible();
   await expect(panel.getByLabel("Encrypted device pairing QR code")).toHaveCount(0);
+});
+
+
+// Checking a wrapper's visibility did not prove that its SVG painted. Exercise
+// real image decoding and pixels in both Chromium and the desktop's WebKit engine.
+async function expectPaintedQr(image: Locator) {
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((node: HTMLImageElement) => {
+    if (!node.complete || !node.naturalWidth) return false;
+    const box = node.getBoundingClientRect();
+    if (box.width < 100 || Math.abs(box.width - box.height) > 1) return false;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 200;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(node, 0, 0, 200, 200);
+    const pixels = ctx.getImageData(0, 0, 200, 200).data;
+    let dark = 0;
+    for (let i = 0; i < pixels.length; i += 4) if (pixels[i] < 100 && pixels[i + 3] > 200) dark++;
+    return dark > 3000 && dark < 25000;
+  })).toBe(true);
+}
+
+test("WebKit paints ordinary and encrypted phone QR images at compact and wide sizes", async ({ baseURL }) => {
+  const browser = await webkit.launch();
+  try {
+    const context = await browser.newContext({ baseURL });
+    const page = await context.newPage();
+    await desktopBridge(page, "hub");
+    await openApp(page);
+    await page.getByTestId("tab-bar-phone").click();
+    const dialog = page.getByTestId("phone-dialog");
+    for (const width of [800, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectPaintedQr(dialog.getByRole("img", { name: "Phone sign-in QR code", exact: true }));
+    }
+    await dialog.getByRole("button", { name: "Pair an encrypted device", exact: true }).click();
+    await expectPaintedQr(dialog.getByRole("img", { name: "Encrypted device pairing QR code", exact: true }));
+  } finally { await browser.close(); }
+});
+
+
+test("phone QR generation failure keeps the full-link fallback and recovers on an address change", async ({ page }) => {
+  await desktopBridge(page, "hub");
+  await openApp(page);
+  await page.getByTestId("tab-bar-phone").click();
+  const dialog = page.getByTestId("phone-dialog");
+  await expectPaintedQr(dialog.getByRole("img", { name: "Phone sign-in QR code", exact: true }));
+  await page.evaluate(() => { (window as any).__desktopTest.qrOverflow = true; });
+  await dialog.getByTestId("hub-address-picker").selectOption("http://192.168.1.10:4317");
+  await expect(dialog.getByRole("alert")).toContainText("Use Copy link below instead");
+  await expect(dialog.getByRole("button", { name: "Copy link", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("img", { name: "Phone sign-in QR code", exact: true })).toHaveCount(0);
+  await page.evaluate(() => { (window as any).__desktopTest.qrOverflow = false; });
+  await dialog.getByTestId("hub-address-picker").selectOption("https://hub.example.com:8443");
+  await expectPaintedQr(dialog.getByRole("img", { name: "Phone sign-in QR code", exact: true }));
 });

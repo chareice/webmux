@@ -1,6 +1,7 @@
 import { isSecureConnection } from "@/lib/secureTransport";
 import { useEffect, useState } from "react";
 import * as QRCode from "qrcode";
+import { QrImage } from "./QrImage";
 
 import { getAuthProviders, mintLoginCode } from "@/lib/api";
 import { colors } from "@/lib/colors";
@@ -76,7 +77,7 @@ export function MobileAppPanel() {
     }
     QRCode.toString(encoded, {
       type: "svg",
-      margin: 0,
+      margin: 4,
       errorCorrectionLevel: "M",
       // Hex only — the theme's colours are `rgb(var(--color-…))`, which the
       // encoder rejects. Black on white also reads most reliably through a
@@ -132,10 +133,9 @@ export function MobileAppPanel() {
             justifyContent: "center",
             flexShrink: 0,
           }}
-          dangerouslySetInnerHTML={qrSvg ? { __html: qrSvg } : undefined}
         >
-          {qrSvg ? undefined : (
-            <span style={{ fontSize: 11, color: colors.foregroundMuted }}>no address</span>
+          {qrSvg ? <QrImage svg={qrSvg} size={142} label="Phone sign-in QR code" /> : (
+            <span style={{ fontSize: 11, color: colors.foregroundMuted }}>QR code unavailable. Copy a sign-in link from the Hub’s screen.</span>
           )}
         </div>
 
