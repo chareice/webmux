@@ -8,7 +8,7 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
     let role = initialRole;
     let callbackId = 0;
     const callbacks = new Map<number, (data: unknown) => void>();
-    const state = { updater: "current", calls: [] as string[], listening: true, linkFailures: 0, linkRequests: [] as string[], pairError: "", pairDelay: 0, pairCompleted: 0, secureUrl: null as string | null };
+    const state = { updater: "current", calls: [] as string[], listening: true, linkFailures: 0, linkRequests: [] as string[], pairError: "", pairDelay: 0, pairCompleted: 0, secureUrl: null as string | null, cloudState: { state: "unregistered", local_enabled: false, verified: false } as Record<string, unknown>, cloudError: "", cloudActions: [] as string[], cloudApproved: false };
     Object.assign(window, { __desktopTest: state });
     Object.assign(window, {
       __TAURI_INTERNALS__: {
@@ -18,8 +18,22 @@ async function desktopBridge(page: Page, role: "client" | "hub" | null = "client
           return callbackId;
         },
         unregisterCallback: (id: number) => callbacks.delete(id),
-        invoke: async (command: string, args?: { role?: "client" | "hub"; handler?: number; baseUrl?: string }) => {
+        invoke: async (command: string, args?: { role?: "client" | "hub"; handler?: number; baseUrl?: string; action?: string }) => {
           state.calls.push(command);
+          if (command === "cloud_action") {
+            const action = args?.action ?? "status"; state.cloudActions.push(action);
+            if (state.cloudError) throw new Error(state.cloudError);
+            const url = "https://0123456789abcdef0123456789abcdef.cloud.offdesk.dev";
+            if (action === "login") return { id: "hub", state: "pending", user_code: "ABCDEF123456", verification_uri: "https://cloud.offdesk.dev/connect?code=ABCDEF123456", expires_at: Math.floor(Date.now()/1000)+600 };
+            if (action === "login-status") {
+              if (state.cloudApproved) { state.cloudState = { state: "active", url, local_enabled: false, verified: false }; return { id: "hub", state: "approved" }; }
+              return { id: "hub", state: "pending" };
+            }
+            if (action === "enable") state.cloudState = { state: "active", url, local_enabled: true, verified: false };
+            if (action === "check") state.cloudState = { state: "active", url, local_enabled: true, verified: true };
+            if (action === "disable") state.cloudState = { state: "revoking", url, local_enabled: false, verified: false };
+            return state.cloudState;
+          }
           if (command === "secure_status") return null;
           if (command === "desktop_role") return role;
           if (command === "hub_status") return { supported: true, bundled: true, hub_installed: true, node_installed: true, listening: state.listening };
@@ -267,4 +281,27 @@ test("managed Cloud is used only for encrypted pairing while browser links retai
   await expect(picker).toHaveValue("http://192.168.1.10:4317");
   await expect(panel.getByText(cloud, { exact: true })).toBeVisible();
   await expect(panel.getByLabel("Encrypted device pairing QR code")).toBeVisible();
+});
+
+
+test("Cloud sign-in, automatic verification, pairing and disabling work without terminal commands", async ({ page }) => {
+  await desktopBridge(page, "hub");
+  await page.setViewportSize({ width: 900, height: 800 });
+  await openApp(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const panel = page.getByTestId("cloud-connection-panel");
+  await panel.getByRole("button", { name: "Sign in with GitHub", exact: true }).click();
+  await expect(panel.getByText("ABCDEF123456", { exact: true })).toBeVisible();
+  await page.evaluate(() => { (window as any).__desktopTest.cloudApproved = true; });
+  await panel.getByRole("button", { name: "Enable remote connection", exact: true }).click({ timeout: 15000 });
+  await expect(panel.getByText("Remote connection ready · Encryption verified")).toBeVisible({ timeout: 15000 });
+  await panel.getByRole("button", { name: "Pair an encrypted device", exact: true }).click();
+  await expect(panel.getByLabel("Encrypted device pairing QR code")).toBeVisible();
+  await panel.getByRole("button", { name: "Turn off remote access", exact: true }).click();
+  await panel.getByRole("button", { name: "Keep connected", exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__desktopTest.cloudActions)).not.toContain("disable");
+  await panel.getByRole("button", { name: "Turn off remote access", exact: true }).click();
+  await panel.getByRole("button", { name: "Turn off", exact: true }).click();
+  await expect(panel.getByText("Remote access is being removed. Check again to confirm it has finished.")).toBeVisible();
+  await expect(panel.getByLabel("Encrypted device pairing QR code")).toHaveCount(0);
 });

@@ -1,3 +1,4 @@
+import { CloudConnectionPanel } from "./CloudConnectionPanel";
 import { SecurePairingPanel } from "./SecureConnectionPanel";
 import { isSecureConnection } from "../lib/secureTransport";
 // The desktop app's first run, and the machine that stays on.
@@ -738,6 +739,7 @@ export function ThisMachineSection() {
         <Body size={12}>The database and your tmux sessions stay. Only the two services go.</Body>
       ) : null}
       {error ? <Body size={12} style={{ color: colors.err }}>{error}</Body> : null}
+      <CloudConnectionPanel />
       {showCode ? <HubPhoneCode /> : null}
     </div>
   );

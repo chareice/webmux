@@ -21,6 +21,10 @@ const MAX_RESPONSE: usize = 16 * 1024;
 pub enum Action {
     /// Redeem an invitation supplied on stdin (never put it in shell history)
     Enroll,
+    /// Start browser sign-in; only returns a non-secret verification code
+    Login,
+    /// Poll the browser authorization using the private local management token
+    LoginStatus,
     /// Show managed connection status; never prints credentials
     Status,
     /// Enable the managed connection and run cloudflared at login
@@ -45,6 +49,48 @@ struct Registration {
     cloudflared: Option<PathBuf>,
 }
 #[derive(Deserialize, Serialize)]
+struct LoginStatus {
+    id: String,
+    state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verification_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interval: Option<u64>,
+}
+impl LoginStatus {
+    fn validate(&self, id: &str) -> Result<(), String> {
+        if self.id != id
+            || !canonical_id(id)
+            || !["pending", "approved", "expired"].contains(&self.state.as_str())
+        {
+            return Err("Cloud returned an invalid sign-in response".into());
+        }
+        if let Some(url) = &self.verification_uri {
+            let code = self
+                .user_code
+                .as_deref()
+                .ok_or("Cloud sign-in code is missing")?;
+            if code.len() != 12
+                || !code
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b))
+                || url != &format!("{API}/connect?code={code}")
+                || self.interval != Some(5)
+                || self.expires_at.is_none()
+            {
+                return Err("Cloud returned an unsafe sign-in address".into());
+            }
+        } else if self.user_code.is_some() {
+            return Err("Cloud sign-in address is missing".into());
+        }
+        Ok(())
+    }
+}
+#[derive(Deserialize, Serialize)]
 struct Status {
     id: String,
     hostname: String,
@@ -64,6 +110,30 @@ struct Configuration {
     tunnel_secret: String,
     configuration_source: String,
     protocol_version: u32,
+}
+fn load_or_create(store: &Store, public_key: &str) -> Result<Registration, String> {
+    let registration = if store.dir.join("registration.json").exists() {
+        store.load()?
+    } else {
+        let mut bytes = [0u8; 32];
+        getrandom::fill(&mut bytes).map_err(|_| "Could not generate managed credentials")?;
+        let registration = Registration {
+            id: uuid::Uuid::new_v4().to_string(),
+            control_token: hex::encode(bytes),
+            public_key: public_key.into(),
+            enabled: false,
+            cloudflared: None,
+        };
+        store.save(&registration)?;
+        registration
+    };
+    if registration.public_key != public_key {
+        return Err(
+            "This registration belongs to another Hub encryption key; restore the original key"
+                .into(),
+        );
+    }
+    Ok(registration)
 }
 fn canonical_id(id: &str) -> bool {
     uuid::Uuid::parse_str(id)
@@ -416,12 +486,36 @@ async fn check_local(database: &str, registration: &Registration) -> Result<(), 
 #[cfg(unix)]
 pub async fn execute(action: &Action, database: &str) -> Result<(), String> {
     let store = Store::new(database)?;
-    let _lock = if matches!(action, Action::Status | Action::Run { .. }) {
+    let _lock = if matches!(
+        action,
+        Action::Status | Action::LoginStatus | Action::Run { .. }
+    ) {
         None
     } else {
         Some(store.lock("operation.lock")?)
     };
     let api = Api::new()?;
+    if matches!(action, Action::Status) && !store.dir.join("registration.json").exists() {
+        println!(
+            "{}",
+            serde_json::json!({"state":"unregistered","local_enabled":false,"verified":false,"needs_attention":false})
+        );
+        return Ok(());
+    }
+    if matches!(action, Action::Login) {
+        let endpoint = crate::tunnel_check::local_endpoint(database, ORIGIN)?;
+        let registration = load_or_create(&store, &endpoint.public_key)?;
+        let result: LoginStatus = api.request(Method::POST, "/v1/desktop/start", None, Some(serde_json::json!({
+            "id":registration.id,"control_token":registration.control_token,"hub_public_key":registration.public_key
+        }))).await?;
+        result.validate(&registration.id)?;
+        if result.state == "pending" && result.verification_uri.is_none() { return Err("Cloud sign-in address is missing".into()); }
+        println!(
+            "{}",
+            serde_json::to_string(&result).map_err(|_| "Invalid login response")?
+        );
+        return Ok(());
+    }
     if matches!(action, Action::Enroll) {
         let endpoint = crate::tunnel_check::local_endpoint(database, ORIGIN)?;
         eprintln!("Paste your invitation and press Enter (read from stdin; it is not saved):");
@@ -435,28 +529,7 @@ pub async fn execute(action: &Action, database: &str) -> Result<(), String> {
         if !hex_token(invitation, 64) {
             return Err("The invitation must contain 64 hexadecimal characters".into());
         }
-        let registration = if store.dir.join("registration.json").exists() {
-            store.load()?
-        } else {
-            let mut bytes = [0u8; 32];
-            getrandom::fill(&mut bytes).map_err(|_| "Could not generate managed credentials")?;
-            let registration = Registration {
-                id: uuid::Uuid::new_v4().to_string(),
-                control_token: hex::encode(bytes),
-                public_key: endpoint.public_key.clone(),
-                enabled: false,
-                cloudflared: None,
-            };
-            // Persist before sending: a lost response retries the same identity.
-            store.save(&registration)?;
-            registration
-        };
-        if registration.public_key != endpoint.public_key {
-            return Err(
-                "This registration belongs to another Hub encryption key; restore the original key"
-                    .into(),
-            );
-        }
+        let registration = load_or_create(&store, &endpoint.public_key)?;
         let status: Status = api.request(Method::POST, "/v1/enroll", None, Some(serde_json::json!({ "id": registration.id,
             "invitation": invitation, "control_token": registration.control_token, "hub_public_key": registration.public_key }))).await?;
         validate_status(&status, &registration.id)?;
@@ -469,6 +542,21 @@ pub async fn execute(action: &Action, database: &str) -> Result<(), String> {
     }
     let mut registration = store.load()?;
     match action {
+        Action::LoginStatus => {
+            let result: LoginStatus = api
+                .request(
+                    Method::GET,
+                    &format!("/v1/desktop/{}", registration.id),
+                    Some(&registration),
+                    None,
+                )
+                .await?;
+            result.validate(&registration.id)?;
+            println!(
+                "{}",
+                serde_json::to_string(&result).map_err(|_| "Invalid login response")?
+            );
+        }
         Action::Status => {
             let status = api.status(&registration, "", Method::GET).await?;
             print_status(
@@ -482,7 +570,10 @@ pub async fn execute(action: &Action, database: &str) -> Result<(), String> {
             let _service_lock = service_operation_lock(&spec)?;
             service_is_owned(&spec, &registration.id)?;
             check_local(database, &registration).await?;
-            let binary = find_cloudflared()?;
+            let binary = match find_cloudflared() {
+                Ok(path) => path,
+                Err(_) => crate::cloud_download::install(&store.dir).await?,
+            };
             let status = api.status(&registration, "/enable", Method::POST).await?;
             registration.cloudflared = Some(binary);
             registration.enabled = true;
@@ -571,7 +662,7 @@ pub async fn execute(action: &Action, database: &str) -> Result<(), String> {
             use std::os::unix::process::CommandExt;
             return Err(format!("Could not start cloudflared: {}", command.exec()));
         }
-        Action::Enroll => unreachable!(),
+        Action::Enroll | Action::Login => unreachable!(),
     }
     Ok(())
 }
@@ -583,6 +674,16 @@ pub async fn execute(_action: &Action, _database: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn browser_sign_in_never_opens_a_service_supplied_foreign_url() {
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut status = LoginStatus { id:id.clone(), state:"pending".into(), user_code:Some("ABCDEF123456".into()), verification_uri:Some(format!("{API}/connect?code=ABCDEF123456")), expires_at:Some(1), interval:Some(5) };
+        assert!(status.validate(&id).is_ok());
+        for url in ["https://evil.example", "https://cloud.offdesk.dev.evil.example/connect", "javascript:alert(1)"] {
+            status.verification_uri=Some(url.into()); assert!(status.validate(&id).is_err());
+        }
+    }
+
     #[test]
     #[ignore = "requires an installed official cloudflared binary; runs entirely offline"]
     fn cloudflared_routes_only_the_encrypted_endpoint() {

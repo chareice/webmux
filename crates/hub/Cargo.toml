@@ -55,6 +55,8 @@ offdesk-secure = { path = "../secure" }
 base64 = "0.22"
 getrandom = "0.3"
 zeroize = "1"
+flate2 = "1"
+tar = "0.4"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -41,6 +41,18 @@ def wait_for_screen(text):
     while time.monotonic() < deadline:
         try:
             root = hierarchy()
+            # An older CI version can legitimately show the production updater.
+            # Dismiss only this known dialog; never dismiss an ANR/crash dialog.
+            if any(re.fullmatch(r"Update Offdesk to [0-9.]+\?", n.get("text", "")) for n in root.iter("node")):
+                cancel = next((n for n in root.iter("node")
+                               if n.get("resource-id") == "android:id/button2"
+                               and n.get("text", "").upper() == "CANCEL"), None)
+                if cancel is not None:
+                    bounds = list(map(int, re.findall(r"\d+", cancel.attrib["bounds"])))
+                    if len(bounds) == 4:
+                        left, top, right, bottom = bounds
+                        adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+                        continue
             if any(text in (n.get("text", "") + n.get("content-desc", "")) for n in root.iter("node")):
                 return root
         except (ET.ParseError, subprocess.SubprocessError):

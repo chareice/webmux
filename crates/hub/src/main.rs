@@ -2,6 +2,7 @@ mod connections;
 mod secure;
 mod tunnel_check;
 mod cloud;
+mod cloud_download;
 mod composer;
 mod attach_router;
 mod auth;
@@ -528,10 +529,32 @@ async fn main() {
     let listener = axum::serve::ListenerExt::tap_io(listener, |io| {
         let _ = io.set_nodelay(true);
     });
-    if let Some(address) = &args.secure_listen {
-        let secure_listener = tokio::net::TcpListener::bind(address).await.expect("Could not bind the encrypted-only listener");
+    // Standard desktop Hubs expose the encrypted-only route on loopback so
+    // Cloud can be enabled without rewriting the user's service configuration.
+    let automatic_secure = args.secure_listen.is_none()
+        && args
+            .listen
+            .parse::<std::net::SocketAddr>()
+            .is_ok_and(|a| a.port() == 4317);
+    let secure_address = args
+        .secure_listen
+        .as_deref()
+        .or(automatic_secure.then_some("127.0.0.1:4318"));
+    let secure_listener = if let Some(address) = secure_address {
+        match tokio::net::TcpListener::bind(address).await {
+            Ok(listener) => Some(listener),
+            Err(error) if automatic_secure => {
+                tracing::warn!("Cloud's loopback port is unavailable: {error}. Local Hub continues; Cloud setup will report this conflict.");
+                None
+            }
+            Err(error) => panic!("Could not bind the configured encrypted-only listener: {error}"),
+        }
+    } else {
+        None
+    };
+    if let Some(secure_listener) = secure_listener {
         let secure_listener = axum::serve::ListenerExt::tap_io(secure_listener, |io| { let _ = io.set_nodelay(true); });
-        tracing::info!("Encrypted-only transport listening on {address}");
+        tracing::info!("Encrypted-only transport listening on {}", secure_address.unwrap());
         // A failed encrypted listener stops the process so the service manager
         // can restart it; never continue with a silently unavailable tunnel.
         tokio::select! {

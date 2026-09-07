@@ -12,6 +12,7 @@ fn main() {
     let app_manifest = tauri_build::AppManifest::new().commands(&[
         "start_oauth_listener",
         "hub_pair",
+        "cloud_action",
         "secure_status",
         "secure_routes",
         "secure_switch_route",

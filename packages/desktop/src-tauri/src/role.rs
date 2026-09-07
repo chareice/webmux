@@ -489,3 +489,32 @@ pub async fn hub_pair(base_url: Option<String>) -> Result<serde_json::Value, Str
         serde_json::from_slice(&output.stdout).map_err(|_| "Invalid Hub pairing response".into())
     }).await.map_err(|_| "Pairing request interrupted".to_string())?
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CloudAction { Status, Login, LoginStatus, Enable, Check, Disable }
+
+/// Only the bundled desktop UI may manage its local connector. Arguments are
+/// an enum, and credentials stay in the Hub CLI's private storage.
+#[tauri::command]
+pub async fn cloud_action(action: CloudAction) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let action = match action {
+            CloudAction::Status => "status", CloudAction::Login => "login",
+            CloudAction::LoginStatus => "login-status", CloudAction::Enable => "install",
+            CloudAction::Check => "check", CloudAction::Disable => "disable",
+        };
+        let output = hub_command(&["cloud", action], None)?.output().map_err(|_| "Could not start Cloud setup")?;
+        if !output.status.success() {
+            // CLI errors are local, bounded messages; never forward stdout from
+            // a failed check (it is not a successful connection status).
+            let message = String::from_utf8_lossy(&output.stderr);
+            let message = message.lines().rev().find(|line| line.starts_with("error:")).unwrap_or("");
+            return Err(if message.is_empty() || message.len() > 512 {
+                "Cloud setup could not finish. Update the Hub, then retry.".into()
+            } else { message.trim_start_matches("error:").trim().to_owned() });
+        }
+        if output.stdout.len() > 16384 { return Err("Invalid Cloud status response".into()); }
+        serde_json::from_slice(&output.stdout).map_err(|_| "Invalid Cloud status response".into())
+    }).await.map_err(|_| "Cloud setup was interrupted".to_string())?
+}
